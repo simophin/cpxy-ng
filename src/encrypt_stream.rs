@@ -205,11 +205,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_cipher_stream() {
-        // test_case(
-        //     "Plaintext to Partial",
-        //     Configuration::Plaintext,
-        //     Configuration::random_partial(NonZeroUsize::new(4).unwrap()),
-        // ).await;
+        test_case(
+            "Plaintext to Partial",
+            Configuration::Plaintext,
+            Configuration::random_partial(NonZeroUsize::new(4).unwrap()),
+        ).await;
 
         test_case(
             "Plaintext to Full Encrypt",
