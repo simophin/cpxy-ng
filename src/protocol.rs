@@ -1,17 +1,19 @@
 use crate::encrypt_stream::Configuration;
 use anyhow::{Context, format_err};
 use base64::Engine;
-use base64::prelude::BASE64_URL_SAFE;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, OsRng};
 use chacha20poly1305::{AeadCore, Key, KeyInit, XChaCha20Poly1305};
-use rkyv::rancor::Error;
+use rkyv::rancor::Error as RkyvError;
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct Request {
     pub host: String,
     pub port: u16,
+    pub ssl: bool,
     pub client_send_cipher: Configuration,
+    pub server_send_cipher: Configuration,
     pub initial_plaintext: Vec<u8>,
     pub timestamp_epoch_seconds: u64,
 }
@@ -39,15 +41,15 @@ fn secret_box_decrypt(key: &Key, ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 impl Request {
     pub fn serialize_as_url_path_segments(&self, encrypt_key: &Key) -> anyhow::Result<String> {
-        let bytes = rkyv::to_bytes::<Error>(self).context("Error serializing request")?;
+        let bytes = rkyv::to_bytes::<RkyvError>(self).context("Error serializing request")?;
         let bytes = secret_box_encrypt(encrypt_key, &bytes)?;
 
-        let mut url = BASE64_URL_SAFE.encode(bytes);
+        let mut url = URL_SAFE_NO_PAD.encode(bytes);
         let mut pos = 1;
-        while pos < url.len() - 1 {
+        while pos < url.len() - 2 {
             let insertion_point = rand::random_range(pos..url.len());
             url.insert(insertion_point, '/');
-            pos = insertion_point + 1;
+            pos = insertion_point + 2;
         }
 
         Ok(url)
@@ -58,19 +60,18 @@ impl Request {
         encrypt_key: &Key,
     ) -> anyhow::Result<Self> {
         let url = path.replace('/', "");
-        let bytes = BASE64_URL_SAFE.decode(url).map_err(|e| {
+        let bytes = URL_SAFE_NO_PAD.decode(url).map_err(|e| {
             format_err!("Error base64 decoding request from URL path segments: {e}")
         })?;
 
         let bytes = secret_box_decrypt(encrypt_key, &bytes)?;
-        rkyv::from_bytes::<Self, Error>(&bytes).context("Error deserializing request")
+        rkyv::from_bytes::<Self, RkyvError>(&bytes).context("Error deserializing request")
     }
 }
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub enum Response {
     Success {
-        server_send_cipher: Configuration,
         initial_response: Vec<u8>,
         timestamp_epoch_seconds: u64,
     },
@@ -83,13 +84,13 @@ pub enum Response {
 
 impl Response {
     pub fn serialize(&self, encrypt_key: &Key) -> anyhow::Result<Vec<u8>> {
-        let bytes = rkyv::to_bytes::<Error>(self).context("Error serializing response")?;
+        let bytes = rkyv::to_bytes::<RkyvError>(self).context("Error serializing response")?;
         secret_box_encrypt(encrypt_key, &bytes)
     }
 
     pub fn deserialize(data: &[u8], encrypt_key: &Key) -> anyhow::Result<Self> {
         let bytes = secret_box_decrypt(encrypt_key, data)?;
-        rkyv::from_bytes::<Self, Error>(&bytes).context("Error deserializing response")
+        rkyv::from_bytes::<Self, RkyvError>(&bytes).context("Error deserializing response")
     }
 }
 
@@ -104,8 +105,10 @@ mod tests {
             host: "example.com".to_string(),
             port: 8080,
             client_send_cipher: Configuration::random_full(),
+            server_send_cipher: Configuration::random_full(),
             initial_plaintext: b"Hello, World!".to_vec(),
             timestamp_epoch_seconds: 0,
+            ssl: false,
         };
 
         let key = ChaCha20Poly1305::generate_key(&mut OsRng);
@@ -120,7 +123,6 @@ mod tests {
     #[test]
     fn test_response_serialization() {
         let response = Response::Success {
-            server_send_cipher: Configuration::random_full(),
             timestamp_epoch_seconds: 0,
             initial_response: b"Hello, Client!".to_vec(),
         };
