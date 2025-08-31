@@ -1,5 +1,5 @@
 use crate::encrypt_stream::Configuration;
-use anyhow::{Context, ensure, format_err};
+use anyhow::{Context, format_err};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE;
 use chacha20poly1305::aead::{Aead, OsRng};
@@ -71,6 +71,7 @@ impl Request {
 pub enum Response {
     Success {
         server_send_cipher: Configuration,
+        initial_response: Vec<u8>,
         timestamp_epoch_seconds: u64,
     },
 
@@ -121,6 +122,7 @@ mod tests {
         let response = Response::Success {
             server_send_cipher: Configuration::random_full(),
             timestamp_epoch_seconds: 0,
+            initial_response: b"Hello, Client!".to_vec(),
         };
 
         let key = ChaCha20Poly1305::generate_key(&mut OsRng);
