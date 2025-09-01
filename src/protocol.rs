@@ -11,7 +11,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 pub struct Request {
     pub host: String,
     pub port: u16,
-    pub ssl: bool,
+    pub tls: bool,
     pub client_send_cipher: Configuration,
     pub server_send_cipher: Configuration,
     pub initial_plaintext: Vec<u8>,
@@ -108,7 +108,7 @@ mod tests {
             server_send_cipher: Configuration::random_full(),
             initial_plaintext: b"Hello, World!".to_vec(),
             timestamp_epoch_seconds: 0,
-            ssl: false,
+            tls: false,
         };
 
         let key = ChaCha20Poly1305::generate_key(&mut OsRng);

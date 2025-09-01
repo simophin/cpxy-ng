@@ -93,7 +93,7 @@ impl HttpHeaderExt for [httparse::Header<'_>] {
     }
 }
 
-trait CursorExt {
+pub trait CursorExt {
     fn remaining_buf(&mut self) -> &mut [u8];
     fn filled_buf(&self) -> &[u8];
 }

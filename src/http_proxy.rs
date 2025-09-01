@@ -1,43 +1,59 @@
 use anyhow::{Context, ensure};
-use bytes::Bytes;
 use tokio::io::AsyncRead;
 use url::Url;
 
 #[derive(Debug, PartialEq)]
-pub struct ProxyRequest {
-    host: String,
-    port: u16,
-    tls: bool,
-    payload: Vec<u8>,
+pub struct ProxyRequestHttp {
+    pub host: String,
+    pub port: u16,
+    pub tls: bool,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ProxyRequestSocket {
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ProxyRequest {
+    Http(ProxyRequestHttp),
+    Socket(ProxyRequestSocket),
 }
 
 impl ProxyRequest {
-    pub async fn from_http_stream(
-        stream: &mut (impl AsyncRead + Unpin),
-    ) -> anyhow::Result<(Self, Bytes)> {
-        super::http_util::parse_http_request(stream, |req| {
-            let url: Url = req
-                .path
-                .context("Expecting path in HTTP request")?
-                .parse()
-                .context("Parsing URL from HTTP request path")?;
-
-            let scheme = url.scheme();
+    pub async fn from_http_stream(stream: &mut (impl AsyncRead + Unpin)) -> anyhow::Result<Self> {
+        Ok(super::http_util::parse_http_request(stream, |req| {
             let method = req.method.context("Expecting http method")?;
-            let host = url.host_str().context("Expecting host in HTTP request")?;
-            let port = url
-                .port_or_known_default()
-                .context("Port is not specified or unknown")?;
 
             if method.eq_ignore_ascii_case("CONNECT") {
-                ensure!(scheme == "", "CONNECT method should not have a scheme");
-                Ok(Self {
+                let (host, port_str) = req
+                    .path
+                    .context("Expecting CONNECT path")?
+                    .split_once(':')
+                    .context("Expecting host:port in CONNECT path")?;
+
+                let port: u16 = port_str.parse().context("Expecting port")?;
+
+                Ok(Self::Socket(ProxyRequestSocket {
                     host: host.to_string(),
                     port,
-                    payload: Default::default(),
-                    tls: false,
-                })
+                }))
             } else {
+                let url: Url = req
+                    .path
+                    .context("Expecting path in HTTP request")?
+                    .parse()
+                    .context("Parsing URL from HTTP request path")?;
+
+                let scheme = url.scheme();
+
+                let host = url.host_str().context("Expecting host in HTTP request")?;
+                let port = url
+                    .port_or_known_default()
+                    .context("Port is not specified or unknown")?;
+
                 let tls = scheme.eq_ignore_ascii_case("https");
                 ensure!(
                     scheme.eq_ignore_ascii_case("http") || tls,
@@ -71,15 +87,16 @@ impl ProxyRequest {
                 }
 
                 payload.extend_from_slice(b"\r\n");
-                Ok(Self {
+                Ok(Self::Http(ProxyRequestHttp {
                     host: host.to_string(),
                     port,
-                    payload,
                     tls,
-                })
+                    payload,
+                }))
             }
         })
-        .await
+        .await?
+        .0)
     }
 }
 
@@ -92,15 +109,18 @@ mod tests {
         let mut req = b"GET http://example.com/path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n".as_slice();
         let req = ProxyRequest::from_http_stream(&mut req)
             .await
-            .expect("To parse")
-            .0;
+            .expect("To parse");
 
-        assert_eq!(req.host, "example.com");
-        assert_eq!(req.port, 80);
-        assert!(!req.tls);
         assert_eq!(
-            req.payload,
-            b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+            req,
+            ProxyRequest::Http(ProxyRequestHttp {
+                host: "example.com".to_string(),
+                port: 80,
+                tls: false,
+                payload:
+                    b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+                        .to_vec()
+            })
         );
     }
 
@@ -109,15 +129,36 @@ mod tests {
         let mut req = b"GET https://example.com/path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n".as_slice();
         let req = ProxyRequest::from_http_stream(&mut req)
             .await
-            .expect("To parse")
-            .0;
+            .expect("To parse");
 
-        assert_eq!(req.host, "example.com");
-        assert_eq!(req.port, 443);
-        assert!(req.tls);
         assert_eq!(
-            req.payload,
-            b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+            req,
+            ProxyRequest::Http(ProxyRequestHttp {
+                host: "example.com".to_string(),
+                port: 443,
+                tls: true,
+                payload:
+                    b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+                        .to_vec()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn proxy_request_parsing_works_socks() {
+        let mut req =
+            b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+                .as_slice();
+        let req = ProxyRequest::from_http_stream(&mut req)
+            .await
+            .expect("To parse");
+
+        assert_eq!(
+            req,
+            ProxyRequest::Socket(ProxyRequestSocket {
+                host: "example.com".to_string(),
+                port: 443,
+            })
         );
     }
 }
