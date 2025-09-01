@@ -1,7 +1,4 @@
-use crate::http_protocol::Request;
-use crate::protocol;
 use anyhow::{Context, bail, ensure};
-use base64::prelude::BASE64_URL_SAFE;
 use bytes::{Buf, Bytes};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt};

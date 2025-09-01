@@ -1,5 +1,5 @@
-mod encrypt_stream;
-mod http_protocol;
-mod http_proxy;
-mod http_util;
-mod protocol;
+pub mod encrypt_stream;
+pub mod http_protocol;
+pub mod http_proxy;
+pub mod http_util;
+pub mod protocol;

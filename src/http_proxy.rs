@@ -3,6 +3,7 @@ use bytes::Bytes;
 use tokio::io::AsyncRead;
 use url::Url;
 
+#[derive(Debug, PartialEq)]
 pub struct ProxyRequest {
     host: String,
     port: u16,
@@ -33,16 +34,90 @@ impl ProxyRequest {
                 Ok(Self {
                     host: host.to_string(),
                     port,
+                    payload: Default::default(),
+                    tls: false,
                 })
             } else {
+                let tls = scheme.eq_ignore_ascii_case("https");
                 ensure!(
-                    tls: false,
-                    payload: Vec::new(),
-                    scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"),
+                    scheme.eq_ignore_ascii_case("http") || tls,
                     "Unsupported URL scheme: {scheme}"
                 );
+                let version = req.version.context("Expecting HTTP version")?;
+
+                let mut payload = vec![];
+
+                // Status line
+                payload.extend_from_slice(method.as_bytes());
+                payload.push(b' ');
+                payload.extend_from_slice(url.path().as_bytes());
+                if let Some(query) = url.query() {
+                    payload.push(b'?');
+                    payload.extend_from_slice(query.as_bytes());
+                }
+                match version {
+                    1 => payload.extend_from_slice(b" HTTP/1.1\r\n"),
+                    0 => payload.extend_from_slice(b" HTTP/1.0\r\n"),
+                    2 => payload.extend_from_slice(b" HTTP/2.0\r\n"),
+                    _ => anyhow::bail!("Unsupported HTTP version: {version}"),
+                }
+
+                // Headers
+                for hdr in req.headers.iter() {
+                    payload.extend_from_slice(hdr.name.as_bytes());
+                    payload.extend_from_slice(b": ");
+                    payload.extend_from_slice(hdr.value);
+                    payload.extend_from_slice(b"\r\n");
+                }
+
+                payload.extend_from_slice(b"\r\n");
+                Ok(Self {
+                    host: host.to_string(),
+                    port,
+                    payload,
+                    tls,
+                })
             }
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn proxy_request_parsing_works() {
+        let mut req = b"GET http://example.com/path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n".as_slice();
+        let req = ProxyRequest::from_http_stream(&mut req)
+            .await
+            .expect("To parse")
+            .0;
+
+        assert_eq!(req.host, "example.com");
+        assert_eq!(req.port, 80);
+        assert!(!req.tls);
+        assert_eq!(
+            req.payload,
+            b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn proxy_request_parsing_works_tls() {
+        let mut req = b"GET https://example.com/path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n".as_slice();
+        let req = ProxyRequest::from_http_stream(&mut req)
+            .await
+            .expect("To parse")
+            .0;
+
+        assert_eq!(req.host, "example.com");
+        assert_eq!(req.port, 443);
+        assert!(req.tls);
+        assert_eq!(
+            req.payload,
+            b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n"
+        );
     }
 }

@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 hyper = { version = "1", default-features = false, features = ["client", "server", "http1"] }
-tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "signal"] }
 tracing = {  version = "0", features = ["async-await"] }
 tracing-subscriber = "0"
 dotenvy = "0"
@@ -19,3 +19,4 @@ httparse = "1"
 bytes = "1.10.1"
 sha1 = "0.10.6"
 url = "2.5.7"
+clap = { version = "4.5.46", features = ["derive"] }
