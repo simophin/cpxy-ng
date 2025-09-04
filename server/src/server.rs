@@ -1,8 +1,7 @@
-use crate::encrypt_stream::CipherStream;
-use crate::time_util::now_epoch_seconds;
-use crate::{http_protocol, protocol};
+use cpxy_ng::encrypt_stream::CipherStream;
+use cpxy_ng::time_util::now_epoch_seconds;
+use cpxy_ng::{http_protocol, protocol, Key};
 use anyhow::Context;
-use chacha20poly1305::Key;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;

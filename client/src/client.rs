@@ -1,11 +1,10 @@
-use crate::encrypt_stream::{CipherStream, Configuration};
-use crate::http_proxy::{
+use anyhow::{Context, format_err};
+use cpxy_ng::encrypt_stream::{CipherStream, Configuration};
+use cpxy_ng::http_proxy::{
     ProxyRequest, ProxyRequestHttp, ProxyRequestSocket, parse_http_proxy_stream,
 };
-use crate::time_util::now_epoch_seconds;
-use crate::{http_protocol, protocol};
-use anyhow::{Context, format_err};
-use chacha20poly1305::Key;
+use cpxy_ng::time_util::now_epoch_seconds;
+use cpxy_ng::{http_protocol, protocol, Key};
 use rand::random;
 use std::num::NonZeroUsize;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};

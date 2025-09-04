@@ -1,8 +1,7 @@
-use chacha20poly1305::Key;
+mod server;
+
 use clap::Parser;
-use cpxy_ng::key_utils::derive_password;
-use cpxy_ng::server;
-use cpxy_ng::server::configure_tls_connector;
+use cpxy_ng::{key_util::derive_password, Key};
 use dotenvy::dotenv;
 use tokio::net::TcpListener;
 
@@ -31,7 +30,7 @@ async fn main() {
     tracing::info!("Server listening on {}", listener.local_addr().unwrap());
 
     let key: Key = derive_password(&key).into();
-    let connector = configure_tls_connector();
+    let connector = server::configure_tls_connector();
 
     loop {
         let (socket, addr) = listener.accept().await.expect("Error accepting connection");

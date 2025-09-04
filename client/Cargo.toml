@@ -1,0 +1,14 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpxy-ng = { path = "../cpxy-ng" }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "signal", "time"] }
+tracing = {  version = "0", features = ["async-await"] }
+tracing-subscriber = "0"
+dotenvy = "0"
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+rand = "0"

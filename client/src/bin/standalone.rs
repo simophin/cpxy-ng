@@ -1,5 +1,5 @@
 use clap::Parser;
-use cpxy_ng::{client, key_utils::derive_password};
+use cpxy_ng::key_util::derive_password;
 use dotenvy::dotenv;
 use tokio::net::TcpListener;
 
@@ -54,7 +54,7 @@ async fn main() {
         let (client, addr) = listener.accept().await.expect("Error accepting connection");
         tracing::info!("Accepted connection from {addr}");
 
-        tokio::spawn(client::accept_proxy_connection(
+        tokio::spawn(client::client::accept_proxy_connection(
             client,
             server_host.clone(),
             server_port,

@@ -333,6 +333,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cpxy-ng",
+ "dotenvy",
+ "rand",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,22 +379,15 @@ dependencies = [
  "bytes",
  "chacha20",
  "chacha20poly1305",
- "clap",
- "dotenvy",
- "futures",
  "httparse",
  "pin-project-lite",
  "rand",
  "rkyv",
- "rustls-pki-types",
  "sha1",
  "sha256",
  "tokio",
- "tokio-rustls",
  "tracing",
- "tracing-subscriber",
  "url",
- "webpki-roots",
 ]
 
 [[package]]
@@ -1262,6 +1269,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cpxy-ng",
+ "dotenvy",
+ "futures",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "webpki-roots",
 ]
 
 [[package]]

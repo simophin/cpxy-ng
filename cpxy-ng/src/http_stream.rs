@@ -50,6 +50,10 @@ impl<H, S: AsyncRead + Unpin> HttpStream<H, S> {
 }
 
 impl<H, S> HttpStream<H, S> {
+    pub fn head(&self) -> &H {
+        &self.head
+    }
+
     pub fn take_head(self) -> (H, HttpStream<(), S>) {
         let Self {
             head,
