@@ -1,9 +1,9 @@
+use crate::http_stream::HttpStream;
 use crate::http_util::HttpHeaderExt;
 use crate::protocol;
 use anyhow::{Context, ensure};
 use base64::Engine;
 use base64::prelude::{BASE64_STANDARD, BASE64_URL_SAFE, BASE64_URL_SAFE_NO_PAD};
-use bytes::Bytes;
 use chacha20poly1305::Key;
 use sha1::Digest;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -15,60 +15,60 @@ pub struct Request {
     pub host: String,
 }
 
-impl Request {
-    pub async fn from_http_stream<S: AsyncRead + Unpin>(
-        stream: &mut S,
-        encrypt_key: &Key,
-    ) -> anyhow::Result<(Self, Bytes)> {
-        super::http_util::parse_http_request(stream, |http_req| {
-            let request = protocol::Request::deserialize_from_url_path_segments(
-                http_req.path.context("Expected a URL path but got none")?,
-                encrypt_key,
-            )
-            .context("Deserializing request from URL path")?;
+pub async fn parse_request<S: AsyncRead + Unpin>(
+    stream: S,
+    encrypt_key: &Key,
+) -> anyhow::Result<HttpStream<Request, S>> {
+    HttpStream::parse_request(stream, |http_req| {
+        let request = protocol::Request::deserialize_from_url_path_segments(
+            http_req.path.context("Expected a URL path but got none")?,
+            encrypt_key,
+        )
+        .context("Deserializing request from URL path")?;
 
-            let use_websocket = http_req
+        let use_websocket = http_req
+            .headers
+            .get_header_value("Upgrade")
+            .map(|v| v.eq_ignore_ascii_case(b"websocket"))
+            .unwrap_or(false);
+
+        let websocket_key = if use_websocket {
+            let key_b64 = http_req
                 .headers
-                .get_header_value("Upgrade")
-                .map(|v| v.eq_ignore_ascii_case(b"websocket"))
-                .unwrap_or(false);
-
-            let websocket_key = if use_websocket {
-                let key_b64 = http_req
-                    .headers
-                    .get_header_value("Sec-WebSocket-Key")
-                    .and_then(|value| std::str::from_utf8(value).ok())
-                    .context("Expected Sec-WebSocket-Key header for websocket request")?;
-                let key_bytes = BASE64_URL_SAFE
-                    .decode(key_b64)
-                    .context("Base64 decoding Sec-WebSocket-Key failed")?;
-                ensure!(
-                    key_bytes.len() == 16,
-                    "Sec-WebSocket-Key must decode to 16 bytes"
-                );
-                let mut key_array = [0u8; 16];
-                key_array.copy_from_slice(&key_bytes);
-                Some(key_array)
-            } else {
-                None
-            };
-
-            let host = http_req
-                .headers
-                .get_header_value("Host")
+                .get_header_value("Sec-WebSocket-Key")
                 .and_then(|value| std::str::from_utf8(value).ok())
-                .unwrap_or_default()
-                .to_string();
+                .context("Expected Sec-WebSocket-Key header for websocket request")?;
+            let key_bytes = BASE64_URL_SAFE
+                .decode(key_b64)
+                .context("Base64 decoding Sec-WebSocket-Key failed")?;
+            ensure!(
+                key_bytes.len() == 16,
+                "Sec-WebSocket-Key must decode to 16 bytes"
+            );
+            let mut key_array = [0u8; 16];
+            key_array.copy_from_slice(&key_bytes);
+            Some(key_array)
+        } else {
+            None
+        };
 
-            Ok(Self {
-                request,
-                websocket_key,
-                host,
-            })
+        let host = http_req
+            .headers
+            .get_header_value("Host")
+            .and_then(|value| std::str::from_utf8(value).ok())
+            .unwrap_or_default()
+            .to_string();
+
+        Ok(Request {
+            request,
+            websocket_key,
+            host,
         })
-        .await
-    }
+    })
+    .await
+}
 
+impl Request {
     pub async fn send_over_http(
         &self,
         stream: &mut (impl AsyncWrite + Unpin),
@@ -102,32 +102,32 @@ pub struct Response {
     pub websocket_key: Option<[u8; 16]>,
 }
 
-impl Response {
-    pub async fn from_http_stream<S: AsyncRead + Unpin>(
-        stream: &mut S,
-        encrypt_key: &Key,
-    ) -> anyhow::Result<(Self, Bytes)> {
-        super::http_util::parse_http_response(stream, |http_res| {
-            let bytes = http_res
-                .headers
-                .get_header_value(PROTOCOL_RESPONSE_HEADER)
-                .context("Unable to find response header")?;
+pub async fn parse_response<S: AsyncRead + Unpin>(
+    stream: S,
+    encrypt_key: &Key,
+) -> anyhow::Result<HttpStream<Response, S>> {
+    HttpStream::parse_response(stream, |http_res| {
+        let bytes = http_res
+            .headers
+            .get_header_value(PROTOCOL_RESPONSE_HEADER)
+            .context("Unable to find response header")?;
 
-            let bytes = BASE64_URL_SAFE_NO_PAD
-                .decode(bytes)
-                .context("Base64 decoding response header failed")?;
+        let bytes = BASE64_URL_SAFE_NO_PAD
+            .decode(bytes)
+            .context("Base64 decoding response header failed")?;
 
-            let response = protocol::Response::deserialize(&bytes, encrypt_key)
-                .context("Error deserialize response")?;
+        let response = protocol::Response::deserialize(&bytes, encrypt_key)
+            .context("Error deserialize response")?;
 
-            Ok(Self {
-                response,
-                websocket_key: None,
-            })
+        Ok(Response {
+            response,
+            websocket_key: None,
         })
-        .await
-    }
+    })
+    .await
+}
 
+impl Response {
     pub async fn send_over_http(
         &self,
         stream: &mut (impl AsyncWrite + Unpin),
@@ -197,11 +197,11 @@ mod tests {
 
         let (_, received_request) = try_join!(
             request.send_over_http(&mut client, &encrypt_key),
-            Request::from_http_stream(&mut server, &encrypt_key)
+            parse_request(&mut server, &encrypt_key)
         )
         .expect("To send/receive request");
 
-        assert_eq!(request, received_request.0);
+        assert_eq!(&request, received_request.head());
 
         let response = Response {
             response: protocol::Response::Success {
@@ -213,10 +213,10 @@ mod tests {
 
         let (_, received_response) = try_join!(
             response.send_over_http(&mut client, &encrypt_key),
-            Response::from_http_stream(&mut server, &encrypt_key)
+            parse_response(&mut server, &encrypt_key)
         )
         .expect("To send/receive response");
 
-        assert_eq!(response.response, received_response.0.response);
+        assert_eq!(response.response, received_response.head().response);
     }
 }

@@ -1,25 +1,27 @@
 use crate::encrypt_stream::{CipherStream, Configuration};
-use crate::http_proxy::{ProxyRequest, ProxyRequestHttp, ProxyRequestSocket};
+use crate::http_proxy::{
+    ProxyRequest, ProxyRequestHttp, ProxyRequestSocket, parse_http_proxy_stream,
+};
 use crate::time_util::now_epoch_seconds;
 use crate::{http_protocol, protocol};
 use anyhow::{Context, format_err};
 use chacha20poly1305::Key;
-use std::io::Cursor;
 use std::num::NonZeroUsize;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, join};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::instrument;
 
 #[instrument(ret, skip(key, proxy_conn))]
 pub async fn accept_proxy_connection(
-    mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
+    proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
     server_host: String,
     server_port: u16,
     key: Key,
 ) -> anyhow::Result<()> {
-    let req = ProxyRequest::from_http_stream(&mut proxy_conn)
+    let (req, proxy_conn) = parse_http_proxy_stream(proxy_conn)
         .await
-        .context("Error parsing HTTP proxy request")?;
+        .context("Error parsing HTTP proxy request")?
+        .take_head();
 
     tracing::debug!(?req, "Successfully parsed request");
 
@@ -51,12 +53,11 @@ async fn send_upstream_request(
         .await
         .context("Error sending request to upstream server")?;
 
-    let (resp, extra_bytes) = http_protocol::Response::from_http_stream(&mut conn, key).await?;
-    let (read, write) = conn.into_split();
+    let (resp, conn) = http_protocol::parse_response(conn, key).await?.take_head();
 
     Ok((
         CipherStream::new(
-            join(AsyncReadExt::chain(Cursor::new(extra_bytes), read), write),
+            conn,
             &req.request.client_send_cipher,
             &req.request.server_send_cipher,
         ),
@@ -174,10 +175,12 @@ async fn handle_http_proxy_request(
                 protocol::Response::Success {
                     initial_response, ..
                 } => {
-                    proxy_conn
-                        .write_all(&initial_response)
-                        .await
-                        .context("Writing initial response")?;
+                    if !initial_response.is_empty() {
+                        proxy_conn
+                            .write_all(&initial_response)
+                            .await
+                            .context("Writing initial response")?;
+                    }
                 }
 
                 protocol::Response::Error { msg, .. } => {
@@ -192,7 +195,7 @@ async fn handle_http_proxy_request(
                 }
             }
 
-            tokio::io::copy_bidirectional(&mut proxy_conn, &mut upstream_conn).await?;
+            let _ = tokio::io::copy_bidirectional(&mut proxy_conn, &mut upstream_conn).await;
             Ok(())
         }
         Err(e) => {

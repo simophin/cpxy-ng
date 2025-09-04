@@ -1,3 +1,4 @@
+use crate::encrypt_stream::CipherStream;
 use crate::time_util::now_epoch_seconds;
 use crate::{http_protocol, protocol};
 use anyhow::Context;
@@ -28,14 +29,15 @@ pub fn configure_tls_connector() -> TlsConnector {
 
 #[instrument(ret, skip(conn, key, connector), level = "info")]
 pub async fn handle_connection(
-    mut conn: impl AsyncRead + AsyncWrite + Unpin,
+    conn: impl AsyncRead + AsyncWrite + Unpin,
     _from_addr: SocketAddr,
     key: Key,
     connector: TlsConnector,
 ) -> anyhow::Result<()> {
-    let (req, extra_data) = http_protocol::Request::from_http_stream(&mut conn, &key)
+    let (req, mut conn) = http_protocol::parse_request(conn, &key)
         .await
-        .context("Error reading request")?;
+        .context("Error reading request")?
+        .take_head();
 
     let upstream = async {
         let upstream = TcpStream::connect((req.request.host.as_str(), req.request.port))
@@ -58,15 +60,16 @@ pub async fn handle_connection(
             Box::new(upstream)
         };
 
+        tracing::debug!(
+            "Writing initial plaintext: {}",
+            std::str::from_utf8(&req.request.initial_plaintext).unwrap_or("<non-utf8>")
+        );
+
         upstream
             .write_all(&req.request.initial_plaintext)
             .await
             .context("Error writing initial plaintext")?;
 
-        upstream
-            .write_all(&extra_data)
-            .await
-            .context("Error writing initial data to upstream")?;
         anyhow::Ok(upstream)
     };
 
@@ -100,9 +103,13 @@ pub async fn handle_connection(
             .await
             .context("Error sending response")?;
 
-            tokio::io::copy_bidirectional(&mut upstream, &mut conn)
-                .await
-                .context("Error while transfering data")?;
+            let mut conn = CipherStream::new(
+                conn,
+                &req.request.server_send_cipher,
+                &req.request.client_send_cipher,
+            );
+
+            let _ = tokio::io::copy_bidirectional(&mut upstream, &mut conn).await;
             anyhow::Ok(())
         }
 

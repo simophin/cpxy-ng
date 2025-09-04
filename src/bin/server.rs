@@ -2,10 +2,7 @@ use chacha20poly1305::Key;
 use cpxy_ng::server;
 use cpxy_ng::server::configure_tls_connector;
 use dotenvy::dotenv;
-use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio_rustls::TlsConnector;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 #[tokio::main]
 async fn main() {
