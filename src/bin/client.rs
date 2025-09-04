@@ -59,6 +59,7 @@ async fn main() {
             server_host.clone(),
             server_port,
             key,
+            use_websocket,
         ));
     }
 }
