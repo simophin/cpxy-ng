@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "signal", "time"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "time"] }
 tracing = {  version = "0", features = ["async-await"] }
 anyhow = "1"
 rkyv = "0.8.11"

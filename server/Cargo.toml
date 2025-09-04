@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 cpxy-ng = { path = "../cpxy-ng" }
-tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "signal", "time"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "time"] }
 tracing = {  version = "0", features = ["async-await"] }
 tracing-subscriber = "0"
 dotenvy = "0"
