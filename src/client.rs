@@ -6,6 +6,7 @@ use crate::time_util::now_epoch_seconds;
 use crate::{http_protocol, protocol};
 use anyhow::{Context, format_err};
 use chacha20poly1305::Key;
+use rand::random;
 use std::num::NonZeroUsize;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -17,6 +18,7 @@ pub async fn accept_proxy_connection(
     server_host: String,
     server_port: u16,
     key: Key,
+    use_websocket: bool,
 ) -> anyhow::Result<()> {
     let (req, proxy_conn) = parse_http_proxy_stream(proxy_conn)
         .await
@@ -27,11 +29,27 @@ pub async fn accept_proxy_connection(
 
     match req {
         ProxyRequest::Http(req) => {
-            handle_http_proxy_request(&server_host, server_port, proxy_conn, req, &key).await
+            handle_http_proxy_request(
+                &server_host,
+                server_port,
+                use_websocket,
+                proxy_conn,
+                req,
+                &key,
+            )
+            .await
         }
 
         ProxyRequest::Socket(req) => {
-            handle_socket_proxy_request(&server_host, server_port, proxy_conn, req, &key).await
+            handle_socket_proxy_request(
+                &server_host,
+                server_port,
+                use_websocket,
+                proxy_conn,
+                req,
+                &key,
+            )
+            .await
         }
     }
 }
@@ -69,6 +87,7 @@ async fn send_upstream_request(
 async fn handle_socket_proxy_request(
     upstream_host: &str,
     upstream_port: u16,
+    upstream_use_websocket: bool,
     mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
     ProxyRequestSocket { host, port }: ProxyRequestSocket,
     key: &Key,
@@ -91,7 +110,11 @@ async fn handle_socket_proxy_request(
             initial_plaintext: vec![],
             timestamp_epoch_seconds: now_epoch_seconds(),
         },
-        websocket_key: None,
+        websocket_key: if upstream_use_websocket {
+            Some(random())
+        } else {
+            None
+        },
         host: upstream_host.to_string(),
     };
 
@@ -143,6 +166,7 @@ async fn handle_socket_proxy_request(
 async fn handle_http_proxy_request(
     upstream_host: &str,
     upstream_port: u16,
+    upstream_use_websocket: bool,
     mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
     ProxyRequestHttp {
         host,
@@ -165,7 +189,11 @@ async fn handle_http_proxy_request(
             initial_plaintext: payload,
             timestamp_epoch_seconds: now_epoch_seconds(),
         },
-        websocket_key: None,
+        websocket_key: if upstream_use_websocket {
+            Some(random())
+        } else {
+            None
+        },
         host: upstream_host.to_string(),
     };
 

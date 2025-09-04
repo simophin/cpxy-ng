@@ -19,10 +19,11 @@ httparse = "1"
 bytes = "1.10.1"
 sha1 = "0.10.6"
 url = "2.5.7"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 tokio-rustls = "0"
 webpki-roots = "1.0.2"
 rustls-pki-types = "1.12.0"
 futures = "0.3.31"
 pin-project-lite = "0.2.16"
+sha256 = { version = "1.6.0", default-features  = false }
 
