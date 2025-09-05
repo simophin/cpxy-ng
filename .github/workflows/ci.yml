@@ -90,22 +90,23 @@ jobs:
           profile: minimal
           override: true
 
-      - uses: cargo-bins/cargo-binstall@main
+      - uses: cargo-bins/cargo-binstall@v1
+        if: contains(matrix.target, 'android')
+
+      - name: Build Android client
+        if: contains(matrix.target, 'android') && matrix.build_client
+        run: |
+          cargo binstall cargo-ndk &&
+            cargo ndk -t ${{ matrix.target }} build --release -p client
 
       - name: Build Client
-        if: matrix.build_client == true
-        run: |
-          if [[ "${{ matrix.target }}" == *android* ]]; then
-            cargo binstall cargo-ndk
-            cargo ndk -t ${{ matrix.target }} build --release -p client
-          else
-            cargo build --release --target ${{ matrix.target }} -p client
-          fi
+        if: matrix.build_client && !contains(matrix.target, 'android')
+        run: cargo build --release --target ${{ matrix.target }} -p client
 
       - name: Build Server
         if: matrix.build_server == true
         run: |
-          cargo build --release --target ${{ matrix.target }} -p client
+          cargo build --release --target ${{ matrix.target }} -p server
 
       - name: Test
         if: matrix.run_test == true
