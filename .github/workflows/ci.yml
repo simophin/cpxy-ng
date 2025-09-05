@@ -90,7 +90,7 @@ jobs:
           profile: minimal
           override: true
 
-      - uses: cargo-bins/cargo-binstall@v1
+      - uses: cargo-bins/cargo-binstall@main
         if: contains(matrix.target, 'android')
 
       - name: Build Android client
