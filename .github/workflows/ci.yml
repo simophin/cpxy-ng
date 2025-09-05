@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Android targets (client only)
+          - target: aarch64-linux-android
+            os: ubuntu-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: android-aarch64
+          - target: armv7-linux-androideabi
+            os: ubuntu-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: android-armv7
+          - target: x86_64-linux-android
+            os: ubuntu-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: android-x86_64
+          - target: i686-linux-android
+            os: ubuntu-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: android-x86
+          # Windows (client only)
+          - target: x86_64-pc-windows-gnu
+            os: windows-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: windows-x86_64
+          - target: i686-pc-windows-gnu
+            os: windows-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: windows-x86
+          # macOS (client only)
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            build_client: true
+            build_server: false
+            run_test: false
+            ext: macos-aarch64
+          # Linux (client and server)
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            build_client: true
+            build_server: true
+            run_test: true
+            ext: linux-x86_64-musl
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            build_client: true
+            build_server: true
+            run_test: false
+            ext: linux-aarch64-musl
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          profile: minimal
+          override: true
+
+      - uses: cargo-bins/cargo-binstall@main
+
+      - name: Build Client
+        if: matrix.build_client == true
+        run: |
+          if [[ "${{ matrix.target }}" == *android* ]]; then
+            cargo binstall cargo-ndk
+            cargo ndk -t ${{ matrix.target }} build --release -p client
+          else
+            cargo build --release --target ${{ matrix.target }} -p client
+          fi
+
+      - name: Build Server
+        if: matrix.build_server == true
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p client
+
+      - name: Test
+        if: matrix.run_test == true
+        run: |
+          cargo test
+
+      - name: Rename Artifacts
+        run: |
+          mkdir -p upload
+          if [ "${{ matrix.build_client }}" = "true" ]; then
+            cp target/${{ matrix.target }}/release/standalone* upload/standalone-${{ matrix.ext }}
+          fi
+          if [ "${{ matrix.build_server }}" = "true" ]; then
+            cp target/${{ matrix.target }}/release/server* upload/server-${{ matrix.ext }}
+          fi
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.ext }}-binaries
+          path: upload/*
+
+  release-upload:
+    name: Upload to Release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
