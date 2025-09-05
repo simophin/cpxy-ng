@@ -86,18 +86,18 @@ jobs:
         if: contains(matrix.target, 'windows')
         run: |
           mkdir -p upload &&
-            cp target/${{ matrix.target }}/release/standalone* upload/standalone-${{ matrix.target }}.exe
+            cp target/${{ matrix.target }}/release/standalone.exe upload/standalone-${{ matrix.target }}.exe
 
       - name: Rename clients
         if: "!contains(matrix.target, 'windows')"
         run: |
           mkdir -p upload &&
-            cp target/${{ matrix.target }}/release/standalone* upload/standalone-${{ matrix.target }}
+            cp target/${{ matrix.target }}/release/standalone upload/standalone-${{ matrix.target }}
 
       - name: Rename server
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
-          mkdir -p upload && cp target/${{ matrix.target }}/release/server* upload/server-${{ matrix.target }}
+          mkdir -p upload && cp target/${{ matrix.target }}/release/server upload/server-${{ matrix.target }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
