@@ -20,7 +20,7 @@ jobs:
     name: Build Android binaries
     runs-on: ubuntu-latest
     strategy:
-      matrix: 
+      matrix:
         target:
           - aarch64-linux-android
           - armv7-linux-androideabi
@@ -76,7 +76,7 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p client
-      
+
       - name: Rename artifact
         run: mv target/${{ matrix.target }}/release/standalone.exe client-${{ matrix.target }}.exe
 
@@ -91,7 +91,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-musl]
+        target:
+          [
+            x86_64-unknown-linux-musl,
+            aarch64-unknown-linux-musl,
+            armv7-unknown-linux-musleabihf,
+          ]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -102,12 +107,13 @@ jobs:
           target: ${{ matrix.target }}
           profile: minimal
           override: true
-      - name: Setup musl
-        run:  sudo apt-get update && sudo apt-get install -y musl musl-tools
-      - name: Test
-        run: cargo test --release
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-ndk
+        run: cargo binstall cross
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
       - name: Rename artifacts
         run: |
           mv target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
@@ -152,15 +158,31 @@ jobs:
           name: client-${{ matrix.target }}
           path: client-${{ matrix.target }}
 
+  test:
+    name: Run tests on main platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - name: Test
+        run: cargo test
+
   release-upload:
     name: Upload to Release
     permissions:
       contents: write
-    needs: 
+    needs:
       - build_android
       - build_windows
       - build_linux
       - build_macos
+      - test
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
