@@ -68,6 +68,11 @@ jobs:
         if: contains(matrix.target, 'windows')
         uses: egor-tensin/setup-mingw@v2
 
+      - name: Setup musl for Linux build
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl
+
       - name: Build client
         if: "!contains(matrix.target, 'android')"
         run: cargo build --release --target ${{ matrix.target }} -p client
