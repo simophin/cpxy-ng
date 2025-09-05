@@ -1,5 +1,5 @@
 use crate::encrypt_stream::Configuration;
-use anyhow::{Context, format_err, ensure};
+use anyhow::{Context, ensure, format_err};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, OsRng};
@@ -31,7 +31,10 @@ fn secret_box_encrypt(key: &Key, plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn secret_box_decrypt(key: &Key, ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
-    ensure!(ciphertext.len() >= 24, "Ciphertext too short to contain nonce");
+    ensure!(
+        ciphertext.len() >= 24,
+        "Ciphertext too short to contain nonce"
+    );
     let (nonce_bytes, ciphertext) = ciphertext.split_at(24); // XChaCha20Poly1305 nonce size is 24 bytes
 
     let cipher = chacha20poly1305::XChaCha20Poly1305::new(key);
@@ -41,7 +44,7 @@ fn secret_box_decrypt(key: &Key, ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 impl Request {
-    pub fn serialize_as_url_path_segments(&self, encrypt_key: &Key) -> anyhow::Result<String> {
+    pub fn serialize(&self, encrypt_key: &Key) -> anyhow::Result<String> {
         let bytes = rkyv::to_bytes::<RkyvError>(self).context("Error serializing request")?;
         let bytes = secret_box_encrypt(encrypt_key, &bytes)?;
 
@@ -56,11 +59,8 @@ impl Request {
         Ok(url)
     }
 
-    pub fn deserialize_from_url_path_segments(
-        path: &str,
-        encrypt_key: &Key,
-    ) -> anyhow::Result<Self> {
-        let url = path.replace('/', "");
+    pub fn deserialize(text: &str, encrypt_key: &Key) -> anyhow::Result<Self> {
+        let url = text.replace('/', "");
         let bytes = URL_SAFE_NO_PAD.decode(url).map_err(|e| {
             format_err!("Error base64 decoding request from URL path segments: {e}")
         })?;
@@ -114,9 +114,8 @@ mod tests {
 
         let key = ChaCha20Poly1305::generate_key(&mut OsRng);
 
-        let url_path = request.serialize_as_url_path_segments(&key).unwrap();
-        let deserialized_request =
-            Request::deserialize_from_url_path_segments(&url_path, &key).unwrap();
+        let url_path = request.serialize(&key).unwrap();
+        let deserialized_request = Request::deserialize(&url_path, &key).unwrap();
 
         assert_eq!(request, deserialized_request);
     }

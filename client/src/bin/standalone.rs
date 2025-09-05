@@ -17,10 +17,6 @@ struct CliOptions {
     #[clap(long, env)]
     key: String,
 
-    /// Whether to use websocket to connect to the server
-    #[clap(long, env, default_value_t = false)]
-    use_websocket: bool,
-
     /// The address to listen on for the http proxy
     #[clap(env, default_value = "127.0.0.1:8080")]
     bind_addr: String,
@@ -36,7 +32,6 @@ async fn main() {
         server_port,
         key,
         bind_addr,
-        use_websocket,
     } = CliOptions::parse();
 
     let listener = TcpListener::bind(bind_addr)
@@ -59,7 +54,6 @@ async fn main() {
             server_host.clone(),
             server_port,
             key,
-            use_websocket,
         ));
     }
 }

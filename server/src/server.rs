@@ -1,13 +1,13 @@
+use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
 use cpxy_ng::time_util::now_epoch_seconds;
-use cpxy_ng::{http_protocol, protocol, Key};
-use anyhow::Context;
+use cpxy_ng::{Key, http_protocol, protocol};
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Poll;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tracing::instrument;
@@ -33,12 +33,11 @@ pub async fn handle_connection(
     key: Key,
     connector: TlsConnector,
 ) -> anyhow::Result<()> {
-    let (req, mut conn) = match http_protocol::parse_request(conn, &key)
-        .await
-    {
+    let (req, mut conn) = match http_protocol::Request::parse(conn, &key).await {
         Ok(v) => v.take_head(),
         Err((err, mut conn)) => {
-            let _ = conn.write_all("HTTP/1.1 404 Not Found\r\n\r\n".as_bytes())
+            let _ = conn
+                .write_all("HTTP/1.1 404 Not Found\r\n\r\n".as_bytes())
                 .await;
             return Err(err);
         }
@@ -75,27 +74,26 @@ pub async fn handle_connection(
             .await
             .context("Error writing initial plaintext")?;
 
-        anyhow::Ok(upstream)
+        // Try to read some initial data if sent
+        let mut initial_response = vec![0u8; 4096];
+
+        match timeout(
+            Duration::from_millis(500),
+            upstream.read(&mut initial_response),
+        )
+        .await
+        {
+            Ok(Ok(n)) => initial_response.truncate(n),
+            Ok(Err(e)) => return Err(e).context("Error reading initial response from upstream"),
+            Err(_) => initial_response.clear(), // Timeout
+        }
+
+        anyhow::Ok((upstream, initial_response))
     };
 
     match upstream.await {
-        Ok(mut upstream) => {
+        Ok((mut upstream, initial_response)) => {
             tracing::debug!("Upstream connection established");
-            // Try to read some initial data if sent
-            let mut initial_response = vec![0u8; 4096];
-            let mut read_buf = ReadBuf::new(initial_response.as_mut_slice());
-            match Pin::new(upstream.as_mut()).poll_read(
-                &mut std::task::Context::from_waker(&mut futures::task::noop_waker()),
-                &mut read_buf,
-            ) {
-                Poll::Ready(Ok(())) => {
-                    let n = read_buf.filled().len();
-                    initial_response.truncate(n);
-                    tracing::debug!("Read {} bytes of initial data from upstream", n);
-                }
-
-                _ => initial_response.clear(),
-            }
 
             http_protocol::Response {
                 response: protocol::Response::Success {

@@ -16,7 +16,6 @@ pub unsafe extern "C" fn client_create(
     server_port: u16,
     key: *const c_char,
     bind_addr: *const c_char,
-    use_websocket: bool,
     error_message: *mut c_char,
     error_message_len: usize,
 ) -> *const c_void {
@@ -55,7 +54,6 @@ pub unsafe extern "C" fn client_create(
                     server_host.clone(),
                     server_port,
                     key,
-                    use_websocket,
                 ));
             }
 

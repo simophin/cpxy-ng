@@ -83,6 +83,7 @@ async fn parse_http<T>(
 
 pub trait HttpHeaderExt {
     fn get_header_value(&self, name: &str) -> Option<&[u8]>;
+    fn get_header_value_str(&self, name: &str) -> Option<&str>;
 }
 
 impl HttpHeaderExt for [httparse::Header<'_>] {
@@ -90,6 +91,11 @@ impl HttpHeaderExt for [httparse::Header<'_>] {
         self.iter()
             .find(|h| h.name.eq_ignore_ascii_case(name))
             .map(|h| h.value)
+    }
+
+    fn get_header_value_str(&self, name: &str) -> Option<&str> {
+        self.get_header_value(name)
+            .and_then(|value| std::str::from_utf8(value).ok())
     }
 }
 
