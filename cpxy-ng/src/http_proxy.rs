@@ -26,7 +26,7 @@ pub enum ProxyRequest {
 
 pub async fn parse_http_proxy_stream<S: AsyncRead + Unpin>(
     stream: S,
-) -> anyhow::Result<HttpStream<ProxyRequest, S>> {
+) -> Result<HttpStream<ProxyRequest, S>, (anyhow::Error, S)> {
     HttpStream::parse_request(stream, |req| {
         let method = req.method.context("Expecting http method")?;
 

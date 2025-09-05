@@ -18,7 +18,7 @@ pub struct Request {
 pub async fn parse_request<S: AsyncRead + Unpin>(
     stream: S,
     encrypt_key: &Key,
-) -> anyhow::Result<HttpStream<Request, S>> {
+) -> Result<HttpStream<Request, S>, (anyhow::Error, S)> {
     HttpStream::parse_request(stream, |http_req| {
         let request = protocol::Request::deserialize_from_url_path_segments(
             http_req.path.context("Expected a URL path but got none")?,
@@ -105,7 +105,7 @@ pub struct Response {
 pub async fn parse_response<S: AsyncRead + Unpin>(
     stream: S,
     encrypt_key: &Key,
-) -> anyhow::Result<HttpStream<Response, S>> {
+) -> Result<HttpStream<Response, S>, (anyhow::Error, S)> {
     HttpStream::parse_response(stream, |http_res| {
         let bytes = http_res
             .headers
@@ -195,9 +195,13 @@ mod tests {
             host: "example.com".to_string(),
         };
 
+        let do_parse_request = async {
+            parse_request(&mut server, &encrypt_key).await.map_err(|e| e.0)
+        };
+
         let (_, received_request) = try_join!(
             request.send_over_http(&mut client, &encrypt_key),
-            parse_request(&mut server, &encrypt_key)
+            do_parse_request
         )
         .expect("To send/receive request");
 
@@ -211,9 +215,13 @@ mod tests {
             websocket_key: request.websocket_key,
         };
 
+        let do_parse_response = async {
+            parse_response(&mut server, &encrypt_key).await.map_err(|e| e.0)
+        };
+
         let (_, received_response) = try_join!(
             response.send_over_http(&mut client, &encrypt_key),
-            parse_response(&mut server, &encrypt_key)
+            do_parse_response,
         )
         .expect("To send/receive response");
 

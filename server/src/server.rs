@@ -33,10 +33,16 @@ pub async fn handle_connection(
     key: Key,
     connector: TlsConnector,
 ) -> anyhow::Result<()> {
-    let (req, mut conn) = http_protocol::parse_request(conn, &key)
+    let (req, mut conn) = match http_protocol::parse_request(conn, &key)
         .await
-        .context("Error reading request")?
-        .take_head();
+    {
+        Ok(v) => v.take_head(),
+        Err((err, mut conn)) => {
+            let _ = conn.write_all("HTTP/1.1 404 Not Found\r\n\r\n".as_bytes())
+                .await;
+            return Err(err);
+        }
+    };
 
     let upstream = async {
         let upstream = TcpStream::connect((req.request.host.as_str(), req.request.port))

@@ -12,7 +12,7 @@ struct CliOptions {
     key: String,
 
     /// The address to listen on for the http proxy
-    #[clap(env, default_value = "127.0.0.1:8080")]
+    #[clap(env, default_value = "127.0.0.1:9000")]
     bind_addr: String,
 }
 

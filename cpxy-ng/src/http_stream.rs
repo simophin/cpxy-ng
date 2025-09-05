@@ -17,12 +17,15 @@ impl<H, S: AsyncRead + Unpin> HttpStream<H, S> {
     pub async fn parse_response(
         mut inner: S,
         parser: impl FnMut(&httparse::Response<'_, '_>) -> anyhow::Result<H>,
-    ) -> anyhow::Result<Self>
+    ) -> Result<Self, (anyhow::Error, S)>
     where
         S: AsyncRead + Unpin,
     {
         let (head, parse_remnant) =
-            super::http_util::parse_http_response(&mut inner, parser).await?;
+            match super::http_util::parse_http_response(&mut inner, parser).await {
+                Ok(v) => v,
+                Err(e) => return Err((e, inner)),
+            };
 
         Ok(Self {
             head,
@@ -34,12 +37,15 @@ impl<H, S: AsyncRead + Unpin> HttpStream<H, S> {
     pub async fn parse_request(
         mut inner: S,
         parser: impl FnMut(&httparse::Request<'_, '_>) -> anyhow::Result<H>,
-    ) -> anyhow::Result<Self>
+    ) -> Result<Self, (anyhow::Error, S)>
     where
         S: AsyncRead + Unpin,
     {
         let (head, parse_remnant) =
-            super::http_util::parse_http_request(&mut inner, parser).await?;
+            match super::http_util::parse_http_request(&mut inner, parser).await {
+                Ok(v) => v,
+                Err(e) => return Err((e, inner)),
+            };
 
         Ok(Self {
             head,

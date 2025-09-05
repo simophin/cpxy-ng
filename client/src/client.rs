@@ -21,6 +21,7 @@ pub async fn accept_proxy_connection(
 ) -> anyhow::Result<()> {
     let (req, proxy_conn) = parse_http_proxy_stream(proxy_conn)
         .await
+        .map_err(|(e, _)| e)
         .context("Error parsing HTTP proxy request")?
         .take_head();
 
@@ -64,13 +65,14 @@ async fn send_upstream_request(
 )> {
     let mut conn = TcpStream::connect((upstream_host, upstream_port))
         .await
-        .context("Error connecting to upstream server")?;
+        .with_context(|| format!("Error connecting to upstream server: {upstream_host}:{upstream_port}"))?;
 
     req.send_over_http(&mut conn, key)
         .await
         .context("Error sending request to upstream server")?;
 
-    let (resp, conn) = http_protocol::parse_response(conn, key).await?.take_head();
+    let (resp, conn) = http_protocol::parse_response(conn, key).await
+        .map_err(|(e, _)| e)?.take_head();
 
     Ok((
         CipherStream::new(

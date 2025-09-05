@@ -1,5 +1,5 @@
 use crate::encrypt_stream::Configuration;
-use anyhow::{Context, format_err};
+use anyhow::{Context, format_err, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chacha20poly1305::aead::{Aead, OsRng};
@@ -31,6 +31,7 @@ fn secret_box_encrypt(key: &Key, plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn secret_box_decrypt(key: &Key, ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
+    ensure!(ciphertext.len() >= 24, "Ciphertext too short to contain nonce");
     let (nonce_bytes, ciphertext) = ciphertext.split_at(24); // XChaCha20Poly1305 nonce size is 24 bytes
 
     let cipher = chacha20poly1305::XChaCha20Poly1305::new(key);

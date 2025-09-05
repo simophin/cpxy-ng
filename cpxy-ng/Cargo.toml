@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "time"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "time", "rt-multi-thread"] }
 tracing = {  version = "0", features = ["async-await"] }
 anyhow = "1"
 rkyv = "0.8.11"
@@ -17,5 +17,5 @@ bytes = "1.10.1"
 sha1 = "0.10.6"
 url = "2.5.7"
 pin-project-lite = "0.2.16"
-sha256 = { version = "1.6.0", default-features  = false }
+sha2 = "0.10.9"
 
