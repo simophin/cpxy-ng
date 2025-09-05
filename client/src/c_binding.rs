@@ -1,8 +1,8 @@
-use std::ffi::{c_char, c_void, CStr, CString};
 use anyhow::Context;
 use cpxy_ng::key_util::derive_password;
+use std::ffi::{CStr, CString, c_char, c_void};
+use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
-use tokio::{net::TcpListener};
 
 use crate::client;
 
@@ -19,10 +19,19 @@ pub unsafe extern "C" fn client_create(
     error_message: *mut c_char,
     error_message_len: usize,
 ) -> *const c_void {
-    let result =  || -> anyhow::Result<Runtime> {
-        let server_host: String = unsafe { CStr::from_ptr(server_host) }.to_str().context("Invalid UTF-8 in server_host")?.to_string();
-        let key: String = unsafe { CStr::from_ptr(key) }.to_str().context("Invalid UTF-8 in key")?.to_string();
-        let bind_addr: String = unsafe { CStr::from_ptr(bind_addr) } .to_str().context("Invalid UTF-8 in bind_addr")?.to_string();
+    let result = || -> anyhow::Result<Runtime> {
+        let server_host: String = unsafe { CStr::from_ptr(server_host) }
+            .to_str()
+            .context("Invalid UTF-8 in server_host")?
+            .to_string();
+        let key: String = unsafe { CStr::from_ptr(key) }
+            .to_str()
+            .context("Invalid UTF-8 in key")?
+            .to_string();
+        let bind_addr: String = unsafe { CStr::from_ptr(bind_addr) }
+            .to_str()
+            .context("Invalid UTF-8 in bind_addr")?
+            .to_string();
 
         let listener = std::net::TcpListener::bind(bind_addr.as_str())
             .with_context(|| format!("Error binding on address: {bind_addr}"))?;
@@ -42,11 +51,7 @@ pub unsafe extern "C" fn client_create(
             TcpListener::from_std(listener).with_context(|| "Error creating async TcpListener")?;
 
         let run_task = async move {
-            loop {
-                let (client, addr) = listener
-                    .accept()
-                    .await
-                    .context("Error accepting connection")?;
+            while let Ok((client, addr)) = listener.accept().await {
                 tracing::info!("Accepted connection from {addr}");
 
                 tokio::spawn(client::accept_proxy_connection(
@@ -56,8 +61,6 @@ pub unsafe extern "C" fn client_create(
                     key,
                 ));
             }
-
-            anyhow::Ok(())
         };
 
         runtime.spawn(run_task);
@@ -66,11 +69,9 @@ pub unsafe extern "C" fn client_create(
 
     match result {
         Ok(runtime) => {
-            let instance = Box::new(ClientInstance {
-                _runtime: runtime,
-            });
+            let instance = Box::new(ClientInstance { _runtime: runtime });
             Box::into_raw(instance) as *const c_void
-        },
+        }
         Err(e) => {
             if !error_message.is_null() {
                 let message = CString::new(format!("{e:?}")).unwrap();
@@ -83,7 +84,7 @@ pub unsafe extern "C" fn client_create(
             }
 
             std::ptr::null()
-        },
+        }
     }
 }
 
