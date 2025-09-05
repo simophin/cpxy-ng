@@ -7,6 +7,11 @@ on:
   release:
     types: [published]
 
+# Limit concurrency to one per branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build
@@ -23,61 +28,25 @@ jobs:
             ext: android-aarch64
           - target: armv7-linux-androideabi
             os: ubuntu-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: android-armv7
           - target: x86_64-linux-android
             os: ubuntu-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: android-x86_64
           - target: i686-linux-android
             os: ubuntu-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: android-x86
           # Windows (client only)
           - target: x86_64-pc-windows-gnu
             os: windows-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: windows-x86_64
           - target: i686-pc-windows-gnu
             os: windows-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: windows-x86
           # macOS (client only)
           - target: x86_64-apple-darwin
             os: macos-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: macos-aarch64
           # Linux (client and server)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            build_client: true
-            build_server: true
-            run_test: true
-            ext: linux-x86_64-musl
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            build_client: true
-            build_server: true
-            run_test: false
-            ext: linux-aarch64-musl
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,22 +63,22 @@ jobs:
         if: contains(matrix.target, 'android')
 
       - name: Build Android client
-        if: contains(matrix.target, 'android') && matrix.build_client
+        if: contains(matrix.target, 'android')
         run: |
           cargo binstall cargo-ndk &&
             cargo ndk -t ${{ matrix.target }} build --release -p client
 
-      - name: Build Client
-        if: matrix.build_client && !contains(matrix.target, 'android')
+      - name: Build client
+        if: "!contains(matrix.target, 'android')"
         run: cargo build --release --target ${{ matrix.target }} -p client
 
       - name: Build Server
-        if: matrix.build_server == true
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           cargo build --release --target ${{ matrix.target }} -p server
 
       - name: Test
-        if: matrix.run_test == true
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           cargo test
 
