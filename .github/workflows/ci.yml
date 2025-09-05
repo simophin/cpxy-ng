@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+  pull_request:
+    types:
+      - synchronize
   release:
     types: [published]
 
@@ -57,11 +58,15 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
         if: contains(matrix.target, 'android')
 
+      - name: Install cargo-ndk for Android client
+        if: contains(matrix.target, 'android')
+        run: cargo binstall cargo-ndk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Android client
         if: contains(matrix.target, 'android')
-        run: |
-          cargo binstall cargo-ndk &&
-            cargo ndk -t ${{ matrix.target }} build --release -p client --bin standalone
+        run: cargo ndk -t ${{ matrix.target }} build --release -p client --bin standalone
 
       - name: Setup musl for Linux build
         if: matrix.target == 'x86_64-unknown-linux-musl'
