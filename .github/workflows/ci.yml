@@ -22,10 +22,6 @@ jobs:
           # Android targets (client only)
           - target: aarch64-linux-android
             os: ubuntu-latest
-            build_client: true
-            build_server: false
-            run_test: false
-            ext: android-aarch64
           - target: armv7-linux-androideabi
             os: ubuntu-latest
           - target: x86_64-linux-android
@@ -33,10 +29,10 @@ jobs:
           - target: i686-linux-android
             os: ubuntu-latest
           # Windows (client only)
-          - target: x86_64-pc-windows-gnu
-            os: windows-latest
-          - target: i686-pc-windows-gnu
-            os: windows-latest
+          - target: x86_64-pc-windows-gnullvm
+            os: ubuntu-latest
+          - target: i686-pc-windows-gnullvm
+            os: ubuntu-latest
           # macOS (client only)
           - target: x86_64-apple-darwin
             os: macos-latest
@@ -45,8 +41,8 @@ jobs:
           # Linux (client and server)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
+          # - target: aarch64-unknown-linux-musl
+          # os: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,6 +64,10 @@ jobs:
           cargo binstall cargo-ndk &&
             cargo ndk -t ${{ matrix.target }} build --release -p client
 
+      - name: Setup mingw for windows build
+        if: contains(matrix.target, 'windows')
+        uses: egor-tensin/setup-mingw@v2
+
       - name: Build client
         if: "!contains(matrix.target, 'android')"
         run: cargo build --release --target ${{ matrix.target }} -p client
@@ -82,15 +82,22 @@ jobs:
         run: |
           cargo test
 
-      - name: Rename Artifacts
+      - name: Rename Windows artifacts
+        if: contains(matrix.target, 'windows')
         run: |
-          mkdir -p upload
-          if [ "${{ matrix.build_client }}" = "true" ]; then
-            cp target/${{ matrix.target }}/release/standalone* upload/standalone-${{ matrix.ext }}
-          fi
-          if [ "${{ matrix.build_server }}" = "true" ]; then
-            cp target/${{ matrix.target }}/release/server* upload/server-${{ matrix.ext }}
-          fi
+          mkdir -p upload &&
+            cp target/${{ matrix.target }}/release/standalone* upload/standalone-${{ matrix.target }}.exe
+
+      - name: Rename clients
+        if: "!contains(matrix.target, 'windows')"
+        run: |
+          mkdir -p upload &&
+            cp target/${{ matrix.target }}/release/standalone* upload/standalone-${{ matrix.target }}
+
+      - name: Rename server
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          mkdir -p upload && cp target/${{ matrix.target }}/release/server* upload/server-${{ matrix.target }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
