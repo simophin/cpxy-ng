@@ -23,72 +23,62 @@ class ClientService : Service() {
 
     override fun onBind(p0: Intent?): IBinder? = null
 
+
     @OptIn(DelicateCoroutinesApi::class)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START -> {
-                if (startedJob != null) {
-                    // Already started
-                    return START_STICKY
-                }
-
-                appInstance.clientInstanceManager.start()
-
-                val channel = NotificationChannelCompat.Builder(
-                    "ongoing",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                ).setName("Ongoing notification")
-                    .build()
-
-                NotificationManagerCompat.from(this).createNotificationChannel(channel)
-
-                startedJob = GlobalScope.launch(Dispatchers.Main) {
-                    appInstance.clientInstanceManager.state
-                        .map { it.size }
-                        .distinctUntilChanged()
-                        .collectLatest { num ->
-                            startForeground(
-                                NOTIFICATION_ID,
-                                NotificationCompat.Builder(this@ClientService, channel.id)
-                                    .setContentTitle(getString(R.string.app_name))
-                                    .setContentText("Running $num instance(s)")
-                                    .setSmallIcon(R.drawable.ic_launcher_foreground)
-                                    .addAction(R.drawable.baseline_stop_24, "STOP", PendingIntent.getService(
-                                        this@ClientService, 0, Intent(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE
-                                    ))
-                                    .setOngoing(true)
-                                    .build()
-                            )
-                        }
-                }
-
-                return START_STICKY
-            }
-
-            ACTION_STOP -> {
-                startedJob?.cancel()
-                startedJob = null
-
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-
-                appInstance.clientInstanceManager.stop()
-            }
+        if (startedJob != null) {
+            // Already started
+            return super.onStartCommand(intent, flags, startId)
         }
 
-        return super.onStartCommand(intent, flags, startId)
+        val channel = NotificationChannelCompat.Builder(
+            "ongoing",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).setName("Ongoing notification")
+            .build()
+
+        NotificationManagerCompat.from(this).createNotificationChannel(channel)
+
+        startedJob = GlobalScope.launch(Dispatchers.Main) {
+            appInstance.clientInstanceManager.state
+                .map { it.size }
+                .distinctUntilChanged()
+                .collectLatest { num ->
+                    startForeground(
+                        NOTIFICATION_ID,
+                        NotificationCompat.Builder(this@ClientService, channel.id)
+                            .setContentTitle(getString(R.string.app_name))
+                            .setContentText("Running $num instance(s)")
+                            .setSmallIcon(R.drawable.ic_launcher_foreground)
+                            .addAction(R.drawable.baseline_stop_24, "STOP", PendingIntent.getBroadcast(
+                                this@ClientService, 0, Intent(this@ClientService,
+                                    StopServiceReceiver::class.java), PendingIntent.FLAG_IMMUTABLE
+                            ))
+                            .setContentIntent(PendingIntent.getActivity(
+                                this@ClientService,
+                                1,
+                                Intent(this@ClientService, MainActivity::class.java)
+                                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                                PendingIntent.FLAG_IMMUTABLE
+                            ))
+                            .setOngoing(true)
+                            .build()
+                    )
+                }
+        }
+
+        return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
 
         startedJob?.cancel()
+        startedJob = null
     }
 
     companion object {
         private const val NOTIFICATION_ID = 1
 
-        const val ACTION_START = "start"
-        const val ACTION_STOP = "stop"
     }
 }

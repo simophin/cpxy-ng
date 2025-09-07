@@ -25,10 +25,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.ClientConfiguration
+import dev.fanchao.cpxy.ClientConfigurationRepository
 import dev.fanchao.cpxy.isValidBindAddress
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -40,11 +39,11 @@ data class EditConfigRoute(val id: String?)
 @Composable
 fun EditConfigScreen(
     configId: String?,
+    configurationRepository: ClientConfigurationRepository,
     onDone: () -> Unit,
 ) {
-    val context = LocalContext.current
     val config = remember {
-        context.appInstance.configurationRepository.configurations.value.firstOrNull { it.id == configId }
+        configurationRepository.configurations.value.firstOrNull { it.id == configId }
     }
     val nameState = remember {
         EditingState(config?.name.orEmpty(), label = "Name", validator = nonEmptyValidator("Name"))
@@ -103,7 +102,7 @@ fun EditConfigScreen(
         }
 
         if (isValid) {
-            context.appInstance.configurationRepository
+            configurationRepository
                 .save(
                     ClientConfiguration(
                         id = configId ?: UUID.randomUUID().toString(),

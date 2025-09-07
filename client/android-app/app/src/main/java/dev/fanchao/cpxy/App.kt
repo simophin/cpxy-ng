@@ -27,6 +27,16 @@ class App : Application() {
         )
     }
 
+    override fun onCreate() {
+        super.onCreate()
+
+        ClientServiceCoordinator(
+            appContext = this,
+            clientInstanceManager = clientInstanceManager,
+            repository = configurationRepository
+        )
+    }
+
     companion object {
         val Context.appInstance: App
             get() = (applicationContext as App)

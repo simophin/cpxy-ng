@@ -1,6 +1,5 @@
 package dev.fanchao.cpxy.ui
 
-import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -40,18 +40,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.ClientConfiguration
+import dev.fanchao.cpxy.ClientConfigurationRepository
 import dev.fanchao.cpxy.ClientInstanceManager
-import dev.fanchao.cpxy.ClientService
 import dev.fanchao.cpxy.R
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
 import kotlinx.serialization.Serializable
+import java.util.UUID
 
 @Serializable
 data object ServerListRoute
@@ -59,27 +58,22 @@ data object ServerListRoute
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerListScreen(
+    configurationRepository: ClientConfigurationRepository,
+    clientInstanceManager: ClientInstanceManager,
     navigateToEditScreen: (ClientConfiguration) -> Unit,
     navigateToNewConfigScreen: () -> Unit,
 ) {
-    val context = LocalContext.current
-
     val showingErrorDialog = remember { mutableStateOf<Throwable?>(null) }
 
-    val configurations by context
-        .appInstance
-        .configurationRepository
+    val configurations by configurationRepository
         .configurations
         .collectAsState()
 
-    val instanceState by context
-        .appInstance
-        .clientInstanceManager
+    val instanceState by clientInstanceManager
         .state
         .collectAsState()
 
-    val serviceStarted by context.appInstance
-        .clientInstanceManager
+    val serviceStarted by clientInstanceManager
         .started
         .collectAsState()
 
@@ -96,10 +90,11 @@ fun ServerListScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                context.startService(
-                    Intent(context, ClientService::class.java)
-                        .setAction(if (serviceStarted) ClientService.ACTION_STOP else ClientService.ACTION_START)
-                )
+                if (serviceStarted) {
+                    clientInstanceManager.stop()
+                } else {
+                    clientInstanceManager.start()
+                }
             }) {
                 if (serviceStarted) {
                     Icon(
@@ -118,11 +113,16 @@ fun ServerListScreen(
             instanceState = instanceState,
             onItemClick = navigateToEditScreen,
             onEditClick = navigateToEditScreen,
-            onDeleteClick = { context.appInstance.configurationRepository.delete(it.id) },
+            onDeleteClick = { configurationRepository.delete(it.id) },
             onErrorInfoClicked = { _, err ->
                 showingErrorDialog.value = err
             },
-            toggleConfig = { context.appInstance.configurationRepository.setConfigEnabled(it.id, !it.enabled) }
+            toggleConfig = { configurationRepository.setConfigEnabled(it.id, !it.enabled) },
+            cloneConfig = {
+                val newConfig = it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
+                configurationRepository.save(newConfig)
+                navigateToEditScreen(newConfig)
+            }
         )
 
         if (showingErrorDialog.value != null) {
@@ -151,6 +151,7 @@ private fun ServerList(
     onDeleteClick: (ClientConfiguration) -> Unit,
     onErrorInfoClicked: (ClientConfiguration, Throwable) -> Unit,
     toggleConfig: (ClientConfiguration) -> Unit,
+    cloneConfig: (ClientConfiguration) -> Unit,
 ) {
     var showingDeleteConfirmation by remember { mutableStateOf<ClientConfiguration?>(null) }
 
@@ -273,11 +274,22 @@ private fun ServerList(
                         )
 
                         DropdownMenuItem(
+                            text = { Text("Clone") },
+                            onClick = {
+                                showingDropdownMenu.value = false
+                                cloneConfig(config)
+                            },
+                        )
+
+                        DropdownMenuItem(
                             text = { Text(if (config.enabled) "Disable" else "Enable") },
                             onClick = {
                                 showingDropdownMenu.value = false
                                 toggleConfig(config)
                             },
+                            leadingIcon = {
+                                Icon(Icons.Default.Create, contentDescription = null)
+                            }
                         )
                     }
                 }
@@ -324,6 +336,7 @@ private fun ServerListPreview() {
             onDeleteClick = {},
             onErrorInfoClicked = { _, _ -> },
             toggleConfig = {},
+            cloneConfig = {},
         )
     }
 }
