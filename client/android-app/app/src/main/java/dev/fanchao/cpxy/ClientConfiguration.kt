@@ -10,6 +10,7 @@ data class ClientConfiguration(
     val serverPort: UShort,
     val key: String,
     val bindAddress: String,
+    val enabled: Boolean,
 ) {
     val isValid: Boolean
         get() = name.isNotBlank() &&

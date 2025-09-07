@@ -71,6 +71,8 @@ class ClientService : Service() {
 
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
+
+                appInstance.clientInstanceManager.stop()
             }
         }
 

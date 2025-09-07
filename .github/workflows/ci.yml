@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build_android:
+  build_android_binaries:
     name: Build Android binaries
     runs-on: ubuntu-latest
     strategy:
@@ -44,7 +44,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build
+      - name: Build standalone binary
         run: cargo ndk -t ${{ matrix.target }} build --release -p client --bin standalone
 
       - name: Rename artifact
@@ -55,6 +55,47 @@ jobs:
         with:
           name: client-${{ matrix.target }}
           path: client-${{ matrix.target }}
+
+  build_android_app:
+    name: Build Android app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          profile: minimal
+          override: true
+
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-ndk
+        run: cargo binstall cargo-ndk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build libraries
+        run: |
+          cargo ndk 
+            -t aarch64-linux-android 
+            -t armv7-linux-androideabi
+            -t x86_64-linux-android
+            -t i686-linux-android
+            -o client/android-app/app/src/main/jniLibs
+            build --release -p client --lib
+
+      - name: Build APK
+        run: ./gradlew assembleRelease
+        working-directory: client/android-app
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-app-release.apk
+          path: client/android-app/app/build/outputs/apk/release/app-release.apk
 
   build_windows:
     name: Build windows binaries
@@ -173,7 +214,8 @@ jobs:
     permissions:
       contents: write
     needs:
-      - build_android
+      - build_android_binaries
+      - build_android_app
       - build_windows
       - build_linux
       - build_macos

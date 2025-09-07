@@ -1,6 +1,8 @@
 package dev.fanchao.cpxy.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -8,19 +10,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -44,11 +47,15 @@ fun EditConfigScreen(
         context.appInstance.configurationRepository.configurations.value.firstOrNull { it.id == configId }
     }
     val nameState = remember {
-        EditingState(config?.name.orEmpty(), label = "Name", validator = nonEmptyValidator("Name") )
+        EditingState(config?.name.orEmpty(), label = "Name", validator = nonEmptyValidator("Name"))
     }
 
     val serverHostState = remember {
-        EditingState(config?.serverHost.orEmpty(), label = "Server Host", validator = nonEmptyValidator("Server Host") )
+        EditingState(
+            config?.serverHost.orEmpty(),
+            label = "Server Host",
+            validator = nonEmptyValidator("Server Host")
+        )
     }
 
     val serverPortState = remember {
@@ -66,7 +73,7 @@ fun EditConfigScreen(
     }
 
     val keyState = remember {
-        EditingState(config?.key.orEmpty(), label = "Key", validator = nonEmptyValidator("Key") )
+        EditingState(config?.key.orEmpty(), label = "Key", validator = nonEmptyValidator("Key"))
     }
 
     val bindAddressState = remember {
@@ -87,6 +94,8 @@ fun EditConfigScreen(
         bindAddressState,
     )
 
+    val enableState = remember { mutableStateOf(config?.enabled ?: true) }
+
     val onSave = {
         val isValid = allFieldStates.fold(true) { acc, state ->
             val v = state.validate()
@@ -95,14 +104,17 @@ fun EditConfigScreen(
 
         if (isValid) {
             context.appInstance.configurationRepository
-                .save(ClientConfiguration(
-                    id = configId ?: UUID.randomUUID().toString(),
-                    name = nameState.text.value,
-                    serverHost = serverHostState.text.value,
-                    serverPort = serverPortState.text.value.toUShort(),
-                    key = keyState.text.value,
-                    bindAddress = bindAddressState.text.value,
-                ))
+                .save(
+                    ClientConfiguration(
+                        id = configId ?: UUID.randomUUID().toString(),
+                        name = nameState.text.value,
+                        serverHost = serverHostState.text.value,
+                        serverPort = serverPortState.text.value.toUShort(),
+                        key = keyState.text.value,
+                        bindAddress = bindAddressState.text.value,
+                        enabled = enableState.value,
+                    )
+                )
             onDone()
         }
     }
@@ -129,7 +141,9 @@ fun EditConfigScreen(
                 .padding(paddings)
                 .padding(16.dp)
                 .fillMaxSize(),
-            states = allFieldStates
+            states = allFieldStates,
+            enableState = enableState.value,
+            setEnableState = { enableState.value = it },
         )
     }
 }
@@ -162,9 +176,14 @@ class EditingState(
 private fun EditConfig(
     modifier: Modifier = Modifier,
     states: List<EditingState>,
+    enableState: Boolean,
+    setEnableState: (enabled: Boolean) -> Unit,
 ) {
-    Column(modifier = modifier
-        .verticalScroll(rememberScrollState())) {
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         for (state in states) {
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
@@ -182,6 +201,11 @@ private fun EditConfig(
                     }
                 }
             )
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Enable", modifier = Modifier.weight(1f))
+            Switch(enableState, onCheckedChange = setEnableState)
         }
     }
 }

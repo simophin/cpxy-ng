@@ -45,6 +45,25 @@ class ClientConfigurationRepository(
         }
     }
 
+    fun delete(id: String) {
+        mutableConfigurations.update { configs ->
+            configs.filterNot { it.id == id }
+        }
+    }
+
+    fun setConfigEnabled(id: String, enabled: Boolean) {
+        mutableConfigurations.update { configs ->
+            val index = configs.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                configs.toMutableList().apply {
+                    this[index] = this[index].copy(enabled = enabled)
+                }
+            } else {
+                configs
+            }
+        }
+    }
+
 
     companion object {
         private const val PREF_KEY = "configs"

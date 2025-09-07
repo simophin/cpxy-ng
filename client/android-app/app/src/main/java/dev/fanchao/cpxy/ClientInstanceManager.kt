@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 
@@ -26,7 +27,7 @@ class ClientInstanceManager (
     val state: StateFlow<Map<String, InstanceState>> = mutableStarted
         .flatMapLatest { started ->
             if (!started) flowOf(emptyList())
-            else repository.configurations
+            else repository.configurations.map { configs -> configs.filter { it.enabled } }
         }
         .scan(emptyMap<String, InstanceState>()) { acc, configurations ->
             val keep = acc.filter { existing ->

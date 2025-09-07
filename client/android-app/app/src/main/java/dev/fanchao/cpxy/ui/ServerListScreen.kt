@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenu
@@ -43,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.App.Companion.appInstance
@@ -63,6 +63,8 @@ fun ServerListScreen(
     navigateToNewConfigScreen: () -> Unit,
 ) {
     val context = LocalContext.current
+
+    val showingErrorDialog = remember { mutableStateOf<Throwable?>(null) }
 
     val configurations by context
         .appInstance
@@ -94,8 +96,9 @@ fun ServerListScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                context.startService(Intent(context, ClientService::class.java)
-                    .setAction(if (serviceStarted) ClientService.ACTION_STOP else ClientService.ACTION_START)
+                context.startService(
+                    Intent(context, ClientService::class.java)
+                        .setAction(if (serviceStarted) ClientService.ACTION_STOP else ClientService.ACTION_START)
                 )
             }) {
                 if (serviceStarted) {
@@ -115,9 +118,26 @@ fun ServerListScreen(
             instanceState = instanceState,
             onItemClick = navigateToEditScreen,
             onEditClick = navigateToEditScreen,
-            onDeleteClick = {},
-            onErrorInfoClicked = { _, _ -> },
+            onDeleteClick = { context.appInstance.configurationRepository.delete(it.id) },
+            onErrorInfoClicked = { _, err ->
+                showingErrorDialog.value = err
+            },
+            toggleConfig = { context.appInstance.configurationRepository.setConfigEnabled(it.id, !it.enabled) }
         )
+
+        if (showingErrorDialog.value != null) {
+            AlertDialog(
+                onDismissRequest = { showingErrorDialog.value = null },
+                confirmButton = {
+                    OutlinedButton(onClick = { showingErrorDialog.value = null }) {
+                        Text("OK")
+                    }
+                },
+                text = {
+                    Text(showingErrorDialog.value!!.message.orEmpty())
+                }
+            )
+        }
     }
 }
 
@@ -130,6 +150,7 @@ private fun ServerList(
     onEditClick: (ClientConfiguration) -> Unit,
     onDeleteClick: (ClientConfiguration) -> Unit,
     onErrorInfoClicked: (ClientConfiguration, Throwable) -> Unit,
+    toggleConfig: (ClientConfiguration) -> Unit,
 ) {
     var showingDeleteConfirmation by remember { mutableStateOf<ClientConfiguration?>(null) }
 
@@ -137,7 +158,10 @@ private fun ServerList(
         AlertDialog(
             onDismissRequest = { showingDeleteConfirmation = null },
             confirmButton = {
-                OutlinedButton(onClick = { onDeleteClick(showingDeleteConfirmation!!) }) {
+                OutlinedButton(onClick = {
+                    onDeleteClick(showingDeleteConfirmation!!)
+                    showingDeleteConfirmation = null
+                }) {
                     Text("Delete")
                 }
             },
@@ -169,9 +193,21 @@ private fun ServerList(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(config.name, style = MaterialTheme.typography.labelLarge)
-                        Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-                            Text(config.bindAddress)
+                        val title = if (config.enabled) config.name
+                        else "${config.name} (Disabled)"
+
+                        val style = if (config.enabled) MaterialTheme.typography.labelLarge
+                        else MaterialTheme.typography.labelLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = FontStyle.Italic
+                        )
+
+                        Text(title, style = style)
+
+                        if (config.enabled) {
+                            Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                                Text(config.bindAddress)
+                            }
                         }
                     }
 
@@ -235,8 +271,15 @@ private fun ServerList(
                                 )
                             }
                         )
-                    }
 
+                        DropdownMenuItem(
+                            text = { Text(if (config.enabled) "Disable" else "Enable") },
+                            onClick = {
+                                showingDropdownMenu.value = false
+                                toggleConfig(config)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -244,8 +287,10 @@ private fun ServerList(
 
     if (configurations.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No configurations yet",
-                style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "No configurations yet",
+                style = MaterialTheme.typography.bodyLarge
+            )
         }
     }
 }
@@ -261,6 +306,7 @@ private fun ServerListPreview() {
             serverPort = 80.toUShort(),
             key = "xxx",
             bindAddress = "127.0.0.1:8080",
+            enabled = false,
         )
     )
 
@@ -277,6 +323,7 @@ private fun ServerListPreview() {
             onItemClick = {},
             onDeleteClick = {},
             onErrorInfoClicked = { _, _ -> },
+            toggleConfig = {},
         )
     }
 }
