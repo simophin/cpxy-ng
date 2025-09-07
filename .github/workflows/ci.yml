@@ -78,13 +78,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build libraries
-        run: >
-          cargo ndk 
-            -t aarch64-linux-android 
-            -t armv7-linux-androideabi
-            -t x86_64-linux-android
-            -t i686-linux-android
-            -o client/android-app/app/src/main/jniLibs
+        run: |
+          cargo ndk \
+            -t aarch64-linux-android \
+            -t armv7-linux-androideabi \
+            -t x86_64-linux-android \
+            -t i686-linux-android \
+            -o client/android-app/app/src/main/jniLibs \
             build --release -p client --lib
 
       - name: Build APK
