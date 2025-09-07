@@ -10,7 +10,6 @@ interface Client : Library {
         serverPort: Short,
         key: String,
         bindAddress: String,
-        useWebSocket: Boolean,
         errorMessage: ByteArray,
         errorMessageLen: NativeLong
     ): Pointer?
@@ -19,18 +18,16 @@ interface Client : Library {
 }
 
 fun Client.create(serverHost: String,
-                  serverPort: Short,
+                  serverPort: UShort,
                   key: String,
-                  bindAddress: String,
-                  useWebSocket: Boolean): Pointer {
+                  bindAddress: String): Pointer {
     val errorMessage = ByteArray(512)
 
     val ptr = client_create(
         serverHost = serverHost,
-        serverPort = serverPort,
+        serverPort = serverPort.toShort(),
         key = key,
         bindAddress = bindAddress,
-        useWebSocket = useWebSocket,
         errorMessage = errorMessage,
         errorMessageLen = NativeLong(errorMessage.size.toLong())
     )

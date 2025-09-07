@@ -1,37 +1,51 @@
 package dev.fanchao.cpxy
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import dev.fanchao.cpxy.App.Companion.appInstance
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
+import dev.fanchao.cpxy.ui.EditConfigRoute
+import dev.fanchao.cpxy.ui.EditConfigScreen
+import dev.fanchao.cpxy.ui.ServerListRoute
+import dev.fanchao.cpxy.ui.ServerListScreen
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-      val pointer =  appInstance.client
-            .create("127.0.0.1", 9000, "1234", "127.0.0.1:18080", false)
-
-        Log.d("MainActivity", "Created pointer $pointer")
-
+        
         enableEdgeToEdge()
         setContent {
+            val navController = rememberNavController()
+
             CpxyTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                NavHost(navController = navController, startDestination = ServerListRoute) {
+                    composable<ServerListRoute> {
+                        ServerListScreen(
+                            navigateToEditScreen = {
+                                navController.navigate(EditConfigRoute(it.id))
+                            },
+                            navigateToNewConfigScreen = {
+                                navController.navigate(EditConfigRoute(null))
+                            }
+                        )
+                    }
+
+                    composable<EditConfigRoute> {
+                        val route: EditConfigRoute = it.toRoute()
+                        EditConfigScreen(
+                            configId = route.id,
+                            onDone = navController::popBackStack,
+                        )
+                    }
                 }
             }
         }
