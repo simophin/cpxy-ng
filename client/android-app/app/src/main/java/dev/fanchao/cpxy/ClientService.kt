@@ -24,8 +24,8 @@ class ClientService : Service() {
     override fun onBind(p0: Intent?): IBinder? = null
 
     @OptIn(DelicateCoroutinesApi::class)
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-        when (intent.action) {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
             ACTION_START -> {
                 if (startedJob != null) {
                     // Already started
@@ -36,7 +36,7 @@ class ClientService : Service() {
 
                 val channel = NotificationChannelCompat.Builder(
                     "ongoing",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
                 ).setName("Ongoing notification")
                     .build()
 
@@ -77,6 +77,12 @@ class ClientService : Service() {
         }
 
         return super.onStartCommand(intent, flags, startId)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        startedJob?.cancel()
     }
 
     companion object {
