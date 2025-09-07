@@ -65,11 +65,7 @@ jobs:
 
       - name: Install all the required targets
         run: >
-          rustup target add
-            aarch64-linux-android
-            armv7-linux-androideabi
-            x86_64-linux-android
-            i686-linux-android
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
 
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-ndk
