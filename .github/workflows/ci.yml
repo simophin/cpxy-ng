@@ -78,7 +78,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build libraries
-        run: |
+        run: >
           cargo ndk 
             -t aarch64-linux-android 
             -t armv7-linux-androideabi
