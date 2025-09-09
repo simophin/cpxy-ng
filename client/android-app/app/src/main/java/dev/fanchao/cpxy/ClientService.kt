@@ -33,7 +33,7 @@ class ClientService : Service() {
 
         val channel = NotificationChannelCompat.Builder(
             "ongoing",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_LOW
         ).setName("Ongoing notification")
             .build()
 
@@ -61,6 +61,7 @@ class ClientService : Service() {
                                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
                                 PendingIntent.FLAG_IMMUTABLE
                             ))
+                            .setSilent(true)
                             .setOngoing(true)
                             .build()
                     )
