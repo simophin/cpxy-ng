@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
@@ -79,14 +80,16 @@ fun ServerListScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Servers") }, actions = {
-                IconButton(onClick = navigateToNewConfigScreen) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = "Add"
-                    )
-                }
-            })
+            TopAppBar(
+                title = { Text("Servers") },
+                actions = {
+                    IconButton(onClick = navigateToNewConfigScreen) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Add"
+                        )
+                    }
+                })
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
@@ -119,7 +122,8 @@ fun ServerListScreen(
             },
             toggleConfig = { configurationRepository.setConfigEnabled(it.id, !it.enabled) },
             cloneConfig = {
-                val newConfig = it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
+                val newConfig =
+                    it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
                 configurationRepository.save(newConfig)
                 navigateToEditScreen(newConfig)
             }
@@ -197,8 +201,8 @@ private fun ServerList(
                         val title = if (config.enabled) config.name
                         else "${config.name} (Disabled)"
 
-                        val style = if (config.enabled) MaterialTheme.typography.labelLarge
-                        else MaterialTheme.typography.labelLarge.copy(
+                        val style = if (config.enabled) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.titleMedium.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontStyle = FontStyle.Italic
                         )
@@ -287,9 +291,6 @@ private fun ServerList(
                                 showingDropdownMenu.value = false
                                 toggleConfig(config)
                             },
-                            leadingIcon = {
-                                Icon(Icons.Default.Create, contentDescription = null)
-                            }
                         )
                     }
                 }

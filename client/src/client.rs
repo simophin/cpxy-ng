@@ -7,11 +7,20 @@ use cpxy_ng::key_util::random_vec;
 use cpxy_ng::time_util::now_epoch_seconds;
 use cpxy_ng::{Key, http_protocol, protocol};
 use std::num::NonZeroUsize;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::instrument;
+
+#[derive(Default)]
+pub struct Statistic {
+    pub bytes_sent: Arc<AtomicUsize>,
+    pub bytes_received: Arc<AtomicUsize>,
+    pub last_delays: RwLock<Vec<Duration>>,
+}
 
 #[instrument(ret, skip(key, proxy_conn))]
 pub async fn accept_proxy_connection(

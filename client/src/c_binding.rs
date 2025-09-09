@@ -1,10 +1,9 @@
+use crate::client;
 use anyhow::Context;
 use cpxy_ng::key_util::derive_password;
-use std::ffi::{CStr, CString, c_char, c_void};
+use std::ffi::{c_char, c_void, CStr, CString};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
-
-use crate::client;
 
 struct ClientInstance {
     _runtime: Runtime,
@@ -35,6 +34,11 @@ pub unsafe extern "C" fn client_create(
 
         let listener = std::net::TcpListener::bind(bind_addr.as_str())
             .with_context(|| format!("Error binding on address: {bind_addr}"))?;
+
+        listener.set_nonblocking(true)
+            .with_context(|| "Error setting listener to non-blocking mode")?;
+
+        tracing::info!("Listening on {}", listener.local_addr().unwrap());
 
         let key = derive_password(key.as_str()).into();
 
@@ -92,5 +96,33 @@ pub unsafe extern "C" fn client_create(
 pub unsafe extern "C" fn client_destroy(instance: *const c_void) {
     unsafe {
         let _ = Box::from_raw(instance as *mut ClientInstance);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpStream;
+    use std::ptr::{null, null_mut};
+
+    #[test]
+    fn test_client_binding_works() {
+        let rc = unsafe {
+            client_create(
+                c"myhost.google.com".as_ptr(),
+                80,
+                c"11111111".as_ptr(),
+                c"127.0.0.1:9092".as_ptr(),
+                null_mut(),
+                0
+            )
+        };
+
+        assert_ne!(rc, null());
+
+        let _c = TcpStream::connect("127.0.0.1:9092").expect("To connect");
+
+        unsafe { client_destroy(rc) };
     }
 }

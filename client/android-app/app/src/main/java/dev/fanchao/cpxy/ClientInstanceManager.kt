@@ -1,5 +1,6 @@
 package dev.fanchao.cpxy
 
+import android.util.Log
 import com.sun.jna.Pointer
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,7 +34,10 @@ class ClientInstanceManager (
             val keep = acc.filter { existing ->
                 val newConfig = configurations.firstOrNull { it.id == existing.key }
                 if (newConfig == null || existing.value.needsRecreate(newConfig)) {
-                    existing.value.instance.getOrNull()?.let(clientProvider()::destroy)
+                    existing.value.instance.getOrNull()?.let {
+                        Log.d("ClientInstanceManager", "Destroying instance for config id=${existing.key}")
+                        clientProvider().destroy(it)
+                    }
                     false
                 } else {
                     true
@@ -52,7 +56,11 @@ class ClientInstanceManager (
                             key = newConfig.key,
                             bindAddress = newConfig.bindAddress
                         )
+                    }.onFailure {
+                        Log.e("ClientInstanceManager", "Failed to create instance for $newConfig", it)
                     }
+
+                    Log.d("ClientInstanceManager", "Created instance for $newConfig")
 
                     newConfig.id to InstanceState(instance, newConfig)
                 }

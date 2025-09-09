@@ -1,5 +1,6 @@
 package dev.fanchao.cpxy
 
+import com.sun.jna.Callback
 import com.sun.jna.Library
 import com.sun.jna.NativeLong
 import com.sun.jna.Pointer
