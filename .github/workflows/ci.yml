@@ -243,6 +243,3 @@ jobs:
           files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build_docker:
-    
