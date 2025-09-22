@@ -6,7 +6,9 @@ use cpxy_ng::http_proxy::{
 use cpxy_ng::key_util::random_vec;
 use cpxy_ng::socks_stream::SocksStream;
 use cpxy_ng::time_util::now_epoch_seconds;
+use cpxy_ng::tls_stream::TlsClientStream;
 use cpxy_ng::{Key, http_protocol, protocol, socks_stream};
+use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
@@ -23,12 +25,28 @@ pub struct Statistic {
     pub last_delays: RwLock<Vec<Duration>>,
 }
 
-#[instrument(ret, skip(key, proxy_conn))]
+#[derive(Clone)]
+pub struct UpstreamConfiguration {
+    pub host: String,
+    pub port: u16,
+    pub key: Key,
+    pub tls: bool,
+}
+
+impl Debug for UpstreamConfiguration {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpstreamConfiguration")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("tls", &self.tls)
+            .finish()
+    }
+}
+
+#[instrument(ret, skip(proxy_conn), fields(upstream_config = ?upstream_config.as_ref()))]
 pub async fn accept_http_proxy_connection(
     proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
-    server_host: String,
-    server_port: u16,
-    key: Key,
+    upstream_config: impl AsRef<UpstreamConfiguration>,
 ) -> anyhow::Result<()> {
     let (req, proxy_conn) = parse_http_proxy_stream(proxy_conn)
         .await
@@ -40,20 +58,18 @@ pub async fn accept_http_proxy_connection(
 
     match req {
         ProxyRequest::Http(req) => {
-            handle_http_proxy_request(&server_host, server_port, proxy_conn, req, &key).await
+            handle_http_proxy_request(upstream_config.as_ref(), proxy_conn, req).await
         }
 
         ProxyRequest::Socket(req) => {
-            handle_socket_proxy_request(&server_host, server_port, proxy_conn, req, &key).await
+            handle_socket_proxy_request(upstream_config.as_ref(), proxy_conn, req).await
         }
     }
 }
 
 pub async fn accept_socks_proxy_connection(
     proxy_conn: impl AsyncBufRead + AsyncWrite + Unpin,
-    server_host: String,
-    server_port: u16,
-    key: Key,
+    upstream: impl AsRef<UpstreamConfiguration>,
 ) -> anyhow::Result<()> {
     let (mut proxy_conn, request) = SocksStream::accept(proxy_conn).await.map_err(|(e, _)| e)?;
     tracing::info!(?request, "About to serve socks5 proxy request");
@@ -67,7 +83,7 @@ pub async fn accept_socks_proxy_connection(
     };
 
     let (mut stream, response) =
-        send_socket_proxy_request(&server_host, server_port, &mut proxy_conn, request, &key)
+        send_socket_proxy_request(upstream.as_ref(), &mut proxy_conn, request)
             .await
             .map_err(|e| {
                 tracing::error!(error=?e, "Error communicating with upstream server");
@@ -95,24 +111,28 @@ pub async fn accept_socks_proxy_connection(
 
 async fn send_upstream_request(
     req: http_protocol::Request,
-    upstream_host: &str,
-    upstream_port: u16,
-    key: &Key,
+    upstream: &UpstreamConfiguration,
 ) -> anyhow::Result<(
     impl AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     http_protocol::Response,
 )> {
-    let mut conn = TcpStream::connect((upstream_host, upstream_port))
+    let conn = TcpStream::connect((upstream.host.as_str(), upstream.port))
         .await
-        .with_context(|| {
-            format!("Error connecting to upstream server: {upstream_host}:{upstream_port}")
-        })?;
+        .with_context(|| format!("Error connecting to upstream server: {upstream:?}"))?;
 
-    req.send_over_http(&mut conn, key)
+    let mut conn = if upstream.tls {
+        TlsClientStream::connect_tls(upstream.host.as_str(), conn)
+            .await
+            .context("Error establishing TLS connection to upstream server")?
+    } else {
+        TlsClientStream::Plain(conn)
+    };
+
+    req.send_over_http(&mut conn, &upstream.key)
         .await
         .context("Error sending request to upstream server")?;
 
-    let (resp, conn) = http_protocol::Response::parse(conn, key)
+    let (resp, conn) = http_protocol::Response::parse(conn, &upstream.key)
         .await
         .map_err(|(e, _)| e)?
         .take_head();
@@ -128,11 +148,9 @@ async fn send_upstream_request(
 }
 
 async fn send_socket_proxy_request(
-    upstream_host: &str,
-    upstream_port: u16,
+    upstream: &UpstreamConfiguration,
     proxy_conn: &mut (impl AsyncRead + AsyncWrite + Unpin),
     ProxyRequestSocket { host, port }: ProxyRequestSocket,
-    key: &Key,
 ) -> anyhow::Result<(
     impl AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     http_protocol::Response,
@@ -169,21 +187,19 @@ async fn send_socket_proxy_request(
             timestamp_epoch_seconds: now_epoch_seconds(),
         },
         websocket_key: random_vec(16),
-        host: upstream_host.to_string(),
+        host: upstream.host.clone(),
     };
 
-    send_upstream_request(request, upstream_host, upstream_port, key).await
+    send_upstream_request(request, upstream).await
 }
 
-#[instrument(ret, skip(key, proxy_conn))]
+#[instrument(ret, skip(proxy_conn))]
 async fn handle_socket_proxy_request(
-    upstream_host: &str,
-    upstream_port: u16,
+    upstream: &UpstreamConfiguration,
     mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
     req: ProxyRequestSocket,
-    key: &Key,
 ) -> anyhow::Result<()> {
-    match send_socket_proxy_request(upstream_host, upstream_port, &mut proxy_conn, req, key).await {
+    match send_socket_proxy_request(upstream, &mut proxy_conn, req).await {
         Ok((mut upstream_conn, resp)) => {
             match resp.response {
                 protocol::Response::Success {
@@ -227,10 +243,9 @@ async fn handle_socket_proxy_request(
     }
 }
 
-#[instrument(ret, skip(key, payload, proxy_conn))]
+#[instrument(ret, skip(payload, proxy_conn))]
 async fn handle_http_proxy_request(
-    upstream_host: &str,
-    upstream_port: u16,
+    upstream: &UpstreamConfiguration,
     mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
     ProxyRequestHttp {
         host,
@@ -238,7 +253,6 @@ async fn handle_http_proxy_request(
         tls,
         payload,
     }: ProxyRequestHttp,
-    key: &Key,
 ) -> anyhow::Result<()> {
     let client_send_cipher = Configuration::random_full();
     let server_send_cipher = Configuration::random_full();
@@ -254,10 +268,10 @@ async fn handle_http_proxy_request(
             timestamp_epoch_seconds: now_epoch_seconds(),
         },
         websocket_key: random_vec(16),
-        host: upstream_host.to_string(),
+        host: upstream.host.to_string(),
     };
 
-    match send_upstream_request(request, upstream_host, upstream_port, key).await {
+    match send_upstream_request(request, upstream).await {
         Ok((mut upstream_conn, resp)) => {
             match resp.response {
                 protocol::Response::Success {

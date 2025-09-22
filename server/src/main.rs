@@ -1,7 +1,7 @@
 mod server;
 
 use clap::Parser;
-use cpxy_ng::{key_util::derive_password, Key};
+use cpxy_ng::{Key, key_util::derive_password};
 use dotenvy::dotenv;
 use tokio::net::TcpListener;
 
@@ -30,15 +30,9 @@ async fn main() {
     tracing::info!("Server listening on {}", listener.local_addr().unwrap());
 
     let key: Key = derive_password(&key).into();
-    let connector = server::configure_tls_connector();
 
     loop {
         let (socket, addr) = listener.accept().await.expect("Error accepting connection");
-        tokio::spawn(server::handle_connection(
-            socket,
-            addr,
-            key,
-            connector.clone(),
-        ));
+        tokio::spawn(server::handle_connection(socket, addr, key));
     }
 }

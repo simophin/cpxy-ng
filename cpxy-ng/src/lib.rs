@@ -7,5 +7,6 @@ pub mod key_util;
 pub mod protocol;
 pub mod socks_stream;
 pub mod time_util;
+pub mod tls_stream;
 
 pub use chacha20poly1305::Key;

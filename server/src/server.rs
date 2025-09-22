@@ -1,37 +1,20 @@
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
 use cpxy_ng::time_util::now_epoch_seconds;
+use cpxy_ng::tls_stream::TlsClientStream;
 use cpxy_ng::{Key, http_protocol, protocol};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_rustls::TlsConnector;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tracing::instrument;
 
-trait Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> Stream for T {}
-
-pub fn configure_tls_connector() -> TlsConnector {
-    let mut root_cert_store = RootCertStore::empty();
-    root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-    TlsConnector::from(Arc::new(
-        ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth(),
-    ))
-}
-
-#[instrument(ret, skip(conn, key, connector), level = "info")]
+#[instrument(ret, skip(conn, key), level = "info")]
 pub async fn handle_connection(
     conn: impl AsyncRead + AsyncWrite + Unpin,
     _from_addr: SocketAddr,
     key: Key,
-    connector: TlsConnector,
 ) -> anyhow::Result<()> {
     let (req, mut conn) = match http_protocol::Request::parse(conn, &key).await {
         Ok(v) => v.take_head(),
@@ -48,20 +31,10 @@ pub async fn handle_connection(
             .await
             .context("Error connecting to upstream")?;
 
-        let mut upstream: Box<dyn Stream> = if req.request.tls {
-            Box::new(
-                connector
-                    .connect(
-                        req.host
-                            .try_into()
-                            .context("Unable to convert host to server name")?,
-                        upstream,
-                    )
-                    .await
-                    .context("TLS connection failed")?,
-            )
+        let mut upstream = if req.request.tls {
+            TlsClientStream::connect_tls(req.request.host.as_str(), upstream).await?
         } else {
-            Box::new(upstream)
+            TlsClientStream::Plain(upstream)
         };
 
         tracing::debug!(

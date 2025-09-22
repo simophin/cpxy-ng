@@ -1,7 +1,9 @@
 use crate::client;
+use crate::client::UpstreamConfiguration;
 use anyhow::Context;
 use cpxy_ng::key_util::derive_password;
 use std::ffi::{CStr, CString, c_char, c_void};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 
@@ -14,6 +16,7 @@ pub unsafe extern "C" fn client_create(
     server_host: *const c_char,
     server_port: u16,
     key: *const c_char,
+    tls: bool,
     bind_addr: *const c_char,
     error_message: *mut c_char,
     error_message_len: usize,
@@ -55,15 +58,20 @@ pub unsafe extern "C" fn client_create(
         let listener =
             TcpListener::from_std(listener).with_context(|| "Error creating async TcpListener")?;
 
+        let upstream = Arc::new(UpstreamConfiguration {
+            host: server_host,
+            port: server_port,
+            tls,
+            key,
+        });
+
         let run_task = async move {
             while let Ok((client, addr)) = listener.accept().await {
                 tracing::info!("Accepted connection from {addr}");
 
                 tokio::spawn(client::accept_http_proxy_connection(
                     client,
-                    server_host.clone(),
-                    server_port,
-                    key,
+                    upstream.clone(),
                 ));
             }
         };
@@ -113,6 +121,7 @@ mod tests {
                 c"myhost.google.com".as_ptr(),
                 80,
                 c"11111111".as_ptr(),
+                false,
                 c"127.0.0.1:9092".as_ptr(),
                 null_mut(),
                 0,

@@ -1,8 +1,10 @@
 use anyhow::Context;
 use clap::Parser;
+use client::client::UpstreamConfiguration;
 use cpxy_ng::key_util::derive_password;
 use dotenvy::dotenv;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::io::BufReader;
 use tokio::net::TcpListener;
 use tokio::try_join;
@@ -16,6 +18,10 @@ struct CliOptions {
     /// The cpxy server port to connect to
     #[clap(long, env)]
     server_port: u16,
+
+    /// Whether to use TLS when connecting to the cpxy server
+    #[clap(long, env, default_value_t = false)]
+    server_tls: bool,
 
     /// The pre-shared key for encryption/decryption
     #[clap(long, env)]
@@ -38,12 +44,20 @@ async fn main() {
     let CliOptions {
         server_host,
         server_port,
+        server_tls,
         key,
         http_proxy_listen,
         socks5_proxy_listen,
     } = CliOptions::parse();
 
     let key = derive_password(&key).into();
+
+    let config = Arc::new(UpstreamConfiguration {
+        host: server_host,
+        port: server_port,
+        tls: server_tls,
+        key,
+    });
 
     let run_http_proxy = async {
         let Some(listen) = http_proxy_listen else {
@@ -62,9 +76,7 @@ async fn main() {
 
             tokio::spawn(client::client::accept_http_proxy_connection(
                 client,
-                server_host.clone(),
-                server_port,
-                key,
+                config.clone(),
             ));
         }
     };
@@ -86,9 +98,7 @@ async fn main() {
 
             tokio::spawn(client::client::accept_socks_proxy_connection(
                 BufReader::new(client),
-                server_host.clone(),
-                server_port,
-                key,
+                config.clone(),
             ));
         }
     };
