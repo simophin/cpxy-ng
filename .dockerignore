@@ -1,0 +1,34 @@
+# flyctl launch added from .gitignore
+target
+**/.env
+
+# flyctl launch added from .idea/.gitignore
+.idea/**/*
+
+# flyctl launch added from client/android-app/.gitignore
+client/android-app/**/*.iml
+client/android-app/**/.gradle
+client/android-app/local.properties
+client/android-app/.idea/caches
+client/android-app/.idea/libraries
+client/android-app/.idea/modules.xml
+client/android-app/.idea/workspace.xml
+client/android-app/.idea/navEditor.xml
+client/android-app/.idea/assetWizardSettings.xml
+client/android-app/**/.DS_Store
+client/android-app/build
+client/android-app/captures
+client/android-app/**/.externalNativeBuild
+client/android-app/**/.cxx
+client/android-app/**/local.properties
+
+client/android-app/**/*/src/*/jniLibs
+
+# flyctl launch added from client/android-app/.idea/.gitignore
+# Default ignored files
+client/android-app/.idea/shelf
+client/android-app/.idea/workspace.xml
+
+# flyctl launch added from client/android-app/app/.gitignore
+client/android-app/app/build
+fly.toml

@@ -1,7 +1,7 @@
 use crate::client;
 use anyhow::Context;
 use cpxy_ng::key_util::derive_password;
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_void};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 
@@ -35,7 +35,8 @@ pub unsafe extern "C" fn client_create(
         let listener = std::net::TcpListener::bind(bind_addr.as_str())
             .with_context(|| format!("Error binding on address: {bind_addr}"))?;
 
-        listener.set_nonblocking(true)
+        listener
+            .set_nonblocking(true)
             .with_context(|| "Error setting listener to non-blocking mode")?;
 
         tracing::info!("Listening on {}", listener.local_addr().unwrap());
@@ -58,7 +59,7 @@ pub unsafe extern "C" fn client_create(
             while let Ok((client, addr)) = listener.accept().await {
                 tracing::info!("Accepted connection from {addr}");
 
-                tokio::spawn(client::accept_proxy_connection(
+                tokio::spawn(client::accept_http_proxy_connection(
                     client,
                     server_host.clone(),
                     server_port,
@@ -99,7 +100,6 @@ pub unsafe extern "C" fn client_destroy(instance: *const c_void) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,7 +115,7 @@ mod tests {
                 c"11111111".as_ptr(),
                 c"127.0.0.1:9092".as_ptr(),
                 null_mut(),
-                0
+                0,
             )
         };
 

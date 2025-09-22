@@ -1,16 +1,17 @@
-use anyhow::{Context, format_err};
+use anyhow::{Context, bail, format_err};
 use cpxy_ng::encrypt_stream::{CipherStream, Configuration};
 use cpxy_ng::http_proxy::{
     ProxyRequest, ProxyRequestHttp, ProxyRequestSocket, parse_http_proxy_stream,
 };
 use cpxy_ng::key_util::random_vec;
+use cpxy_ng::socks_stream::SocksStream;
 use cpxy_ng::time_util::now_epoch_seconds;
-use cpxy_ng::{Key, http_protocol, protocol};
+use cpxy_ng::{Key, http_protocol, protocol, socks_stream};
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::instrument;
@@ -23,7 +24,7 @@ pub struct Statistic {
 }
 
 #[instrument(ret, skip(key, proxy_conn))]
-pub async fn accept_proxy_connection(
+pub async fn accept_http_proxy_connection(
     proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
     server_host: String,
     server_port: u16,
@@ -44,6 +45,50 @@ pub async fn accept_proxy_connection(
 
         ProxyRequest::Socket(req) => {
             handle_socket_proxy_request(&server_host, server_port, proxy_conn, req, &key).await
+        }
+    }
+}
+
+pub async fn accept_socks_proxy_connection(
+    proxy_conn: impl AsyncBufRead + AsyncWrite + Unpin,
+    server_host: String,
+    server_port: u16,
+    key: Key,
+) -> anyhow::Result<()> {
+    let (mut proxy_conn, request) = SocksStream::accept(proxy_conn).await.map_err(|(e, _)| e)?;
+    tracing::info!(?request, "About to serve socks5 proxy request");
+
+    let request = match request {
+        socks_stream::ProxyRequest::WithDomain(host, port) => ProxyRequestSocket { host, port },
+        socks_stream::ProxyRequest::WithIP(addr) => ProxyRequestSocket {
+            host: addr.ip().to_string(),
+            port: addr.port(),
+        },
+    };
+
+    let (mut stream, response) =
+        send_socket_proxy_request(&server_host, server_port, &mut proxy_conn, request, &key)
+            .await
+            .map_err(|e| {
+                tracing::error!(error=?e, "Error communicating with upstream server");
+                e
+            })?;
+
+    match response.response {
+        protocol::Response::Success {
+            initial_response, ..
+        } => {
+            proxy_conn
+                .write_all(&initial_response)
+                .await
+                .context("Error writing success response to client")?;
+
+            let _ = tokio::io::copy_bidirectional(&mut proxy_conn, &mut stream).await;
+            Ok(())
+        }
+
+        protocol::Response::Error { msg, .. } => {
+            bail!("Error from upstream: {msg}");
         }
     }
 }
@@ -82,14 +127,16 @@ async fn send_upstream_request(
     ))
 }
 
-#[instrument(ret, skip(key, proxy_conn))]
-async fn handle_socket_proxy_request(
+async fn send_socket_proxy_request(
     upstream_host: &str,
     upstream_port: u16,
-    mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
+    proxy_conn: &mut (impl AsyncRead + AsyncWrite + Unpin),
     ProxyRequestSocket { host, port }: ProxyRequestSocket,
     key: &Key,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(
+    impl AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    http_protocol::Response,
+)> {
     let (client_send_cipher, server_send_cipher) = match port {
         443 | 465 | 993 | 5223 => (
             Configuration::random_partial(NonZeroUsize::new(32).unwrap()),
@@ -125,7 +172,18 @@ async fn handle_socket_proxy_request(
         host: upstream_host.to_string(),
     };
 
-    match send_upstream_request(request, upstream_host, upstream_port, key).await {
+    send_upstream_request(request, upstream_host, upstream_port, key).await
+}
+
+#[instrument(ret, skip(key, proxy_conn))]
+async fn handle_socket_proxy_request(
+    upstream_host: &str,
+    upstream_port: u16,
+    mut proxy_conn: impl AsyncRead + AsyncWrite + Unpin,
+    req: ProxyRequestSocket,
+    key: &Key,
+) -> anyhow::Result<()> {
+    match send_socket_proxy_request(upstream_host, upstream_port, &mut proxy_conn, req, key).await {
         Ok((mut upstream_conn, resp)) => {
             match resp.response {
                 protocol::Response::Success {

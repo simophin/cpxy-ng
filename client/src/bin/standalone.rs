@@ -1,7 +1,11 @@
+use anyhow::Context;
 use clap::Parser;
 use cpxy_ng::key_util::derive_password;
 use dotenvy::dotenv;
+use std::net::SocketAddr;
+use tokio::io::BufReader;
 use tokio::net::TcpListener;
+use tokio::try_join;
 
 #[derive(clap::Parser)]
 struct CliOptions {
@@ -18,8 +22,12 @@ struct CliOptions {
     key: String,
 
     /// The address to listen on for the http proxy
-    #[clap(env, default_value = "127.0.0.1:8080")]
-    bind_addr: String,
+    #[clap(long, env)]
+    http_proxy_listen: Option<SocketAddr>,
+
+    /// The address to listen on for the socks5 proxy
+    #[clap(long, env)]
+    socks5_proxy_listen: Option<SocketAddr>,
 }
 
 #[tokio::main]
@@ -31,29 +39,59 @@ async fn main() {
         server_host,
         server_port,
         key,
-        bind_addr,
+        http_proxy_listen,
+        socks5_proxy_listen,
     } = CliOptions::parse();
-
-    let listener = TcpListener::bind(bind_addr)
-        .await
-        .expect("Error binding address");
-
-    tracing::info!(
-        "Proxy server listening on {}",
-        listener.local_addr().unwrap()
-    );
 
     let key = derive_password(&key).into();
 
-    loop {
-        let (client, addr) = listener.accept().await.expect("Error accepting connection");
-        tracing::info!("Accepted connection from {addr}");
+    let run_http_proxy = async {
+        let Some(listen) = http_proxy_listen else {
+            return anyhow::Ok(());
+        };
 
-        tokio::spawn(client::client::accept_proxy_connection(
-            client,
-            server_host.clone(),
-            server_port,
-            key,
-        ));
-    }
+        let listener = TcpListener::bind(listen)
+            .await
+            .context("Error binding HTTP proxy listen address")?;
+
+        tracing::info!("HTTP proxy listening on {}", listener.local_addr()?);
+
+        loop {
+            let (client, addr) = listener.accept().await.expect("Error accepting connection");
+            tracing::info!("Accepted connection from {addr}");
+
+            tokio::spawn(client::client::accept_http_proxy_connection(
+                client,
+                server_host.clone(),
+                server_port,
+                key,
+            ));
+        }
+    };
+
+    let run_socks5_proxy = async {
+        let Some(listen) = socks5_proxy_listen else {
+            return Ok(());
+        };
+
+        let listener = TcpListener::bind(listen)
+            .await
+            .context("Error binding SOCKS5 proxy listen address")?;
+
+        tracing::info!("SOCKS5 proxy listening on {}", listener.local_addr()?);
+
+        loop {
+            let (client, addr) = listener.accept().await.expect("Error accepting connection");
+            tracing::info!("Accepted connection from {addr}");
+
+            tokio::spawn(client::client::accept_socks_proxy_connection(
+                BufReader::new(client),
+                server_host.clone(),
+                server_port,
+                key,
+            ));
+        }
+    };
+
+    try_join!(run_http_proxy, run_socks5_proxy).unwrap();
 }
