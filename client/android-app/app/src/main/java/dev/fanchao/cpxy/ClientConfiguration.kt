@@ -9,6 +9,7 @@ data class ClientConfiguration(
     val serverHost: String,
     val serverPort: UShort,
     val key: String,
+    val tls: Boolean = false,
     val bindAddress: String,
     val enabled: Boolean,
 ) {

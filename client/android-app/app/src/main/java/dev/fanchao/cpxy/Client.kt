@@ -1,5 +1,6 @@
 package dev.fanchao.cpxy
 
+import android.R
 import com.sun.jna.Callback
 import com.sun.jna.Library
 import com.sun.jna.NativeLong
@@ -10,6 +11,7 @@ interface Client : Library {
         serverHost: String,
         serverPort: Short,
         key: String,
+        tls: Boolean,
         bindAddress: String,
         errorMessage: ByteArray,
         errorMessageLen: NativeLong
@@ -21,6 +23,7 @@ interface Client : Library {
 fun Client.create(serverHost: String,
                   serverPort: UShort,
                   key: String,
+                  tls: Boolean,
                   bindAddress: String): Pointer {
     val errorMessage = ByteArray(512)
 
@@ -30,6 +33,7 @@ fun Client.create(serverHost: String,
         key = key,
         bindAddress = bindAddress,
         errorMessage = errorMessage,
+        tls = tls,
         errorMessageLen = NativeLong(errorMessage.size.toLong())
     )
 

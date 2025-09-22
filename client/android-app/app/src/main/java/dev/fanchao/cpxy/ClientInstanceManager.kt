@@ -54,7 +54,8 @@ class ClientInstanceManager (
                             serverHost = newConfig.serverHost,
                             serverPort = newConfig.serverPort,
                             key = newConfig.key,
-                            bindAddress = newConfig.bindAddress
+                            bindAddress = newConfig.bindAddress,
+                            tls = newConfig.tls,
                         )
                     }.onFailure {
                         Log.e("ClientInstanceManager", "Failed to create instance for $newConfig", it)

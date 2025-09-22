@@ -94,6 +94,7 @@ fun EditConfigScreen(
     )
 
     val enableState = remember { mutableStateOf(config?.enabled ?: true) }
+    val tlsState = remember { mutableStateOf(config?.tls ?: false) }
 
     val onSave = {
         val isValid = allFieldStates.fold(true) { acc, state ->
@@ -143,6 +144,8 @@ fun EditConfigScreen(
             states = allFieldStates,
             enableState = enableState.value,
             setEnableState = { enableState.value = it },
+            tls = tlsState.value,
+            setTls = { tlsState.value = it }
         )
     }
 }
@@ -177,6 +180,8 @@ private fun EditConfig(
     states: List<EditingState>,
     enableState: Boolean,
     setEnableState: (enabled: Boolean) -> Unit,
+    tls: Boolean,
+    setTls: (Boolean) -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -200,6 +205,11 @@ private fun EditConfig(
                     }
                 }
             )
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Server TLS", modifier = Modifier.weight(1f))
+            Switch(tls, onCheckedChange = setTls)
         }
 
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
