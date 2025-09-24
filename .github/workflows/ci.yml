@@ -153,8 +153,10 @@ jobs:
           target: ${{ matrix.target }}
           profile: minimal
           override: true
+      - name: Install protobuf
+        run: sudo apt-get install -y protobuf-compiler
       - uses: cargo-bins/cargo-binstall@main
-      - name: Install cargo-ndk
+      - name: Install cross
         run: cargo binstall cross
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
