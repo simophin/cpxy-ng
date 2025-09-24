@@ -1,4 +1,6 @@
+pub mod dns_model;
 pub mod encrypt_stream;
+pub mod geoip;
 pub mod http_protocol;
 pub mod http_proxy;
 pub mod http_stream;

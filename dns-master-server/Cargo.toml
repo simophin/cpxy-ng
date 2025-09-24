@@ -1,0 +1,16 @@
+[package]
+name = "dns-master-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpxy-ng = { path = "../cpxy-ng" }
+tokio = { version = "1", features = ["macros", "net", "io-util", "rt-multi-thread"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = { version = "0", features = ["async-await"] }
+tracing-subscriber = "0"
+dotenvy = "0"
+anyhow = "1"
+hickory-resolver = "0.25.2"
+futures = "0.3.31"
+geoip-data = { path = "../geoip-data" }

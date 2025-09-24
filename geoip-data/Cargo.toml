@@ -1,0 +1,14 @@
+[package]
+name = "geoip-data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpxy-ng = { path = "../cpxy-ng" }
+
+[build-dependencies]
+cpxy-ng = { path = "../cpxy-ng" }
+prost = "0"
+reqwest = { version = "0", features = ["blocking"] }
+geoip-v2ray = { path = "../geoip-v2ray" }
+ipnet = "2"
