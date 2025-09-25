@@ -15,3 +15,5 @@ dotenvy = "0"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 rand = "0"
+geoip-data = { path = "../geoip-data" }
+url = "2"

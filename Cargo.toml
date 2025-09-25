@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["cpxy-ng", "client", "server", "dns-master-server", "geoip-data", "geoip-v2ray"]
+members = ["cpxy-ng", "client", "server", "geoip-data", "geoip-v2ray"]
 
 [profile."release"]
 strip = true

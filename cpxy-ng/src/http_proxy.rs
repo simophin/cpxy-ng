@@ -1,8 +1,10 @@
+use crate::cipher_select::select_cipher_based_on_port;
+use crate::encrypt_stream::Configuration;
+use crate::http_stream::HttpStream;
+use crate::protocol;
 use anyhow::{Context, ensure};
 use tokio::io::AsyncRead;
 use url::Url;
-
-use crate::http_stream::HttpStream;
 
 #[derive(Debug, PartialEq)]
 pub struct ProxyRequestHttp {
@@ -22,6 +24,36 @@ pub struct ProxyRequestSocket {
 pub enum ProxyRequest {
     Http(ProxyRequestHttp),
     Socket(ProxyRequestSocket),
+}
+
+impl From<ProxyRequest> for protocol::Request {
+    fn from(value: ProxyRequest) -> Self {
+        match value {
+            ProxyRequest::Http(req) => Self {
+                host: req.host,
+                port: req.port,
+                tls: req.tls,
+                server_send_cipher: Configuration::random_full(),
+                initial_plaintext: req.payload,
+                client_send_cipher: Configuration::random_full(),
+                timestamp_epoch_seconds: 0,
+            },
+
+            ProxyRequest::Socket(req) => {
+                let (client_send_cipher, server_send_cipher) =
+                    select_cipher_based_on_port(req.port);
+                Self {
+                    host: req.host,
+                    port: req.port,
+                    tls: true,
+                    server_send_cipher,
+                    initial_plaintext: vec![],
+                    client_send_cipher,
+                    timestamp_epoch_seconds: 0,
+                }
+            }
+        }
+    }
 }
 
 pub async fn parse_http_proxy_stream<S: AsyncRead + Unpin>(

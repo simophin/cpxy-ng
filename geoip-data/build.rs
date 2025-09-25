@@ -50,6 +50,7 @@ fn main() {
         .collect();
 
     let mut file = File::options()
+        .create(true)
         .write(true)
         .open(output_file)
         .expect("Could not create GeoIP archive");

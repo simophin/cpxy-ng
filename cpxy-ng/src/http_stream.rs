@@ -60,6 +60,10 @@ impl<H, S> HttpStream<H, S> {
         &self.head
     }
 
+    pub fn head_mut(&mut self) -> &mut H {
+        &mut self.head
+    }
+
     pub fn take_head(self) -> (H, HttpStream<(), S>) {
         let Self {
             head,
@@ -75,6 +79,10 @@ impl<H, S> HttpStream<H, S> {
                 inner,
             },
         )
+    }
+
+    pub fn into_inner(self) -> S {
+        self.inner
     }
 }
 
