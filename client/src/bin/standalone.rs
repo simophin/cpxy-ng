@@ -1,15 +1,16 @@
 use anyhow::Context;
 use clap::Parser;
-use client::handshaker::Handshaker;
-use client::http_proxy_server::{HttpProxyHandshaker, http_proxy_request_to_protocol_request};
+use client::http_proxy_server::HttpProxyHandshaker;
 use client::protocol_config::Config;
-use client::protocol_handlers::send_protocol_request;
-use client::socks_proxy_server::{SocksProxyHandshaker, socks_proxy_request_to_protocol_request};
+use client::protocol_outbound::ProtocolOutbound;
+use client::proxy_handlers;
+use client::socks_proxy_server::SocksProxyHandshaker;
+use cpxy_ng::outbound::Outbound;
 use dotenvy::dotenv;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{BufReader, copy_bidirectional};
+use tokio::io::BufReader;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::try_join;
 use tracing::instrument;
@@ -40,7 +41,7 @@ async fn main() {
         socks5_proxy_listen,
     } = CliOptions::parse();
 
-    let config = Arc::new(config);
+    let outbound = Arc::new(ProtocolOutbound(config));
 
     let run_http_proxy = async {
         let Some(listen) = http_proxy_listen else {
@@ -56,7 +57,7 @@ async fn main() {
         loop {
             let (client, addr) = listener.accept().await.expect("Error accepting connection");
             tracing::info!("Accepted connection from {addr}");
-            tokio::spawn(handle_http_proxy_conn(client, config.clone()));
+            tokio::spawn(handle_http_proxy_conn(client, outbound.clone()));
         }
     };
 
@@ -74,7 +75,7 @@ async fn main() {
         loop {
             let (client, addr) = listener.accept().await.expect("Error accepting connection");
             tracing::info!("Accepted connection from {addr}");
-            tokio::spawn(handle_socks_proxy_conn(client, config.clone()));
+            tokio::spawn(handle_socks_proxy_conn(client, outbound.clone()));
         }
     };
 
@@ -84,60 +85,15 @@ async fn main() {
 #[instrument(ret, skip(conn))]
 async fn handle_socks_proxy_conn(
     conn: TcpStream,
-    config: impl AsRef<Config> + Debug,
+    outbound: impl Outbound + Debug,
 ) -> anyhow::Result<()> {
-    let (req, mut handshaker) = HttpProxyHandshaker::accept(conn).await?;
-
-    let upstream = async {
-        let req =
-            http_proxy_request_to_protocol_request(req, handshaker.stream_mut(), config.as_ref())
-                .await?;
-
-        send_protocol_request(config.as_ref(), req).await
-    }
-    .await;
-
-    match upstream {
-        Ok(mut upstream) => {
-            let mut conn = handshaker.respond_ok().await?;
-            let _ = copy_bidirectional(&mut conn, &mut upstream).await;
-            Ok(())
-        }
-
-        Err(e) => {
-            handshaker.respond_err("Internal Server Error").await?;
-            Err(e)
-        }
-    }
+    proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(BufReader::new(conn), outbound).await
 }
 
 #[instrument(ret, skip(conn))]
 async fn handle_http_proxy_conn(
     conn: TcpStream,
-    config: impl AsRef<Config> + Debug,
+    outbound: impl Outbound + Debug,
 ) -> anyhow::Result<()> {
-    let conn = BufReader::new(conn);
-    let (req, mut handshaker) = SocksProxyHandshaker::accept(conn).await?;
-
-    let upstream = async {
-        let req =
-            socks_proxy_request_to_protocol_request(req, handshaker.stream_mut(), config.as_ref())
-                .await?;
-
-        send_protocol_request(config.as_ref(), req).await
-    }
-    .await;
-
-    match upstream {
-        Ok(mut upstream) => {
-            let mut conn = handshaker.respond_ok().await?;
-            let _ = copy_bidirectional(&mut conn, &mut upstream).await;
-            Ok(())
-        }
-
-        Err(e) => {
-            handshaker.respond_err("Internal Server Error").await?;
-            Err(e)
-        }
-    }
+    proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(conn, outbound).await
 }

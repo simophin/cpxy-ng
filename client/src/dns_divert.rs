@@ -14,7 +14,7 @@ pub enum Action {
 
 #[instrument(ret)]
 pub async fn divert_action(domain: impl AsRef<str> + Debug) -> anyhow::Result<Action> {
-    let addrs: Vec<_> = lookup_host(domain.as_ref())
+    let addrs: Vec<_> = lookup_host(format!("{}:90", domain.as_ref()))
         .await
         .context("Error looking up host")?
         .collect();

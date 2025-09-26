@@ -1,17 +1,7 @@
 use crate::handshaker::Handshaker;
-use anyhow::Context;
-use cpxy_ng::cipher_select::select_cipher_based_on_port;
-use cpxy_ng::encrypt_stream::Configuration;
-use cpxy_ng::http_proxy::{
-    ProxyRequest, ProxyRequestHttp, ProxyRequestSocket, parse_http_proxy_stream,
-};
+use cpxy_ng::http_proxy::{ProxyRequest, parse_http_proxy_stream};
 use cpxy_ng::http_stream::HttpStream;
-use cpxy_ng::key_util::random_vec;
-use cpxy_ng::time_util::now_epoch_seconds;
-use cpxy_ng::{http_protocol, protocol};
-use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::time::timeout;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 pub struct HttpProxyHandshaker<S> {
     stream: HttpStream<(), S>,
@@ -64,68 +54,6 @@ where
 
     fn stream_mut(&mut self) -> &mut HttpStream<(), S> {
         &mut self.stream
-    }
-}
-
-pub async fn http_proxy_request_to_protocol_request(
-    request: ProxyRequest,
-    conn: &mut (impl AsyncRead + Unpin),
-    config: &super::protocol_config::Config,
-) -> anyhow::Result<http_protocol::Request> {
-    match request {
-        ProxyRequest::Http(ProxyRequestHttp {
-            host,
-            port,
-            tls,
-            payload,
-        }) => {
-            let client_send_cipher = Configuration::random_full();
-            let server_send_cipher = Configuration::random_full();
-
-            Ok(http_protocol::Request {
-                request: protocol::Request {
-                    host,
-                    port,
-                    tls,
-                    client_send_cipher,
-                    server_send_cipher,
-                    initial_plaintext: payload,
-                    timestamp_epoch_seconds: now_epoch_seconds(),
-                },
-                websocket_key: random_vec(16),
-                host: config.host.clone(),
-            })
-        }
-
-        ProxyRequest::Socket(ProxyRequestSocket { host, port }) => {
-            let (client_send_cipher, server_send_cipher) = select_cipher_based_on_port(port);
-            let mut initial_plaintext = vec![0u8; 256];
-
-            match timeout(
-                Duration::from_millis(200),
-                conn.read(&mut initial_plaintext),
-            )
-            .await
-            {
-                Ok(Ok(n)) => initial_plaintext.truncate(n),
-                Err(_) => initial_plaintext.clear(), // Timeout, no initial data
-                Ok(Err(e)) => return Err(e).context("Reading initial plaintext from client"),
-            }
-
-            Ok(http_protocol::Request {
-                request: protocol::Request {
-                    host,
-                    port,
-                    tls: false,
-                    client_send_cipher,
-                    server_send_cipher,
-                    initial_plaintext,
-                    timestamp_epoch_seconds: now_epoch_seconds(),
-                },
-                websocket_key: random_vec(16),
-                host: config.host.clone(),
-            })
-        }
     }
 }
 

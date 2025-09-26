@@ -1,25 +1,29 @@
 use anyhow::Context;
 use clap::Parser;
 use client::dns_divert::{Action, divert_action};
-use client::handshaker::Handshaker;
+use std::fmt::Debug;
 
+use client::direct_outbound::DirectOutbound;
+use client::either_stream::EitherStream;
 use client::http_proxy_server::HttpProxyHandshaker;
-use client::protocol_handlers::send_protocol_request;
-use client::{http_proxy_server, protocol_config};
-use cpxy_ng::http_proxy;
-use cpxy_ng::tls_stream::TlsClientStream;
+use client::protocol_config::Config;
+use client::protocol_outbound::ProtocolOutbound;
+use client::proxy_handlers;
+use client::selector_outbound::SelectorOutbound;
+use client::socks_proxy_server::SocksProxyHandshaker;
+use cpxy_ng::outbound::{Outbound, OutboundRequest};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncWriteExt, copy_bidirectional};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 use tokio::net::TcpStream;
+use tokio::try_join;
 use tracing::{Instrument, info_span, instrument};
-use url::Url;
 
 #[derive(clap::Parser)]
 struct CliOptions {
     /// The cpxy sever host to connect to
-    #[clap(env, required = true)]
-    servers: Vec<Url>,
+    #[clap(env, required = true, value_delimiter = ',')]
+    servers: Vec<Config>,
 
     /// The address to listen on for the http proxy
     #[clap(long, env)]
@@ -41,13 +45,10 @@ async fn main() {
         socks5_proxy_listen,
     } = CliOptions::parse();
 
-    let configs = Arc::new(
-        servers
-            .into_iter()
-            .map(protocol_config::Config::try_from)
-            .collect::<anyhow::Result<Vec<_>>>()
-            .expect("Error parsing server URLs"),
-    );
+    tracing::info!("Using servers: {servers:?}");
+
+    let global_outbound =
+        Arc::new(SelectorOutbound::new(servers.into_iter().map(ProtocolOutbound)).unwrap());
 
     let run_http_proxy = async {
         let Some(listen) = http_proxy_listen else {
@@ -66,107 +67,102 @@ async fn main() {
                 .await
                 .context("Error accepting HTTP proxy connection")?;
             tracing::info!("Accepted HTTP proxy connection from {peer_addr}");
-            tokio::spawn(serve_http_proxy_connection(conn, configs.clone()));
+            tokio::spawn(serve_http_proxy_connection(conn, global_outbound.clone()));
         }
     }
     .instrument(info_span!("http_proxy"));
+
+    let run_socks_proxy = async {
+        let Some(listen) = socks5_proxy_listen else {
+            return anyhow::Ok(());
+        };
+
+        let listener = tokio::net::TcpListener::bind(listen)
+            .await
+            .context("Error binding SOCKS5 proxy listen address")?;
+
+        tracing::info!("SOCKS5 proxy listening on {}", listener.local_addr()?);
+
+        loop {
+            let (conn, peer_addr) = listener
+                .accept()
+                .await
+                .context("Error accepting SOCKS5 proxy connection")?;
+            tracing::info!("Accepted SOCKS5 proxy connection from {peer_addr}");
+            tokio::spawn(serve_socks5_proxy_connection(conn, global_outbound.clone()));
+        }
+    }
+    .instrument(info_span!("socks5_proxy"));
+
+    try_join!(run_http_proxy, run_socks_proxy).expect("To run proxy server");
 }
 
-#[instrument(skip(conn, configs), ret)]
+#[instrument(skip(conn, global_outbound), ret)]
 async fn serve_http_proxy_connection(
     conn: TcpStream,
-    configs: Arc<Vec<protocol_config::Config>>,
+    global_outbound: impl Outbound + Debug,
 ) -> anyhow::Result<()> {
-    let (req, mut conn) = HttpProxyHandshaker::accept(conn).await?;
-
-    let (domain, port) = match &req {
-        http_proxy::ProxyRequest::Http(r) => (r.host.as_str(), r.port),
-        http_proxy::ProxyRequest::Socket(r) => (r.host.as_str(), r.port),
-    };
-
-    match divert_action(domain).await {
-        Ok(Action::Direct(addr)) => match req {
-            http_proxy::ProxyRequest::Http(r) => {
-                let upstream = async {
-                    let upstream = TcpStream::connect((addr, port))
-                        .await
-                        .context("Error connecting to remote")?;
-
-                    let mut upstream = if r.tls {
-                        TlsClientStream::connect_tls(&r.host, upstream)
-                            .await
-                            .context("Error establishing TLS connection to remote")?
-                    } else {
-                        TlsClientStream::Plain(upstream)
-                    };
-
-                    upstream
-                        .write_all(&r.payload)
-                        .await
-                        .context("Error sending initial payload to remote")?;
-
-                    anyhow::Ok(upstream)
-                }
-                .await;
-
-                match upstream {
-                    Ok(mut upstream) => {
-                        let mut conn = conn.respond_ok().await?;
-                        let _ = copy_bidirectional(&mut upstream, &mut conn).await;
-                        Ok(())
-                    }
-
-                    Err(e) => {
-                        conn.respond_err(format!("{e:?}").as_str()).await?;
-                        Err(e).context("Error connecting to upstream")
-                    }
-                }
-            }
-
-            http_proxy::ProxyRequest::Socket(_) => match TcpStream::connect((addr, port)).await {
-                Ok(mut upstream) => {
-                    let mut conn = conn.respond_ok().await?;
-                    let _ = copy_bidirectional(&mut upstream, &mut conn).await;
-                    Ok(())
-                }
-
-                Err(e) => {
-                    conn.respond_err(format!("{e:?}").as_str()).await?;
-                    Err(e).context("Error connecting to upstream")
-                }
-            },
+    proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(
+        conn,
+        CnDivertOutbound {
+            cn_outbound: DirectOutbound,
+            global_outbound,
         },
+    )
+    .await
+}
 
-        Ok(Action::Proxy) => {
-            let config = configs.as_slice().get(0).unwrap();
-            let upstream = async {
-                let req = http_proxy_server::http_proxy_request_to_protocol_request(
-                    req,
-                    conn.stream_mut(),
-                    config,
-                )
-                .await?;
+#[instrument(skip(conn), ret)]
+async fn serve_socks5_proxy_connection(
+    conn: TcpStream,
+    global_outbound: impl Outbound + Debug,
+) -> anyhow::Result<()> {
+    proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(
+        BufReader::new(conn),
+        CnDivertOutbound {
+            cn_outbound: DirectOutbound,
+            global_outbound,
+        },
+    )
+    .await
+}
 
-                send_protocol_request(config, req).await
-            };
+pub struct CnDivertOutbound<CN, Global> {
+    pub cn_outbound: CN,
+    pub global_outbound: Global,
+}
 
-            match upstream.await {
-                Ok(mut upstream) => {
-                    let mut conn = conn.respond_ok().await?;
-                    let _ = copy_bidirectional(&mut upstream, &mut conn).await;
-                    Ok(())
-                }
+impl<CN, Global> Outbound for CnDivertOutbound<CN, Global>
+where
+    CN: Outbound,
+    Global: Outbound,
+{
+    async fn send(
+        &self,
+        req: OutboundRequest,
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
+        match divert_action(req.host.as_str())
+            .await
+            .context("Error resolving DNS")?
+        {
+            Action::Direct(addr) => self
+                .cn_outbound
+                .send(OutboundRequest {
+                    host: addr.to_string(),
+                    port: req.port,
+                    tls: req.tls,
+                    initial_plaintext: req.initial_plaintext,
+                })
+                .await
+                .context("Error sending via CN outbound")
+                .map(EitherStream::Left),
 
-                Err(e) => {
-                    conn.respond_err(format!("{e:?}").as_str()).await?;
-                    Err(e).context("Error connecting to upstream")
-                }
-            }
-        }
-
-        Err(e) => {
-            conn.respond_err(format!("{e:?}").as_str()).await?;
-            Err(e).context("Error determining divert action")
+            Action::Proxy => self
+                .global_outbound
+                .send(req)
+                .await
+                .context("Error sending global outbound")
+                .map(EitherStream::Right),
         }
     }
 }

@@ -137,6 +137,12 @@ jobs:
           name: client-${{ matrix.target }}.exe
           path: client-${{ matrix.target }}.exe
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}.exe
+          path: client_cn-${{ matrix.target }}.exe
+
   build_linux:
     name: Build Linux binaries
     runs-on: ubuntu-latest
@@ -166,7 +172,7 @@ jobs:
         run: |
           mv target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
           mv target/${{ matrix.target }}/release/server server-${{ matrix.target }}
-          mv target/${{ matrix.target }}/release/dns-master-server dns-master-server-${{ matrix.target }}
+          mv target/${{ matrix.target }}/release/client_cn client_cn-${{ matrix.target }}
       - name: Upload client artifact
         uses: actions/upload-artifact@v4
         with:
@@ -177,11 +183,11 @@ jobs:
         with:
           name: server-${{ matrix.target }}
           path: server-${{ matrix.target }}
-      - name: Upload dns-master-server artifact
+      - name: Upload client_cn artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dns-master-server-${{ matrix.target }}
-          path: dns-master-server-${{ matrix.target }}
+          name: client_cn-${{ matrix.target }}
+          path: client_cn-${{ matrix.target }}
 
   build_macos:
     name: Build macOS binaries
@@ -211,6 +217,11 @@ jobs:
         with:
           name: client-${{ matrix.target }}
           path: client-${{ matrix.target }}
+      - name: Upload client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}
+          path: client_cn-${{ matrix.target }}
 
   test:
     name: Run tests on main platform

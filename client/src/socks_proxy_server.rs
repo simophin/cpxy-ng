@@ -1,42 +1,160 @@
 use crate::handshaker::Handshaker;
-use anyhow::Context;
-use cpxy_ng::cipher_select::select_cipher_based_on_port;
-use cpxy_ng::key_util::random_vec;
-use cpxy_ng::socks_stream::{ProxyRequest, SocksStream};
-use cpxy_ng::time_util::now_epoch_seconds;
-use cpxy_ng::{http_protocol, protocol};
-use std::time::Duration;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::time::timeout;
+use anyhow::{Context, bail, ensure};
+use cpxy_ng::outbound::OutboundRequest;
+use std::fmt::{Debug, Formatter};
+use std::net::{IpAddr, SocketAddr};
+use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tracing::instrument;
 
 pub struct SocksProxyHandshaker<S> {
-    stream: SocksStream<S>,
+    stream: S,
+}
+
+impl<S> Debug for SocksProxyHandshaker<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SocksProxyHandshaker")
+    }
+}
+
+#[derive(Debug)]
+pub enum ProxyRequest {
+    WithDomain(String, u16),
+    WithIP(SocketAddr),
+}
+
+impl From<ProxyRequest> for OutboundRequest {
+    fn from(value: ProxyRequest) -> Self {
+        match value {
+            ProxyRequest::WithDomain(host, port) => Self {
+                host,
+                port,
+                tls: false,
+                initial_plaintext: vec![],
+            },
+            ProxyRequest::WithIP(addr) => Self {
+                host: addr.ip().to_string(),
+                port: addr.port(),
+                tls: false,
+                initial_plaintext: vec![],
+            },
+        }
+    }
 }
 
 impl<S> Handshaker<S> for SocksProxyHandshaker<S>
 where
     S: AsyncBufRead + AsyncWrite + Unpin,
 {
-    type StreamType = SocksStream<S>;
+    type StreamType = S;
     type RequestType = ProxyRequest;
 
     fn can_read_initial_data(_r: &Self::RequestType) -> bool {
         true
     }
 
-    async fn accept(stream: S) -> anyhow::Result<(ProxyRequest, Self)> {
-        let (stream, request) = SocksStream::accept(stream).await.map_err(|(e, _)| e)?;
-        Ok((request, SocksProxyHandshaker { stream }))
+    #[instrument(ret, skip(stream))]
+    async fn accept(mut stream: S) -> anyhow::Result<(ProxyRequest, Self)> {
+        ensure!(
+            stream.read_u8().await.context("Error reading version")? == 5,
+            "Unsupported SOCKS version while waiting for initial greeting"
+        );
+
+        let mut methods =
+            vec![0; stream.read_u8().await.context("Error reading n_methods")? as usize];
+        stream
+            .read_exact(&mut methods)
+            .await
+            .context("Error reading auth methods")?;
+
+        ensure!(methods.contains(&0), "No supported authentication methods");
+
+        // Reply with auth method selection
+        stream
+            .write_all(&[5, 0])
+            .await
+            .context("Error writing auth method selection")?;
+
+        // Now read the actual request
+        ensure!(
+            stream.read_u8().await.context("Error reading version")? == 5,
+            "Unsupported SOCKS version while waiting for request"
+        );
+
+        ensure!(
+            stream.read_u8().await.context("Error reading command")? == 1,
+            "Only CONNECT command is supported"
+        );
+
+        ensure!(
+            stream
+                .read_u8()
+                .await
+                .context("Error reading reserved byte")?
+                == 0,
+            "Invalid reserved byte"
+        );
+
+        // Read address type
+        let addr_type = stream
+            .read_u8()
+            .await
+            .context("Error reading address type")?;
+
+        let dest = match addr_type {
+            1 => {
+                // IPv4
+                let mut ip_bytes = [0; 4];
+                stream
+                    .read_exact(&mut ip_bytes)
+                    .await
+                    .context("Error reading IPv4 address")?;
+                let ip = IpAddr::from(ip_bytes);
+                let port = stream.read_u16().await.context("Error reading port")?;
+                ProxyRequest::WithIP(SocketAddr::new(ip, port))
+            }
+            3 => {
+                // Domain name
+                let domain_len = stream
+                    .read_u8()
+                    .await
+                    .context("Error reading domain length")?;
+                let mut domain_bytes = vec![0; domain_len as usize];
+                stream
+                    .read_exact(&mut domain_bytes)
+                    .await
+                    .context("Error reading domain")?;
+                let domain = String::from_utf8(domain_bytes).context("Invalid UTF-8 in domain")?;
+                let port = stream.read_u16().await.context("Error reading port")?;
+                ProxyRequest::WithDomain(domain, port)
+            }
+            4 => {
+                // IPv6
+                let mut ip_bytes = [0; 16];
+                stream
+                    .read_exact(&mut ip_bytes)
+                    .await
+                    .context("Error reading IPv6 address")?;
+                let ip = IpAddr::from(ip_bytes);
+                let port = stream.read_u16().await.context("Error reading port")?;
+                ProxyRequest::WithIP(SocketAddr::new(ip, port))
+            }
+            _ => {
+                bail!("Unsupported address type {addr_type}");
+            }
+        };
+
+        anyhow::Ok((dest, Self { stream }))
     }
 
-    async fn respond_ok(mut self) -> anyhow::Result<SocksStream<S>>
+    async fn respond_ok(mut self) -> anyhow::Result<Self::StreamType>
     where
         S: AsyncWrite + Unpin,
     {
+        // Reply with success
         self.stream
-            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            .write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0])
             .await
-            .context("Error writing OK response")?;
+            .context("Error writing success reply")?;
 
         Ok(self.stream)
     }
@@ -45,52 +163,10 @@ where
     where
         S: AsyncWrite + Unpin,
     {
-        self.stream
-            .write_all(super::http_proxy_server::construct_error_http_response(500, msg).as_bytes())
-            .await
-            .context("Error writing ERR response")
+        Ok(())
     }
 
-    fn stream_mut(&mut self) -> &mut SocksStream<S> {
+    fn stream_mut(&mut self) -> &mut Self::StreamType {
         &mut self.stream
     }
-}
-
-pub async fn socks_proxy_request_to_protocol_request(
-    request: ProxyRequest,
-    conn: &mut (impl AsyncRead + Unpin),
-    config: &super::protocol_config::Config,
-) -> anyhow::Result<http_protocol::Request> {
-    let (host, port) = match request {
-        ProxyRequest::WithDomain(host, port) => (host, port),
-        ProxyRequest::WithIP(addr) => (addr.ip().to_string(), addr.port()),
-    };
-
-    let (client_send_cipher, server_send_cipher) = select_cipher_based_on_port(port);
-    let mut initial_plaintext = vec![0u8; 256];
-
-    match timeout(
-        Duration::from_millis(200),
-        conn.read(&mut initial_plaintext),
-    )
-    .await
-    {
-        Ok(Ok(n)) => initial_plaintext.truncate(n),
-        Err(_) => initial_plaintext.clear(), // Timeout, no initial data
-        Ok(Err(e)) => return Err(e).context("Reading initial plaintext from client"),
-    }
-
-    Ok(http_protocol::Request {
-        request: protocol::Request {
-            host,
-            port,
-            tls: false,
-            client_send_cipher,
-            server_send_cipher,
-            initial_plaintext,
-            timestamp_epoch_seconds: now_epoch_seconds(),
-        },
-        websocket_key: random_vec(16),
-        host: config.host.clone(),
-    })
 }
