@@ -1,13 +1,11 @@
 pub mod counted_stream;
 pub mod direct_outbound;
-pub mod dns_divert;
-mod either_outbound;
 pub mod either_stream;
 pub mod handshaker;
 pub mod http_proxy_server;
+pub mod ip_divert_outbound;
 pub mod protocol_config;
 pub mod protocol_outbound;
 pub mod proxy_handlers;
-pub mod selector_outbound;
+pub mod site_divert_outbound;
 pub mod socks_proxy_server;
-mod stats_outbound;

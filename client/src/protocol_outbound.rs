@@ -8,7 +8,7 @@ use cpxy_ng::tls_stream::TlsClientStream;
 use cpxy_ng::{http_protocol, protocol};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, lookup_host};
 
 #[derive(Debug)]
 pub struct ProtocolOutbound(pub Config);
@@ -29,7 +29,19 @@ impl Outbound for ProtocolOutbound {
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
         let config = &self.0;
-        let conn = TcpStream::connect((config.host.as_str(), config.port))
+        let addr = lookup_host((config.host.as_str(), config.port))
+            .await
+            .with_context(|| format!("failed to lookup host {:?}", config.host))?
+            .filter(|addr| addr.is_ipv4())
+            .next()
+            .with_context(|| {
+                format!(
+                    "failed to lookup host {:?}: no ipv4 address available",
+                    config.host
+                )
+            })?;
+
+        let conn = TcpStream::connect(addr)
             .await
             .with_context(|| format!("Error connecting to upstream server: {config:?}"))?;
 

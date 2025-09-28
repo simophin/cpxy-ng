@@ -1,20 +1,21 @@
 use anyhow::Context;
 use clap::Parser;
-use client::dns_divert::{Action, divert_action};
-use std::fmt::Debug;
 
 use client::direct_outbound::DirectOutbound;
-use client::either_stream::EitherStream;
 use client::http_proxy_server::HttpProxyHandshaker;
+use client::ip_divert_outbound::IPDivertOutbound;
 use client::protocol_config::Config;
 use client::protocol_outbound::ProtocolOutbound;
 use client::proxy_handlers;
-use client::selector_outbound::SelectorOutbound;
+use client::site_divert_outbound::SiteDivertOutbound;
 use client::socks_proxy_server::SocksProxyHandshaker;
-use cpxy_ng::outbound::{Outbound, OutboundRequest};
-use std::net::SocketAddr;
+use cpxy_ng::geoip::find_country_code_v4;
+use cpxy_ng::outbound::Outbound;
+use geoip_data::CN_GEOIP;
+use ipnet::Ipv4Net;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite, BufReader};
+use tokio::io::BufReader;
 use tokio::net::TcpStream;
 use tokio::try_join;
 use tracing::{Instrument, info_span, instrument};
@@ -22,8 +23,16 @@ use tracing::{Instrument, info_span, instrument};
 #[derive(clap::Parser)]
 struct CliOptions {
     /// The cpxy sever host to connect to
-    #[clap(env, required = true, value_delimiter = ',')]
-    servers: Vec<Config>,
+    #[clap(env, required = true)]
+    server: Config,
+
+    /// The cpxy server host to connect to for AI website access
+    #[clap(env, long)]
+    ai_server: Option<Config>,
+
+    /// The cpxy server host to connect to for Tailscale access
+    #[clap(env, long)]
+    tailscale_server: Option<Config>,
 
     /// The address to listen on for the http proxy
     #[clap(long, env)]
@@ -40,15 +49,36 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let CliOptions {
-        servers,
+        server,
         http_proxy_listen,
         socks5_proxy_listen,
+        ai_server,
+        tailscale_server,
     } = CliOptions::parse();
 
-    tracing::info!("Using servers: {servers:?}");
+    tracing::info!(
+        "Using servers: {server:?}, AI divert: {ai_server:?}, Tailscale divert: {tailscale_server:?}"
+    );
 
-    let global_outbound =
-        Arc::new(SelectorOutbound::new(servers.into_iter().map(ProtocolOutbound)).unwrap());
+    let global_outbound = ProtocolOutbound(server);
+    let ai_outbound = ai_server.map(ProtocolOutbound);
+    let tailscale_outbound = tailscale_server.map(ProtocolOutbound);
+
+    let outbound = IPDivertOutbound {
+        outbound_a: tailscale_outbound,
+        outbound_b: SiteDivertOutbound {
+            outbound_a: ai_outbound,
+            outbound_b: IPDivertOutbound {
+                outbound_a: Some(DirectOutbound),
+                outbound_b: global_outbound,
+                should_use_a: ip_should_route_direct,
+            },
+            should_use_a: site_should_route_ai,
+        },
+        should_use_a: ip_should_route_tailscale,
+    };
+
+    let outbound = Arc::new(outbound);
 
     let run_http_proxy = async {
         let Some(listen) = http_proxy_listen else {
@@ -67,7 +97,7 @@ async fn main() {
                 .await
                 .context("Error accepting HTTP proxy connection")?;
             tracing::info!("Accepted HTTP proxy connection from {peer_addr}");
-            tokio::spawn(serve_http_proxy_connection(conn, global_outbound.clone()));
+            tokio::spawn(serve_http_proxy_connection(conn, outbound.clone()));
         }
     }
     .instrument(info_span!("http_proxy"));
@@ -89,7 +119,7 @@ async fn main() {
                 .await
                 .context("Error accepting SOCKS5 proxy connection")?;
             tracing::info!("Accepted SOCKS5 proxy connection from {peer_addr}");
-            tokio::spawn(serve_socks5_proxy_connection(conn, global_outbound.clone()));
+            tokio::spawn(serve_socks5_proxy_connection(conn, outbound.clone()));
         }
     }
     .instrument(info_span!("socks5_proxy"));
@@ -97,72 +127,48 @@ async fn main() {
     try_join!(run_http_proxy, run_socks_proxy).expect("To run proxy server");
 }
 
-#[instrument(skip(conn, global_outbound), ret)]
+#[instrument(skip_all, ret)]
 async fn serve_http_proxy_connection(
     conn: TcpStream,
-    global_outbound: impl Outbound + Debug,
+    outbound: impl Outbound,
 ) -> anyhow::Result<()> {
-    proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(
-        conn,
-        CnDivertOutbound {
-            cn_outbound: DirectOutbound,
-            global_outbound,
-        },
-    )
-    .await
+    proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(conn, outbound).await
 }
 
-#[instrument(skip(conn), ret)]
+#[instrument(skip_all, ret)]
 async fn serve_socks5_proxy_connection(
     conn: TcpStream,
-    global_outbound: impl Outbound + Debug,
+    outbound: impl Outbound,
 ) -> anyhow::Result<()> {
-    proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(
-        BufReader::new(conn),
-        CnDivertOutbound {
-            cn_outbound: DirectOutbound,
-            global_outbound,
-        },
-    )
-    .await
+    proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(BufReader::new(conn), outbound).await
 }
 
-pub struct CnDivertOutbound<CN, Global> {
-    pub cn_outbound: CN,
-    pub global_outbound: Global,
+const TAILSCALE_NETWORK: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(100, 0, 0, 0), 8);
+
+fn ip_should_route_direct(ip: Ipv4Addr) -> bool {
+    ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || TAILSCALE_NETWORK.contains(&ip)
+        || matches!(find_country_code_v4(&ip, CN_GEOIP), Ok(Some("CN")))
 }
 
-impl<CN, Global> Outbound for CnDivertOutbound<CN, Global>
-where
-    CN: Outbound,
-    Global: Outbound,
-{
-    async fn send(
-        &self,
-        req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
-        match divert_action(req.host.as_str())
-            .await
-            .context("Error resolving DNS")?
-        {
-            Action::Direct(addr) => self
-                .cn_outbound
-                .send(OutboundRequest {
-                    host: addr.to_string(),
-                    port: req.port,
-                    tls: req.tls,
-                    initial_plaintext: req.initial_plaintext,
-                })
-                .await
-                .context("Error sending via CN outbound")
-                .map(EitherStream::Left),
-
-            Action::Proxy => self
-                .global_outbound
-                .send(req)
-                .await
-                .context("Error sending global outbound")
-                .map(EitherStream::Right),
-        }
-    }
+fn site_should_route_ai(domain: &str) -> bool {
+    AI_DOMAIN_POSTFIXES
+        .iter()
+        .any(|postfix| domain.to_ascii_lowercase().ends_with(postfix))
 }
+
+fn ip_should_route_tailscale(ip: Ipv4Addr) -> bool {
+    TAILSCALE_NETWORK.contains(&ip)
+}
+
+const AI_DOMAIN_POSTFIXES: &[&str] = &[
+    "anthropic.com",
+    "openai.com",
+    "chatgpt.com",
+    "googleapis.com",
+    "google.com",
+    "googleusercontent.com",
+    "gstatic.com",
+];

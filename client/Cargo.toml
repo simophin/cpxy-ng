@@ -17,3 +17,5 @@ clap = { version = "4", features = ["derive", "env"] }
 rand = "0"
 geoip-data = { path = "../geoip-data" }
 url = "2"
+ipnet = "2"
+parking_lot = "0.12.4"
