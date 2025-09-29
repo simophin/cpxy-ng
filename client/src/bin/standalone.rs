@@ -1,32 +1,22 @@
 use anyhow::Context;
 use clap::Parser;
-use client::client::UpstreamConfiguration;
-use cpxy_ng::key_util::derive_password;
+use client::http_proxy_server::HttpProxyHandshaker;
+use client::protocol_config::Config;
+use client::protocol_outbound::ProtocolOutbound;
+use client::proxy_handlers;
+use client::socks_proxy_server::SocksProxyHandshaker;
+use cpxy_ng::outbound::Outbound;
 use dotenvy::dotenv;
+use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::BufReader;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::try_join;
+use tracing::instrument;
 
 #[derive(clap::Parser)]
 struct CliOptions {
-    /// The cpxy sever host to connect to
-    #[clap(long, env)]
-    server_host: String,
-
-    /// The cpxy server port to connect to
-    #[clap(long, env)]
-    server_port: u16,
-
-    /// Whether to use TLS when connecting to the cpxy server
-    #[clap(long, env, default_value_t = false)]
-    server_tls: bool,
-
-    /// The pre-shared key for encryption/decryption
-    #[clap(long, env)]
-    key: String,
-
     /// The address to listen on for the http proxy
     #[clap(long, env)]
     http_proxy_listen: Option<SocketAddr>,
@@ -34,6 +24,10 @@ struct CliOptions {
     /// The address to listen on for the socks5 proxy
     #[clap(long, env)]
     socks5_proxy_listen: Option<SocketAddr>,
+
+    /// The server configuration
+    #[clap(env)]
+    config: Config,
 }
 
 #[tokio::main]
@@ -42,22 +36,12 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let CliOptions {
-        server_host,
-        server_port,
-        server_tls,
-        key,
+        config,
         http_proxy_listen,
         socks5_proxy_listen,
     } = CliOptions::parse();
 
-    let key = derive_password(&key).into();
-
-    let config = Arc::new(UpstreamConfiguration {
-        host: server_host,
-        port: server_port,
-        tls: server_tls,
-        key,
-    });
+    let outbound = Arc::new(ProtocolOutbound(config));
 
     let run_http_proxy = async {
         let Some(listen) = http_proxy_listen else {
@@ -73,11 +57,7 @@ async fn main() {
         loop {
             let (client, addr) = listener.accept().await.expect("Error accepting connection");
             tracing::info!("Accepted connection from {addr}");
-
-            tokio::spawn(client::client::accept_http_proxy_connection(
-                client,
-                config.clone(),
-            ));
+            tokio::spawn(handle_http_proxy_conn(client, outbound.clone()));
         }
     };
 
@@ -95,13 +75,25 @@ async fn main() {
         loop {
             let (client, addr) = listener.accept().await.expect("Error accepting connection");
             tracing::info!("Accepted connection from {addr}");
-
-            tokio::spawn(client::client::accept_socks_proxy_connection(
-                BufReader::new(client),
-                config.clone(),
-            ));
+            tokio::spawn(handle_socks_proxy_conn(client, outbound.clone()));
         }
     };
 
     try_join!(run_http_proxy, run_socks5_proxy).unwrap();
+}
+
+#[instrument(ret, skip(conn))]
+async fn handle_socks_proxy_conn(
+    conn: TcpStream,
+    outbound: impl Outbound + Debug,
+) -> anyhow::Result<()> {
+    proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(BufReader::new(conn), outbound).await
+}
+
+#[instrument(ret, skip(conn))]
+async fn handle_http_proxy_conn(
+    conn: TcpStream,
+    outbound: impl Outbound + Debug,
+) -> anyhow::Result<()> {
+    proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(conn, outbound).await
 }

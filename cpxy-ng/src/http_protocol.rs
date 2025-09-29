@@ -7,6 +7,7 @@ use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use chacha20poly1305::Key;
 use rand::random_range;
 use sha1::Digest;
+use std::fmt::Debug;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug, PartialEq)]

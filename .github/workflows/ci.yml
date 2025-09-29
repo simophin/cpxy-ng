@@ -5,10 +5,9 @@ on:
     branches:
       - main
   pull_request:
-    types:
-      - synchronize
+    types: [ synchronize, opened, reopened ]
   release:
-    types: [published]
+    types: [ published ]
 
 # Limit concurrency to one per branch
 concurrency:
@@ -30,13 +29,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          profile: minimal
-          override: true
+          targets: ${{ matrix.target }}
 
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-ndk
@@ -44,17 +39,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build standalone binary
-        run: cargo ndk -t ${{ matrix.target }} build --release -p client --bin standalone
+      - name: Build client binaries
+        run: cargo ndk -t ${{ matrix.target }} build --release -p client
 
-      - name: Rename artifact
-        run: mv -v target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
-
-      - name: Upload artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.target }}
-          path: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   build_android_app:
     name: Build Android app
@@ -111,50 +109,43 @@ jobs:
     name: Build windows binaries
     strategy:
       matrix:
-        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+        target: [ x86_64-pc-windows-msvc, i686-pc-windows-msvc ]
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          profile: minimal
-          override: true
+          targets: ${{ matrix.target }}
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p client
 
-      - name: Rename artifact
-        run: mv target/${{ matrix.target }}/release/standalone.exe client-${{ matrix.target }}.exe
-
-      - name: Upload artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: client-${{ matrix.target }}.exe
-          path: client-${{ matrix.target }}.exe
+          name: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   build_linux:
     name: Build Linux binaries
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+        target: [ x86_64-unknown-linux-musl, aarch64-unknown-linux-musl ]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          profile: minimal
-          override: true
-      - name: Install protobuf
-        run: sudo apt-get install -y protobuf-compiler
+          targets: ${{ matrix.target }}
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cross
         run: cargo binstall cross
@@ -162,26 +153,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
         run: cross build --release --target ${{ matrix.target }}
-      - name: Rename artifacts
-        run: |
-          mv target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
-          mv target/${{ matrix.target }}/release/server server-${{ matrix.target }}
-          mv target/${{ matrix.target }}/release/dns-master-server dns-master-server-${{ matrix.target }}
-      - name: Upload client artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-${{ matrix.target }}
-          path: client-${{ matrix.target }}
       - name: Upload server artifact
         uses: actions/upload-artifact@v4
         with:
           name: server-${{ matrix.target }}
-          path: server-${{ matrix.target }}
-      - name: Upload dns-master-server artifact
+          path: target/${{ matrix.target }}/release/server
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: dns-master-server-${{ matrix.target }}
-          path: dns-master-server-${{ matrix.target }}
+          name: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   build_macos:
     name: Build macOS binaries
@@ -194,23 +181,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          profile: minimal
-          override: true
+          targets: ${{ matrix.target }}
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p client
-      - name: Rename artifacts
-        run: |
-          mv target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
-      - name: Upload client artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.target }}
-          path: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   test:
     name: Run tests on main platform
@@ -218,12 +204,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - name: Test
         run: cargo test
 
