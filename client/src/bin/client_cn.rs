@@ -163,12 +163,4 @@ fn ip_should_route_tailscale(ip: Ipv4Addr) -> bool {
     TAILSCALE_NETWORK.contains(&ip)
 }
 
-const AI_DOMAIN_POSTFIXES: &[&str] = &[
-    "anthropic.com",
-    "openai.com",
-    "chatgpt.com",
-    "googleapis.com",
-    "google.com",
-    "googleusercontent.com",
-    "gstatic.com",
-];
+const AI_DOMAIN_POSTFIXES: &[&str] = &["anthropic.com", "openai.com", "chatgpt.com"];

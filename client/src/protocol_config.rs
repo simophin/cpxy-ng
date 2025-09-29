@@ -15,12 +15,13 @@ pub struct Config {
 
 impl Debug for Config {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Config")
-            .field("host", &self.host)
-            .field("port", &self.port)
-            .field("key", &"<redacted>")
-            .field("tls", &self.tls)
-            .finish()
+        write!(
+            f,
+            "{}://{}:{}",
+            if self.tls { "https" } else { "http" },
+            self.host,
+            self.port
+        )
     }
 }
 

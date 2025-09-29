@@ -44,17 +44,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build standalone binary
-        run: cargo ndk -t ${{ matrix.target }} build --release -p client --bin standalone
+      - name: Build client binaries
+        run: cargo ndk -t ${{ matrix.target }} build --release -p client
 
-      - name: Rename artifact
-        run: mv -v target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
-
-      - name: Upload artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.target }}
-          path: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
+        uses: actions/upload-artifact@v4
+        with:
+          name: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   build_android_app:
     name: Build Android app
@@ -128,20 +131,17 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p client
 
-      - name: Rename artifact
-        run: mv target/${{ matrix.target }}/release/standalone.exe client-${{ matrix.target }}.exe
-
-      - name: Upload artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: client-${{ matrix.target }}.exe
-          path: client-${{ matrix.target }}.exe
+          name: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
 
-      - name: Upload artifact
+      - name: Upload client_cn
         uses: actions/upload-artifact@v4
         with:
-          name: client_cn-${{ matrix.target }}.exe
-          path: client_cn-${{ matrix.target }}.exe
+          name: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   build_linux:
     name: Build Linux binaries
@@ -168,26 +168,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
         run: cross build --release --target ${{ matrix.target }}
-      - name: Rename artifacts
-        run: |
-          mv target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
-          mv target/${{ matrix.target }}/release/server server-${{ matrix.target }}
-          mv target/${{ matrix.target }}/release/client_cn client_cn-${{ matrix.target }}
-      - name: Upload client artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-${{ matrix.target }}
-          path: client-${{ matrix.target }}
       - name: Upload server artifact
         uses: actions/upload-artifact@v4
         with:
           name: server-${{ matrix.target }}
           path: server-${{ matrix.target }}
-      - name: Upload client_cn artifact
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
         uses: actions/upload-artifact@v4
         with:
           name: client_cn-${{ matrix.target }}
-          path: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   build_macos:
     name: Build macOS binaries
@@ -209,19 +205,17 @@ jobs:
           override: true
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p client
-      - name: Rename artifacts
-        run: |
-          mv target/${{ matrix.target }}/release/standalone client-${{ matrix.target }}
-      - name: Upload client artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.target }}
-          path: client-${{ matrix.target }}
-      - name: Upload client artifact
+          path: target/${{ matrix.target }}/release/standalone
+
+      - name: Upload client_cn
         uses: actions/upload-artifact@v4
         with:
           name: client_cn-${{ matrix.target }}
-          path: client_cn-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/client_cn
 
   test:
     name: Run tests on main platform

@@ -26,6 +26,7 @@ where
             let ip = lookup_host(format!("{domain}:80"))
                 .await
                 .with_context(|| format!("Error resolving hostname: {domain}"))?
+                .filter(|s| s.is_ipv4())
                 .next()
                 .with_context(|| format!("No addresses found for domain {domain}"))?
                 .ip();
