@@ -158,8 +158,6 @@ jobs:
           target: ${{ matrix.target }}
           profile: minimal
           override: true
-      - name: Install protobuf
-        run: sudo apt-get install -y protobuf-compiler
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cross
         run: cargo binstall cross
@@ -171,7 +169,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server-${{ matrix.target }}
-          path: server-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/server
       - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
