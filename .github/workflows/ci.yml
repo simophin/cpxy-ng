@@ -5,10 +5,9 @@ on:
     branches:
       - main
   pull_request:
-    types:
-      - synchronize
+    types: [ synchronize, opened, reopened ]
   release:
-    types: [published]
+    types: [ published ]
 
 # Limit concurrency to one per branch
 concurrency:
@@ -114,7 +113,7 @@ jobs:
     name: Build windows binaries
     strategy:
       matrix:
-        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+        target: [ x86_64-pc-windows-msvc, i686-pc-windows-msvc ]
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -148,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+        target: [ x86_64-unknown-linux-musl, aarch64-unknown-linux-musl ]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
