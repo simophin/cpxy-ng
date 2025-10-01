@@ -36,7 +36,7 @@ where
         tracing::debug!("Read {n} bytes of initial data from client");
         req.initial_plaintext.extend_from_slice(&buf[..n]);
 
-        upstream = timeout(Duration::from_secs(5), outbound.send(req))
+        upstream = timeout(Duration::from_secs(50), outbound.send(req))
             .await
             .context("Timeout connecting to upstream server")??;
     } else {

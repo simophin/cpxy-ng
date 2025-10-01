@@ -14,6 +14,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build_android_binaries:
     name: Build Android binaries
@@ -126,13 +129,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/standalone
+          path: target/${{ matrix.target }}/release/standalone.exe
 
       - name: Upload client_cn
         uses: actions/upload-artifact@v4
         with:
           name: client_cn-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/client_cn
+          path: target/${{ matrix.target }}/release/client_cn.exe
 
   build_linux:
     name: Build Linux binaries
