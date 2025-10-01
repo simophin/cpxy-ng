@@ -7,6 +7,6 @@ import dev.fanchao.cpxy.App.Companion.appInstance
 
 class StopServiceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        context.appInstance.clientInstanceManager.stop()
+        context.appInstance.configurationRepository.setProfileEnabled(null)
     }
 }

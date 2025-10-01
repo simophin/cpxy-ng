@@ -12,24 +12,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,41 +38,36 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.ClientConfiguration
-import dev.fanchao.cpxy.ClientConfigurationRepository
-import dev.fanchao.cpxy.ClientInstanceManager
-import dev.fanchao.cpxy.R
+import dev.fanchao.cpxy.ConfigRepository
+import dev.fanchao.cpxy.Profile
+import dev.fanchao.cpxy.ProfileInstanceManager
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
 @Serializable
-data object ServerListRoute
+data object ProfileListRoute
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServerListScreen(
-    configurationRepository: ClientConfigurationRepository,
-    clientInstanceManager: ClientInstanceManager,
-    navigateToEditScreen: (ClientConfiguration) -> Unit,
+fun ProfileListScreen(
+    configurationRepository: ConfigRepository,
+    profileInstanceManager: ProfileInstanceManager,
+    navigateToEditScreen: (Profile) -> Unit,
     navigateToNewConfigScreen: () -> Unit,
+    navigateToSettingScreen: () -> Unit,
 ) {
     val showingErrorDialog = remember { mutableStateOf<Throwable?>(null) }
 
     val configurations by configurationRepository
-        .configurations
+        .clientConfig
         .collectAsState()
 
-    val instanceState by clientInstanceManager
+    val runningState by profileInstanceManager
         .state
-        .collectAsState()
-
-    val serviceStarted by clientInstanceManager
-        .started
         .collectAsState()
 
     Scaffold(
@@ -89,42 +81,27 @@ fun ServerListScreen(
                             contentDescription = "Add"
                         )
                     }
+
+                    IconButton(onClick = navigateToSettingScreen) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
                 })
         },
-        floatingActionButton = {
-            FloatingActionButton(onClick = {
-                if (serviceStarted) {
-                    clientInstanceManager.stop()
-                } else {
-                    clientInstanceManager.start()
-                }
-            }) {
-                if (serviceStarted) {
-                    Icon(
-                        painterResource(R.drawable.baseline_stop_24),
-                        contentDescription = "stop"
-                    )
-                } else {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Start")
-                }
-            }
-        }
     ) { paddings ->
-        ServerList(
+        ProfileList(
             modifier = Modifier.padding(paddings),
-            configurations = configurations,
-            instanceState = instanceState,
-            onItemClick = navigateToEditScreen,
+            profiles = configurations.profiles,
+            runningState = runningState,
+            onItemClick = { configurationRepository.setProfileEnabled(it.id) },
             onEditClick = navigateToEditScreen,
-            onDeleteClick = { configurationRepository.delete(it.id) },
+            onDeleteClick = { configurationRepository.deleteProfile(it.id) },
             onErrorInfoClicked = { _, err ->
                 showingErrorDialog.value = err
             },
-            toggleConfig = { configurationRepository.setConfigEnabled(it.id, !it.enabled) },
-            cloneConfig = {
+            cloneProfile = {
                 val newConfig =
                     it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
-                configurationRepository.save(newConfig)
+                configurationRepository.saveProfile(newConfig)
                 navigateToEditScreen(newConfig)
             }
         )
@@ -146,18 +123,17 @@ fun ServerListScreen(
 }
 
 @Composable
-private fun ServerList(
+private fun ProfileList(
     modifier: Modifier = Modifier,
-    configurations: List<ClientConfiguration>,
-    instanceState: Map<String, ClientInstanceManager.InstanceState>,
-    onItemClick: (ClientConfiguration) -> Unit,
-    onEditClick: (ClientConfiguration) -> Unit,
-    onDeleteClick: (ClientConfiguration) -> Unit,
-    onErrorInfoClicked: (ClientConfiguration, Throwable) -> Unit,
-    toggleConfig: (ClientConfiguration) -> Unit,
-    cloneConfig: (ClientConfiguration) -> Unit,
+    profiles: List<Profile>,
+    runningState: ProfileInstanceManager.RunningState,
+    onItemClick: (Profile) -> Unit,
+    onEditClick: (Profile) -> Unit,
+    onDeleteClick: (Profile) -> Unit,
+    onErrorInfoClicked: (Profile, Throwable) -> Unit,
+    cloneProfile: (Profile) -> Unit,
 ) {
-    var showingDeleteConfirmation by remember { mutableStateOf<ClientConfiguration?>(null) }
+    var showingDeleteConfirmation by remember { mutableStateOf<Profile?>(null) }
 
     if (showingDeleteConfirmation != null) {
         AlertDialog(
@@ -180,12 +156,14 @@ private fun ServerList(
     }
 
     LazyColumn(modifier = modifier.fillMaxSize()) {
-        items(configurations) { config ->
+        items(profiles) { profile ->
             val showingDropdownMenu = remember { mutableStateOf(false) }
+            val isEnabled = runningState.configUsed?.enabledProfileId == profile.id
+            val hasError = isEnabled && runningState.startedResult?.isFailure == true
 
             Row(
                 modifier = Modifier
-                    .clickable { onItemClick(config) }
+                    .clickable { onItemClick(profile) }
                     .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(
@@ -198,36 +176,39 @@ private fun ServerList(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val title = if (config.enabled) config.name
-                        else "${config.name} (Disabled)"
+                        val title = if (isEnabled && !hasError) "${profile.name} (Running)"
+                        else profile.name
 
-                        val style = if (config.enabled) MaterialTheme.typography.titleMedium
+                        val style = if (isEnabled) MaterialTheme.typography.titleMedium
                         else MaterialTheme.typography.titleMedium.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontStyle = FontStyle.Italic
                         )
 
                         Text(title, style = style)
+                    }
 
-                        if (config.enabled) {
-                            Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-                                Text(config.bindAddress)
-                            }
+                    val text = buildString {
+                        append("Global")
+                        if (!profile.aiServerUrl.isNullOrBlank()) {
+                            append(" - AI")
+                        }
+                        if (!profile.tailscaleServerUrl.isNullOrBlank()) {
+                            append(" - Tailscale")
                         }
                     }
 
                     Text(
-                        text = "${config.serverHost}:${config.serverPort}",
+                        text = text,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                val state = instanceState[config.id]
-
-                if (state?.instance?.isFailure == true) {
+                if (hasError) {
                     IconButton(onClick = {
-                        state.instance.exceptionOrNull()?.let { onErrorInfoClicked(config, it) }
+                        runningState.startedResult.exceptionOrNull()
+                            ?.let { onErrorInfoClicked(profile, it) }
                     }) {
                         Icon(
                             Icons.Default.Warning,
@@ -253,7 +234,7 @@ private fun ServerList(
                             text = { Text("Edit") },
                             onClick = {
                                 showingDropdownMenu.value = false
-                                onEditClick(config)
+                                onEditClick(profile)
                             },
                             leadingIcon = {
                                 Icon(
@@ -267,7 +248,7 @@ private fun ServerList(
                             text = { Text("Delete") },
                             onClick = {
                                 showingDropdownMenu.value = false
-                                showingDeleteConfirmation = config
+                                showingDeleteConfirmation = profile
                             },
                             leadingIcon = {
                                 Icon(
@@ -281,24 +262,17 @@ private fun ServerList(
                             text = { Text("Clone") },
                             onClick = {
                                 showingDropdownMenu.value = false
-                                cloneConfig(config)
+                                cloneProfile(profile)
                             },
                         )
 
-                        DropdownMenuItem(
-                            text = { Text(if (config.enabled) "Disable" else "Enable") },
-                            onClick = {
-                                showingDropdownMenu.value = false
-                                toggleConfig(config)
-                            },
-                        )
                     }
                 }
             }
         }
     }
 
-    if (configurations.isEmpty()) {
+    if (profiles.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 "No configurations yet",
@@ -312,32 +286,34 @@ private fun ServerList(
 @Preview
 private fun ServerListPreview() {
     val configurations = listOf(
-        ClientConfiguration(
+        Profile(
             id = "1",
             name = "Server 1",
-            serverHost = "myhost",
-            serverPort = 80.toUShort(),
-            key = "xxx",
-            bindAddress = "127.0.0.1:8080",
-            enabled = false,
+            mainServerUrl = "https://main.server1.com",
+            aiServerUrl = "https://ai.server1.com",
+            tailscaleServerUrl = null
+        ),
+        Profile(
+            id = "2",
+            name = "Server 2",
+            mainServerUrl = "https://main.server2.com",
+            aiServerUrl = null,
+            tailscaleServerUrl = null,
         )
     )
 
     CpxyTheme {
-        ServerList(
-            configurations = configurations,
-            instanceState = mapOf(
-                "1" to ClientInstanceManager.InstanceState(
-                    instance = Result.failure(RuntimeException("Error")),
-                    config = configurations[0]
-                )
-            ),
-            onEditClick = {},
-            onItemClick = {},
-            onDeleteClick = {},
-            onErrorInfoClicked = { _, _ -> },
-            toggleConfig = {},
-            cloneConfig = {},
-        )
+        Surface {
+            ProfileList(
+                profiles = configurations,
+                runningState = ProfileInstanceManager.RunningState(),
+                onEditClick = {},
+                onItemClick = {},
+                onDeleteClick = {},
+                onErrorInfoClicked = { _, _ -> },
+                cloneProfile = {},
+            )
+        }
+
     }
 }

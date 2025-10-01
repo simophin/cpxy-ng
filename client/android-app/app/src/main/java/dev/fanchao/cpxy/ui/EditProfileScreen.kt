@@ -2,7 +2,6 @@ package dev.fanchao.cpxy.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,85 +15,68 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.ClientConfiguration
-import dev.fanchao.cpxy.ClientConfigurationRepository
-import dev.fanchao.cpxy.isValidBindAddress
+import dev.fanchao.cpxy.ConfigRepository
+import dev.fanchao.cpxy.Profile
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
 @Serializable
-data class EditConfigRoute(val id: String?)
+data class EditProfileRoute(val id: String?)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditConfigScreen(
-    configId: String?,
-    configurationRepository: ClientConfigurationRepository,
+fun EditProfileScreen(
+    profileId: String?,
+    configurationRepository: ConfigRepository,
     onDone: () -> Unit,
 ) {
-    val config = remember {
-        configurationRepository.configurations.value.firstOrNull { it.id == configId }
+    val profile = remember {
+        configurationRepository.clientConfig.value.profiles.firstOrNull { it.id == profileId }
     }
+
     val nameState = remember {
-        EditingState(config?.name.orEmpty(), label = "Name", validator = nonEmptyValidator("Name"))
+        EditingState(profile?.name.orEmpty(), label = "Name", validator = nonEmptyValidator("Name"))
     }
 
-    val serverHostState = remember {
+    val mainServerState = remember {
         EditingState(
-            config?.serverHost.orEmpty(),
-            label = "Server Host",
-            validator = nonEmptyValidator("Server Host")
+            profile?.mainServerUrl.orEmpty(),
+            label = "Main server URL",
+            validator = nonEmptyValidator("Main server URL")
         )
     }
 
-    val serverPortState = remember {
+    val aiServerState = remember {
         EditingState(
-            initialText = config?.serverPort?.takeIf { it > 0.toUShort() }?.toString().orEmpty(),
-            label = "Server Port",
-            validator = {
-                if ((it.toUShortOrNull()?.toInt() ?: 0) == 0) {
-                    "Port must be a number between 1 and 65535"
-                } else {
-                    null
-                }
-            }
+            profile?.aiServerUrl.orEmpty(),
+            label = "AI server URL",
+            validator = { null }
         )
     }
 
-    val keyState = remember {
-        EditingState(config?.key.orEmpty(), label = "Key", validator = nonEmptyValidator("Key"))
-    }
-
-    val bindAddressState = remember {
-        EditingState(config?.bindAddress.orEmpty(), label = "Bind address", validator = {
-            if (isValidBindAddress(it)) {
-                null
-            } else {
-                "Bind address must be in format of host:port, e.g. 127.0.0.1:80"
-            }
-        })
+    val tailscaleServerState = remember {
+        EditingState(
+            profile?.tailscaleServerUrl.orEmpty(),
+            label = "Tailscale server URL",
+            validator = { null }
+        )
     }
 
     val allFieldStates = listOf(
         nameState,
-        serverHostState,
-        serverPortState,
-        keyState,
-        bindAddressState,
+        mainServerState,
+        aiServerState,
+        tailscaleServerState,
     )
 
-    val enableState = remember { mutableStateOf(config?.enabled ?: true) }
-    val tlsState = remember { mutableStateOf(config?.tls ?: false) }
 
     val onSave = {
         val isValid = allFieldStates.fold(true) { acc, state ->
@@ -104,15 +86,13 @@ fun EditConfigScreen(
 
         if (isValid) {
             configurationRepository
-                .save(
-                    ClientConfiguration(
-                        id = configId ?: UUID.randomUUID().toString(),
+                .saveProfile(
+                    Profile(
+                        id = profileId ?: UUID.randomUUID().toString(),
                         name = nameState.text.value,
-                        serverHost = serverHostState.text.value,
-                        serverPort = serverPortState.text.value.toUShort(),
-                        key = keyState.text.value,
-                        bindAddress = bindAddressState.text.value,
-                        enabled = enableState.value,
+                        mainServerUrl = mainServerState.text.value,
+                        aiServerUrl = aiServerState.text.value.takeIf { it.isNotBlank() },
+                        tailscaleServerUrl = tailscaleServerState.text.value.takeIf { it.isNotBlank() }
                     )
                 )
             onDone()
@@ -142,10 +122,6 @@ fun EditConfigScreen(
                 .padding(16.dp)
                 .fillMaxSize(),
             states = allFieldStates,
-            enableState = enableState.value,
-            setEnableState = { enableState.value = it },
-            tls = tlsState.value,
-            setTls = { tlsState.value = it }
         )
     }
 }
@@ -178,10 +154,6 @@ class EditingState(
 private fun EditConfig(
     modifier: Modifier = Modifier,
     states: List<EditingState>,
-    enableState: Boolean,
-    setEnableState: (enabled: Boolean) -> Unit,
-    tls: Boolean,
-    setTls: (Boolean) -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -205,16 +177,6 @@ private fun EditConfig(
                     }
                 }
             )
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Server TLS", modifier = Modifier.weight(1f))
-            Switch(tls, onCheckedChange = setTls)
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Enable", modifier = Modifier.weight(1f))
-            Switch(enableState, onCheckedChange = setEnableState)
         }
     }
 }

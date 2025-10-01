@@ -1,8 +1,8 @@
 use anyhow::Context;
 use clap::Parser;
 use client::http_proxy_server::HttpProxyHandshaker;
+use client::outbound::ProtocolOutbound;
 use client::protocol_config::Config;
-use client::protocol_outbound::ProtocolOutbound;
 use client::proxy_handlers;
 use client::socks_proxy_server::SocksProxyHandshaker;
 use cpxy_ng::outbound::Outbound;

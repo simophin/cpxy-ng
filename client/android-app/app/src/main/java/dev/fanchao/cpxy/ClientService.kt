@@ -15,6 +15,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -40,27 +41,34 @@ class ClientService : Service() {
         NotificationManagerCompat.from(this).createNotificationChannel(channel)
 
         startedJob = GlobalScope.launch(Dispatchers.Main) {
-            appInstance.clientInstanceManager.state
-                .map { it.size }
+            appInstance.profileInstanceManager.state
+                .map { state -> state.configUsed?.enabledProfile?.takeIf { state.startedResult?.isSuccess == true } }
+                .filterNotNull()
                 .distinctUntilChanged()
-                .collectLatest { num ->
+                .collectLatest { startedProfile ->
                     startForeground(
                         NOTIFICATION_ID,
                         NotificationCompat.Builder(this@ClientService, channel.id)
                             .setContentTitle(getString(R.string.app_name))
-                            .setContentText("Running $num instance(s)")
+                            .setContentText("Running profile: ${startedProfile.name}")
                             .setSmallIcon(R.drawable.ic_launcher_foreground)
-                            .addAction(R.drawable.baseline_stop_24, "STOP", PendingIntent.getBroadcast(
-                                this@ClientService, 0, Intent(this@ClientService,
-                                    StopServiceReceiver::class.java), PendingIntent.FLAG_IMMUTABLE
-                            ))
-                            .setContentIntent(PendingIntent.getActivity(
-                                this@ClientService,
-                                1,
-                                Intent(this@ClientService, MainActivity::class.java)
-                                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                                PendingIntent.FLAG_IMMUTABLE
-                            ))
+                            .addAction(
+                                R.drawable.baseline_stop_24, "STOP", PendingIntent.getBroadcast(
+                                    this@ClientService, 0, Intent(
+                                        this@ClientService,
+                                        StopServiceReceiver::class.java
+                                    ), PendingIntent.FLAG_IMMUTABLE
+                                )
+                            )
+                            .setContentIntent(
+                                PendingIntent.getActivity(
+                                    this@ClientService,
+                                    1,
+                                    Intent(this@ClientService, MainActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                                    PendingIntent.FLAG_IMMUTABLE
+                                )
+                            )
                             .setSilent(true)
                             .setOngoing(true)
                             .build()

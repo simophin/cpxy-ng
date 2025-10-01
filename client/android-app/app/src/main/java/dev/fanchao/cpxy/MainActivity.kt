@@ -16,10 +16,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import dev.fanchao.cpxy.App.Companion.appInstance
-import dev.fanchao.cpxy.ui.EditConfigRoute
-import dev.fanchao.cpxy.ui.EditConfigScreen
-import dev.fanchao.cpxy.ui.ServerListRoute
-import dev.fanchao.cpxy.ui.ServerListScreen
+import dev.fanchao.cpxy.ui.EditProfileRoute
+import dev.fanchao.cpxy.ui.EditProfileScreen
+import dev.fanchao.cpxy.ui.ProfileListRoute
+import dev.fanchao.cpxy.ui.ProfileListScreen
+import dev.fanchao.cpxy.ui.ProxyConfigRoute
+import dev.fanchao.cpxy.ui.ProxyConfigScreen
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
 
 class MainActivity : ComponentActivity() {
@@ -35,26 +37,36 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
 
             CpxyTheme {
-                NavHost(navController = navController, startDestination = ServerListRoute) {
-                    composable<ServerListRoute> {
-                        ServerListScreen(
+                NavHost(navController = navController, startDestination = ProfileListRoute) {
+                    composable<ProfileListRoute> {
+                        ProfileListScreen(
                             configurationRepository = appInstance.configurationRepository,
-                            clientInstanceManager = appInstance.clientInstanceManager,
+                            profileInstanceManager = appInstance.profileInstanceManager,
                             navigateToEditScreen = {
-                                navController.navigate(EditConfigRoute(it.id))
+                                navController.navigate(EditProfileRoute(it.id))
                             },
                             navigateToNewConfigScreen = {
-                                navController.navigate(EditConfigRoute(null))
+                                navController.navigate(EditProfileRoute(null))
+                            },
+                            navigateToSettingScreen = {
+                                navController.navigate(ProxyConfigRoute)
                             }
                         )
                     }
 
-                    composable<EditConfigRoute> {
-                        val route: EditConfigRoute = it.toRoute()
-                        EditConfigScreen(
-                            configId = route.id,
+                    composable<EditProfileRoute> {
+                        val route: EditProfileRoute = it.toRoute()
+                        EditProfileScreen(
+                            profileId = route.id,
                             onDone = navController::popBackStack,
                             configurationRepository = appInstance.configurationRepository,
+                        )
+                    }
+
+                    composable<ProxyConfigRoute> {
+                        ProxyConfigScreen(
+                            repo = appInstance.configurationRepository,
+                            onDone = navController::popBackStack,
                         )
                     }
                 }

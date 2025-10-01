@@ -10,8 +10,8 @@ class App : Application() {
         Native.load("client", Client::class.java) as Client
     }
 
-    val configurationRepository: ClientConfigurationRepository by lazy {
-        ClientConfigurationRepository(
+    val configurationRepository: ConfigRepository by lazy {
+        ConfigRepository(
             prefs = getSharedPreferences("default", MODE_PRIVATE),
             json = Json {
                 ignoreUnknownKeys = true
@@ -20,8 +20,8 @@ class App : Application() {
         )
     }
 
-    val clientInstanceManager: ClientInstanceManager by lazy {
-        ClientInstanceManager(
+    val profileInstanceManager: ProfileInstanceManager by lazy {
+        ProfileInstanceManager(
             repository = configurationRepository,
             clientProvider = { client },
         )
@@ -32,8 +32,7 @@ class App : Application() {
 
         ClientServiceCoordinator(
             appContext = this,
-            clientInstanceManager = clientInstanceManager,
-            repository = configurationRepository
+            profileInstanceManager = profileInstanceManager,
         )
     }
 

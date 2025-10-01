@@ -2,24 +2,24 @@ package dev.fanchao.cpxy
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @OptIn(DelicateCoroutinesApi::class)
 class ClientServiceCoordinator (
     appContext: Context,
-    clientInstanceManager: ClientInstanceManager,
-    repository: ClientConfigurationRepository
+    profileInstanceManager: ProfileInstanceManager,
 ) {
     init {
         GlobalScope.launch {
-            combine(
-                clientInstanceManager.started,
-                repository.configurations
-            ) { started, configs -> started && configs.count { it.enabled } > 0 }
+            profileInstanceManager.state
+                .map { state -> state.startedResult?.isSuccess == true }
                 .distinctUntilChanged()
                 .collect { shouldStartService ->
                     val intent = Intent(appContext, ClientService::class.java)
@@ -28,6 +28,16 @@ class ClientServiceCoordinator (
                     } else {
                         appContext.stopService(intent)
                     }
+                }
+        }
+
+        GlobalScope.launch(Dispatchers.Main) {
+            profileInstanceManager.state
+                .map { state ->  state.startedResult?.exceptionOrNull() }
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect {
+                    Toast.makeText(appContext, "${it.message}", Toast.LENGTH_LONG).show()
                 }
         }
     }

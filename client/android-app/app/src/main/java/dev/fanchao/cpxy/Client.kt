@@ -1,39 +1,40 @@
 package dev.fanchao.cpxy
 
-import android.R
-import com.sun.jna.Callback
 import com.sun.jna.Library
 import com.sun.jna.NativeLong
 import com.sun.jna.Pointer
 
+
 interface Client : Library {
-    fun client_create(
-        serverHost: String,
-        serverPort: Short,
-        key: String,
-        tls: Boolean,
-        bindAddress: String,
+    fun create_client(
+        httpProxyPort: Short,
+        socks5ProxyPort: Short,
+        mainServerUrl: String,
+        aiServerUrl: String?,
+        tailscaleServerUrl: String?,
         errorMessage: ByteArray,
         errorMessageLen: NativeLong
     ): Pointer?
 
-    fun client_destroy(instance: Pointer)
+    fun destroy_client(instance: Pointer)
 }
 
-fun Client.create(serverHost: String,
-                  serverPort: UShort,
-                  key: String,
-                  tls: Boolean,
-                  bindAddress: String): Pointer {
+fun Client.create(
+    httpProxyPort: UShort,
+    socks5ProxyPort: UShort,
+    mainServerUrl: String,
+    aiServerUrl: String?,
+    tailscaleServerUrl: String?,
+): Pointer {
     val errorMessage = ByteArray(512)
 
-    val ptr = client_create(
-        serverHost = serverHost,
-        serverPort = serverPort.toShort(),
-        key = key,
-        bindAddress = bindAddress,
+    val ptr = create_client(
+        httpProxyPort = httpProxyPort.toShort(),
+        socks5ProxyPort = socks5ProxyPort.toShort(),
+        mainServerUrl = mainServerUrl,
+        aiServerUrl = aiServerUrl,
+        tailscaleServerUrl = tailscaleServerUrl,
         errorMessage = errorMessage,
-        tls = tls,
         errorMessageLen = NativeLong(errorMessage.size.toLong())
     )
 
@@ -42,15 +43,17 @@ fun Client.create(serverHost: String,
             .takeIf { it >= 0 }
             ?: errorMessage.size
 
-        throw RuntimeException(String(
-            errorMessage,
-            0,
-            realErrorMessageLength,
-            Charsets.UTF_8
-        ))
+        throw RuntimeException(
+            String(
+                errorMessage,
+                0,
+                realErrorMessageLength,
+                Charsets.UTF_8
+            )
+        )
     }
 
     return ptr
 }
 
-fun Client.destroy(instance: Pointer) = client_destroy(instance)
+fun Client.destroy(instance: Pointer) = destroy_client(instance)
