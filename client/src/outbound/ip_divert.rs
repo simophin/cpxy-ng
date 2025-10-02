@@ -13,14 +13,14 @@ pub struct IPDivertOutbound<O1, O2, F> {
 
 impl<O1, O2, F> Outbound for IPDivertOutbound<O1, O2, F>
 where
-    O1: Outbound,
-    O2: Outbound,
-    F: Fn(Ipv4Addr) -> bool,
+    O1: Outbound + Sync,
+    O2: Outbound + Sync,
+    F: Fn(Ipv4Addr) -> bool + Sync,
 {
     async fn send(
         &self,
         mut req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
         if let Some(outbound_a) = self.outbound_a.as_ref() {
             let domain = req.host.as_str();
             let ip = lookup_host(format!("{domain}:80"))

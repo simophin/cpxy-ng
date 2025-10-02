@@ -18,7 +18,7 @@ impl Outbound for DirectOutbound {
             tls,
             initial_plaintext,
         }: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
         let upstream = TcpStream::connect((host.as_str(), port))
             .await
             .context("Error connecting to remote")?;

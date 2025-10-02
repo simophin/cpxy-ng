@@ -1,6 +1,7 @@
 use crate::outbound::{DirectOutbound, IPDivertOutbound, ProtocolOutbound, SiteDivertOutbound};
 use crate::protocol_config::Config;
 use cpxy_ng::geoip::find_country_code_v4;
+use cpxy_ng::outbound::Outbound;
 use geoip_data::CN_GEOIP;
 use ipnet::Ipv4Net;
 use std::net::Ipv4Addr;
@@ -9,15 +10,7 @@ pub fn cn_outbound(
     main_server: Config,
     ai_server: Option<Config>,
     tailscale_server: Option<Config>,
-) -> IPDivertOutbound<
-    ProtocolOutbound,
-    SiteDivertOutbound<
-        ProtocolOutbound,
-        IPDivertOutbound<DirectOutbound, ProtocolOutbound, fn(Ipv4Addr) -> bool>,
-        fn(&str) -> bool,
-    >,
-    fn(Ipv4Addr) -> bool,
-> {
+) -> impl Outbound {
     let global_outbound = ProtocolOutbound(main_server);
     let ai_outbound = ai_server.map(ProtocolOutbound);
     let tailscale_outbound = tailscale_server.map(ProtocolOutbound);

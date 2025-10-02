@@ -14,7 +14,7 @@ use tokio::try_join;
 use url::Url;
 
 struct Handle {
-    rt: Runtime,
+    _rt: Runtime,
 }
 
 #[unsafe(no_mangle)]
@@ -27,7 +27,7 @@ pub unsafe extern "C" fn create_client(
     error: *mut c_char,
     error_len: usize,
 ) -> *mut c_void {
-    let r = (move || unsafe {
+    let r = (move || {
         let main_server_config = parse_config_from_url(main_server_url)
             .context("failed to parse main server url")?
             .context("Main server url is required")?;
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn create_client(
             try_join!(handle_http_proxy, handle_socks5_proxy)
         });
 
-        anyhow::Ok(Handle { rt })
+        anyhow::Ok(Handle { _rt: rt })
     })();
 
     match r {

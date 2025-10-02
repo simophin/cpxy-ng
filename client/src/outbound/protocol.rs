@@ -27,7 +27,7 @@ impl Outbound for ProtocolOutbound {
             tls,
             initial_plaintext,
         }: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
         let config = &self.0;
         let addr = lookup_host((config.host.as_str(), config.port))
             .await

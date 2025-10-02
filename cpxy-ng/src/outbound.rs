@@ -25,26 +25,23 @@ impl Debug for OutboundRequest {
 }
 
 pub trait Outbound {
-    async fn send(
+    fn send(
         &self,
         req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin>;
-}
-
-impl<O: Outbound> Outbound for &O {
-    async fn send(
-        &self,
-        req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
-        (*self).send(req).await
-    }
+    ) -> impl Future<
+        Output = anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>,
+    > + Send
+    + Sync;
 }
 
 impl<O: Outbound> Outbound for Arc<O> {
-    async fn send(
+    fn send(
         &self,
         req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin> {
-        self.as_ref().send(req).await
+    ) -> impl Future<
+        Output = anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>,
+    > + Send
+    + Sync {
+        self.as_ref().send(req)
     }
 }

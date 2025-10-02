@@ -1,3 +1,5 @@
+#![allow(async_fn_in_trait)]
+
 pub trait Handshaker<S>: Sized {
     type StreamType;
     type RequestType;
