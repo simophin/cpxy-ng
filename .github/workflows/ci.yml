@@ -128,7 +128,7 @@ jobs:
 
       - name: Build with NDK
         if: matrix.target.build_with_ndk == true
-        run: cargo ndk -t ${{ matrix.target }} build --release
+        run: cargo ndk -t ${{ matrix.target.rust }} build --release
 
       - name: Build
         if: matrix.target.build_with_cross != true && matrix.target.build_with_ndk != true
