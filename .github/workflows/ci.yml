@@ -102,49 +102,49 @@ jobs:
           - rust: i686-linux-android
             runs_on: ubuntu-latest
             build_with_ndk: true
-    runs-on: ${{ matrix.runs_on }}
+    runs-on: ${{ matrix.target.runs_on }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target.rust }}
       - uses: cargo-bins/cargo-binstall@main
 
       - name: Install cross
-        if: matrix.build_with_cross == true
+        if: matrix.target.build_with_cross == true
         run: cargo binstall cross
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build with cross
-        if: matrix.build_with_cross == true
-        run: cross build --release --target ${{ matrix.target }}
+        if: matrix.target.build_with_cross == true
+        run: cross build --release --target ${{ matrix.target.rust }}
 
       - name: Install NDK
-        if: matrix.build_with_ndk == true
+        if: matrix.target.build_with_ndk == true
         run: cargo binstall cargo-ndk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build with NDK
-        if: matrix.build_with_ndk == true
+        if: matrix.target.build_with_ndk == true
         run: cargo ndk -t ${{ matrix.target }} build --release
 
       - name: Build
-        if: matrix.build_with_cross != true && matrix.build_with_ndk != true
-        run: cargo build --release --target ${{ matrix.target }}
+        if: matrix.target.build_with_cross != true && matrix.target.build_with_ndk != true
+        run: cargo build --release --target ${{ matrix.target.rust }}
 
       - name: Rename files
         run:
           mkdir artifacts &&
-          mv -v target/${{ matrix.target }}/release/standalone${{ matrix.binary_ext }} artifacts/client-${{ matrix.target }}${{ matrix.binary_ext }} &&
-          mv -v target/${{ matrix.target }}/release/client_cn${{ matrix.binary_ext }} artifacts/client_cn-${{ matrix.target }}${{ matrix.binary_ext }} &&
-          mv -v target/${{ matrix.target }}/release/server${{ matrix.binary_ext }} artifacts/server-${{ matrix.target }}${{ matrix.binary_ext }}
+          mv -v target/${{ matrix.target.rust }}/release/standalone${{ matrix.target.binary_ext }} artifacts/client-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
+          mv -v target/${{ matrix.target.rust }}/release/client_cn${{ matrix.target.binary_ext }} artifacts/client_cn-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
+          mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/server-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: executables-${{ matrix.target }}
+          name: executables-${{ matrix.target.rust }}
           path: artifacts
 
   test:
