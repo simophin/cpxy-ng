@@ -19,3 +19,4 @@ geoip-data = { path = "../geoip-data" }
 url = "2"
 ipnet = "2"
 parking_lot = "0.12.4"
+futures = "0.3.31"

@@ -1,20 +1,21 @@
 use crate::http_proxy_server::HttpProxyHandshaker;
 use crate::outbound::cn::cn_outbound;
 use crate::protocol_config::Config;
-use crate::proxy_handlers;
+use crate::proxy_handlers::serve_listener;
 use crate::socks_proxy_server::SocksProxyHandshaker;
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::sync::Arc;
-use tokio::io::BufReader;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
+use tokio::task::LocalSet;
 use tokio::try_join;
 use url::Url;
 
 struct Handle {
     _rt: Runtime,
+    _local_set: LocalSet,
 }
 
 #[unsafe(no_mangle)]
@@ -54,7 +55,7 @@ pub unsafe extern "C" fn create_client(
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .worker_threads(2)
+            .worker_threads(1)
             .build()
             .context("Error creating tokio runtime")?;
 
@@ -65,41 +66,28 @@ pub unsafe extern "C" fn create_client(
         let socks5_proxy_listener = TcpListener::from_std(socks_listener)
             .context("Failed to create tokio TcpListener for socks5")?;
 
-        rt.spawn(async move {
+        let ls = LocalSet::new();
+
+        ls.spawn_local(async move {
             let outbound = Arc::new(cn_outbound(
                 main_server_config,
                 ai_server_config,
                 tailscale_server_config,
             ));
 
-            let handle_http_proxy = async {
-                loop {
-                    let (stream, addr) = http_proxy_listener.accept().await?;
-                    tokio::spawn(proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(
-                        stream,
-                        outbound.clone(),
-                    ));
-                }
+            let handle_http_proxy =
+                serve_listener::<HttpProxyHandshaker<_>, _>(http_proxy_listener, outbound.clone());
 
-                anyhow::Ok(())
-            };
-
-            let handle_socks5_proxy = async {
-                loop {
-                    let (stream, addr) = socks5_proxy_listener.accept().await?;
-                    tokio::spawn(proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(
-                        BufReader::new(stream),
-                        outbound.clone(),
-                    ));
-                }
-
-                anyhow::Ok(())
-            };
+            let handle_socks5_proxy =
+                serve_listener::<SocksProxyHandshaker<_>, _>(socks5_proxy_listener, outbound);
 
             try_join!(handle_http_proxy, handle_socks5_proxy)
         });
 
-        anyhow::Ok(Handle { _rt: rt })
+        anyhow::Ok(Handle {
+            _rt: rt,
+            _local_set: ls,
+        })
     })();
 
     match r {

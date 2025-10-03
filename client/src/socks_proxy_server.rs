@@ -3,11 +3,11 @@ use anyhow::{Context, bail, ensure};
 use cpxy_ng::outbound::OutboundRequest;
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
-use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing::instrument;
 
 pub struct SocksProxyHandshaker<S> {
-    stream: S,
+    stream: BufReader<S>,
 }
 
 impl<S> Debug for SocksProxyHandshaker<S> {
@@ -43,9 +43,9 @@ impl From<ProxyRequest> for OutboundRequest {
 
 impl<S> Handshaker<S> for SocksProxyHandshaker<S>
 where
-    S: AsyncBufRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
 {
-    type StreamType = S;
+    type StreamType = BufReader<S>;
     type RequestType = ProxyRequest;
 
     fn can_read_initial_data(_r: &Self::RequestType) -> bool {
@@ -53,7 +53,8 @@ where
     }
 
     #[instrument(ret, skip(stream))]
-    async fn accept(mut stream: S) -> anyhow::Result<(ProxyRequest, Self)> {
+    async fn accept(stream: S) -> anyhow::Result<(ProxyRequest, Self)> {
+        let mut stream = BufReader::new(stream);
         ensure!(
             stream.read_u8().await.context("Error reading version")? == 5,
             "Unsupported SOCKS version while waiting for initial greeting"

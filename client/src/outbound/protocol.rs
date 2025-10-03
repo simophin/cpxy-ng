@@ -45,6 +45,9 @@ impl Outbound for ProtocolOutbound {
             .await
             .with_context(|| format!("Error connecting to upstream server: {config:?}"))?;
 
+        conn.set_nodelay(true)
+            .context("Error setting nodelay on TCP stream")?;
+
         let mut conn = if config.tls {
             TlsClientStream::connect_tls(config.host.as_str(), conn)
                 .await
