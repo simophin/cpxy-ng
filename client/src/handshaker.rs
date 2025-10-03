@@ -1,16 +1,12 @@
-#![allow(async_fn_in_trait)]
-
 pub trait Handshaker<S>: Sized {
     type StreamType;
     type RequestType;
 
-    fn can_read_initial_data(r: &Self::RequestType) -> bool;
+    fn accept(stream: S) -> impl Future<Output = anyhow::Result<(Self::RequestType, Self)>> + Send;
 
-    async fn accept(stream: S) -> anyhow::Result<(Self::RequestType, Self)>;
+    fn respond_ok(self) -> impl Future<Output = anyhow::Result<Self::StreamType>> + Send;
 
-    async fn respond_ok(self) -> anyhow::Result<Self::StreamType>;
-
-    async fn respond_err(self, msg: &str) -> anyhow::Result<()>;
+    fn respond_err(self, msg: &str) -> impl Future<Output = anyhow::Result<()>> + Send;
 
     fn stream_mut(&mut self) -> &mut Self::StreamType;
 }

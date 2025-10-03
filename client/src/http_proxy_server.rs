@@ -10,17 +10,10 @@ pub struct HttpProxyHandshaker<S> {
 
 impl<S> Handshaker<S> for HttpProxyHandshaker<S>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin + Send,
 {
     type StreamType = HttpStream<(), S>;
     type RequestType = ProxyRequest;
-
-    fn can_read_initial_data(r: &Self::RequestType) -> bool {
-        match r {
-            ProxyRequest::Http(_) => false,
-            ProxyRequest::Socket(_) => true,
-        }
-    }
 
     async fn accept(stream: S) -> anyhow::Result<(ProxyRequest, HttpProxyHandshaker<S>)> {
         let (req, stream) = parse_http_proxy_stream(stream)

@@ -86,10 +86,6 @@ impl Outbound for ProtocolOutbound {
             protocol::Response::Success {
                 initial_response, ..
             } => {
-                tracing::debug!(
-                    "Server respond successfully with {} bytes of initial response",
-                    initial_response.len()
-                );
                 let (r, w) = tokio::io::split(CipherStream::new(
                     conn,
                     &client_send_cipher,

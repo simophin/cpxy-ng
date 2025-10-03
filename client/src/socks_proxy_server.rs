@@ -3,7 +3,7 @@ use anyhow::{Context, bail, ensure};
 use cpxy_ng::outbound::OutboundRequest;
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing::instrument;
 
 pub struct SocksProxyHandshaker<S> {
@@ -43,14 +43,10 @@ impl From<ProxyRequest> for OutboundRequest {
 
 impl<S> Handshaker<S> for SocksProxyHandshaker<S>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin + Send,
 {
     type StreamType = BufReader<S>;
     type RequestType = ProxyRequest;
-
-    fn can_read_initial_data(_r: &Self::RequestType) -> bool {
-        true
-    }
 
     #[instrument(ret, skip(stream))]
     async fn accept(stream: S) -> anyhow::Result<(ProxyRequest, Self)> {
@@ -160,7 +156,7 @@ where
         Ok(self.stream)
     }
 
-    async fn respond_err(mut self, msg: &str) -> anyhow::Result<()>
+    async fn respond_err(self, _msg: &str) -> anyhow::Result<()>
     where
         S: AsyncWrite + Unpin,
     {

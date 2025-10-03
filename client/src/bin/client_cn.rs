@@ -4,15 +4,12 @@ use clap::Parser;
 use client::http_proxy_server::HttpProxyHandshaker;
 use client::outbound::cn;
 use client::protocol_config::Config;
-use client::proxy_handlers;
+use client::proxy_handlers::serve_listener;
 use client::socks_proxy_server::SocksProxyHandshaker;
-use cpxy_ng::outbound::Outbound;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::BufReader;
-use tokio::net::TcpStream;
 use tokio::try_join;
-use tracing::{Instrument, info_span, instrument};
+use tracing::{Instrument, info_span};
 
 #[derive(clap::Parser)]
 struct CliOptions {
@@ -66,15 +63,7 @@ async fn main() {
             .context("Error binding HTTP proxy listen address")?;
 
         tracing::info!("HTTP proxy listening on {}", listener.local_addr()?);
-
-        loop {
-            let (conn, peer_addr) = listener
-                .accept()
-                .await
-                .context("Error accepting HTTP proxy connection")?;
-            tracing::info!("Accepted HTTP proxy connection from {peer_addr}");
-            tokio::spawn(serve_http_proxy_connection(conn, outbound.clone()));
-        }
+        serve_listener::<HttpProxyHandshaker<_>, _>(listener, outbound.clone()).await
     }
     .instrument(info_span!("http_proxy"));
 
@@ -88,33 +77,9 @@ async fn main() {
             .context("Error binding SOCKS5 proxy listen address")?;
 
         tracing::info!("SOCKS5 proxy listening on {}", listener.local_addr()?);
-
-        loop {
-            let (conn, peer_addr) = listener
-                .accept()
-                .await
-                .context("Error accepting SOCKS5 proxy connection")?;
-            tracing::info!("Accepted SOCKS5 proxy connection from {peer_addr}");
-            tokio::spawn(serve_socks5_proxy_connection(conn, outbound.clone()));
-        }
+        serve_listener::<SocksProxyHandshaker<_>, _>(listener, outbound.clone()).await
     }
     .instrument(info_span!("socks5_proxy"));
 
     try_join!(run_http_proxy, run_socks_proxy).expect("To run proxy server");
-}
-
-#[instrument(skip_all, ret)]
-async fn serve_http_proxy_connection(
-    conn: TcpStream,
-    outbound: impl Outbound,
-) -> anyhow::Result<()> {
-    proxy_handlers::serve::<HttpProxyHandshaker<_>, _, _>(conn, outbound).await
-}
-
-#[instrument(skip_all, ret)]
-async fn serve_socks5_proxy_connection(
-    conn: TcpStream,
-    outbound: impl Outbound,
-) -> anyhow::Result<()> {
-    proxy_handlers::serve::<SocksProxyHandshaker<_>, _, _>(BufReader::new(conn), outbound).await
 }
