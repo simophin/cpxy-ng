@@ -1,5 +1,4 @@
 pub mod counted_stream;
-pub mod either_stream;
 pub mod handshaker;
 pub mod http_proxy_server;
 pub mod protocol_config;

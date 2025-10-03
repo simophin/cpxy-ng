@@ -1,4 +1,4 @@
-use crate::either_stream::EitherStream;
+use cpxy_ng::either_stream::EitherStream;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
 use tokio::io::{AsyncRead, AsyncWrite};
 

@@ -1,5 +1,5 @@
-use crate::either_stream::EitherStream;
 use anyhow::Context;
+use cpxy_ng::either_stream::EitherStream;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
 use std::net::{IpAddr, Ipv4Addr};
 use tokio::io::{AsyncRead, AsyncWrite};

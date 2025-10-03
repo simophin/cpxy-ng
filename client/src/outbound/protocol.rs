@@ -4,7 +4,7 @@ use cpxy_ng::cipher_select::select_cipher_based_on_port;
 use cpxy_ng::encrypt_stream::CipherStream;
 use cpxy_ng::key_util::random_vec;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
-use cpxy_ng::tls_stream::TlsClientStream;
+use cpxy_ng::tls_stream::connect_tls;
 use cpxy_ng::{http_protocol, protocol};
 use std::io::Cursor;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
@@ -48,14 +48,7 @@ impl Outbound for ProtocolOutbound {
         conn.set_nodelay(true)
             .context("Error setting nodelay on TCP stream")?;
 
-        let mut conn = if config.tls {
-            TlsClientStream::connect_tls(config.host.as_str(), conn)
-                .await
-                .context("Error establishing TLS connection to upstream server")?
-        } else {
-            TlsClientStream::Plain(conn)
-        };
-
+        let mut conn = connect_tls(config.host.as_str(), config.tls, conn).await?;
         let (client_send_cipher, server_send_cipher) = select_cipher_based_on_port(port);
 
         let req = http_protocol::Request {
