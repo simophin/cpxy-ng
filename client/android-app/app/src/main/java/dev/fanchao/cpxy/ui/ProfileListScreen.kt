@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -84,6 +85,14 @@ fun ProfileListScreen(
 
                     IconButton(onClick = navigateToSettingScreen) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+
+                    if (runningState.startedResult != null) {
+                        IconButton(onClick = {
+                            configurationRepository.setProfileEnabled(null)
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Settings")
+                        }
                     }
                 })
         },
