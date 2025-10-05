@@ -1,26 +1,51 @@
-use crate::outbound::{DirectOutbound, IPDivertOutbound, ProtocolOutbound, SiteDivertOutbound};
+use crate::outbound::{
+    DirectOutbound, IPDivertOutbound, ProtocolOutbound, SiteDivertOutbound, StatReportingOutbound,
+};
 use crate::protocol_config::Config;
+use crate::stats_server::OutboundEvent;
 use cpxy_ng::geoip::find_country_code_v4;
 use cpxy_ng::outbound::Outbound;
 use geoip_data::CN_GEOIP;
 use ipnet::Ipv4Net;
+use std::borrow::Cow;
 use std::net::Ipv4Addr;
+use tokio::sync::broadcast;
 
 pub fn cn_outbound(
     main_server: Config,
     ai_server: Option<Config>,
     tailscale_server: Option<Config>,
+    events_tx: broadcast::Sender<OutboundEvent>,
 ) -> impl Outbound {
-    let global_outbound = ProtocolOutbound(main_server);
-    let ai_outbound = ai_server.map(ProtocolOutbound);
-    let tailscale_outbound = tailscale_server.map(ProtocolOutbound);
+    let global_outbound = StatReportingOutbound {
+        name: Cow::Borrowed("global"),
+        inner: ProtocolOutbound(main_server),
+        events_tx: events_tx.clone(),
+    };
+
+    let ai_outbound = ai_server.map(|c| StatReportingOutbound {
+        name: Cow::Borrowed("ai"),
+        inner: ProtocolOutbound(c),
+        events_tx: events_tx.clone(),
+    });
+    let tailscale_outbound = tailscale_server.map(|c| StatReportingOutbound {
+        name: Cow::Borrowed("tailscale"),
+        inner: ProtocolOutbound(c),
+        events_tx: events_tx.clone(),
+    });
+
+    let direct_outbound = StatReportingOutbound {
+        name: Cow::Borrowed("direct"),
+        inner: DirectOutbound,
+        events_tx,
+    };
 
     IPDivertOutbound {
         outbound_a: tailscale_outbound,
         outbound_b: SiteDivertOutbound {
             outbound_a: ai_outbound,
             outbound_b: IPDivertOutbound {
-                outbound_a: Some(DirectOutbound),
+                outbound_a: Some(direct_outbound),
                 outbound_b: global_outbound,
                 should_use_a: ip_should_route_direct,
             },
@@ -32,12 +57,17 @@ pub fn cn_outbound(
 
 const TAILSCALE_NETWORK: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(100, 0, 0, 0), 8);
 
-fn ip_should_route_direct(ip: Ipv4Addr) -> bool {
-    ip.is_private()
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || TAILSCALE_NETWORK.contains(&ip)
-        || matches!(find_country_code_v4(&ip, CN_GEOIP), Ok(Some("CN")))
+fn ip_should_route_direct(ip: anyhow::Result<Option<Ipv4Addr>>) -> bool {
+    match ip {
+        Ok(Some(ip)) => {
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || TAILSCALE_NETWORK.contains(&ip)
+                || matches!(find_country_code_v4(&ip, CN_GEOIP), Ok(Some("CN")))
+        }
+        _ => true,
+    }
 }
 
 fn site_should_route_ai(domain: &str) -> bool {
@@ -46,8 +76,11 @@ fn site_should_route_ai(domain: &str) -> bool {
         .any(|postfix| domain.to_ascii_lowercase().ends_with(postfix))
 }
 
-fn ip_should_route_tailscale(ip: Ipv4Addr) -> bool {
-    TAILSCALE_NETWORK.contains(&ip)
+fn ip_should_route_tailscale(ip: anyhow::Result<Option<Ipv4Addr>>) -> bool {
+    match ip {
+        Ok(Some(ip)) => TAILSCALE_NETWORK.contains(&ip),
+        _ => false,
+    }
 }
 
 const AI_DOMAIN_POSTFIXES: &[&str] = &["anthropic.com", "openai.com", "chatgpt.com"];

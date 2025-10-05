@@ -19,7 +19,9 @@ where
         req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> {
         match self.outbound_a.as_ref() {
-            Some(a) if (self.should_use_a)(&req.host) => a.send(req).await.map(EitherStream::Left),
+            Some(a) if (self.should_use_a)(req.host.host()) => {
+                a.send(req).await.map(EitherStream::Left)
+            }
             _ => self.outbound_b.send(req).await.map(EitherStream::Right),
         }
     }

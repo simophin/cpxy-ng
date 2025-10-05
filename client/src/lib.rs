@@ -7,3 +7,4 @@ pub mod socks_proxy_server;
 
 mod dynlib;
 pub mod outbound;
+pub mod stats_server;

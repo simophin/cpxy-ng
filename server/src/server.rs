@@ -1,7 +1,7 @@
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
 use cpxy_ng::time_util::now_epoch_seconds;
-use cpxy_ng::tls_stream::TlsClientStream;
+use cpxy_ng::tls_stream::connect_tls;
 use cpxy_ng::{Key, http_protocol, protocol};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -31,11 +31,12 @@ pub async fn handle_connection(
             .await
             .context("Error connecting to upstream")?;
 
-        let mut upstream = if req.request.tls {
-            TlsClientStream::connect_tls(req.request.host.as_str(), upstream).await?
-        } else {
-            TlsClientStream::Plain(upstream)
-        };
+        upstream
+            .set_nodelay(true)
+            .context("Error setting nodelay")?;
+
+        let mut upstream =
+            connect_tls(req.request.host.as_str(), req.request.tls, upstream).await?;
 
         tracing::debug!(
             "Writing initial plaintext: {}",

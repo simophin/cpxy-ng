@@ -1,10 +1,26 @@
 use std::fmt::{Debug, Formatter};
+use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+#[derive(Debug, Clone)]
+pub enum OutboundHost {
+    Domain(String),
+    Resolved { domain: String, ip: IpAddr },
+}
+
+impl OutboundHost {
+    pub fn host(&self) -> &str {
+        match self {
+            OutboundHost::Domain(d) => d.as_str(),
+            OutboundHost::Resolved { domain: d, .. } => d.as_str(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct OutboundRequest {
-    pub host: String,
+    pub host: OutboundHost,
     pub port: u16,
     pub tls: bool,
     pub initial_plaintext: Vec<u8>,

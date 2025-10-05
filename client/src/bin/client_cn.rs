@@ -6,8 +6,11 @@ use client::outbound::cn;
 use client::protocol_config::Config;
 use client::proxy_handlers::serve_listener;
 use client::socks_proxy_server::SocksProxyHandshaker;
+use client::stats_server::{StatsProvider, serve_stats};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio::sync::broadcast;
 use tokio::try_join;
 use tracing::{Instrument, info_span};
 
@@ -32,6 +35,9 @@ struct CliOptions {
     /// The address to listen on for the socks5 proxy
     #[clap(long, env)]
     socks5_proxy_listen: Option<SocketAddr>,
+
+    #[clap(long, env, default_value = "127.0.0.1:3010")]
+    api_listen: SocketAddr,
 }
 
 #[tokio::main]
@@ -45,20 +51,30 @@ async fn main() {
         socks5_proxy_listen,
         ai_server,
         tailscale_server,
+        api_listen,
     } = CliOptions::parse();
 
     tracing::info!(
         "Using servers: {server:?}, AI divert: {ai_server:?}, Tailscale divert: {tailscale_server:?}"
     );
 
-    let outbound = Arc::new(cn::cn_outbound(server, ai_server, tailscale_server));
+    tracing::info!("API server listening on {api_listen}");
+
+    let (events_tx, events_rx) = broadcast::channel(1024);
+
+    let outbound = Arc::new(cn::cn_outbound(
+        server,
+        ai_server,
+        tailscale_server,
+        events_tx,
+    ));
 
     let run_http_proxy = async {
         let Some(listen) = http_proxy_listen else {
             return anyhow::Ok(());
         };
 
-        let listener = tokio::net::TcpListener::bind(listen)
+        let listener = TcpListener::bind(listen)
             .await
             .context("Error binding HTTP proxy listen address")?;
 
@@ -72,7 +88,7 @@ async fn main() {
             return anyhow::Ok(());
         };
 
-        let listener = tokio::net::TcpListener::bind(listen)
+        let listener = TcpListener::bind(listen)
             .await
             .context("Error binding SOCKS5 proxy listen address")?;
 
@@ -81,5 +97,11 @@ async fn main() {
     }
     .instrument(info_span!("socks5_proxy"));
 
-    try_join!(run_http_proxy, run_socks_proxy).expect("To run proxy server");
+    let listener = TcpListener::bind(api_listen)
+        .await
+        .expect("Error binding API listen address");
+
+    let run_api_server = serve_stats(StatsProvider { events: events_rx }, listener);
+
+    try_join!(run_http_proxy, run_socks_proxy, run_api_server).expect("To run proxy server");
 }

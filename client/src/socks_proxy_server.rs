@@ -1,6 +1,6 @@
 use crate::handshaker::Handshaker;
 use anyhow::{Context, bail, ensure};
-use cpxy_ng::outbound::OutboundRequest;
+use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use std::fmt::{Debug, Formatter};
 use std::net::{IpAddr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -26,13 +26,16 @@ impl From<ProxyRequest> for OutboundRequest {
     fn from(value: ProxyRequest) -> Self {
         match value {
             ProxyRequest::WithDomain(host, port) => Self {
-                host,
+                host: OutboundHost::Domain(host),
                 port,
                 tls: false,
                 initial_plaintext: vec![],
             },
             ProxyRequest::WithIP(addr) => Self {
-                host: addr.ip().to_string(),
+                host: OutboundHost::Resolved {
+                    domain: addr.ip().to_string(),
+                    ip: addr.ip(),
+                },
                 port: addr.port(),
                 tls: false,
                 initial_plaintext: vec![],

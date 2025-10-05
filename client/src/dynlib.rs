@@ -3,13 +3,15 @@ use crate::outbound::cn::cn_outbound;
 use crate::protocol_config::Config;
 use crate::proxy_handlers::serve_listener;
 use crate::socks_proxy_server::SocksProxyHandshaker;
+use crate::stats_server::{StatsProvider, serve_stats};
 use anyhow::Context;
-use futures::future::join;
+use futures::future::join3;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
+use tokio::sync::broadcast;
 use url::Url;
 
 struct Handle {
@@ -20,6 +22,7 @@ struct Handle {
 pub unsafe extern "C" fn create_client(
     http_proxy_port: u16,
     socks5_proxy_port: u16,
+    api_proxy_port: u16,
     main_server_url: *const c_char,
     ai_server_url: *const c_char,
     tailscale_server_url: *const c_char,
@@ -51,6 +54,13 @@ pub unsafe extern "C" fn create_client(
             .set_nonblocking(true)
             .context("Failed to set socks5 listener to non-blocking")?;
 
+        let api_listener = std::net::TcpListener::bind(("127.0.0.1", api_proxy_port))
+            .with_context(|| format!("Failed to bind api proxy on {api_proxy_port}"))?;
+
+        api_listener
+            .set_nonblocking(true)
+            .context("Failed to set api listener to non-blocking")?;
+
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(2)
@@ -64,10 +74,16 @@ pub unsafe extern "C" fn create_client(
         let socks5_proxy_listener = TcpListener::from_std(socks_listener)
             .context("Failed to create tokio TcpListener for socks5")?;
 
+        let api_proxy_listener = TcpListener::from_std(api_listener)
+            .context("Failed to create tokio TcpListener for api")?;
+
+        let (events_tx, events) = broadcast::channel(100);
+
         let outbound = Arc::new(cn_outbound(
             main_server_config,
             ai_server_config,
             tailscale_server_config,
+            events_tx,
         ));
 
         let handle_http_proxy =
@@ -76,7 +92,13 @@ pub unsafe extern "C" fn create_client(
         let handle_socks5_proxy =
             serve_listener::<SocksProxyHandshaker<_>, _>(socks5_proxy_listener, outbound);
 
-        rt.spawn(join(handle_http_proxy, handle_socks5_proxy));
+        let handle_api_proxy = serve_stats(StatsProvider { events }, api_proxy_listener);
+
+        rt.spawn(join3(
+            handle_http_proxy,
+            handle_socks5_proxy,
+            handle_api_proxy,
+        ));
 
         anyhow::Ok(Handle { _rt: rt })
     })();

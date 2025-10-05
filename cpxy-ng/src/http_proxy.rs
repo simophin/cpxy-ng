@@ -1,7 +1,7 @@
 use crate::cipher_select::select_cipher_based_on_port;
 use crate::encrypt_stream::Configuration;
 use crate::http_stream::HttpStream;
-use crate::outbound::OutboundRequest;
+use crate::outbound::{OutboundHost, OutboundRequest};
 use crate::protocol;
 use anyhow::{Context, ensure};
 use tokio::io::AsyncRead;
@@ -61,14 +61,14 @@ impl From<ProxyRequest> for OutboundRequest {
     fn from(value: ProxyRequest) -> Self {
         match value {
             ProxyRequest::Http(req) => Self {
-                host: req.host,
+                host: OutboundHost::Domain(req.host),
                 port: req.port,
                 tls: req.tls,
                 initial_plaintext: req.payload,
             },
 
             ProxyRequest::Socket(req) => Self {
-                host: req.host,
+                host: OutboundHost::Domain(req.host),
                 port: req.port,
                 tls: false,
                 initial_plaintext: vec![],

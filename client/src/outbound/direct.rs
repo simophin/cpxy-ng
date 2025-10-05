@@ -1,5 +1,5 @@
 use anyhow::Context;
-use cpxy_ng::outbound::{Outbound, OutboundRequest};
+use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use cpxy_ng::tls_stream::connect_tls;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -19,11 +19,16 @@ impl Outbound for DirectOutbound {
             initial_plaintext,
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
-        let upstream = TcpStream::connect((host.as_str(), port))
-            .await
-            .context("Error connecting to remote")?;
+        let upstream = match &host {
+            OutboundHost::Domain(host) => TcpStream::connect((host.as_str(), port))
+                .await
+                .with_context(|| format!("Failed to connect to {host}:{port}"))?,
+            OutboundHost::Resolved { ip, .. } => TcpStream::connect((*ip, port))
+                .await
+                .with_context(|| format!("Failed to connect to {ip}:{port}"))?,
+        };
 
-        let mut upstream = connect_tls(host.as_str(), tls, upstream).await?;
+        let mut upstream = connect_tls(host.host(), tls, upstream).await?;
 
         if !initial_plaintext.is_empty() {
             upstream
