@@ -111,7 +111,7 @@ fun EventViewer(
 
                 }
 
-                val backgroundColor = COLORS[text.hashCode().absoluteValue % COLORS.size]
+                val backgroundColor = COLORS[badgeText.hashCode().absoluteValue % COLORS.size]
                 Text(
                     badgeText,
                     style = MaterialTheme.typography.labelSmall,
