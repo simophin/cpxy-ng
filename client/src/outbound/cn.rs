@@ -1,17 +1,24 @@
 use crate::outbound::{
-    DirectOutbound, IPDivertOutbound, ProtocolOutbound, SiteDivertOutbound, StatReportingOutbound,
+    DirectOutbound, IPDivertOutbound, ProtocolOutbound, ResolvingIPOutbound, SiteDivertOutbound,
+    StatReportingOutbound,
 };
 use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
 use cpxy_ng::geoip::find_country_code_v4;
 use cpxy_ng::outbound::Outbound;
 use geoip_data::CN_GEOIP;
+use hickory_resolver::Resolver;
+use hickory_resolver::config::{NameServerConfig, ResolverConfig};
+use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::proto::xfer::Protocol;
 use ipnet::Ipv4Net;
 use std::borrow::Cow;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 pub fn cn_outbound(
+    dns_servers: Vec<SocketAddr>,
     main_server: Config,
     ai_server: Option<Config>,
     tailscale_server: Option<Config>,
@@ -40,18 +47,29 @@ pub fn cn_outbound(
         events_tx,
     };
 
-    IPDivertOutbound {
-        outbound_a: tailscale_outbound,
-        outbound_b: SiteDivertOutbound {
-            outbound_a: ai_outbound,
-            outbound_b: IPDivertOutbound {
-                outbound_a: Some(direct_outbound),
-                outbound_b: global_outbound,
-                should_use_a: ip_should_route_direct,
+    let mut resolver_config = ResolverConfig::new();
+    for dns_server in dns_servers {
+        resolver_config.add_name_server(NameServerConfig::new(dns_server, Protocol::Udp));
+    }
+
+    ResolvingIPOutbound {
+        inner: IPDivertOutbound {
+            outbound_a: tailscale_outbound,
+            outbound_b: SiteDivertOutbound {
+                outbound_a: ai_outbound,
+                outbound_b: IPDivertOutbound {
+                    outbound_a: Some(direct_outbound),
+                    outbound_b: global_outbound,
+                    should_use_a: ip_should_route_direct,
+                },
+                should_use_a: site_should_route_ai,
             },
-            should_use_a: site_should_route_ai,
+            should_use_a: ip_should_route_tailscale,
         },
-        should_use_a: ip_should_route_tailscale,
+        resolver: Arc::new(
+            Resolver::builder_with_config(resolver_config, TokioConnectionProvider::default())
+                .build(),
+        ),
     }
 }
 

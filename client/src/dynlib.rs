@@ -7,7 +7,9 @@ use crate::stats_server::{StatsProvider, serve_stats};
 use anyhow::Context;
 use futures::future::join3;
 use std::ffi::{CStr, CString, c_char, c_void};
+use std::net::{IpAddr, SocketAddr};
 use std::ptr::null_mut;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
@@ -23,6 +25,7 @@ pub unsafe extern "C" fn create_client(
     http_proxy_port: u16,
     socks5_proxy_port: u16,
     api_proxy_port: u16,
+    dns_server: *const c_char,
     main_server_url: *const c_char,
     ai_server_url: *const c_char,
     tailscale_server_url: *const c_char,
@@ -33,6 +36,12 @@ pub unsafe extern "C" fn create_client(
         let main_server_config = parse_config_from_url(main_server_url)
             .context("failed to parse main server url")?
             .context("Main server url is required")?;
+
+        let dns_server = unsafe { CStr::from_ptr(dns_server) }
+            .to_str()
+            .ok()
+            .and_then(|s| IpAddr::from_str(s).ok())
+            .context("dns server address is required")?;
 
         let ai_server_config =
             parse_config_from_url(ai_server_url).context("failed to parse ai server url")?;
@@ -80,6 +89,7 @@ pub unsafe extern "C" fn create_client(
         let (events_tx, events) = broadcast::channel(100);
 
         let outbound = Arc::new(cn_outbound(
+            vec![SocketAddr::new(dns_server, 53)],
             main_server_config,
             ai_server_config,
             tailscale_server_config,

@@ -1,9 +1,6 @@
-use hickory_resolver::config::ResolverConfig;
-use hickory_resolver::name_server::TokioConnectionProvider;
-use hickory_resolver::{Resolver, TokioResolver};
 use std::fmt::{Debug, Formatter};
 use std::net::Ipv4Addr;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Debug, Clone)]
@@ -15,41 +12,11 @@ pub enum OutboundHost {
     },
 }
 
-static RESOLVER: LazyLock<TokioResolver> = LazyLock::new(|| {
-    Resolver::builder_with_config(
-        ResolverConfig::cloudflare(),
-        TokioConnectionProvider::default(),
-    )
-    .build()
-});
-
 impl OutboundHost {
     pub fn host(&self) -> &str {
         match self {
             OutboundHost::Domain(d) => d.as_str(),
             OutboundHost::Resolved { domain: d, .. } => d.as_str(),
-        }
-    }
-
-    pub async fn resolved(&mut self) -> Option<Ipv4Addr> {
-        match self {
-            OutboundHost::Domain(host) => {
-                let ip = RESOLVER
-                    .ipv4_lookup(host.as_str())
-                    .await
-                    .ok()
-                    .and_then(|r| r.iter().next().copied())
-                    .map(|r| r.0);
-
-                *self = OutboundHost::Resolved {
-                    domain: std::mem::take(host),
-                    ip,
-                };
-
-                ip
-            }
-
-            OutboundHost::Resolved { ip, .. } => *ip,
         }
     }
 }

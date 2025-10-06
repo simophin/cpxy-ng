@@ -1,5 +1,5 @@
 use cpxy_ng::either_stream::EitherStream;
-use cpxy_ng::outbound::{Outbound, OutboundRequest};
+use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use std::net::Ipv4Addr;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -17,10 +17,15 @@ where
 {
     async fn send(
         &self,
-        mut req: OutboundRequest,
+        req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         if let Some(outbound_a) = self.outbound_a.as_ref() {
-            if (self.should_use_a)(req.host.resolved().await) {
+            let ip = match req.host {
+                OutboundHost::Domain(_) => None,
+                OutboundHost::Resolved { ip, .. } => ip,
+            };
+
+            if (self.should_use_a)(ip) {
                 return outbound_a.send(req).await.map(EitherStream::Left);
             }
         }

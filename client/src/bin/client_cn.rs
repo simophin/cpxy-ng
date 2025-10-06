@@ -8,7 +8,7 @@ use client::proxy_handlers::serve_listener;
 use client::socks_proxy_server::SocksProxyHandshaker;
 use client::stats_server::{StatsProvider, serve_stats};
 use futures::future::try_join3;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -21,6 +21,9 @@ struct CliOptions {
     /// The cpxy sever host to connect to
     #[clap(env, required = true)]
     server: Config,
+
+    #[clap(env, long, default_value = "8.8.8.8")]
+    dns_server: Vec<IpAddr>,
 
     /// The cpxy server host to connect to for AI website access
     #[clap(env, long)]
@@ -54,11 +57,16 @@ async fn main() {
         ai_server,
         tailscale_server,
         api_listen,
+        dns_server,
     } = CliOptions::parse();
 
     let (events_tx, events_rx) = broadcast::channel(1024);
 
     let outbound = Arc::new(cn::cn_outbound(
+        dns_server
+            .into_iter()
+            .map(|ip| SocketAddr::new(ip, 53))
+            .collect(),
         server.clone(),
         ai_server.clone(),
         tailscale_server.clone(),
