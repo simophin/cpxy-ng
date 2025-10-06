@@ -20,7 +20,7 @@ impl Outbound for HttpProxyOutbound {
             tls,
             initial_plaintext,
         }: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         let upstream = TcpStream::connect((self.host.as_str(), self.port))
             .await
             .context("failed to connect to upstream")?;

@@ -19,7 +19,7 @@ where
     async fn send(
         &self,
         req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         let start = Instant::now();
         let request_time_mills = SystemTime::UNIX_EPOCH
             .elapsed()

@@ -1,6 +1,9 @@
+use hickory_resolver::config::ResolverConfig;
+use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::{Resolver, TokioResolver};
 use std::fmt::{Debug, Formatter};
-use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::net::Ipv4Addr;
+use std::sync::{Arc, LazyLock};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Debug, Clone)]
@@ -11,6 +14,14 @@ pub enum OutboundHost {
         ip: Option<Ipv4Addr>,
     },
 }
+
+static RESOLVER: LazyLock<TokioResolver> = LazyLock::new(|| {
+    Resolver::builder_with_config(
+        ResolverConfig::cloudflare(),
+        TokioConnectionProvider::default(),
+    )
+    .build()
+});
 
 impl OutboundHost {
     pub fn host(&self) -> &str {
@@ -23,16 +34,12 @@ impl OutboundHost {
     pub async fn resolved(&mut self) -> Option<Ipv4Addr> {
         match self {
             OutboundHost::Domain(host) => {
-                let ip = tokio::net::lookup_host((host.as_str(), 80))
+                let ip = RESOLVER
+                    .ipv4_lookup(host.as_str())
                     .await
-                    .map(|iter| {
-                        iter.filter_map(|s| match s {
-                            SocketAddr::V4(v4) => Some(*v4.ip()),
-                            _ => None,
-                        })
-                        .next()
-                    })
-                    .unwrap_or_default();
+                    .ok()
+                    .and_then(|r| r.iter().next().copied())
+                    .map(|r| r.0);
 
                 *self = OutboundHost::Resolved {
                     domain: std::mem::take(host),
@@ -73,20 +80,15 @@ pub trait Outbound {
     fn send(
         &self,
         req: OutboundRequest,
-    ) -> impl Future<
-        Output = anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>,
-    > + Send
-    + Sync;
+    ) -> impl Future<Output = anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static>> + Send;
 }
 
 impl<O: Outbound> Outbound for Arc<O> {
     fn send(
         &self,
         req: OutboundRequest,
-    ) -> impl Future<
-        Output = anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>,
-    > + Send
-    + Sync {
+    ) -> impl Future<Output = anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static>> + Send
+    {
         self.as_ref().send(req)
     }
 }

@@ -15,7 +15,7 @@ where
     async fn send(
         &self,
         req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         match self {
             EitherOutbound::Left(a) => a.send(req).await.map(EitherStream::Left),
             EitherOutbound::Right(b) => b.send(req).await.map(EitherStream::Right),

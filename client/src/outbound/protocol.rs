@@ -27,7 +27,7 @@ impl Outbound for ProtocolOutbound {
             tls,
             initial_plaintext,
         }: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         let config = &self.0;
         let conn = TcpStream::connect((config.host.as_str(), config.port))
             .await

@@ -18,7 +18,7 @@ impl Outbound for DirectOutbound {
             tls,
             initial_plaintext,
         }: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         let upstream = match &host {
             OutboundHost::Resolved { ip: Some(ip), .. } => TcpStream::connect((*ip, port))
                 .await

@@ -18,7 +18,7 @@ where
     async fn send(
         &self,
         mut req: OutboundRequest,
-    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
+    ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         if let Some(outbound_a) = self.outbound_a.as_ref() {
             if (self.should_use_a)(req.host.resolved().await) {
                 return outbound_a.send(req).await.map(EitherStream::Left);
