@@ -1,6 +1,5 @@
 use crate::outbound::{
-    DirectOutbound, EitherOutbound, HttpProxyOutbound, IPDivertOutbound, ProtocolOutbound,
-    SiteDivertOutbound, StatReportingOutbound,
+    DirectOutbound, IPDivertOutbound, ProtocolOutbound, SiteDivertOutbound, StatReportingOutbound,
 };
 use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
@@ -14,22 +13,13 @@ use tokio::sync::broadcast;
 
 pub fn cn_outbound(
     main_server: Config,
-    main_server_is_http_proxy: bool,
     ai_server: Option<Config>,
     tailscale_server: Option<Config>,
     events_tx: broadcast::Sender<OutboundEvent>,
 ) -> impl Outbound {
     let global_outbound = StatReportingOutbound {
         name: Cow::Borrowed("global"),
-        inner: if main_server_is_http_proxy {
-            EitherOutbound::Left(HttpProxyOutbound {
-                host: main_server.host,
-                port: main_server.port,
-                tls: main_server.tls,
-            })
-        } else {
-            EitherOutbound::Right(ProtocolOutbound(main_server))
-        },
+        inner: ProtocolOutbound(main_server),
         events_tx: events_tx.clone(),
     };
 

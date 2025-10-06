@@ -1,6 +1,5 @@
 package dev.fanchao.cpxy.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -11,7 +10,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -74,13 +72,16 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            when (selectedNavItem) {
-                NavItem.Profiles -> {
-                    FloatingActionButton(onClick = navigateToNewConfigScreen) {
-                        Icon(Icons.Default.Add, contentDescription = null)
+            Crossfade(selectedNavItem) { item ->
+                when (item) {
+                    NavItem.Profiles -> {
+                        FloatingActionButton(onClick = navigateToNewConfigScreen) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                        }
                     }
+
+                    NavItem.EventList, NavItem.Settings -> {}
                 }
-                NavItem.EventList, NavItem.Settings -> {}
             }
         }
     ) { padding ->
