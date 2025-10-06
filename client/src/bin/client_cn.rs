@@ -20,6 +20,9 @@ struct CliOptions {
     #[clap(env, required = true)]
     server: Config,
 
+    #[clap(env, default_value_t = false, long)]
+    server_is_http_proxy: bool,
+
     /// The cpxy server host to connect to for AI website access
     #[clap(env, long)]
     ai_server: Option<Config>,
@@ -52,6 +55,7 @@ async fn main() {
         ai_server,
         tailscale_server,
         api_listen,
+        server_is_http_proxy,
     } = CliOptions::parse();
 
     tracing::info!(
@@ -64,6 +68,7 @@ async fn main() {
 
     let outbound = Arc::new(cn::cn_outbound(
         server,
+        server_is_http_proxy,
         ai_server,
         tailscale_server,
         events_tx,

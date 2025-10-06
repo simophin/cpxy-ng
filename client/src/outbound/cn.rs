@@ -1,5 +1,6 @@
 use crate::outbound::{
-    DirectOutbound, IPDivertOutbound, ProtocolOutbound, SiteDivertOutbound, StatReportingOutbound,
+    DirectOutbound, EitherOutbound, HttpProxyOutbound, IPDivertOutbound, ProtocolOutbound,
+    SiteDivertOutbound, StatReportingOutbound,
 };
 use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
@@ -13,13 +14,22 @@ use tokio::sync::broadcast;
 
 pub fn cn_outbound(
     main_server: Config,
+    main_server_is_http_proxy: bool,
     ai_server: Option<Config>,
     tailscale_server: Option<Config>,
     events_tx: broadcast::Sender<OutboundEvent>,
 ) -> impl Outbound {
     let global_outbound = StatReportingOutbound {
         name: Cow::Borrowed("global"),
-        inner: ProtocolOutbound(main_server),
+        inner: if main_server_is_http_proxy {
+            EitherOutbound::Left(HttpProxyOutbound {
+                host: main_server.host,
+                port: main_server.port,
+                tls: main_server.tls,
+            })
+        } else {
+            EitherOutbound::Right(ProtocolOutbound(main_server))
+        },
         events_tx: events_tx.clone(),
     };
 
@@ -57,9 +67,9 @@ pub fn cn_outbound(
 
 const TAILSCALE_NETWORK: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(100, 0, 0, 0), 8);
 
-fn ip_should_route_direct(ip: anyhow::Result<Option<Ipv4Addr>>) -> bool {
+fn ip_should_route_direct(ip: Option<Ipv4Addr>) -> bool {
     match ip {
-        Ok(Some(ip)) => {
+        Some(ip) => {
             ip.is_private()
                 || ip.is_loopback()
                 || ip.is_link_local()
@@ -76,9 +86,9 @@ fn site_should_route_ai(domain: &str) -> bool {
         .any(|postfix| domain.to_ascii_lowercase().ends_with(postfix))
 }
 
-fn ip_should_route_tailscale(ip: anyhow::Result<Option<Ipv4Addr>>) -> bool {
+fn ip_should_route_tailscale(ip: Option<Ipv4Addr>) -> bool {
     match ip {
-        Ok(Some(ip)) => TAILSCALE_NETWORK.contains(&ip),
+        Some(ip) => TAILSCALE_NETWORK.contains(&ip),
         _ => false,
     }
 }

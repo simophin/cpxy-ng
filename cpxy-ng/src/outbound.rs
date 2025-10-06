@@ -1,12 +1,15 @@
 use std::fmt::{Debug, Formatter};
-use std::net::IpAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Debug, Clone)]
 pub enum OutboundHost {
     Domain(String),
-    Resolved { domain: String, ip: IpAddr },
+    Resolved {
+        domain: String,
+        ip: Option<Ipv4Addr>,
+    },
 }
 
 impl OutboundHost {
@@ -14,6 +17,32 @@ impl OutboundHost {
         match self {
             OutboundHost::Domain(d) => d.as_str(),
             OutboundHost::Resolved { domain: d, .. } => d.as_str(),
+        }
+    }
+
+    pub async fn resolved(&mut self) -> Option<Ipv4Addr> {
+        match self {
+            OutboundHost::Domain(host) => {
+                let ip = tokio::net::lookup_host((host.as_str(), 80))
+                    .await
+                    .map(|iter| {
+                        iter.filter_map(|s| match s {
+                            SocketAddr::V4(v4) => Some(*v4.ip()),
+                            _ => None,
+                        })
+                        .next()
+                    })
+                    .unwrap_or_default();
+
+                *self = OutboundHost::Resolved {
+                    domain: std::mem::take(host),
+                    ip,
+                };
+
+                ip
+            }
+
+            OutboundHost::Resolved { ip, .. } => *ip,
         }
     }
 }

@@ -14,12 +14,14 @@ use tokio::sync::broadcast::Receiver;
 pub enum OutboundEvent {
     Connected {
         host: String,
+        port: u16,
         outbound: Cow<'static, str>,
         delay_mills: usize,
         request_time_mills: u64,
     },
     Error {
         host: String,
+        port: u16,
         outbound: Cow<'static, str>,
         delay_mills: usize,
         request_time_mills: u64,

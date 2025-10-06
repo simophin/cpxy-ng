@@ -9,6 +9,7 @@ interface Client : Library {
     fun create_client(
         httpProxyPort: Short,
         socks5ProxyPort: Short,
+        apiServerPort: Short,
         mainServerUrl: String,
         aiServerUrl: String?,
         tailscaleServerUrl: String?,
@@ -22,6 +23,7 @@ interface Client : Library {
 fun Client.create(
     httpProxyPort: UShort,
     socks5ProxyPort: UShort,
+    apiServerPort: UShort,
     mainServerUrl: String,
     aiServerUrl: String?,
     tailscaleServerUrl: String?,
@@ -31,6 +33,7 @@ fun Client.create(
     val ptr = create_client(
         httpProxyPort = httpProxyPort.toShort(),
         socks5ProxyPort = socks5ProxyPort.toShort(),
+        apiServerPort = apiServerPort.toShort(),
         mainServerUrl = mainServerUrl,
         aiServerUrl = aiServerUrl,
         tailscaleServerUrl = tailscaleServerUrl,

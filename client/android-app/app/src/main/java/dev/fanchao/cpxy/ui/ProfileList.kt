@@ -11,12 +11,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -26,11 +23,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,96 +34,68 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.ConfigRepository
+import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.Profile
 import dev.fanchao.cpxy.ProfileInstanceManager
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
-import kotlinx.serialization.Serializable
 import java.util.UUID
 
-@Serializable
-data object ProfileListRoute
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileListScreen(
-    configurationRepository: ConfigRepository,
-    profileInstanceManager: ProfileInstanceManager,
+fun ProfileList(
+    modifier: Modifier = Modifier,
     navigateToEditScreen: (Profile) -> Unit,
-    navigateToNewConfigScreen: () -> Unit,
-    navigateToSettingScreen: () -> Unit,
 ) {
     val showingErrorDialog = remember { mutableStateOf<Throwable?>(null) }
+    val context = LocalContext.current
+    val configurationRepository = context.appInstance.configurationRepository
 
     val configurations by configurationRepository
         .clientConfig
         .collectAsState()
 
-    val runningState by profileInstanceManager
+    val runningState by context.appInstance
+        .profileInstanceManager
         .state
         .collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Servers") },
-                actions = {
-                    IconButton(onClick = navigateToNewConfigScreen) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Add"
-                        )
-                    }
-
-                    IconButton(onClick = navigateToSettingScreen) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-
-                    if (runningState.startedResult != null) {
-                        IconButton(onClick = {
-                            configurationRepository.setProfileEnabled(null)
-                        }) {
-                            Icon(Icons.Default.Close, contentDescription = "Settings")
-                        }
-                    }
-                })
+    ProfileList(
+        modifier = modifier,
+        profiles = configurations.profiles,
+        runningState = runningState,
+        onItemClick = { configurationRepository.setProfileEnabled(it.id) },
+        onEditClick = navigateToEditScreen,
+        onDeleteClick = { configurationRepository.deleteProfile(it.id) },
+        onErrorInfoClicked = { _, err ->
+            showingErrorDialog.value = err
         },
-    ) { paddings ->
-        ProfileList(
-            modifier = Modifier.padding(paddings),
-            profiles = configurations.profiles,
-            runningState = runningState,
-            onItemClick = { configurationRepository.setProfileEnabled(it.id) },
-            onEditClick = navigateToEditScreen,
-            onDeleteClick = { configurationRepository.deleteProfile(it.id) },
-            onErrorInfoClicked = { _, err ->
-                showingErrorDialog.value = err
+        cloneProfile = {
+            val newConfig =
+                it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
+            configurationRepository.saveProfile(newConfig)
+            navigateToEditScreen(newConfig)
+        }
+    )
+
+    if (showingErrorDialog.value != null) {
+        AlertDialog(
+            onDismissRequest = { showingErrorDialog.value = null },
+            confirmButton = {
+                OutlinedButton(onClick = { showingErrorDialog.value = null }) {
+                    Text("OK")
+                }
             },
-            cloneProfile = {
-                val newConfig =
-                    it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
-                configurationRepository.saveProfile(newConfig)
-                navigateToEditScreen(newConfig)
+            text = {
+                Text(showingErrorDialog.value!!.message.orEmpty())
             }
         )
-
-        if (showingErrorDialog.value != null) {
-            AlertDialog(
-                onDismissRequest = { showingErrorDialog.value = null },
-                confirmButton = {
-                    OutlinedButton(onClick = { showingErrorDialog.value = null }) {
-                        Text("OK")
-                    }
-                },
-                text = {
-                    Text(showingErrorDialog.value!!.message.orEmpty())
-                }
-            )
-        }
     }
+
 }
 
 @Composable

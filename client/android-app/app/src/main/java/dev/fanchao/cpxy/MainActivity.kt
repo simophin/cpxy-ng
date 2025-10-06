@@ -18,10 +18,8 @@ import androidx.navigation.toRoute
 import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.ui.EditProfileRoute
 import dev.fanchao.cpxy.ui.EditProfileScreen
-import dev.fanchao.cpxy.ui.ProfileListRoute
-import dev.fanchao.cpxy.ui.ProfileListScreen
-import dev.fanchao.cpxy.ui.ProxyConfigRoute
-import dev.fanchao.cpxy.ui.ProxyConfigScreen
+import dev.fanchao.cpxy.ui.HomeRoute
+import dev.fanchao.cpxy.ui.HomeScreen
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
 
 class MainActivity : ComponentActivity() {
@@ -37,20 +35,15 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
 
             CpxyTheme {
-                NavHost(navController = navController, startDestination = ProfileListRoute) {
-                    composable<ProfileListRoute> {
-                        ProfileListScreen(
-                            configurationRepository = appInstance.configurationRepository,
-                            profileInstanceManager = appInstance.profileInstanceManager,
+                NavHost(navController = navController, startDestination = HomeRoute) {
+                    composable<HomeRoute> {
+                        HomeScreen(
                             navigateToEditScreen = {
                                 navController.navigate(EditProfileRoute(it.id))
                             },
                             navigateToNewConfigScreen = {
                                 navController.navigate(EditProfileRoute(null))
                             },
-                            navigateToSettingScreen = {
-                                navController.navigate(ProxyConfigRoute)
-                            }
                         )
                     }
 
@@ -60,13 +53,6 @@ class MainActivity : ComponentActivity() {
                             profileId = route.id,
                             onDone = navController::popBackStack,
                             configurationRepository = appInstance.configurationRepository,
-                        )
-                    }
-
-                    composable<ProxyConfigRoute> {
-                        ProxyConfigScreen(
-                            repo = appInstance.configurationRepository,
-                            onDone = navController::popBackStack,
                         )
                     }
                 }

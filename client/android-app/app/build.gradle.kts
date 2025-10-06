@@ -70,6 +70,9 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.navigation.compose)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.websockets)
     debugImplementation(libs.androidx.ui.tooling)
     implementation(libs.jna) {
         artifact {

@@ -40,6 +40,7 @@ class ProfileInstanceManager (
                                 mainServerUrl = profile.mainServerUrl,
                                 aiServerUrl = profile.aiServerUrl,
                                 tailscaleServerUrl = profile.tailscaleServerUrl,
+                                apiServerPort = newConfig.apiServerPort,
                             )
                         }.onFailure {
                             Log.e("ProfileInstanceManager", "Failed to start client for profile $profile", it)

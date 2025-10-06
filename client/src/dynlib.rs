@@ -81,6 +81,7 @@ pub unsafe extern "C" fn create_client(
 
         let outbound = Arc::new(cn_outbound(
             main_server_config,
+            false,
             ai_server_config,
             tailscale_server_config,
             events_tx,

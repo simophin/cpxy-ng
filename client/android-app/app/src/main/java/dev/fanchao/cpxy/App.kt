@@ -3,6 +3,9 @@ package dev.fanchao.cpxy
 import android.app.Application
 import android.content.Context
 import com.sun.jna.Native
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.websocket.WebSockets
 import kotlinx.serialization.json.Json
 
 class App : Application() {
@@ -20,10 +23,31 @@ class App : Application() {
         )
     }
 
+    val httpClient: HttpClient by lazy {
+        HttpClient(CIO) {
+            install(WebSockets)
+        }
+    }
+
+    val json: Json by lazy {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
+    }
+
     val profileInstanceManager: ProfileInstanceManager by lazy {
         ProfileInstanceManager(
             repository = configurationRepository,
             clientProvider = { client },
+        )
+    }
+
+    val eventsRepository: EventsRepository by lazy {
+        EventsRepository(
+            manager = profileInstanceManager,
+            client = httpClient,
+            json = json,
         )
     }
 
@@ -34,6 +58,9 @@ class App : Application() {
             appContext = this,
             profileInstanceManager = profileInstanceManager,
         )
+
+        // Initialize lazy properties
+        eventsRepository.events
     }
 
     companion object {

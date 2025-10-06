@@ -20,12 +20,14 @@ impl Outbound for DirectOutbound {
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> {
         let upstream = match &host {
-            OutboundHost::Domain(host) => TcpStream::connect((host.as_str(), port))
-                .await
-                .with_context(|| format!("Failed to connect to {host}:{port}"))?,
-            OutboundHost::Resolved { ip, .. } => TcpStream::connect((*ip, port))
+            OutboundHost::Resolved { ip: Some(ip), .. } => TcpStream::connect((*ip, port))
                 .await
                 .with_context(|| format!("Failed to connect to {ip}:{port}"))?,
+            OutboundHost::Domain(host) | OutboundHost::Resolved { domain: host, .. } => {
+                TcpStream::connect((host.as_str(), port))
+                    .await
+                    .with_context(|| format!("Failed to connect to {host}:{port}"))?
+            }
         };
 
         let mut upstream = connect_tls(host.host(), tls, upstream).await?;
