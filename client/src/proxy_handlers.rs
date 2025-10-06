@@ -4,6 +4,7 @@ use cpxy_ng::outbound::{Outbound, OutboundRequest};
 use tokio::io::copy_bidirectional;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::JoinSet;
 
 pub async fn serve<HS, S, OB>(stream: S, outbound: OB) -> anyhow::Result<()>
 where
@@ -47,9 +48,10 @@ where
     <HS as Handshaker<TcpStream>>::StreamType: AsyncRead + AsyncWrite + Unpin + Send,
     OB: Outbound + Clone + Send + 'static,
 {
+    let mut js = JoinSet::new();
     loop {
         let (stream, addr) = listener.accept().await?;
         tracing::info!(?addr, "Accepted connection");
-        tokio::spawn(serve::<HS, _, _>(stream, outbound.clone()));
+        js.spawn(serve::<HS, _, _>(stream, outbound.clone()));
     }
 }
