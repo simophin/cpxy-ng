@@ -71,9 +71,7 @@ fn ip_should_route_direct(ip: Option<Ipv4Addr>) -> bool {
 }
 
 fn site_should_route_ai(domain: &str) -> bool {
-    AI_DOMAIN_POSTFIXES
-        .iter()
-        .any(|postfix| domain.to_ascii_lowercase().ends_with(postfix))
+    domain.contains("openai.com") || domain.contains("gemini") || domain.contains("anthropic")
 }
 
 fn ip_should_route_tailscale(ip: Option<Ipv4Addr>) -> bool {
@@ -82,5 +80,3 @@ fn ip_should_route_tailscale(ip: Option<Ipv4Addr>) -> bool {
         _ => false,
     }
 }
-
-const AI_DOMAIN_POSTFIXES: &[&str] = &["anthropic.com", "openai.com", "chatgpt.com"];
