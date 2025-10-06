@@ -10,6 +10,7 @@ interface Client : Library {
         httpProxyPort: Short,
         socks5ProxyPort: Short,
         apiServerPort: Short,
+        dnsServer: String,
         mainServerUrl: String,
         aiServerUrl: String?,
         tailscaleServerUrl: String?,
@@ -24,6 +25,7 @@ fun Client.create(
     httpProxyPort: UShort,
     socks5ProxyPort: UShort,
     apiServerPort: UShort,
+    dnsServer: String,
     mainServerUrl: String,
     aiServerUrl: String?,
     tailscaleServerUrl: String?,
@@ -38,7 +40,8 @@ fun Client.create(
         aiServerUrl = aiServerUrl,
         tailscaleServerUrl = tailscaleServerUrl,
         errorMessage = errorMessage,
-        errorMessageLen = NativeLong(errorMessage.size.toLong())
+        errorMessageLen = NativeLong(errorMessage.size.toLong()),
+        dnsServer = dnsServer,
     )
 
     if (ptr == null || ptr.getInt(0) == 0) {

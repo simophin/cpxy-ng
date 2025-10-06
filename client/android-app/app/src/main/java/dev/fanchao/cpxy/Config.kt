@@ -19,6 +19,7 @@ data class ClientConfig(
     val httpProxyPort: UShort,
     val socks5ProxyPort: UShort,
     val apiServerPort: UShort = 3010u,
+    val dnsServer: String = "223.5.5.5"
 ) {
     val enabledProfile: Profile?
         get() = enabledProfileId?.let { id -> profiles.find { it.id == id } }
