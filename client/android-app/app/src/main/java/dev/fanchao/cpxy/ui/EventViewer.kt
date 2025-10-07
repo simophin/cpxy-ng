@@ -11,18 +11,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.App.Companion.appInstance
@@ -52,6 +56,8 @@ fun EventViewer(
     }
 
     val state = rememberLazyListState()
+
+    var showingError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         val buffer = mutableListOf<EventsRepository.Event>()
@@ -88,7 +94,7 @@ fun EventViewer(
             val text: String
             val time: Instant
             val delayMills: Long
-            val isError: Boolean
+            val errorText: String?
 
             when (item) {
                 is EventsRepository.Event.Connected -> {
@@ -96,7 +102,7 @@ fun EventViewer(
                     text = "${item.host}:${item.port}"
                     time = Instant.fromEpochMilliseconds(item.requestTimeEpochMs)
                     delayMills = item.delayMills
-                    isError = false
+                    errorText = null
                 }
 
                 is EventsRepository.Event.Error -> {
@@ -104,19 +110,23 @@ fun EventViewer(
                     text = "${item.host}:${item.port}"
                     time = Instant.fromEpochMilliseconds(item.requestTimeEpochMs)
                     delayMills = item.delayMills
-                    isError = true
+                    errorText = item.error
                 }
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable {}
+                    .clickable {
+                        if (errorText != null) {
+                            showingError = errorText
+                        }
+                    }
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                if (isError) {
+                if (errorText != null) {
                     Text(
                         "Error",
                         style = MaterialTheme.typography.labelSmall,
@@ -179,13 +189,26 @@ fun EventViewer(
 
         if (list.isEmpty()) {
             item {
-                Text("No events yet", modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp))
+                Text(
+                    "No events yet", modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                )
             }
         }
     }
 
+    if (showingError != null) {
+        AlertDialog(
+            onDismissRequest = { showingError = null },
+            text = { Text(showingError!!) },
+            confirmButton = {
+                FilledTonalButton(onClick = { showingError = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 }
 
 private val COLORS = listOf(

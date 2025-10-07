@@ -43,7 +43,7 @@ pub fn cn_outbound(
 
     let direct_outbound = StatReportingOutbound {
         name: Cow::Borrowed("direct"),
-        inner: DirectOutbound,
+        inner: DirectOutbound::default(),
         events_tx,
     };
 
