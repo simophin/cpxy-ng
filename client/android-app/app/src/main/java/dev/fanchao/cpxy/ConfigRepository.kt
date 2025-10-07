@@ -42,11 +42,12 @@ class ConfigRepository(
         }
     }
 
-    fun saveProxySettings(httpPort: UShort, socksPort: UShort) {
+    fun saveProxySettings(httpPort: UShort, socksPort: UShort, dnsSever: String) {
         mutableClientConfig.update { config ->
             config.copy(
                 httpProxyPort = httpPort,
                 socks5ProxyPort = socksPort,
+                dnsServer = dnsSever,
             )
         }
     }

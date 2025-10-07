@@ -1,5 +1,6 @@
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use hickory_resolver::TokioResolver;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -17,15 +18,20 @@ where
         mut req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         if let OutboundHost::Domain(host) = &mut req.host {
-            let ip = self
-                .resolver
-                .ipv4_lookup(host.as_str())
-                .await
-                .map(|lookup| lookup.iter().next().map(|ip| ip.0))
-                .unwrap_or_else(|e| {
-                    tracing::error!(?e, "failed to resolve domain: {host}");
-                    None
-                });
+            // See the host is a raw IP to start with?
+            let mut ip: Option<Ipv4Addr> = host.parse().ok();
+
+            if ip.is_none() {
+                ip = self
+                    .resolver
+                    .ipv4_lookup(host.as_str())
+                    .await
+                    .map(|lookup| lookup.iter().next().map(|ip| ip.0))
+                    .unwrap_or_else(|e| {
+                        tracing::error!(?e, "failed to resolve domain: {host}");
+                        None
+                    });
+            }
 
             req.host = OutboundHost::Resolved {
                 domain: std::mem::take(host),

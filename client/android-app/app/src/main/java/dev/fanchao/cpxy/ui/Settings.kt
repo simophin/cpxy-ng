@@ -40,6 +40,8 @@ fun Settings(
         remember { mutableStateOf(repo.clientConfig.value.httpProxyPort.toString()) }
     val socksProxyPort =
         remember { mutableStateOf(repo.clientConfig.value.socks5ProxyPort.toString()) }
+    val dnsServer =
+        remember { mutableStateOf(repo.clientConfig.value.dnsServer) }
 
     val scope = rememberCoroutineScope()
 
@@ -55,7 +57,13 @@ fun Settings(
                     "Invalid SOCKS5 Proxy Port"
                 }
 
-            repo.saveProxySettings(httpProxyPort, socksProxyPort)
+            require(dnsServer.value.isNotBlank()) { "DNS server cannot be empty" }
+
+            repo.saveProxySettings(
+                httpPort = httpProxyPort,
+                socksPort = socksProxyPort,
+                dnsSever = dnsServer.value
+            )
             scope.launch {
                 snackbarHostState.showSnackbar("Settings saved")
             }
@@ -86,6 +94,13 @@ fun Settings(
             onValueChange = { socksProxyPort.value = it },
             label = { Text("SOCKS5 Proxy Port") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        )
+
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = dnsServer.value,
+            onValueChange = { dnsServer.value = it },
+            label = { Text("DNS server") },
         )
 
         FilledTonalButton(
