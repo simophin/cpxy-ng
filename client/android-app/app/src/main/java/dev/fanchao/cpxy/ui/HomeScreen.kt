@@ -15,6 +15,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -85,19 +86,22 @@ fun HomeScreen(
             }
         }
     ) { padding ->
-        Crossfade(selectedNavItem) { state ->
-            when (state) {
-                NavItem.Profiles -> ProfileList(
-                    modifier = Modifier.padding(padding),
-                    navigateToEditScreen = navigateToEditScreen,
-                )
+        Surface {
+            Crossfade(selectedNavItem) { state ->
+                when (state) {
+                    NavItem.Profiles -> ProfileList(
+                        modifier = Modifier.padding(padding),
+                        navigateToEditScreen = navigateToEditScreen,
+                    )
 
-                NavItem.EventList -> EventViewer(modifier = Modifier.padding(padding))
-                NavItem.Settings -> Settings(
-                    modifier = Modifier.padding(padding),
-                    snackbarHostState = snackbarHostState
-                )
+                    NavItem.EventList -> EventViewer(modifier = Modifier.padding(padding))
+                    NavItem.Settings -> Settings(
+                        modifier = Modifier.padding(padding),
+                        snackbarHostState = snackbarHostState
+                    )
+                }
             }
+
         }
     }
 }

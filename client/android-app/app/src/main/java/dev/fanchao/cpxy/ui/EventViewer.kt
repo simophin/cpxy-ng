@@ -27,11 +27,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.EventsRepository
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import java.text.NumberFormat
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlin.math.absoluteValue
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
@@ -50,8 +54,23 @@ fun EventViewer(
     val state = rememberLazyListState()
 
     LaunchedEffect(Unit) {
-        repo.events.collect { event ->
-            list += event
+        val buffer = mutableListOf<EventsRepository.Event>()
+        var flushDeadline: Instant? = null
+
+        repo.events.collectLatest { event ->
+            buffer += event
+
+            val now = Clock.System.now()
+            if (flushDeadline == null) {
+                flushDeadline = now + 100.milliseconds
+            }
+
+            if (now < flushDeadline) {
+                delay(flushDeadline - now)
+            }
+
+            list.addAll(buffer)
+            buffer.clear()
 
             // Are we scrolled to the bottom? If so keep at it
             if (!state.canScrollForward) {
@@ -91,15 +110,17 @@ fun EventViewer(
 
             Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .clickable {}
                     .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.Top
             ) {
                 if (isError) {
                     Text(
                         "Error",
                         style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
                         color = Color.White,
                         modifier = Modifier
                             .background(
@@ -115,6 +136,7 @@ fun EventViewer(
                 Text(
                     badgeText,
                     style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
                     color = Color.White,
                     modifier = Modifier
                         .background(
@@ -126,11 +148,12 @@ fun EventViewer(
 
                 Text(
                     NumberFormat.getNumberInstance().format(delayMills) + "ms",
+                    maxLines = 1,
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
                     modifier = Modifier
                         .background(
-                            color = Color.LightGray.copy(alpha = 0.3f),
+                            color = Color.DarkGray.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(4.dp)
                         )
                         .padding(vertical = 2.dp, horizontal = 4.dp)
@@ -139,16 +162,15 @@ fun EventViewer(
                 Text(
                     text,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
 
                 Text(
                     text = time.toJavaInstant().atZone(ZoneId.systemDefault()).format(
                         DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
                     ),
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.End,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
