@@ -11,9 +11,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -68,9 +69,10 @@ fun ProfileList(
         modifier = modifier,
         profiles = configurations.profiles,
         runningState = runningState,
-        onItemClick = { configurationRepository.setProfileEnabled(it.id) },
         onEditClick = navigateToEditScreen,
         onDeleteClick = { configurationRepository.deleteProfile(it.id) },
+        onEnableClick = { configurationRepository.setProfileEnabled(it.id) },
+        onDisableClick = { configurationRepository.setProfileEnabled(null) },
         onErrorInfoClicked = { _, err ->
             showingErrorDialog.value = err
         },
@@ -103,7 +105,8 @@ private fun ProfileList(
     modifier: Modifier = Modifier,
     profiles: List<Profile>,
     runningState: ProfileInstanceManager.RunningState,
-    onItemClick: (Profile) -> Unit,
+    onEnableClick: (Profile) -> Unit,
+    onDisableClick: (Profile) -> Unit,
     onEditClick: (Profile) -> Unit,
     onDeleteClick: (Profile) -> Unit,
     onErrorInfoClicked: (Profile, Throwable) -> Unit,
@@ -139,7 +142,7 @@ private fun ProfileList(
 
             Row(
                 modifier = Modifier
-                    .clickable { onItemClick(profile) }
+                    .clickable { showingDropdownMenu.value = true }
                     .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(
@@ -195,54 +198,70 @@ private fun ProfileList(
                     }
                 }
 
-                IconButton(onClick = { showingDropdownMenu.value = true }) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        modifier = Modifier.size(20.dp),
-                        contentDescription = "More"
+                DropdownMenu(
+                    expanded = showingDropdownMenu.value,
+                    onDismissRequest = { showingDropdownMenu.value = false },
+                ) {
+                    if (isEnabled) {
+                        DropdownMenuItem(
+                            text = { Text("Stop") },
+                            onClick = {
+                                showingDropdownMenu.value = false
+                                onDisableClick(profile)
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Close, null)
+                            }
+                        )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text("Enable") },
+                            onClick = {
+                                showingDropdownMenu.value = false
+                                onEnableClick(profile)
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.PlayArrow, null)
+                            }
+                        )
+                    }
+
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        onClick = {
+                            showingDropdownMenu.value = false
+                            onEditClick(profile)
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null
+                            )
+                        }
                     )
 
-                    DropdownMenu(
-                        expanded = showingDropdownMenu.value,
-                        onDismissRequest = { showingDropdownMenu.value = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            onClick = {
-                                showingDropdownMenu.value = false
-                                onEditClick(profile)
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = null
-                                )
-                            }
-                        )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            showingDropdownMenu.value = false
+                            showingDeleteConfirmation = profile
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null
+                            )
+                        }
+                    )
 
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
-                            onClick = {
-                                showingDropdownMenu.value = false
-                                showingDeleteConfirmation = profile
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = null
-                                )
-                            }
-                        )
+                    DropdownMenuItem(
+                        text = { Text("Clone") },
+                        onClick = {
+                            showingDropdownMenu.value = false
+                            cloneProfile(profile)
+                        },
+                    )
 
-                        DropdownMenuItem(
-                            text = { Text("Clone") },
-                            onClick = {
-                                showingDropdownMenu.value = false
-                                cloneProfile(profile)
-                            },
-                        )
-
-                    }
                 }
             }
         }
@@ -260,7 +279,7 @@ private fun ProfileList(
 
 @Composable
 @Preview
-private fun ServerListPreview() {
+private fun ProfileListPreview() {
     val configurations = listOf(
         Profile(
             id = "1",
@@ -284,10 +303,11 @@ private fun ServerListPreview() {
                 profiles = configurations,
                 runningState = ProfileInstanceManager.RunningState(),
                 onEditClick = {},
-                onItemClick = {},
                 onDeleteClick = {},
                 onErrorInfoClicked = { _, _ -> },
                 cloneProfile = {},
+                onEnableClick = {},
+                onDisableClick = {}
             )
         }
 
