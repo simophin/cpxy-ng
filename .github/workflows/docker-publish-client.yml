@@ -1,4 +1,4 @@
-name: Docker
+name: Docker for client
 
 on:
   push:
