@@ -1,0 +1,19 @@
+FROM docker.io/clux/muslrust
+
+WORKDIR /usr/src/app
+COPY . .
+RUN cargo build --release --bin client_cn
+RUN mv target/*/release/client_cn client_cn
+
+FROM scratch
+COPY --from=0 /usr/src/app/client_cn /client_cn
+
+ENV HTTP_PROXY_LISTEN 0.0.0.0:8080
+ENV SOCKS5_PROXY_LISTEN 0.0.0.0:1080
+ENV DNS_SERVER 1.1.1.1
+ENV API_LISTEN 0.0.0.0:3010
+
+EXPOSE 8080
+EXPOSE 1080
+
+ENTRYPOINT ["/client_cn"]

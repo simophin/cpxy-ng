@@ -12,6 +12,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::select;
+use tokio::signal::ctrl_c;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 use tracing::{Instrument, info_span};
@@ -119,11 +121,22 @@ async fn main() {
             listener,
         );
 
-        if let Err(e) = try_join3(run_http_proxy, run_socks_proxy, run_api_server).await {
-            tracing::error!(?e, "Error serving proxy");
-            sleep(Duration::from_secs(1)).await;
-        } else {
-            return;
+        let run_app = try_join3(run_http_proxy, run_socks_proxy, run_api_server);
+
+        select! {
+            r = run_app => {
+                if let Err(e) = r {
+                    tracing::error!(?e, "Error serving proxy");
+                    sleep(Duration::from_secs(1)).await;
+                } else {
+                    return;
+                }
+            }
+
+            _ = ctrl_c() => {
+                tracing::info!("Received Ctrl-C, shutting down");
+                return;
+            }
         }
     }
 }
