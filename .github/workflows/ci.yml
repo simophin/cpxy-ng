@@ -64,7 +64,7 @@ jobs:
         working-directory: client/android-app
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: android-app-release.apk
           path: client/android-app/app/build/outputs/apk/release/app-release.apk
@@ -142,7 +142,7 @@ jobs:
           mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/server-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: executables-${{ matrix.target.rust }}
           path: artifacts
