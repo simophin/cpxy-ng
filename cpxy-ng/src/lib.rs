@@ -11,5 +11,6 @@ pub mod outbound;
 pub mod protocol;
 pub mod time_util;
 pub mod tls_stream;
+pub mod ws_stream;
 
 pub use chacha20poly1305::Key;

@@ -1,5 +1,6 @@
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
+use cpxy_ng::ws_stream::WsStream;
 use cpxy_ng::time_util::now_epoch_seconds;
 use cpxy_ng::tls_stream::connect_tls;
 use cpxy_ng::{Key, http_protocol, protocol};
@@ -93,7 +94,7 @@ pub async fn handle_connection(
             .context("Error sending response")?;
 
             let mut conn = CipherStream::new(
-                conn,
+                WsStream::new(conn, false),
                 &req.request.server_send_cipher,
                 &req.request.client_send_cipher,
             );
