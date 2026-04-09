@@ -20,16 +20,30 @@ where
         req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         if let Some(outbound_a) = self.outbound_a.as_ref() {
-            let ip = match req.host {
+            let ip = match &req.host {
                 OutboundHost::Domain(_) => None,
-                OutboundHost::Resolved { ip, .. } => ip,
+                OutboundHost::Resolved { ip, .. } => *ip,
             };
 
-            if (self.should_use_a)(ip) {
+            let use_a = (self.should_use_a)(ip);
+            tracing::debug!(
+                host = req.host.host(),
+                port = req.port,
+                ?ip,
+                use_outbound_a = use_a,
+                "IPDivert routing decision"
+            );
+
+            if use_a {
                 return outbound_a.send(req).await.map(EitherStream::Left);
             }
         }
 
+        tracing::debug!(
+            host = req.host.host(),
+            port = req.port,
+            "IPDivert routing to outbound_b"
+        );
         self.outbound_b.send(req).await.map(EitherStream::Right)
     }
 }

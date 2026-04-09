@@ -23,6 +23,7 @@ pub async fn connect_tls<S: AsyncRead + AsyncWrite + Unpin>(
     inner: S,
 ) -> anyhow::Result<EitherStream<TlsStream<S>, S>> {
     if tls {
+        tracing::debug!(domain_name, "TLS: starting handshake");
         CONNECTOR
             .connect(
                 domain_name
@@ -35,6 +36,7 @@ pub async fn connect_tls<S: AsyncRead + AsyncWrite + Unpin>(
             .context("Unable to connect to TLS server")
             .map(EitherStream::Left)
     } else {
+        tracing::debug!(domain_name, "TLS: skipping (plaintext)");
         Ok(EitherStream::Right(inner))
     }
 }

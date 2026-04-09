@@ -18,11 +18,16 @@ where
         &self,
         req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Unpin + Send + 'static> {
+        let host = req.host.host();
         match self.outbound_a.as_ref() {
-            Some(a) if (self.should_use_a)(req.host.host()) => {
+            Some(a) if (self.should_use_a)(host) => {
+                tracing::debug!(host, port = req.port, "SiteDivert routing to outbound_a");
                 a.send(req).await.map(EitherStream::Left)
             }
-            _ => self.outbound_b.send(req).await.map(EitherStream::Right),
+            _ => {
+                tracing::debug!(host, port = req.port, "SiteDivert routing to outbound_b");
+                self.outbound_b.send(req).await.map(EitherStream::Right)
+            }
         }
     }
 }

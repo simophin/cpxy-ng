@@ -18,21 +18,22 @@ where
         mut req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         if let OutboundHost::Domain(host) = &mut req.host {
-            // See the host is a raw IP to start with?
             let mut ip: Option<Ipv4Addr> = host.parse().ok();
 
             if ip.is_none() {
+                tracing::debug!(host, "Resolving domain");
                 ip = self
                     .resolver
                     .ipv4_lookup(host.as_str())
                     .await
                     .map(|lookup| lookup.iter().next().map(|ip| ip.0))
                     .unwrap_or_else(|e| {
-                        tracing::error!(?e, "failed to resolve domain: {host}");
+                        tracing::error!(?e, host, "Failed to resolve domain");
                         None
                     });
             }
 
+            tracing::debug!(host = host.as_str(), ?ip, "DNS resolution result");
             req.host = OutboundHost::Resolved {
                 domain: std::mem::take(host),
                 ip,

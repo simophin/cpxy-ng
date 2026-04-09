@@ -33,6 +33,7 @@ async fn main() {
 
     loop {
         let (socket, addr) = listener.accept().await.expect("Error accepting connection");
+        tracing::info!(?addr, "Server: accepted client connection");
         tokio::spawn(server::handle_connection(socket, addr, key));
     }
 }

@@ -27,26 +27,33 @@ where
             .as_millis() as u64;
         let host = req.host.host().to_string();
         let port = req.port;
+        tracing::debug!(outbound = %self.name, host, port, "StatReporting: sending request");
         let r = self.inner.send(req).await;
         let delay_mills = start.elapsed().as_millis() as usize;
 
         let event = match &r {
-            Ok(_) => OutboundEvent::Connected {
-                host,
-                port,
-                outbound: self.name.clone(),
-                delay_mills,
-                request_time_mills,
-            },
+            Ok(_) => {
+                tracing::debug!(outbound = %self.name, host, port, delay_mills, "StatReporting: connected");
+                OutboundEvent::Connected {
+                    host,
+                    port,
+                    outbound: self.name.clone(),
+                    delay_mills,
+                    request_time_mills,
+                }
+            }
 
-            Err(e) => OutboundEvent::Error {
-                host,
-                outbound: self.name.clone(),
-                port,
-                delay_mills,
-                error: format!("{e:#}"),
-                request_time_mills,
-            },
+            Err(e) => {
+                tracing::warn!(outbound = %self.name, host, port, delay_mills, error = %e, "StatReporting: connection failed");
+                OutboundEvent::Error {
+                    host,
+                    outbound: self.name.clone(),
+                    port,
+                    delay_mills,
+                    error: format!("{e:#}"),
+                    request_time_mills,
+                }
+            }
         };
 
         let _ = self.events_tx.send(event);

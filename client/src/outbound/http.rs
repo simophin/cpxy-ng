@@ -21,6 +21,7 @@ impl Outbound for HttpProxyOutbound {
             initial_plaintext,
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
+        tracing::info!(proxy_host = self.host, proxy_port = self.port, "HttpProxyOutbound: connecting to proxy");
         let upstream = TcpStream::connect((self.host.as_str(), self.port))
             .await
             .context("failed to connect to upstream")?;
@@ -28,6 +29,7 @@ impl Outbound for HttpProxyOutbound {
             .await
             .context("failed to connect to upstream on tls")?;
 
+        tracing::debug!(target = host.host(), target_port = port, "HttpProxyOutbound: sending CONNECT request");
         upstream
             .write_all(
                 format!(
@@ -51,6 +53,7 @@ impl Outbound for HttpProxyOutbound {
         .await
         .map_err(|(e, _)| e)?;
 
+        tracing::debug!("HttpProxyOutbound: proxy CONNECT accepted");
         let mut upstream = connect_tls(host.host(), tls, upstream)
             .await
             .context("failed to connect to target on tls")?;
@@ -62,6 +65,7 @@ impl Outbound for HttpProxyOutbound {
                 .context("failed to send initial plaintext")?;
         }
 
+        tracing::info!(target = host.host(), target_port = port, "HttpProxyOutbound: connection established");
         Ok(upstream)
     }
 }

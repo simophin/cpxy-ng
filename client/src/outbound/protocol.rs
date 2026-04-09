@@ -29,6 +29,14 @@ impl Outbound for ProtocolOutbound {
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         let config = &self.0;
+        tracing::info!(
+            server_host = config.host.as_str(),
+            server_port = config.port,
+            target_host = host.host(),
+            target_port = port,
+            target_tls = tls,
+            "ProtocolOutbound: connecting to cpxy server"
+        );
         let conn = TcpStream::connect((config.host.as_str(), config.port))
             .await
             .with_context(|| {
@@ -41,6 +49,7 @@ impl Outbound for ProtocolOutbound {
         conn.set_nodelay(true)
             .context("Error setting nodelay on TCP stream")?;
 
+        tracing::debug!("ProtocolOutbound: TCP connected, performing TLS handshake");
         let mut conn = connect_tls(config.host.as_str(), config.tls, conn).await?;
         let (client_send_cipher, server_send_cipher) = select_cipher_based_on_port(port);
 
@@ -58,10 +67,12 @@ impl Outbound for ProtocolOutbound {
             host: config.host.clone(),
         };
 
+        tracing::debug!("ProtocolOutbound: sending request to server");
         req.send_over_http(&mut conn, &config.key)
             .await
             .context("Error sending request to upstream server")?;
 
+        tracing::debug!("ProtocolOutbound: waiting for server response");
         let (http_protocol::Response { response, .. }, conn) =
             http_protocol::Response::parse(conn, &config.key)
                 .await
@@ -72,6 +83,7 @@ impl Outbound for ProtocolOutbound {
             protocol::Response::Success {
                 initial_response, ..
             } => {
+                tracing::info!("ProtocolOutbound: server accepted connection");
                 let (r, w) = tokio::io::split(CipherStream::new(
                     conn,
                     &client_send_cipher,
@@ -82,7 +94,7 @@ impl Outbound for ProtocolOutbound {
                 Ok(tokio::io::join(r, w))
             }
             protocol::Response::Error { msg, .. } => {
-                tracing::info!("Server responded with error: {msg}");
+                tracing::warn!(msg, "ProtocolOutbound: server rejected connection");
                 bail!("Error from server: {msg}")
             }
         }

@@ -26,7 +26,19 @@ pub async fn handle_connection(
         }
     };
 
+    tracing::info!(
+        target_host = req.request.host.as_str(),
+        target_port = req.request.port,
+        target_tls = req.request.tls,
+        "Server: parsed request, connecting to upstream"
+    );
+
     let upstream = async {
+        tracing::debug!(
+            host = req.request.host.as_str(),
+            port = req.request.port,
+            "Server: establishing TCP connection"
+        );
         let upstream = TcpStream::connect((req.request.host.as_str(), req.request.port))
             .await
             .context("Error connecting to upstream")?;
@@ -67,7 +79,7 @@ pub async fn handle_connection(
 
     match upstream.await {
         Ok((mut upstream, initial_response)) => {
-            tracing::debug!("Upstream connection established");
+            tracing::debug!("Server: upstream connection established");
 
             http_protocol::Response {
                 response: protocol::Response::Success {
@@ -86,19 +98,23 @@ pub async fn handle_connection(
                 &req.request.client_send_cipher,
             );
 
+            tracing::info!("Server: tunnel established, starting bidirectional copy");
             let _ = tokio::io::copy_bidirectional(&mut upstream, &mut conn).await;
             anyhow::Ok(())
         }
 
-        Err(e) => http_protocol::Response {
-            response: protocol::Response::Error {
-                msg: format!("{e:?}"),
-                timestamp_epoch_seconds: now_epoch_seconds(),
-            },
-            websocket_key: req.websocket_key,
+        Err(e) => {
+            tracing::warn!(error = %e, "Server: upstream connection failed");
+            http_protocol::Response {
+                response: protocol::Response::Error {
+                    msg: format!("{e:?}"),
+                    timestamp_epoch_seconds: now_epoch_seconds(),
+                },
+                websocket_key: req.websocket_key,
+            }
+            .send_over_http(&mut conn, &key)
+            .await
+            .context("Error sending response")
         }
-        .send_over_http(&mut conn, &key)
-        .await
-        .context("Error sending response"),
     }
 }

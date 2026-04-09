@@ -31,6 +31,7 @@ impl Outbound for DirectOutbound {
             initial_plaintext,
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
+        tracing::info!(host = host.host(), port, tls, "DirectOutbound: connecting");
         let upstream = match &host {
             OutboundHost::Resolved { ip: Some(ip), .. } => {
                 timeout(self.connection_timeout, TcpStream::connect((*ip, port)))
@@ -47,15 +48,18 @@ impl Outbound for DirectOutbound {
             .with_context(|| format!("Failed to connect to {host}:{port}"))?,
         };
 
+        tracing::debug!(host = host.host(), tls, "DirectOutbound: TCP connected, performing TLS handshake");
         let mut upstream = connect_tls(host.host(), tls, upstream).await?;
 
         if !initial_plaintext.is_empty() {
+            tracing::debug!(bytes = initial_plaintext.len(), "DirectOutbound: sending initial payload");
             upstream
                 .write_all(&initial_plaintext)
                 .await
                 .context("Error sending initial payload to remote")?;
         }
 
+        tracing::info!(host = host.host(), port, "DirectOutbound: connection established");
         anyhow::Ok(upstream)
     }
 }
