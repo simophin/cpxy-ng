@@ -2,7 +2,7 @@ use crate::protocol_config::Config;
 use anyhow::{Context, bail};
 use cpxy_ng::cipher_select::select_cipher_based_on_port;
 use cpxy_ng::encrypt_stream::CipherStream;
-use cpxy_ng::ws_stream::WsStream;
+use cpxy_ng::ws_stream::new_ws_stream;
 use cpxy_ng::key_util::random_vec;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
 use cpxy_ng::tls_stream::connect_tls;
@@ -86,7 +86,7 @@ impl Outbound for ProtocolOutbound {
             } => {
                 tracing::info!("ProtocolOutbound: server accepted connection");
                 let (r, w) = tokio::io::split(CipherStream::new(
-                    WsStream::new(conn, true),
+                    new_ws_stream(conn, true).await,
                     &client_send_cipher,
                     &server_send_cipher,
                 ));

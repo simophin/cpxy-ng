@@ -1,6 +1,6 @@
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
-use cpxy_ng::ws_stream::WsStream;
+use cpxy_ng::ws_stream::new_ws_stream;
 use cpxy_ng::time_util::now_epoch_seconds;
 use cpxy_ng::tls_stream::connect_tls;
 use cpxy_ng::{Key, http_protocol, protocol};
@@ -13,7 +13,7 @@ use tracing::instrument;
 
 #[instrument(ret, skip(conn, key), level = "info")]
 pub async fn handle_connection(
-    conn: impl AsyncRead + AsyncWrite + Unpin,
+    conn: impl AsyncRead + AsyncWrite + Unpin + Send,
     _from_addr: SocketAddr,
     key: Key,
 ) -> anyhow::Result<()> {
@@ -94,7 +94,7 @@ pub async fn handle_connection(
             .context("Error sending response")?;
 
             let mut conn = CipherStream::new(
-                WsStream::new(conn, false),
+                new_ws_stream(conn, false).await,
                 &req.request.server_send_cipher,
                 &req.request.client_send_cipher,
             );
@@ -117,5 +117,65 @@ pub async fn handle_connection(
             .await
             .context("Error sending response")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client::outbound::ProtocolOutbound;
+    use cpxy_ng::outbound::Outbound;
+    use client::protocol_config::Config;
+    use cpxy_ng::key_util::derive_password;
+    use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Spins up a real echo server, a real cpxy server, and a ProtocolOutbound client,
+    /// then verifies data round-trips correctly through the full HTTP-upgrade →
+    /// WebSocket-framing → ChaCha20-cipher stack.
+    #[tokio::test]
+    async fn full_tunnel_echo() {
+        // 1. TCP echo server — represents the upstream target the proxy connects to.
+        let echo_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let echo_addr = echo_listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = echo_listener.accept().await.unwrap();
+            let (mut r, mut w) = tokio::io::split(stream);
+            let _ = tokio::io::copy(&mut r, &mut w).await;
+        });
+
+        // 2. cpxy server — runs handle_connection for a single inbound connection.
+        let cpxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cpxy_addr = cpxy_listener.local_addr().unwrap();
+        let key: Key = derive_password("integration_test_key").into();
+        tokio::spawn(async move {
+            let (conn, addr) = cpxy_listener.accept().await.unwrap();
+            let _ = handle_connection(conn, addr, key).await;
+        });
+
+        // 3. Client — ProtocolOutbound mirrors what client_cn does for each connection.
+        let config = Config {
+            host: "127.0.0.1".to_string(),
+            port: cpxy_addr.port(),
+            key: derive_password("integration_test_key").into(),
+            tls: false,
+        };
+        let mut stream = ProtocolOutbound(config)
+            .send(OutboundRequest {
+                host: OutboundHost::Domain("127.0.0.1".to_string()),
+                port: echo_addr.port(),
+                tls: false,
+                initial_plaintext: vec![],
+            })
+            .await
+            .expect("tunnel setup failed");
+
+        // 4. Verify echo round-trip.
+        let msg = b"hello cpxy tunnel!";
+        stream.write_all(msg).await.unwrap();
+        let mut buf = vec![0u8; msg.len()];
+        stream.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, msg);
     }
 }
