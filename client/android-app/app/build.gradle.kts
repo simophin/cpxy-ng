@@ -79,4 +79,5 @@ dependencies {
             type = "aar"
         }
     }
+    testImplementation(libs.junit)
 }
