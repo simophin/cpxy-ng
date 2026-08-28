@@ -35,13 +35,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.App.Companion.appInstance
+import dev.fanchao.cpxy.ConfigRepository
 import dev.fanchao.cpxy.Profile
 import dev.fanchao.cpxy.ProfileInstanceManager
+import dev.fanchao.cpxy.RunningState
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
 import java.util.UUID
 
@@ -51,17 +51,15 @@ import java.util.UUID
 fun ProfileList(
     modifier: Modifier = Modifier,
     navigateToEditScreen: (Profile) -> Unit,
+    configurationRepository: ConfigRepository,
+    profileInstanceManager: ProfileInstanceManager,
 ) {
     val showingErrorDialog = remember { mutableStateOf<Throwable?>(null) }
-    val context = LocalContext.current
-    val configurationRepository = context.appInstance.configurationRepository
-
     val configurations by configurationRepository
         .clientConfig
         .collectAsState()
 
-    val runningState by context.appInstance
-        .profileInstanceManager
+    val runningState by profileInstanceManager
         .state
         .collectAsState()
 
@@ -104,7 +102,7 @@ fun ProfileList(
 private fun ProfileList(
     modifier: Modifier = Modifier,
     profiles: List<Profile>,
-    runningState: ProfileInstanceManager.RunningState,
+    runningState: RunningState,
     onEnableClick: (Profile) -> Unit,
     onDisableClick: (Profile) -> Unit,
     onEditClick: (Profile) -> Unit,
@@ -186,7 +184,7 @@ private fun ProfileList(
 
                 if (hasError) {
                     IconButton(onClick = {
-                        runningState.startedResult.exceptionOrNull()
+                        runningState.startedResult?.exceptionOrNull()
                             ?.let { onErrorInfoClicked(profile, it) }
                     }) {
                         Icon(
@@ -301,7 +299,7 @@ private fun ProfileListPreview() {
         Surface {
             ProfileList(
                 profiles = configurations,
-                runningState = ProfileInstanceManager.RunningState(),
+                runningState = RunningState(),
                 onEditClick = {},
                 onDeleteClick = {},
                 onErrorInfoClicked = { _, _ -> },

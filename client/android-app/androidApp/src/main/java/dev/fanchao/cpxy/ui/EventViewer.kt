@@ -26,11 +26,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.EventsRepository
+import dev.fanchao.cpxy.Event
+import dev.fanchao.cpxy.app.EventsRepository.Event.Connected as ConnectedEvent
+import dev.fanchao.cpxy.app.EventsRepository.Event.Error as ErrorEvent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import java.text.NumberFormat
@@ -47,12 +48,11 @@ import kotlin.time.toJavaInstant
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
 @Composable
 fun EventViewer(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    repository: EventsRepository,
 ) {
-    val repo = LocalContext.current.appInstance.eventsRepository
-
     val list = remember {
-        mutableStateListOf<EventsRepository.Event>()
+        mutableStateListOf<Event>()
     }
 
     val state = rememberLazyListState()
@@ -60,10 +60,10 @@ fun EventViewer(
     var showingError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        val buffer = mutableListOf<EventsRepository.Event>()
+        val buffer = mutableListOf<Event>()
         var flushDeadline: Instant? = null
 
-        repo.events.collectLatest { event ->
+        repository.events.collectLatest { event ->
             buffer += event
 
             val now = Clock.System.now()
@@ -97,7 +97,7 @@ fun EventViewer(
             val errorText: String?
 
             when (item) {
-                is EventsRepository.Event.Connected -> {
+                is ConnectedEvent -> {
                     badgeText = item.outbound
                     text = "${item.host}:${item.port}"
                     time = Instant.fromEpochMilliseconds(item.requestTimeEpochMs)
@@ -105,7 +105,7 @@ fun EventViewer(
                     errorText = null
                 }
 
-                is EventsRepository.Event.Error -> {
+                is ErrorEvent -> {
                     badgeText = item.outbound
                     text = "${item.host}:${item.port}"
                     time = Instant.fromEpochMilliseconds(item.requestTimeEpochMs)

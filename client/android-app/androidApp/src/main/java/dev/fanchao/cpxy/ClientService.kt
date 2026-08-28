@@ -8,11 +8,9 @@ import android.os.IBinder
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import dev.fanchao.cpxy.App.Companion.appInstance
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -21,11 +19,11 @@ import kotlinx.coroutines.launch
 
 class ClientService : Service() {
     private var startedJob: Job? = null
+    private val serviceScope = MainScope()
 
     override fun onBind(p0: Intent?): IBinder? = null
 
 
-    @OptIn(DelicateCoroutinesApi::class)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (startedJob != null) {
             // Already started
@@ -40,8 +38,8 @@ class ClientService : Service() {
 
         NotificationManagerCompat.from(this).createNotificationChannel(channel)
 
-        startedJob = GlobalScope.launch(Dispatchers.Main) {
-            appInstance.profileInstanceManager.state
+        startedJob = serviceScope.launch {
+            appGraph.appController.profileInstanceManager.state
                 .map { state -> state.configUsed?.enabledProfile?.takeIf { state.startedResult?.isSuccess == true } }
                 .filterNotNull()
                 .distinctUntilChanged()
@@ -84,6 +82,7 @@ class ClientService : Service() {
 
         startedJob?.cancel()
         startedJob = null
+        serviceScope.cancel()
     }
 
     companion object {

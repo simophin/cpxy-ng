@@ -22,10 +22,10 @@ interface Client : Library {
     fun cpxy_client_destroy(instance: Pointer?)
 }
 
-class NativeClientSession internal constructor(
+class JnaNativeClientSession internal constructor(
     private val client: Client,
     pointer: Pointer,
-) : AutoCloseable {
+) : dev.fanchao.cpxy.app.NativeClientSession {
     private val pointer = AtomicReference(pointer)
 
     override fun close() {
@@ -41,7 +41,7 @@ fun Client.create(
     mainServerUrl: String,
     aiServerUrl: String?,
     tailscaleServerUrl: String?,
-): NativeClientSession {
+): JnaNativeClientSession {
     val actualAbiVersion = cpxy_client_abi_version()
     check(actualAbiVersion == CPXY_CLIENT_ABI_VERSION) {
         "Unsupported native client ABI version $actualAbiVersion; expected $CPXY_CLIENT_ABI_VERSION"
@@ -76,7 +76,7 @@ fun Client.create(
         )
     }
 
-    return NativeClientSession(this, pointer)
+    return JnaNativeClientSession(this, pointer)
 }
 
 private const val CPXY_CLIENT_ABI_VERSION = 1

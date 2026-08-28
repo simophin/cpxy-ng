@@ -15,7 +15,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import dev.fanchao.cpxy.App.Companion.appInstance
 import dev.fanchao.cpxy.ui.EditProfileRoute
 import dev.fanchao.cpxy.ui.EditProfileScreen
 import dev.fanchao.cpxy.ui.HomeRoute
@@ -31,6 +30,7 @@ class MainActivity : ComponentActivity() {
         }
         
         enableEdgeToEdge()
+        val controller = appGraph.appController
         setContent {
             val navController = rememberNavController()
 
@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = HomeRoute) {
                     composable<HomeRoute> {
                         HomeScreen(
+                            controller = controller,
                             navigateToEditScreen = {
                                 navController.navigate(EditProfileRoute(it.id))
                             },
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
                         EditProfileScreen(
                             profileId = route.id,
                             onDone = navController::popBackStack,
-                            configurationRepository = appInstance.configurationRepository,
+                            configurationRepository = controller.configRepository,
                         )
                     }
                 }

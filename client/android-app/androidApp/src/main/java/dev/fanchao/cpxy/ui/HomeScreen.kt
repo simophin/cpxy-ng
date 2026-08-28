@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import dev.fanchao.cpxy.Profile
 import dev.fanchao.cpxy.R
+import dev.fanchao.cpxy.app.AppController
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -42,6 +43,7 @@ private enum class NavItem(val icon: ImageVector, val label: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    controller: AppController,
     navigateToEditScreen: (Profile) -> Unit,
     navigateToNewConfigScreen: () -> Unit,
 ) {
@@ -92,12 +94,18 @@ fun HomeScreen(
                     NavItem.Profiles -> ProfileList(
                         modifier = Modifier.padding(padding),
                         navigateToEditScreen = navigateToEditScreen,
+                        configurationRepository = controller.configRepository,
+                        profileInstanceManager = controller.profileInstanceManager,
                     )
 
-                    NavItem.EventList -> EventViewer(modifier = Modifier.padding(padding))
+                    NavItem.EventList -> EventViewer(
+                        modifier = Modifier.padding(padding),
+                        repository = controller.eventsRepository,
+                    )
                     NavItem.Settings -> Settings(
                         modifier = Modifier.padding(padding),
-                        snackbarHostState = snackbarHostState
+                        snackbarHostState = snackbarHostState,
+                        repository = controller.configRepository,
                     )
                 }
             }

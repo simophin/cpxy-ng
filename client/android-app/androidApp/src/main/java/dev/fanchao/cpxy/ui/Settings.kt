@@ -23,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.App.Companion.appInstance
+import dev.fanchao.cpxy.ConfigRepository
 import kotlinx.coroutines.launch
 
 
@@ -31,10 +31,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun Settings(
     modifier: Modifier = Modifier,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    repository: ConfigRepository,
 ) {
     val context = LocalContext.current
-    val repo = context.appInstance.configurationRepository
+    val repo = repository
 
     val httpProxyPort =
         remember { mutableStateOf(repo.clientConfig.value.httpProxyPort.toString()) }

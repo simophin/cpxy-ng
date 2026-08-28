@@ -10,6 +10,7 @@ composeBom = "2025.08.01"
 ktor = "3.5.2"
 kotlinxCoroutines = "1.11.0"
 kotlinxSerialization = "1.11.0"
+atomicfu = "0.29.0"
 jna = "5.19.1"
 junit = "4.13.2"
 
@@ -31,6 +32,8 @@ ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref =
 ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
 ktor-client-websockets = { group = "io.ktor", name = "ktor-client-websockets", version.ref = "ktor" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+kotlinx-atomicfu = { group = "org.jetbrains.kotlinx", name = "atomicfu", version.ref = "atomicfu" }
 
 
 [plugins]
