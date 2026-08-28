@@ -36,6 +36,9 @@ job inspects the packaged native library with host tools and uploads an unsigned
 workflow artifact. The artifacts are not production releases and are not
 signed or notarized.
 
+The Windows MSI uses a fixed upgrade UUID so newer Cpxy packages replace an
+existing installation instead of registering as an unrelated product.
+
 ## Android native libraries
 
 Android APK/AAB tasks build and package the Rust client library automatically.

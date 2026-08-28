@@ -223,6 +223,10 @@ compose.desktop {
             macOS {
                 bundleID = "dev.fanchao.cpxy"
             }
+            windows {
+                // Stable across releases so MSI upgrades replace the existing installation.
+                upgradeUuid = "c40be38d-4949-536d-88d5-7ba0cc538381"
+            }
         }
     }
 }

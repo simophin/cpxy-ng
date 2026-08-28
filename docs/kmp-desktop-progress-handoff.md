@@ -47,7 +47,8 @@ This document is the operational handoff for the migration. It records what the 
 | Reproducible GeoIP input | `4fb9097` | Reviewed local derivative, checksum enforcement, no build-time download |
 | Unsigned Desktop distributions | `5a51908` | Host package identity, unified version, verified image contents, packaged native probe |
 | Desktop packaging JDK | `f16c79e` | Foojay-provisioned JBRSDK 25 and `jpackage` preflight |
-| Host Desktop CI matrix | `ci: verify host desktop distributions` (this commit) | Four host/architecture jobs, packaged probes, native/package inspection, unsigned artifacts |
+| Host Desktop CI matrix | `40d4f0d` | Four host/architecture jobs, packaged probes, native/package inspection, unsigned artifacts |
+| Windows installer identity | `desktop: stabilize Windows installer upgrades` (this commit) | Stable MSI upgrade UUID for in-place upgrades |
 
 The last verified Desktop checks were `:desktopApp:test`, `:desktopApp:desktopNativeSmoke`, and `:desktopApp:packagedNativeProbe`. Both probes loaded ABI version 1 and exercised the Rust error path. A GUI window was not opened in the headless build environment.
 
@@ -136,12 +137,29 @@ Status: **implemented 2026-08-29**
 - The workflow YAML, Bash syntax, and `git diff --check` passed locally.
 - Windows and macOS packaging/inspection cannot run on the Linux development host. Their first authoritative evidence will be the matrix jobs; failures are kept independent with `fail-fast: false` so all host diagnostics remain available.
 
-## Remaining units after Phase 9
+## Phase 9B — Windows installer upgrade identity
 
-### Phase 9B — product/release decisions
+Status: **completed 2026-08-29**
+
+### Implemented
+
+1. Added a fixed Windows MSI upgrade UUID derived from the stable application identity, so later MSI versions participate in the same upgrade family.
+2. Documented the upgrade contract next to the Desktop packaging instructions.
+3. Left Android's existing debug-keystore release signing behavior unchanged.
+
+### Completion evidence
+
+- The existing signed Android release variant assembled and contained all four expected Rust ABI libraries.
+- Shared/Desktop tests and compilation passed.
+- The packaged Desktop native probe loaded ABI version 1 and passed the native error path.
+- Gradle accepted the Compose Desktop 1.12 Windows packaging configuration, and `git diff --check` passed.
+
+## Remaining units after Phase 9B
+
+### Phase 9C — product/release decisions
 
 - Obtain approved desktop icons and product metadata.
-- Replace the Android production debug-key behavior with credential-gated signing.
+- Revisit Android production signing only if the release policy changes; the current debug-key behavior is intentionally retained.
 - Decide macOS Developer ID/notarization and Windows Authenticode credentials.
 - Confirm legal/license obligations for the repository and vendored GeoIP derivative.
 - Decide service bind policy (loopback versus `0.0.0.0`), tray/background behavior, Linux glibc baseline, and Windows CRT policy.
