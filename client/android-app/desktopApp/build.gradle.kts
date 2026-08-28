@@ -275,6 +275,7 @@ val verifyDesktopApplicationImage = tasks.register<VerifyDesktopApplicationImage
     group = "verification"
     description = "Checks that the Desktop application image contains exactly one host library."
     dependsOn(tasks.named("createDistributable"))
+    mustRunAfter("packageAppImage")
     applicationImageDirectory.set(applicationImagesRoot)
     libraryName.set(hostPlatform.libraryName)
 }
