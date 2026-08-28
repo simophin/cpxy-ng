@@ -194,6 +194,11 @@ internal class DesktopNativeClientSession(
 object NativeSmokeProbe {
     @JvmStatic
     fun main(args: Array<String>) {
+        require(args.isEmpty()) { "Native probe does not accept arguments" }
+        run()
+    }
+
+    fun run() {
         val path = NativeLibraryResolver.resolve()
         val client = DesktopNativeClient(path)
         val failure = runCatching {

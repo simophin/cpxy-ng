@@ -6,15 +6,19 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskAction
-import org.gradle.api.tasks.JavaExec
 import org.gradle.process.ExecOperations
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.nio.file.Files
 import java.util.Locale
 import javax.inject.Inject
 
@@ -81,6 +85,27 @@ abstract class BuildDesktopRustLibrary : DefaultTask() {
     }
 }
 
+abstract class VerifyDesktopApplicationImage : DefaultTask() {
+    @get:InputDirectory abstract val applicationImageDirectory: DirectoryProperty
+    @get:Input abstract val libraryName: Property<String>
+
+    @TaskAction
+    fun verifyImage() {
+        val imageDirectory = applicationImageDirectory.get().asFile.toPath()
+        val libraries = Files.walk(imageDirectory).use { paths ->
+            paths.filter { Files.isRegularFile(it) && it.fileName.toString() == libraryName.get() }
+                .toList()
+        }
+        if (libraries.size != 1) {
+            throw GradleException(
+                "Expected exactly one '${libraryName.get()}' in Desktop application image " +
+                    "'$imageDirectory', but found ${libraries.size}: $libraries"
+            )
+        }
+        logger.lifecycle("Verified Desktop native resource: ${libraries.single()}")
+    }
+}
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.jetbrains.compose)
@@ -121,6 +146,8 @@ val hostPlatform = detectDesktopRustPlatform(
 val cargoWorkspace = layout.projectDirectory.dir("../../..")
 val generatedAppResources = layout.buildDirectory.dir("generated/appResources")
 val generatedNativeDirectory = generatedAppResources.map { it.dir(hostPlatform.id) }
+val desktopVersion = providers.gradleProperty("cpxy.version").get()
+val applicationImagesRoot = layout.buildDirectory.dir("compose/binaries/main/app")
 val buildDesktopRustLibrary = tasks.register<BuildDesktopRustLibrary>("buildDesktopRustLibrary") {
     group = "build"
     description = "Builds the Rust client library for this Desktop host."
@@ -148,8 +175,23 @@ compose.desktop {
         mainClass = "dev.fanchao.cpxy.desktop.MainKt"
         nativeDistributions {
             appResourcesRootDir.set(generatedAppResources)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            packageName = "Cpxy"
+            packageVersion = desktopVersion
+            description = "Cross-platform proxy client"
+            vendor = "Cpxy"
+            linux {
+                packageName = "cpxy"
+            }
+            macOS {
+                bundleID = "dev.fanchao.cpxy"
+            }
         }
     }
+}
+
+tasks.matching { it.name == "prepareAppResources" }.configureEach {
+    dependsOn(buildDesktopRustLibrary)
 }
 
 tasks.withType<JavaExec>().configureEach {
@@ -176,5 +218,35 @@ tasks.register<JavaExec>("desktopNativeSmoke") {
             "cpxy.native.library.path",
             generatedNativeDirectory.get().file(hostPlatform.libraryName).asFile.absolutePath,
         )
+    }
+}
+val verifyDesktopApplicationImage = tasks.register<VerifyDesktopApplicationImage>(
+    "verifyDesktopApplicationImage"
+) {
+    group = "verification"
+    description = "Checks that the Desktop application image contains exactly one host library."
+    dependsOn(tasks.named("createDistributable"))
+    applicationImageDirectory.set(applicationImagesRoot)
+    libraryName.set(hostPlatform.libraryName)
+}
+
+tasks.register<Exec>("packagedNativeProbe") {
+    group = "verification"
+    description = "Runs the packaged Desktop launcher in headless native-probe mode."
+    dependsOn(verifyDesktopApplicationImage)
+    doFirst {
+        val imageRoot = applicationImagesRoot.get().asFile
+        val launcher = when {
+            hostPlatform.id == "linux-x64" -> imageRoot.resolve("Cpxy/bin/Cpxy")
+            hostPlatform.id == "windows-x64" -> imageRoot.resolve("Cpxy/Cpxy.exe")
+            hostPlatform.id.startsWith("macos-") ->
+                imageRoot.resolve("Cpxy.app/Contents/MacOS/Cpxy")
+            else -> throw GradleException("No packaged launcher path for ${hostPlatform.id}")
+        }
+        if (!launcher.isFile) {
+            throw GradleException("Packaged Desktop launcher is missing: ${launcher.absolutePath}")
+        }
+        executable = launcher.absolutePath
+        args("--native-probe")
     }
 }

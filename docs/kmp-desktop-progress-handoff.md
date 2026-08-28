@@ -2,7 +2,7 @@
 
 Status date: 2026-08-28
 
-Baseline commit: `d3dd3ac` (`desktop: add native client and application lifecycle`)
+Baseline commit: `4fb9097` (`build: make GeoIP input reproducible and offline-capable`)
 
 Companion architecture plan: [`kmp-desktop-migration-handoff.md`](kmp-desktop-migration-handoff.md)
 
@@ -44,9 +44,10 @@ This document is the operational handoff for the migration. It records what the 
 | Shared UI and navigation | `60d3947`, `514b49a` | Common screens/theme and Navigation 3 |
 | Android native builds | `9a5781e` | Gradle-produced four-ABI Rust libraries packaged in APK |
 | Desktop native runtime | `d3dd3ac` | Host Rust build, explicit resolver/JNA client, tests and native smoke task |
-| Reproducible GeoIP input | `build: make GeoIP input reproducible and offline-capable` (this commit) | Reviewed local derivative, checksum enforcement, no build-time download |
+| Reproducible GeoIP input | `4fb9097` | Reviewed local derivative, checksum enforcement, no build-time download |
+| Unsigned Desktop distributions | `desktop: configure unsigned host distributions` (this commit) | Host package formats and identity, unified version, verified image contents, packaged native probe |
 
-The last verified Desktop native checks were `:desktopApp:test`, `:desktopApp:buildDesktopRustLibrary` (including an UP-TO-DATE rerun), `:desktopApp:desktopNativeSmoke`, and `:desktopApp:run --dry-run`. The smoke task loaded ABI version 1 and exercised the Rust error path. A GUI window was not opened in the headless build environment.
+The last verified Desktop checks were `:desktopApp:test`, `:desktopApp:desktopNativeSmoke`, and `:desktopApp:packagedNativeProbe`. Both probes loaded ABI version 1 and exercised the Rust error path. A GUI window was not opened in the headless build environment.
 
 ## Phase 8A — reproducible GeoIP input
 
@@ -72,15 +73,29 @@ Status: **completed 2026-08-28**
 - A second `./gradlew :desktopApp:buildDesktopRustLibrary` reported the native producer `UP-TO-DATE`.
 - `git diff --check` passed.
 
-## Remaining units after Phase 8A
+## Phase 8B — unsigned Desktop distributions
 
-### Phase 8B — unsigned Desktop distributions
+Status: **completed 2026-08-28**
 
-- Configure Compose Desktop host formats: DMG on macOS, MSI on Windows, and DEB on Linux.
-- Set stable package identity (`Cpxy`, bundle ID `dev.fanchao.cpxy`, Linux package name `cpxy`) and a single application version source.
-- Keep `appResourcesRootDir` as the native resource source and verify each image/package contains exactly one correct host library.
-- Add a headless `--native-probe` launcher mode using the same packaged resolver as the GUI; build an application image and run that launcher in tests.
-- Commit packaging configuration, probe, tests, and the updated completion record as one logical unit unless version unification proves independently useful.
+### Implemented
+
+1. Configured host-built DMG, MSI, and DEB formats with the stable `Cpxy` package name, `dev.fanchao.cpxy` macOS bundle ID, and `cpxy` Linux package name.
+2. Added `cpxy.version` as the single Android `versionName` and Desktop `packageVersion` source.
+3. Made Compose application-resource preparation depend on the host Rust producer, so clean image and installer builds cannot consume a stale or missing native library.
+4. Added `verifyDesktopApplicationImage`, which fails unless the application image contains exactly one native library with the current host's expected name.
+5. Added a headless `--native-probe` path to the real Desktop launcher and a `packagedNativeProbe` Gradle task that builds, inspects, and executes the application image through the packaged-resource resolver.
+
+### Completion evidence and host limits
+
+- The full Gradle regression gate passed: shared tests/build, Android unit tests/debug APK, Desktop tests/compilation, the direct native smoke probe, and the packaged native probe.
+- The Android assembly rebuilt and packaged all four supported Rust ABIs.
+- The Linux application image contained exactly one native resource at `Cpxy/lib/app/resources/libclient.so`; the packaged launcher loaded ABI version 1 and exercised the Rust error path with exit code 0.
+- On this Arch Linux host, the generated launcher also emitted `pure virtual method called` and `terminate called without an active exception` on stderr while still completing the probe with exit code 0. The direct JVM probe does not emit these lines; Phase 9 should determine whether this is specific to the local `jpackage` launcher/runtime before treating stderr as a failure signal.
+- `cargo test --workspace --locked` passed all workspace and documentation tests, including the server loopback test.
+- `packageDistributionForCurrentOS` reached `packageDeb`, but the installed Arch Linux OpenJDK `jpackage` reports DEB as an unsupported type. No DEB was produced or claimed as verified on this host. Phase 9 CI must build and inspect DEB on a Debian/Ubuntu packaging host and must verify MSI/DMG on their native hosts.
+- `git diff --check` passed.
+
+## Remaining units after Phase 8B
 
 ### Phase 9 — host CI release matrix
 
@@ -111,7 +126,7 @@ Run after packaging/CI changes, and before declaring the first migration iterati
 ./gradlew :shared:allTests :shared:build \
   :androidApp:testDebugUnitTest :androidApp:assembleDebug \
   :desktopApp:test :desktopApp:compileKotlin \
-  :desktopApp:desktopNativeSmoke
+  :desktopApp:desktopNativeSmoke :desktopApp:packagedNativeProbe
 cargo test --workspace --locked
 ```
 
