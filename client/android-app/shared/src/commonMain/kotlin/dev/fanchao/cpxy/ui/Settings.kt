@@ -24,9 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.ConfigRepository
 import dev.fanchao.cpxy.app.ClientConfig
 import dev.fanchao.cpxy.app.ConfigLoadState
+import dev.fanchao.cpxy.app.ConfigRepository
 import kotlinx.coroutines.launch
 
 @Composable

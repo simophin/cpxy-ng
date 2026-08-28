@@ -1,5 +1,7 @@
 package dev.fanchao.cpxy
 
+import dev.fanchao.cpxy.app.ClientConfig
+import dev.fanchao.cpxy.app.Profile
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Test

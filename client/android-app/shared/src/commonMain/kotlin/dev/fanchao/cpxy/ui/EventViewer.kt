@@ -28,31 +28,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.EventsRepository
-import dev.fanchao.cpxy.Event
+import dev.fanchao.cpxy.app.EventsRepository
 import dev.fanchao.cpxy.app.EventsRepository.Event.Connected as ConnectedEvent
 import dev.fanchao.cpxy.app.EventsRepository.Event.Error as ErrorEvent
+import dev.fanchao.cpxy.ui.events.EventTextFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import java.text.NumberFormat
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 import kotlin.math.absoluteValue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
-import kotlin.time.toJavaInstant
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
 @Composable
 fun EventViewer(
     modifier: Modifier = Modifier,
     repository: EventsRepository,
+    textFormatter: EventTextFormatter,
 ) {
     val list = remember {
-        mutableStateListOf<Event>()
+        mutableStateListOf<EventsRepository.Event>()
     }
 
     val state = rememberLazyListState()
@@ -60,7 +56,7 @@ fun EventViewer(
     var showingError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        val buffer = mutableListOf<Event>()
+        val buffer = mutableListOf<EventsRepository.Event>()
         var flushDeadline: Instant? = null
 
         repository.events.collectLatest { event ->
@@ -157,7 +153,7 @@ fun EventViewer(
                 )
 
                 Text(
-                    NumberFormat.getNumberInstance().format(delayMills) + "ms",
+                    textFormatter.formatDelayMillis(delayMills),
                     maxLines = 1,
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
@@ -178,9 +174,7 @@ fun EventViewer(
                 )
 
                 Text(
-                    text = time.toJavaInstant().atZone(ZoneId.systemDefault()).format(
-                        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
-                    ),
+                    text = textFormatter.formatTime(time),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )

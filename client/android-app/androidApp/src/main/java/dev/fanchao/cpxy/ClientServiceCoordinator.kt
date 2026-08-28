@@ -1,5 +1,6 @@
 package dev.fanchao.cpxy
 
+import dev.fanchao.cpxy.app.ProfileInstanceManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast

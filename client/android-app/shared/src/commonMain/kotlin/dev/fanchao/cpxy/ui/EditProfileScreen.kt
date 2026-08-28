@@ -29,18 +29,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.ConfigRepository
-import dev.fanchao.cpxy.Profile
 import dev.fanchao.cpxy.app.ClientConfig
 import dev.fanchao.cpxy.app.ConfigLoadState
+import dev.fanchao.cpxy.app.ConfigRepository
+import dev.fanchao.cpxy.app.Profile
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import java.util.UUID
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 @Serializable
 data class EditProfileRoute(val id: String?)
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalUuidApi::class)
 @Composable
 fun EditProfileScreen(
     profileId: String?,
@@ -123,7 +124,7 @@ private fun LoadedEditProfileScreen(
                 runCatching {
                     configurationRepository.saveProfile(
                         Profile(
-                            id = profileId ?: UUID.randomUUID().toString(),
+                            id = profileId ?: Uuid.random().toString(),
                             name = nameState.text.value,
                             mainServerUrl = mainServerState.text.value,
                             aiServerUrl = aiServerState.text.value.takeIf { it.isNotBlank() },

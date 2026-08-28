@@ -6,10 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,7 +16,8 @@ import dev.fanchao.cpxy.ui.EditProfileRoute
 import dev.fanchao.cpxy.ui.EditProfileScreen
 import dev.fanchao.cpxy.ui.HomeRoute
 import dev.fanchao.cpxy.ui.HomeScreen
-import dev.fanchao.cpxy.ui.theme.CpxyTheme
+import dev.fanchao.cpxy.ui.events.AndroidEventTextFormatter
+import dev.fanchao.cpxy.ui.theme.AndroidCpxyTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,12 +31,14 @@ class MainActivity : ComponentActivity() {
         val controller = appGraph.appController
         setContent {
             val navController = rememberNavController()
+            val eventTextFormatter = remember { AndroidEventTextFormatter() }
 
-            CpxyTheme {
+            AndroidCpxyTheme {
                 NavHost(navController = navController, startDestination = HomeRoute) {
                     composable<HomeRoute> {
                         HomeScreen(
                             controller = controller,
+                            eventTextFormatter = eventTextFormatter,
                             navigateToEditScreen = {
                                 navController.navigate(EditProfileRoute(it.id))
                             },
@@ -59,21 +59,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    CpxyTheme {
-        Greeting("Android")
     }
 }

@@ -38,19 +38,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.ConfigRepository
-import dev.fanchao.cpxy.Profile
-import dev.fanchao.cpxy.ProfileInstanceManager
-import dev.fanchao.cpxy.RunningState
-import dev.fanchao.cpxy.ui.theme.CpxyTheme
 import dev.fanchao.cpxy.app.ConfigLoadState
+import dev.fanchao.cpxy.app.ConfigRepository
+import dev.fanchao.cpxy.app.Profile
+import dev.fanchao.cpxy.app.ProfileInstanceManager
+import dev.fanchao.cpxy.app.ProfileInstanceManager.RunningState
+import dev.fanchao.cpxy.ui.theme.CpxyTheme
 import kotlinx.coroutines.launch
-import java.util.UUID
+import org.jetbrains.compose.ui.tooling.preview.Preview
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalUuidApi::class)
 @Composable
 fun ProfileList(
     modifier: Modifier = Modifier,
@@ -84,7 +85,7 @@ fun ProfileList(
             onErrorInfoClicked = { _, err -> showingErrorDialog.value = err },
             cloneProfile = { profile ->
                 scope.launch {
-                    val clone = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} (Copy)")
+                    val clone = profile.copy(id = Uuid.random().toString(), name = "${profile.name} (Copy)")
                     runCatching { configurationRepository.saveProfile(clone) }
                         .onSuccess { navigateToEditScreen(clone) }
                         .onFailure { showingErrorDialog.value = it }
@@ -195,7 +196,7 @@ private fun ProfileList(
 
                 if (hasError) {
                     IconButton(onClick = {
-                        runningState.startedResult?.exceptionOrNull()
+                        runningState.startedResult.exceptionOrNull()
                             ?.let { onErrorInfoClicked(profile, it) }
                     }) {
                         Icon(

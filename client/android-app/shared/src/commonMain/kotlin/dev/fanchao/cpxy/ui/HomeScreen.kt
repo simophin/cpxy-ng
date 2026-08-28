@@ -25,11 +25,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
-import dev.fanchao.cpxy.Profile
-import dev.fanchao.cpxy.R
 import dev.fanchao.cpxy.app.AppController
+import dev.fanchao.cpxy.app.Profile
+import dev.fanchao.cpxy.ui.events.EventTextFormatter
+import cpxy.shared.generated.resources.Res
+import cpxy.shared.generated.resources.app_name
 import kotlinx.serialization.Serializable
+import org.jetbrains.compose.resources.stringResource
 
 @Serializable
 data object HomeRoute
@@ -44,18 +46,17 @@ private enum class NavItem(val icon: ImageVector, val label: String) {
 @Composable
 fun HomeScreen(
     controller: AppController,
+    eventTextFormatter: EventTextFormatter,
     navigateToEditScreen: (Profile) -> Unit,
     navigateToNewConfigScreen: () -> Unit,
 ) {
     var selectedNavItem by remember { mutableStateOf(NavItem.Profiles) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val context = LocalContext.current
-
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(context.getString(R.string.app_name)) },
+                title = { Text(stringResource(Res.string.app_name)) },
             )
         },
         bottomBar = {
@@ -101,6 +102,7 @@ fun HomeScreen(
                     NavItem.EventList -> EventViewer(
                         modifier = Modifier.padding(padding),
                         repository = controller.eventsRepository,
+                        textFormatter = eventTextFormatter,
                     )
                     NavItem.Settings -> Settings(
                         modifier = Modifier.padding(padding),
