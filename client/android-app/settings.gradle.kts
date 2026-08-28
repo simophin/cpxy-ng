@@ -20,4 +20,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Cpxy"
-include(":app")
+include(":androidApp")

@@ -1,6 +1,6 @@
 # Android client development
 
-The Android client is currently a single `:app` Gradle module. Run Gradle from
+The Android client is currently a single `:androidApp` Gradle module. Run Gradle from
 this directory and Cargo commands from the repository root.
 
 ## Build and test
@@ -8,9 +8,9 @@ this directory and Cargo commands from the repository root.
 Run the local Kotlin tests and build the existing variants with:
 
 ```bash
-./gradlew testDebugUnitTest
-./gradlew assembleDebug
-./gradlew assembleRelease
+./gradlew :androidApp:testDebugUnitTest
+./gradlew :androidApp:assembleDebug
+./gradlew :androidApp:assembleRelease
 ```
 
 The release variant currently uses the checked-in debug keystore. It is suitable
@@ -41,7 +41,7 @@ cargo ndk \
   -t armv7-linux-androideabi \
   -t x86_64-linux-android \
   -t i686-linux-android \
-  -o client/android-app/app/src/main/jniLibs \
+  -o client/android-app/androidApp/src/main/jniLibs \
   build --release -p client --lib
 ```
 
