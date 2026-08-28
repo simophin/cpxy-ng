@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Cpxy"
 include(":androidApp")
+include(":desktopApp")
 include(":shared")
