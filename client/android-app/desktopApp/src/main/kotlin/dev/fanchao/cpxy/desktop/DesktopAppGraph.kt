@@ -7,9 +7,6 @@ import dev.fanchao.cpxy.app.AppLogger
 import dev.fanchao.cpxy.app.AppScope
 import dev.fanchao.cpxy.app.CONFIG_DATASTORE_FILE_NAME
 import dev.fanchao.cpxy.app.createPreferencesDataStore
-import dev.fanchao.cpxy.app.NativeClient
-import dev.fanchao.cpxy.app.NativeClientConfig
-import dev.fanchao.cpxy.app.NativeClientSession
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Inject
@@ -46,8 +43,6 @@ data class AppPaths(val configDirectory: Path) {
         }
     }
 }
-data class NativeLibraryPath(val value: String)
-
 @DependencyGraph(AppScope::class)
 interface DesktopAppGraph : AppGraph {
     @DependencyGraph.Factory
@@ -77,15 +72,6 @@ interface DesktopAppGraph : AppGraph {
             appPaths.configDirectory.resolve(CONFIG_DATASTORE_FILE_NAME).toOkioPath(),
             applicationScope,
         )
-    }
-}
-
-@Inject
-@ContributesBinding(AppScope::class)
-@SingleIn(AppScope::class)
-class DesktopNativeClient(private val nativeLibraryPath: NativeLibraryPath) : NativeClient {
-    override fun start(config: NativeClientConfig): NativeClientSession {
-        error("Desktop native loading is introduced in the native integration phase: ${nativeLibraryPath.value}")
     }
 }
 

@@ -11,7 +11,7 @@ import dev.zacsweers.metro.createGraphFactory
 fun main() {
     val graph = createGraphFactory<DesktopAppGraph.Factory>().create(
         appPaths = AppPaths.forSystem(),
-        nativeLibraryPath = NativeLibraryPath("bundled native client"),
+        nativeLibraryPath = NativeLibraryResolver.resolve(),
     )
 
     try {
