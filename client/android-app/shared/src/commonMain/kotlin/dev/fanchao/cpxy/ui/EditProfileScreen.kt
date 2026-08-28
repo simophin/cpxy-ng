@@ -34,12 +34,8 @@ import dev.fanchao.cpxy.app.ConfigLoadState
 import dev.fanchao.cpxy.app.ConfigRepository
 import dev.fanchao.cpxy.app.Profile
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-
-@Serializable
-data class EditProfileRoute(val id: String?)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalUuidApi::class)
 @Composable

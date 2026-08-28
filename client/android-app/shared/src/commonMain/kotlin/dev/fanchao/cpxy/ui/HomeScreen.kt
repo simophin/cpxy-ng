@@ -30,11 +30,7 @@ import dev.fanchao.cpxy.app.Profile
 import dev.fanchao.cpxy.ui.events.EventTextFormatter
 import cpxy.shared.generated.resources.Res
 import cpxy.shared.generated.resources.app_name
-import kotlinx.serialization.Serializable
 import org.jetbrains.compose.resources.stringResource
-
-@Serializable
-data object HomeRoute
 
 private enum class NavItem(val icon: ImageVector, val label: String) {
     Profiles(Icons.Default.Home, "Home"),

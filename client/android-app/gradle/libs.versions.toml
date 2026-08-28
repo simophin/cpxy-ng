@@ -14,6 +14,7 @@ kotlinxCoroutines = "1.11.0"
 kotlinxSerialization = "1.11.0"
 atomicfu = "0.29.0"
 datastore = "1.2.1"
+navigation3 = "1.1.1"
 okio = "3.9.1"
 jna = "5.19.1"
 junit = "4.13.2"
@@ -37,7 +38,7 @@ compose-material-icons-extended = { module = "org.jetbrains.compose.material:mat
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-components-ui-tooling-preview = { module = "org.jetbrains.compose.components:components-ui-tooling-preview", version.ref = "composeMultiplatform" }
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version = "2.9.3" }
+navigation3-ui = { module = "org.jetbrains.androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }

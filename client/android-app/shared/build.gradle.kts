@@ -35,6 +35,7 @@ kotlin {
             implementation(libs.compose.material.icons.extended)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.components.ui.tooling.preview)
+            implementation(libs.navigation3.ui)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.atomicfu)
             implementation(libs.kotlinx.serialization.json)

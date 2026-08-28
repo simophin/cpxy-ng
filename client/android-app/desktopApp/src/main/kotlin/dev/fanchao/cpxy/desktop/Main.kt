@@ -1,12 +1,11 @@
 package dev.fanchao.cpxy.desktop
 
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import dev.fanchao.cpxy.ui.CpxyApp
+import dev.fanchao.cpxy.ui.events.JvmEventTextFormatter
+import dev.fanchao.cpxy.ui.theme.CpxyTheme
 import dev.zacsweers.metro.createGraphFactory
 
 fun main() {
@@ -21,23 +20,16 @@ fun main() {
                 onCloseRequest = ::exitApplication,
                 title = "Cpxy",
             ) {
-                App()
+                val eventTextFormatter = remember { JvmEventTextFormatter() }
+                CpxyTheme {
+                    CpxyApp(
+                        controller = graph.appController,
+                        eventTextFormatter = eventTextFormatter,
+                    )
+                }
             }
         }
     } finally {
         graph.appLifecycle.close()
-    }
-}
-
-@Composable
-private fun App() {
-    MaterialTheme {
-        Surface {
-            androidx.compose.foundation.layout.Box(
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Cpxy Desktop")
-            }
-        }
     }
 }
