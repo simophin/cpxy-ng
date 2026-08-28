@@ -1,7 +1,6 @@
-# Android client development
+# Android and Desktop client development
 
-The Android client is currently a single `:androidApp` Gradle module. Run Gradle from
-this directory and Cargo commands from the repository root.
+Run Gradle from this directory and Cargo commands from the repository root.
 
 ## Build and test
 
@@ -22,10 +21,11 @@ The Rust workspace tests are the current native-core baseline:
 cargo test --workspace
 ```
 
-## Current native-library prerequisite
+## Android native libraries
 
-Gradle does not build the Rust library yet. Before installing an APK that needs
-to start the proxy, generate the Android libraries from the repository root:
+Android APK/AAB tasks build and package the Rust client library automatically.
+The build uses Android NDK `28.2.13676358` and cargo-ndk `4.1.2`; install them and
+the four Rust targets once:
 
 ```bash
 rustup target add \
@@ -34,21 +34,14 @@ rustup target add \
   x86_64-linux-android \
   i686-linux-android
 
-cargo install cargo-ndk
-
-cargo ndk \
-  -t aarch64-linux-android \
-  -t armv7-linux-androideabi \
-  -t x86_64-linux-android \
-  -t i686-linux-android \
-  -o client/android-app/androidApp/src/main/jniLibs \
-  build --release -p client --lib
+cargo install cargo-ndk --version 4.1.2 --locked
+sdkmanager "ndk;28.2.13676358"
 ```
 
-This requires the Android SDK/NDK to be installed and discoverable by
-`cargo-ndk`. The generated `jniLibs` directory is ignored by Git. A Gradle-only
-build can produce an APK without these libraries, but starting a configured
-profile then fails when JNA tries to load `client`.
+`./gradlew :androidApp:assembleDebug` now invokes `cargo ndk` as a declared
+Gradle task input. The four generated libraries live exclusively under
+`androidApp/build/generated/rustJniLibs`; no generated native binary belongs in
+`src`.
 
 ## Manual smoke check
 

@@ -45,23 +45,27 @@ jobs:
 
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-ndk
-        run: cargo binstall cargo-ndk
+        run: cargo binstall cargo-ndk --version 4.1.2 --locked
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build libraries
-        run: >
-          cargo ndk
-          -t aarch64-linux-android
-          -t armv7-linux-androideabi
-          -t x86_64-linux-android
-          -t i686-linux-android
-          -o client/android-app/androidApp/src/main/jniLibs
-          build --release -p client --lib
+      - name: Install pinned Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
 
-      - name: Build APK
+      - name: Build APK and Gradle-owned Rust libraries
         run: ./gradlew :androidApp:assembleRelease
         working-directory: client/android-app
+
+      - name: Inspect packaged native libraries
+        run: |
+          unzip -Z1 client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk \
+            | grep '^lib/.*/libclient\.so$' \
+            | sort \
+            | diff -u - <(printf '%s\n' \
+                lib/arm64-v8a/libclient.so \
+                lib/armeabi-v7a/libclient.so \
+                lib/x86/libclient.so \
+                lib/x86_64/libclient.so)
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -120,9 +124,11 @@ jobs:
         if: matrix.target.build_with_cross == true
         run: cross build --release --target ${{ matrix.target.rust }}
 
-      - name: Install NDK
+      - name: Install pinned Android native tooling
         if: matrix.target.build_with_ndk == true
-        run: cargo binstall cargo-ndk
+        run: |
+          cargo binstall cargo-ndk --version 4.1.2 --locked
+          sdkmanager "ndk;28.2.13676358"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
