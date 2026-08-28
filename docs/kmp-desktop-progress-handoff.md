@@ -48,7 +48,8 @@ This document is the operational handoff for the migration. It records what the 
 | Unsigned Desktop distributions | `5a51908` | Host package identity, unified version, verified image contents, packaged native probe |
 | Desktop packaging JDK | `f16c79e` | Foojay-provisioned JBRSDK 25 and `jpackage` preflight |
 | Host Desktop CI matrix | `40d4f0d` | Four host/architecture jobs, packaged probes, native/package inspection, unsigned artifacts |
-| Windows installer identity | `desktop: stabilize Windows installer upgrades` (this commit) | Stable MSI upgrade UUID for in-place upgrades |
+| Windows installer identity | `302ff09` | Stable MSI upgrade UUID for in-place upgrades |
+| Embedded listener policy | `desktop: bind embedded proxies to loopback` (this commit) | Android/Desktop HTTP, SOCKS, and event API listeners are local-only |
 
 The last verified Desktop checks were `:desktopApp:test`, `:desktopApp:desktopNativeSmoke`, and `:desktopApp:packagedNativeProbe`. Both probes loaded ABI version 1 and exercised the Rust error path. A GUI window was not opened in the headless build environment.
 
@@ -158,11 +159,28 @@ Status: **completed 2026-08-29**
 
 ### Phase 9C — product/release decisions
 
+Status: **in progress 2026-08-29**
+
+Completed decisions:
+
+- The embedded Android/Desktop client binds HTTP, SOCKS, and event API listeners to IPv4 loopback. This prevents accidental LAN exposure and avoids unnecessary Desktop firewall prompts. Standalone Rust binaries keep their explicit listen-address options.
+- Closing the Desktop primary window exits the application and deterministically closes native sessions, Ktor resources, and the application scope. Tray/background behavior is deferred; there is no hidden background proxy in the first release.
+
+Completion evidence for this batch:
+
+- The native unit suite verifies that embedded listener addresses resolve to `127.0.0.1` and passed all 11 client-library tests.
+- The full Rust workspace suite passed, including the server loopback integration test.
+- Shared and Desktop tests/compilation passed; direct and packaged native probes rebuilt the library, loaded ABI version 1, and exercised the error path.
+- Android unit tests and the debug APK build passed after rebuilding all four Rust ABI libraries.
+- `git diff --check` and focused Rust formatting checks passed.
+
+Remaining decisions:
+
 - Obtain approved desktop icons and product metadata.
 - Revisit Android production signing only if the release policy changes; the current debug-key behavior is intentionally retained.
 - Decide macOS Developer ID/notarization and Windows Authenticode credentials.
 - Confirm legal/license obligations for the repository and vendored GeoIP derivative.
-- Decide service bind policy (loopback versus `0.0.0.0`), tray/background behavior, Linux glibc baseline, and Windows CRT policy.
+- Decide the Linux glibc baseline and Windows CRT policy.
 
 ### Phase 10 — iOS feasibility spike
 

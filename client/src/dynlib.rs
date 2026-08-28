@@ -8,7 +8,7 @@ use anyhow::Context;
 use futures::future::join3;
 use std::any::Any;
 use std::ffi::{CStr, c_char, c_void};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener as StdTcpListener};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::null_mut;
 use std::str::FromStr;
@@ -26,6 +26,8 @@ pub type cpxy_client_handle = *mut c_void;
 struct Handle {
     _rt: Runtime,
 }
+
+const EMBEDDED_LISTEN_ADDRESS: Ipv4Addr = Ipv4Addr::LOCALHOST;
 
 enum CreateFailure {
     Error(anyhow::Error),
@@ -126,22 +128,19 @@ unsafe fn create_client(
     let tailscale_server_config = unsafe { parse_optional_config(tailscale_server_url) }
         .context("failed to parse tailscale server url")?;
 
-    let http_listener = std::net::TcpListener::bind(("0.0.0.0", http_proxy_port))
-        .with_context(|| format!("Failed to bind http proxy on {http_proxy_port}"))?;
+    let http_listener = bind_embedded_listener("http proxy", http_proxy_port)?;
 
     http_listener
         .set_nonblocking(true)
         .context("Failed to set http listener to non-blocking")?;
 
-    let socks_listener = std::net::TcpListener::bind(("0.0.0.0", socks5_proxy_port))
-        .with_context(|| format!("Failed to bind socks5 proxy on {socks5_proxy_port}"))?;
+    let socks_listener = bind_embedded_listener("socks5 proxy", socks5_proxy_port)?;
 
     socks_listener
         .set_nonblocking(true)
         .context("Failed to set socks5 listener to non-blocking")?;
 
-    let api_listener = std::net::TcpListener::bind(("127.0.0.1", api_proxy_port))
-        .with_context(|| format!("Failed to bind api proxy on {api_proxy_port}"))?;
+    let api_listener = bind_embedded_listener("api proxy", api_proxy_port)?;
 
     api_listener
         .set_nonblocking(true)
@@ -188,6 +187,15 @@ unsafe fn create_client(
     ));
 
     Ok(Handle { _rt: rt })
+}
+
+fn bind_embedded_listener(name: &str, port: u16) -> anyhow::Result<StdTcpListener> {
+    StdTcpListener::bind(embedded_listener_address(port))
+        .with_context(|| format!("Failed to bind {name} on {EMBEDDED_LISTEN_ADDRESS}:{port}"))
+}
+
+fn embedded_listener_address(port: u16) -> SocketAddrV4 {
+    SocketAddrV4::new(EMBEDDED_LISTEN_ADDRESS, port)
 }
 
 /// Destroys a client session. A null handle is a no-op.
@@ -267,6 +275,14 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 mod tests {
     use super::*;
     use std::ffi::CString;
+
+    #[test]
+    fn embedded_listeners_bind_only_to_loopback() {
+        assert_eq!(
+            embedded_listener_address(8123),
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8123)
+        );
+    }
 
     fn call_create(
         dns: *const c_char,
