@@ -209,11 +209,10 @@ compose.desktop {
     application {
         mainClass = "dev.fanchao.cpxy.desktop.MainKt"
         javaHome = desktopPackagingJavaHome.get().asFile.absolutePath
-        jvmArgs("-Dawt.toolkit.name=auto")
         jvmArgs("--enable-native-access=ALL-UNNAMED")
         nativeDistributions {
             appResourcesRootDir.set(generatedAppResources)
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.AppImage)
             packageName = "Cpxy"
             packageVersion = desktopVersion
             description = "Cross-platform proxy client"
