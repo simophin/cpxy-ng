@@ -9,7 +9,7 @@ plugins {
 
 android {
     namespace = "dev.fanchao.cpxy"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "dev.fanchao.cpxy"
