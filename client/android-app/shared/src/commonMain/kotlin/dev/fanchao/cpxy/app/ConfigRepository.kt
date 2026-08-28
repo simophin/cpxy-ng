@@ -1,43 +1,46 @@
 package dev.fanchao.cpxy.app
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
+
+sealed interface ConfigLoadState {
+    data object Loading : ConfigLoadState
+    data class Loaded(val config: ClientConfig) : ConfigLoadState
+    data class Error(val cause: Throwable) : ConfigLoadState
+}
 
 @Inject
 @SingleIn(AppScope::class)
 class ConfigRepository(
-    persistence: ConfigPersistence,
-    private val json: Json,
+    private val dataStore: DataStore<Preferences>,
+    json: Json,
     applicationScope: CoroutineScope,
 ) {
-    private val mutableClientConfig = MutableStateFlow(
-        persistence.load()?.let(json::decodeFromString) ?: DEFAULT_CONFIG,
-    )
+    private val codec = ConfigJsonCodec(json)
 
-    val clientConfig: StateFlow<ClientConfig> get() = mutableClientConfig
+    val loadState: StateFlow<ConfigLoadState> = dataStore.data
+        .map { preferences -> decode(preferences[ConfigJsonKey]) }
+        .catch { emit(ConfigLoadState.Error(it)) }
+        .stateIn(applicationScope, SharingStarted.Eagerly, ConfigLoadState.Loading)
 
-    init {
-        applicationScope.launch {
-            clientConfig.drop(1).collectLatest { persistence.save(json.encodeToString(it)) }
+    suspend fun saveProxySettings(httpPort: UShort, socksPort: UShort, dnsSever: String) {
+        mutate { config ->
+            config.copy(httpProxyPort = httpPort, socks5ProxyPort = socksPort, dnsServer = dnsSever)
         }
     }
 
-    fun saveProxySettings(httpPort: UShort, socksPort: UShort, dnsSever: String) {
-        mutableClientConfig.update {
-            it.copy(httpProxyPort = httpPort, socks5ProxyPort = socksPort, dnsServer = dnsSever)
-        }
-    }
-
-    fun saveProfile(profile: Profile) {
-        mutableClientConfig.update { config ->
+    suspend fun saveProfile(profile: Profile) {
+        mutate { config ->
             val index = config.profiles.indexOfFirst { it.id == profile.id }
             config.copy(profiles = if (index >= 0) config.profiles.toMutableList().apply {
                 this[index] = profile
@@ -45,8 +48,8 @@ class ConfigRepository(
         }
     }
 
-    fun deleteProfile(id: String) {
-        mutableClientConfig.update { config ->
+    suspend fun deleteProfile(id: String) {
+        mutate { config ->
             config.copy(
                 profiles = config.profiles.filter { it.id != id },
                 enabledProfileId = config.enabledProfileId.takeUnless { it == id },
@@ -54,16 +57,25 @@ class ConfigRepository(
         }
     }
 
-    fun setProfileEnabled(id: String?) {
-        mutableClientConfig.update { it.copy(enabledProfileId = id) }
+    suspend fun setProfileEnabled(id: String?) {
+        mutate { it.copy(enabledProfileId = id) }
     }
 
-    private companion object {
-        val DEFAULT_CONFIG = ClientConfig(
-            profiles = emptyList(),
-            enabledProfileId = null,
-            httpProxyPort = 8080u,
-            socks5ProxyPort = 1080u,
+    private suspend fun mutate(transform: (ClientConfig) -> ClientConfig) {
+        dataStore.edit { preferences ->
+            val current = preferences[ConfigJsonKey]
+                ?.let { codec.decodeAndValidate(it).getOrThrow() }
+                ?: DEFAULT_CLIENT_CONFIG
+            preferences[ConfigJsonKey] = codec.encode(transform(current))
+        }
+    }
+
+    private fun decode(raw: String?): ConfigLoadState = if (raw == null) {
+        ConfigLoadState.Loaded(DEFAULT_CLIENT_CONFIG)
+    } else {
+        codec.decodeAndValidate(raw).fold(
+            onSuccess = ConfigLoadState::Loaded,
+            onFailure = ConfigLoadState::Error,
         )
     }
 }

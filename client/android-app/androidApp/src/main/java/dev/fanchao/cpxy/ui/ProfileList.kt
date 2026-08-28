@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +45,8 @@ import dev.fanchao.cpxy.Profile
 import dev.fanchao.cpxy.ProfileInstanceManager
 import dev.fanchao.cpxy.RunningState
 import dev.fanchao.cpxy.ui.theme.CpxyTheme
+import dev.fanchao.cpxy.app.ConfigLoadState
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 
@@ -55,32 +59,39 @@ fun ProfileList(
     profileInstanceManager: ProfileInstanceManager,
 ) {
     val showingErrorDialog = remember { mutableStateOf<Throwable?>(null) }
-    val configurations by configurationRepository
-        .clientConfig
-        .collectAsState()
+    val loadState by configurationRepository.loadState.collectAsState()
+    val scope = rememberCoroutineScope()
 
     val runningState by profileInstanceManager
         .state
         .collectAsState()
 
-    ProfileList(
-        modifier = modifier,
-        profiles = configurations.profiles,
-        runningState = runningState,
-        onEditClick = navigateToEditScreen,
-        onDeleteClick = { configurationRepository.deleteProfile(it.id) },
-        onEnableClick = { configurationRepository.setProfileEnabled(it.id) },
-        onDisableClick = { configurationRepository.setProfileEnabled(null) },
-        onErrorInfoClicked = { _, err ->
-            showingErrorDialog.value = err
-        },
-        cloneProfile = {
-            val newConfig =
-                it.copy(id = UUID.randomUUID().toString(), name = "${it.name} (Copy)")
-            configurationRepository.saveProfile(newConfig)
-            navigateToEditScreen(newConfig)
+    when (val current = loadState) {
+        ConfigLoadState.Loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
         }
-    )
+        is ConfigLoadState.Error -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Unable to load configuration: ${current.cause.message.orEmpty()}")
+        }
+        is ConfigLoadState.Loaded -> ProfileList(
+            modifier = modifier,
+            profiles = current.config.profiles,
+            runningState = runningState,
+            onEditClick = navigateToEditScreen,
+            onDeleteClick = { profile -> scope.launch { runCatching { configurationRepository.deleteProfile(profile.id) }.onFailure { showingErrorDialog.value = it } } },
+            onEnableClick = { profile -> scope.launch { runCatching { configurationRepository.setProfileEnabled(profile.id) }.onFailure { showingErrorDialog.value = it } } },
+            onDisableClick = { scope.launch { runCatching { configurationRepository.setProfileEnabled(null) }.onFailure { showingErrorDialog.value = it } } },
+            onErrorInfoClicked = { _, err -> showingErrorDialog.value = err },
+            cloneProfile = { profile ->
+                scope.launch {
+                    val clone = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} (Copy)")
+                    runCatching { configurationRepository.saveProfile(clone) }
+                        .onSuccess { navigateToEditScreen(clone) }
+                        .onFailure { showingErrorDialog.value = it }
+                }
+            },
+        )
+    }
 
     if (showingErrorDialog.value != null) {
         AlertDialog(

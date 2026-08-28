@@ -5,24 +5,12 @@ import android.util.Log
 import com.sun.jna.Native
 import dev.fanchao.cpxy.app.AppLogger
 import dev.fanchao.cpxy.app.AppScope
-import dev.fanchao.cpxy.app.ConfigPersistence
 import dev.fanchao.cpxy.app.NativeClient
 import dev.fanchao.cpxy.app.NativeClientConfig
 import dev.fanchao.cpxy.app.NativeClientSession
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-
-@Inject
-@ContributesBinding(AppScope::class)
-@SingleIn(AppScope::class)
-class SharedPreferencesConfigPersistence(context: Context) : ConfigPersistence {
-    private val preferences = context.getSharedPreferences("default", Context.MODE_PRIVATE)
-    override fun load(): String? = preferences.getString(PREF_KEY, null)
-    override fun save(value: String) = preferences.edit().putString(PREF_KEY, value).apply()
-
-    private companion object { const val PREF_KEY = "config" }
-}
 
 @Inject
 @ContributesBinding(AppScope::class)

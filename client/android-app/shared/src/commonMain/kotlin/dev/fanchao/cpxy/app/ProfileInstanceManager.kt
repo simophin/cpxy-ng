@@ -2,12 +2,11 @@ package dev.fanchao.cpxy.app
 
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.scan
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @Inject
 @SingleIn(AppScope::class)
@@ -22,35 +21,52 @@ class ProfileInstanceManager(
         val startedResult: Result<NativeClientSession>? = null,
     )
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val state: StateFlow<RunningState> = repository.clientConfig
-        .scan(RunningState()) { previous, config ->
-            previous.startedResult?.getOrNull()?.close()
-            RunningState(
-                configUsed = config,
-                startedResult = config.enabledProfile?.let { profile ->
-                    runCatching {
-                        nativeClient.start(
-                            NativeClientConfig(
-                                httpProxyPort = config.httpProxyPort,
-                                socks5ProxyPort = config.socks5ProxyPort,
-                                apiServerPort = config.apiServerPort,
-                                dnsServer = config.dnsServer,
-                                mainServerUrl = profile.mainServerUrl,
-                                aiServerUrl = profile.aiServerUrl,
-                                tailscaleServerUrl = profile.tailscaleServerUrl,
-                            ),
-                        )
-                    }.onFailure {
-                        logger.error(TAG, "Failed to start client for profile $profile", it)
-                    }
-                },
-            )
+    private val activeSession = atomic<NativeClientSession?>(null)
+    private val closed = atomic(false)
+    private val mutableState = MutableStateFlow(RunningState())
+    val state: StateFlow<RunningState> = mutableState
+
+    init {
+        applicationScope.launch {
+            repository.loadState.collect { loadState ->
+                if (closed.value) return@collect
+                activeSession.getAndSet(null)?.close()
+                mutableState.value = when (loadState) {
+                    ConfigLoadState.Loading, is ConfigLoadState.Error -> RunningState()
+                    is ConfigLoadState.Loaded -> start(loadState.config)
+                }
+            }
         }
-        .stateIn(applicationScope, SharingStarted.Eagerly, RunningState())
+    }
+
+    private fun start(config: ClientConfig): RunningState {
+        val result = config.enabledProfile?.let { profile ->
+            runCatching {
+                nativeClient.start(
+                    NativeClientConfig(
+                        httpProxyPort = config.httpProxyPort,
+                        socks5ProxyPort = config.socks5ProxyPort,
+                        apiServerPort = config.apiServerPort,
+                        dnsServer = config.dnsServer,
+                        mainServerUrl = profile.mainServerUrl,
+                        aiServerUrl = profile.aiServerUrl,
+                        tailscaleServerUrl = profile.tailscaleServerUrl,
+                    ),
+                ).also { session ->
+                    activeSession.value = session
+                    if (closed.value) activeSession.getAndSet(null)?.close()
+                }
+            }.onFailure {
+                logger.error(TAG, "Failed to start client for profile $profile", it)
+            }
+        }
+        return RunningState(configUsed = config, startedResult = result)
+    }
 
     fun close() {
-        state.value.startedResult?.getOrNull()?.close()
+        closed.value = true
+        activeSession.getAndSet(null)?.close()
+        mutableState.value = RunningState()
     }
 
     private companion object { const val TAG = "ProfileInstanceManager" }

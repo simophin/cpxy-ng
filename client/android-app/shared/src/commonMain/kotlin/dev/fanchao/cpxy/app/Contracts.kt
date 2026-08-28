@@ -1,10 +1,5 @@
 package dev.fanchao.cpxy.app
 
-interface ConfigPersistence {
-    fun load(): String?
-    fun save(value: String)
-}
-
 interface NativeClient {
     fun start(config: NativeClientConfig): NativeClientSession
 }
