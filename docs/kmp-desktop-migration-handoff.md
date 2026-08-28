@@ -19,7 +19,7 @@ The migration includes:
 - AndroidX DataStore Preferences as shared persistent storage.
 - Compose Navigation 3 in shared UI.
 - Gradle-owned Rust native-library builds for Android and Desktop.
-- Desktop installers for Windows, Linux, and macOS.
+- Desktop MSI and DMG installers plus a portable Linux application archive.
 - Explicit lifecycle ownership and removal of `GlobalScope`.
 - A future-compatible boundary for Kotlin/Native/iOS.
 
@@ -232,7 +232,8 @@ Start with one tested compatibility lane. Do not independently select the newest
 | Metro | `1.4.2` |
 | Android Gradle Plugin | `9.2.0` |
 | Gradle wrapper | `9.4.1` |
-| JVM toolchain / packaging JDK | `17` |
+| JVM bytecode target | `17` |
+| Desktop runtime / packaging JDK | JetBrains JBRSDK `25`, provisioned through Foojay |
 | Ktor | `3.5.2` |
 | kotlinx.coroutines | `1.11.0` |
 | kotlinx.serialization | `1.11.0` |
@@ -244,6 +245,7 @@ Important notes:
 
 - The Compose compiler plugin version must match Kotlin.
 - Compile both Android modules against API 37 while retaining Android application's `targetSdk = 36` and both modules' `minSdk = 26`. Compose Multiplatform 1.12 Android artifacts require API 37 at compile time; AGP 9.2 is the first stable AGP lane that supports API 37 and requires Gradle 9.4.1.
+- Provision JetBrains JBRSDK 25 with the Foojay resolver and assign its home explicitly to Compose Desktop. Do not inherit the IDE's bundled runtime: it may omit `jpackage`. Keep emitted application bytecode at JVM 17 and pass `-Dawt.toolkit.name=auto` so JBR selects Wayland when available and X11 otherwise.
 - AGP 9 has built-in Kotlin support for the Android application module. Follow the AGP 9 migration documentation rather than carrying the old `org.jetbrains.kotlin.android` configuration forward blindly.
 - The `shared` module uses `org.jetbrains.kotlin.multiplatform` and `com.android.kotlin.multiplatform.library`.
 - Explicitly pin Navigation 3 `1.1.1`. Compose Multiplatform `1.12.0` documents a Navigation 3 `1.2.0-alpha02` family, which is not the chosen baseline.

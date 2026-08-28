@@ -16,6 +16,10 @@ import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.bundling.Compression
+import org.gradle.api.tasks.bundling.Tar
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JvmVendorSpec
 import org.gradle.process.ExecOperations
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import java.nio.file.Files
@@ -106,6 +110,28 @@ abstract class VerifyDesktopApplicationImage : DefaultTask() {
     }
 }
 
+abstract class VerifyDesktopPackagingJdk : DefaultTask() {
+    @get:InputDirectory abstract val javaHome: DirectoryProperty
+
+    @TaskAction
+    fun verifyJdk() {
+        val home = javaHome.get().asFile
+        val executableName = if (System.getProperty("os.name").startsWith("Windows")) {
+            "jpackage.exe"
+        } else {
+            "jpackage"
+        }
+        val executable = home.resolve("bin/$executableName")
+        if (!executable.isFile) {
+            throw GradleException(
+                "Desktop packaging requires a full JetBrains JBRSDK with $executableName, " +
+                    "but it is missing from '${home.absolutePath}'."
+            )
+        }
+        logger.lifecycle("Using Desktop packaging tool: ${executable.absolutePath}")
+    }
+}
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.jetbrains.compose)
@@ -114,6 +140,10 @@ plugins {
 }
 
 java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(25))
+        vendor.set(JvmVendorSpec.JETBRAINS)
+    }
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
 }
@@ -148,6 +178,11 @@ val generatedAppResources = layout.buildDirectory.dir("generated/appResources")
 val generatedNativeDirectory = generatedAppResources.map { it.dir(hostPlatform.id) }
 val desktopVersion = providers.gradleProperty("cpxy.version").get()
 val applicationImagesRoot = layout.buildDirectory.dir("compose/binaries/main/app")
+val desktopPackagingJdk = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(25))
+    vendor.set(JvmVendorSpec.JETBRAINS)
+}
+val desktopPackagingJavaHome = desktopPackagingJdk.map { it.metadata.installationPath }
 val buildDesktopRustLibrary = tasks.register<BuildDesktopRustLibrary>("buildDesktopRustLibrary") {
     group = "build"
     description = "Builds the Rust client library for this Desktop host."
@@ -173,9 +208,12 @@ val buildDesktopRustLibrary = tasks.register<BuildDesktopRustLibrary>("buildDesk
 compose.desktop {
     application {
         mainClass = "dev.fanchao.cpxy.desktop.MainKt"
+        javaHome = desktopPackagingJavaHome.get().asFile.absolutePath
+        jvmArgs("-Dawt.toolkit.name=auto")
+        jvmArgs("--enable-native-access=ALL-UNNAMED")
         nativeDistributions {
             appResourcesRootDir.set(generatedAppResources)
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi)
             packageName = "Cpxy"
             packageVersion = desktopVersion
             description = "Cross-platform proxy client"
@@ -188,6 +226,18 @@ compose.desktop {
             }
         }
     }
+}
+
+val verifyDesktopPackagingJdk = tasks.register<VerifyDesktopPackagingJdk>(
+    "verifyDesktopPackagingJdk"
+) {
+    group = "verification"
+    description = "Checks that the pinned JetBrains JBRSDK provides jpackage."
+    javaHome.set(desktopPackagingJavaHome)
+}
+
+tasks.matching { it.name == "checkRuntime" }.configureEach {
+    dependsOn(verifyDesktopPackagingJdk)
 }
 
 tasks.matching { it.name == "prepareAppResources" }.configureEach {
@@ -228,6 +278,36 @@ val verifyDesktopApplicationImage = tasks.register<VerifyDesktopApplicationImage
     dependsOn(tasks.named("createDistributable"))
     applicationImageDirectory.set(applicationImagesRoot)
     libraryName.set(hostPlatform.libraryName)
+}
+
+val packagePortableDistribution = tasks.register<Tar>("packagePortableDistribution") {
+    group = "distribution"
+    description = "Archives the verified host application image as a portable distribution."
+    dependsOn(verifyDesktopApplicationImage)
+    compression = Compression.GZIP
+    archiveBaseName.set("Cpxy")
+    archiveVersion.set(desktopVersion)
+    archiveClassifier.set(hostPlatform.id)
+    archiveExtension.set("tar.gz")
+    destinationDirectory.set(layout.buildDirectory.dir("compose/binaries/main/portable"))
+    from(applicationImagesRoot)
+    eachFile {
+        if (
+            path.endsWith("/bin/Cpxy") ||
+                path.endsWith("/Contents/MacOS/Cpxy") ||
+                path.endsWith("/Cpxy.exe")
+        ) {
+            permissions {
+                unix("rwxr-xr-x")
+            }
+        }
+    }
+}
+
+if (hostPlatform.id == "linux-x64") {
+    tasks.matching { it.name == "packageDistributionForCurrentOS" }.configureEach {
+        dependsOn(packagePortableDistribution)
+    }
 }
 
 tasks.register<Exec>("packagedNativeProbe") {

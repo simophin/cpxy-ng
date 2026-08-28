@@ -2,7 +2,7 @@
 
 Status date: 2026-08-28
 
-Baseline commit: `4fb9097` (`build: make GeoIP input reproducible and offline-capable`)
+Baseline commit: `5a51908` (`desktop: configure unsigned host distributions`)
 
 Companion architecture plan: [`kmp-desktop-migration-handoff.md`](kmp-desktop-migration-handoff.md)
 
@@ -19,7 +19,7 @@ This document is the operational handoff for the migration. It records what the 
 ## Decisions already made
 
 1. **KMP structure:** shared state, lifecycle, persistence, and Compose UI live in `shared`; `androidApp` and `desktopApp` are thin platform launchers/providers.
-2. **Version lane:** Gradle 9.4.1, AGP 9.2.0, Kotlin/Compose compiler 2.4.10, Compose Multiplatform 1.12.0, compile SDK 37, JVM bytecode 17.
+2. **Version lane:** Gradle 9.4.1, AGP 9.2.0, Kotlin/Compose compiler 2.4.10, Compose Multiplatform 1.12.0, compile SDK 37, JVM bytecode 17, and Foojay-provisioned JetBrains JBRSDK 25 for Desktop runtime/packaging.
 3. **Dependency injection and ownership:** Metro final graphs own an application `CoroutineScope`; `AppLifecycle` closes native sessions, HTTP resources, and the scope in a deterministic order. No `GlobalScope` or process singleton app instance.
 4. **Persistence:** KMP DataStore Preferences is authoritative. Android performs a one-time, non-destructive migration from legacy SharedPreferences; Desktop uses conventional per-OS config paths.
 5. **UI/navigation:** Compose screens, theme, and resources are common; Navigation 3 is pinned to stable 1.1.1.
@@ -45,7 +45,8 @@ This document is the operational handoff for the migration. It records what the 
 | Android native builds | `9a5781e` | Gradle-produced four-ABI Rust libraries packaged in APK |
 | Desktop native runtime | `d3dd3ac` | Host Rust build, explicit resolver/JNA client, tests and native smoke task |
 | Reproducible GeoIP input | `4fb9097` | Reviewed local derivative, checksum enforcement, no build-time download |
-| Unsigned Desktop distributions | `desktop: configure unsigned host distributions` (this commit) | Host package formats and identity, unified version, verified image contents, packaged native probe |
+| Unsigned Desktop distributions | `5a51908` | Host package identity, unified version, verified image contents, packaged native probe |
+| Desktop packaging JDK | `desktop: pin JetBrains runtime toolchain` (this commit) | Foojay-provisioned JBRSDK 25, `jpackage` preflight, Wayland/X11 selection |
 
 The last verified Desktop checks were `:desktopApp:test`, `:desktopApp:desktopNativeSmoke`, and `:desktopApp:packagedNativeProbe`. Both probes loaded ABI version 1 and exercised the Rust error path. A GUI window was not opened in the headless build environment.
 
@@ -79,7 +80,7 @@ Status: **completed 2026-08-28**
 
 ### Implemented
 
-1. Configured host-built DMG, MSI, and DEB formats with the stable `Cpxy` package name, `dev.fanchao.cpxy` macOS bundle ID, and `cpxy` Linux package name.
+1. Configured host-built DMG and MSI formats with the stable `Cpxy` package name and `dev.fanchao.cpxy` macOS bundle ID.
 2. Added `cpxy.version` as the single Android `versionName` and Desktop `packageVersion` source.
 3. Made Compose application-resource preparation depend on the host Rust producer, so clean image and installer builds cannot consume a stale or missing native library.
 4. Added `verifyDesktopApplicationImage`, which fails unless the application image contains exactly one native library with the current host's expected name.
@@ -90,18 +91,37 @@ Status: **completed 2026-08-28**
 - The full Gradle regression gate passed: shared tests/build, Android unit tests/debug APK, Desktop tests/compilation, the direct native smoke probe, and the packaged native probe.
 - The Android assembly rebuilt and packaged all four supported Rust ABIs.
 - The Linux application image contained exactly one native resource at `Cpxy/lib/app/resources/libclient.so`; the packaged launcher loaded ABI version 1 and exercised the Rust error path with exit code 0.
-- On this Arch Linux host, the generated launcher also emitted `pure virtual method called` and `terminate called without an active exception` on stderr while still completing the probe with exit code 0. The direct JVM probe does not emit these lines; Phase 9 should determine whether this is specific to the local `jpackage` launcher/runtime before treating stderr as a failure signal.
 - `cargo test --workspace --locked` passed all workspace and documentation tests, including the server loopback test.
-- `packageDistributionForCurrentOS` reached `packageDeb`, but the installed Arch Linux OpenJDK `jpackage` reports DEB as an unsupported type. No DEB was produced or claimed as verified on this host. Phase 9 CI must build and inspect DEB on a Debian/Ubuntu packaging host and must verify MSI/DMG on their native hosts.
 - `git diff --check` passed.
 
-## Remaining units after Phase 8B
+## Phase 8C — pinned Desktop packaging JDK
+
+Status: **completed 2026-08-28**
+
+### Implemented
+
+1. Added Foojay toolchain resolution and selected JetBrains JBRSDK 25 explicitly for the Desktop module.
+2. Assigned the resolved JBRSDK home to Compose Desktop, removing its dependency on whichever Gradle runtime the IDE or shell happens to use.
+3. Added `verifyDesktopPackagingJdk`, which fails with a targeted diagnostic if the selected SDK does not contain `jpackage`.
+4. Enabled JBR's automatic Wayland/X11 toolkit selection and granted JNA native access explicitly for JDK 25.
+5. Replaced the Linux DEB target with a versioned portable `.tar.gz` application archive; on Linux, `packageDistributionForCurrentOS` now builds that archive without `dpkg`.
+
+### Completion evidence
+
+- Foojay provisioned JetBrains JBRSDK 25.0.4.1 and the preflight found its `bin/jpackage`.
+- `:desktopApp:test` passed.
+- `:desktopApp:packagedNativeProbe` rebuilt the application image with the pinned JBR, found exactly one `libclient.so`, loaded ABI version 1, and passed the native error path.
+- The image's linked runtime contains only the requested modules and the complete application image is 206 MiB; JCEF was not copied into the runtime image.
+- The earlier Arch OpenJDK launcher messages (`pure virtual method called` and `terminate called without an active exception`) were not reproduced with JBRSDK 25.
+- `packageDistributionForCurrentOS` produced `Cpxy-1.0.1-linux-x64.tar.gz`; its extracted launcher retained executable permissions and passed `--native-probe`.
+
+## Remaining units after Phase 8C
 
 ### Phase 9 — host CI release matrix
 
 - Add Linux x64, Windows x64, macOS x64, and macOS arm64 host jobs.
-- From Gradle, run Kotlin tests, build the host Rust library, create the distributable, execute the packaged native probe, and build the host installer.
-- Inspect package contents and native linkage with host tools (`dpkg-deb`/`ldd`/`readelf`, MSI extraction plus PE inspection, `hdiutil`/`otool`). Fail for missing dependencies, wrong architecture, duplicate libraries, or absent native resource.
+- From Gradle, run Kotlin tests, build the host Rust library, create the distributable, execute the packaged native probe, and build the host distribution.
+- Inspect package contents and native linkage with host tools (`tar`/`ldd`/`readelf`, MSI extraction plus PE inspection, `hdiutil`/`otool`). Fail for missing dependencies, wrong architecture, duplicate libraries, or absent native resource.
 - Upload unsigned CI artifacts only. Do not create a public release until signing policy is decided.
 
 ### Phase 9B — product/release decisions
