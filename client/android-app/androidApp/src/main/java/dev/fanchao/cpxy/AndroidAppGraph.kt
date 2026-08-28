@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.Preferences
 import dev.fanchao.cpxy.app.AppGraph
 import dev.fanchao.cpxy.app.AppScope
 import dev.fanchao.cpxy.app.CONFIG_DATASTORE_FILE_NAME
+import dev.fanchao.cpxy.app.ConfigJsonCodec
+import dev.fanchao.cpxy.app.LegacyConfigMigration
 import dev.fanchao.cpxy.app.createPreferencesDataStore
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
@@ -41,9 +43,16 @@ interface AndroidAppGraph : AppGraph {
     fun provideConfigDataStore(
         context: Context,
         applicationScope: CoroutineScope,
+        json: Json,
     ): DataStore<Preferences> = createPreferencesDataStore(
         path = "${context.filesDir.absolutePath}/$CONFIG_DATASTORE_FILE_NAME".toPath(),
         applicationScope = applicationScope,
+        migrations = listOf(
+            LegacyConfigMigration(
+                source = AndroidLegacyConfigSource(context),
+                codec = ConfigJsonCodec(json),
+            ),
+        ),
     )
 
     @Provides
