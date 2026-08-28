@@ -1,12 +1,13 @@
 package dev.fanchao.cpxy
 
 import com.sun.jna.Library
-import com.sun.jna.NativeLong
 import com.sun.jna.Pointer
-
+import java.util.concurrent.atomic.AtomicReference
 
 interface Client : Library {
-    fun create_client(
+    fun cpxy_client_abi_version(): Int
+
+    fun cpxy_client_create(
         httpProxyPort: Short,
         socks5ProxyPort: Short,
         apiServerPort: Short,
@@ -15,10 +16,21 @@ interface Client : Library {
         aiServerUrl: String?,
         tailscaleServerUrl: String?,
         errorMessage: ByteArray,
-        errorMessageLen: NativeLong
+        errorMessageCapacity: Int,
     ): Pointer?
 
-    fun destroy_client(instance: Pointer)
+    fun cpxy_client_destroy(instance: Pointer?)
+}
+
+class NativeClientSession internal constructor(
+    private val client: Client,
+    pointer: Pointer,
+) : AutoCloseable {
+    private val pointer = AtomicReference(pointer)
+
+    override fun close() {
+        pointer.getAndSet(null)?.let(client::cpxy_client_destroy)
+    }
 }
 
 fun Client.create(
@@ -29,10 +41,15 @@ fun Client.create(
     mainServerUrl: String,
     aiServerUrl: String?,
     tailscaleServerUrl: String?,
-): Pointer {
+): NativeClientSession {
+    val actualAbiVersion = cpxy_client_abi_version()
+    check(actualAbiVersion == CPXY_CLIENT_ABI_VERSION) {
+        "Unsupported native client ABI version $actualAbiVersion; expected $CPXY_CLIENT_ABI_VERSION"
+    }
+
     val errorMessage = ByteArray(512)
 
-    val ptr = create_client(
+    val pointer = cpxy_client_create(
         httpProxyPort = httpProxyPort.toShort(),
         socks5ProxyPort = socks5ProxyPort.toShort(),
         apiServerPort = apiServerPort.toShort(),
@@ -40,11 +57,11 @@ fun Client.create(
         aiServerUrl = aiServerUrl,
         tailscaleServerUrl = tailscaleServerUrl,
         errorMessage = errorMessage,
-        errorMessageLen = NativeLong(errorMessage.size.toLong()),
+        errorMessageCapacity = errorMessage.size,
         dnsServer = dnsServer,
     )
 
-    if (ptr == null || ptr.getInt(0) == 0) {
+    if (pointer == null) {
         val realErrorMessageLength = errorMessage.indexOfFirst { it.toInt() == 0 }
             .takeIf { it >= 0 }
             ?: errorMessage.size
@@ -59,7 +76,7 @@ fun Client.create(
         )
     }
 
-    return ptr
+    return NativeClientSession(this, pointer)
 }
 
-fun Client.destroy(instance: Pointer) = destroy_client(instance)
+private const val CPXY_CLIENT_ABI_VERSION = 1

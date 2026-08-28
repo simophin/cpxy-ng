@@ -1,8 +1,6 @@
 package dev.fanchao.cpxy
 
 import android.util.Log
-import android.widget.Toast
-import com.sun.jna.Pointer
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -18,7 +16,7 @@ class ProfileInstanceManager (
 ) {
     data class RunningState(
         val configUsed: ClientConfig? = null,
-        val startedResult: Result<Pointer>? = null,
+        val startedResult: Result<NativeClientSession>? = null,
     )
 
     @OptIn(DelicateCoroutinesApi::class)
@@ -27,7 +25,7 @@ class ProfileInstanceManager (
         .scan(RunningState()) { acc, newConfig ->
             acc.startedResult
                 ?.getOrNull()
-                ?.let { clientProvider().destroy_client(it) }
+                ?.close()
 
             RunningState(
                 configUsed = newConfig,
