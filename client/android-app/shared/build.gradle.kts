@@ -29,6 +29,9 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.atomicfu)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.androidx.datastore.core)
+            implementation(libs.androidx.datastore.preferences.core)
+            implementation(libs.okio)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.websockets)
         }
