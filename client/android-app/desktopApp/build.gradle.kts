@@ -4,9 +4,11 @@ import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
@@ -23,6 +25,7 @@ import org.gradle.jvm.toolchain.JvmVendorSpec
 import org.gradle.process.ExecOperations
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Locale
 import javax.inject.Inject
 
@@ -107,6 +110,31 @@ abstract class VerifyDesktopApplicationImage : DefaultTask() {
             )
         }
         logger.lifecycle("Verified Desktop native resource: ${libraries.single()}")
+    }
+}
+
+abstract class StageDesktopNativeResource : DefaultTask() {
+    @get:InputFile abstract val nativeLibrary: RegularFileProperty
+    @get:Input abstract val platformId: Property<String>
+    @get:Internal abstract val applicationImageDirectory: DirectoryProperty
+
+    @TaskAction
+    fun stageLibrary() {
+        val imageRoot = applicationImageDirectory.get().asFile.toPath()
+        val resourceDirectory = when (platformId.get()) {
+            "linux-x64" -> imageRoot.resolve("Cpxy/lib/app/resources")
+            "windows-x64" -> imageRoot.resolve("Cpxy/app/resources")
+            "macos-x64", "macos-arm64" ->
+                imageRoot.resolve("Cpxy.app/Contents/app/resources")
+            else -> throw GradleException(
+                "No packaged Desktop resource directory for ${platformId.get()}"
+            )
+        }
+        Files.createDirectories(resourceDirectory)
+        val source = nativeLibrary.get().asFile.toPath()
+        val destination = resourceDirectory.resolve(source.fileName)
+        Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING)
+        logger.lifecycle("Staged Desktop native resource: $destination")
     }
 }
 
@@ -248,6 +276,23 @@ tasks.matching { it.name == "prepareAppResources" }.configureEach {
     dependsOn(buildDesktopRustLibrary)
 }
 
+val stageDesktopNativeResource = tasks.register<StageDesktopNativeResource>(
+    "stageDesktopNativeResource"
+) {
+    group = "distribution"
+    description = "Stages the host native library in the packaged application image."
+    dependsOn(buildDesktopRustLibrary, tasks.named("packageAppImage"))
+    nativeLibrary.set(
+        generatedNativeDirectory.map { it.file(hostPlatform.libraryName) }
+    )
+    platformId.set(hostPlatform.id)
+    applicationImageDirectory.set(applicationImagesRoot)
+}
+
+tasks.matching { it.name == "packageDmg" || it.name == "packageMsi" }.configureEach {
+    dependsOn(stageDesktopNativeResource)
+}
+
 tasks.withType<JavaExec>().configureEach {
     if (name == "run") {
         dependsOn(buildDesktopRustLibrary)
@@ -279,8 +324,7 @@ val verifyDesktopApplicationImage = tasks.register<VerifyDesktopApplicationImage
 ) {
     group = "verification"
     description = "Checks that the Desktop application image contains exactly one host library."
-    dependsOn(tasks.named("createDistributable"))
-    mustRunAfter("packageAppImage")
+    dependsOn(stageDesktopNativeResource)
     applicationImageDirectory.set(applicationImagesRoot)
     libraryName.set(hostPlatform.libraryName)
 }
