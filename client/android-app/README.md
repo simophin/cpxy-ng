@@ -21,6 +21,24 @@ The Rust workspace tests are the current native-core baseline:
 cargo test --workspace
 ```
 
+## Desktop distributions
+
+Build and exercise the current host's packaged application with:
+
+```bash
+./gradlew :shared:allTests :desktopApp:test \
+  :desktopApp:desktopNativeSmoke :desktopApp:packagedNativeProbe \
+  :desktopApp:packageDistributionForCurrentOS
+```
+
+CI runs that gate on Linux x64, Windows x64, macOS x64, and macOS arm64. Each
+job inspects the packaged native library with host tools and uploads an unsigned
+workflow artifact. The artifacts are not production releases and are not
+signed or notarized.
+
+The Windows MSI uses a fixed upgrade UUID so newer Cpxy packages replace an
+existing installation instead of registering as an unrelated product.
+
 ## Android native libraries
 
 Android APK/AAB tasks build and package the Rust client library automatically.

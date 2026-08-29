@@ -805,9 +805,9 @@ Recommended first close policy:
 - Add tray/minimize-to-tray behavior only after basic lifecycle correctness is proven.
 - If tray support is later enabled, retain an explicit Stop and Exit action because tray availability varies on Linux desktops.
 
-Open product/security decision:
+Product/security decision:
 
-- Rust currently binds HTTP and SOCKS listeners to `0.0.0.0`. This exposes the proxy to the LAN and can trigger Desktop firewall prompts. Decide whether the Desktop default should instead bind loopback. Do not change behavior silently during structural commits.
+- The embedded Android/Desktop native client binds its HTTP, SOCKS, and event API listeners to IPv4 loopback. This avoids exposing an unauthenticated proxy to the LAN and avoids unnecessary Desktop firewall prompts. The standalone Rust CLIs retain their explicit listen-address options for deliberate remote-access use cases.
 
 ## 14. Testing strategy
 

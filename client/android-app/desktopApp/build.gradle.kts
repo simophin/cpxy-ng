@@ -224,6 +224,10 @@ compose.desktop {
             macOS {
                 bundleID = "dev.fanchao.cpxy"
             }
+            windows {
+                // Stable across releases so MSI upgrades replace the existing installation.
+                upgradeUuid = "c40be38d-4949-536d-88d5-7ba0cc538381"
+            }
         }
     }
 }
@@ -276,6 +280,7 @@ val verifyDesktopApplicationImage = tasks.register<VerifyDesktopApplicationImage
     group = "verification"
     description = "Checks that the Desktop application image contains exactly one host library."
     dependsOn(tasks.named("createDistributable"))
+    mustRunAfter("packageAppImage")
     applicationImageDirectory.set(applicationImagesRoot)
     libraryName.set(hostPlatform.libraryName)
 }

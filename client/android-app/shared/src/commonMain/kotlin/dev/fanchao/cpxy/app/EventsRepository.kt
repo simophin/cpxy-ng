@@ -32,7 +32,7 @@ class EventsRepository(
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     val events: SharedFlow<Event> = manager.state
-        .mapNotNull { it.configUsed?.apiServerPort }
+        .mapNotNull { it.startedApiServerPort }
         .flatMapLatest { port ->
             channelFlow {
                 while (true) {
@@ -83,3 +83,6 @@ class EventsRepository(
 
     private companion object { const val TAG = "EventsRepository" }
 }
+
+internal val ProfileInstanceManager.RunningState.startedApiServerPort: UShort?
+    get() = configUsed?.apiServerPort?.takeIf { startedResult?.isSuccess == true }
