@@ -248,13 +248,16 @@ compose.desktop {
             vendor = "Cpxy"
             linux {
                 packageName = "cpxy"
+                iconFile.set(project.file("src/main/resources/icons/cpxy.png"))
             }
             macOS {
                 bundleID = "dev.fanchao.cpxy"
+                iconFile.set(project.file("src/main/resources/icons/cpxy.icns"))
             }
             windows {
                 // Stable across releases so MSI upgrades replace the existing installation.
                 upgradeUuid = "c40be38d-4949-536d-88d5-7ba0cc538381"
+                iconFile.set(project.file("src/main/resources/icons/cpxy.ico"))
             }
         }
     }
