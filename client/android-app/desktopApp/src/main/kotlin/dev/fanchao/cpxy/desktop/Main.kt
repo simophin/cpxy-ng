@@ -1,7 +1,5 @@
 package dev.fanchao.cpxy.desktop
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -10,7 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Notification
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
@@ -77,7 +75,7 @@ private fun launchDesktopUi() {
             }
 
             Tray(
-                icon = rememberVectorPainter(Icons.Default.Public),
+                icon = painterResource("icons/cpxy.png"),
                 state = trayState,
                 tooltip = trayTooltip(configLoadState),
                 onAction = ::showWindow,
