@@ -1,0 +1,20 @@
+language = "C"
+autogen_warning = "/* Generated with: cbindgen --config client/cbindgen.toml --crate client --output client/include/cpxy_client.h */"
+include_guard = "CPXY_CLIENT_H"
+pragma_once = true
+documentation = true
+cpp_compat = true
+usize_is_size_t = true
+sys_includes = ["stdint.h"]
+
+[parse]
+parse_deps = false
+
+[export]
+include = [
+    "CPXY_CLIENT_ABI_VERSION",
+    "cpxy_client_handle",
+    "cpxy_client_abi_version",
+    "cpxy_client_create",
+    "cpxy_client_destroy",
+]

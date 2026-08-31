@@ -5,9 +5,9 @@ on:
     branches:
       - main
   pull_request:
-    types: [ synchronize, opened, reopened ]
+    types: [synchronize, opened, reopened]
   release:
-    types: [ published ]
+    types: [published]
 
 # Limit concurrency to one per branch
 concurrency:
@@ -25,6 +25,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Cache Gradle files
         uses: actions/cache@v4
         with:
@@ -37,37 +43,107 @@ jobs:
 
       - name: Install all the required targets
         run: >
-          rustup target add 
-          aarch64-linux-android 
-          armv7-linux-androideabi 
-          x86_64-linux-android 
+          rustup target add
+          aarch64-linux-android
+          armv7-linux-androideabi
+          x86_64-linux-android
           i686-linux-android
 
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-ndk
-        run: cargo binstall cargo-ndk
+        run: cargo binstall cargo-ndk --version 4.1.2 --locked
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build libraries
-        run: >
-          cargo ndk
-          -t aarch64-linux-android
-          -t armv7-linux-androideabi
-          -t x86_64-linux-android
-          -t i686-linux-android
-          -o client/android-app/app/src/main/jniLibs
-          build --release -p client --lib
+      - name: Install pinned Android NDK
+        run: "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
 
-      - name: Build APK
-        run: ./gradlew assembleRelease
+      - name: Build APK and Gradle-owned Rust libraries
+        run: ./gradlew :androidApp:assembleRelease
         working-directory: client/android-app
+
+      - name: Inspect packaged native libraries
+        run: |
+          unzip -Z1 client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk \
+            | grep '^lib/.*/libclient\.so$' \
+            | sort \
+            | diff -u - <(printf '%s\n' \
+                lib/arm64-v8a/libclient.so \
+                lib/armeabi-v7a/libclient.so \
+                lib/x86/libclient.so \
+                lib/x86_64/libclient.so)
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-app-release.apk
-          path: client/android-app/app/build/outputs/apk/release/app-release.apk
+          path: client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk
+
+  build_desktop_app:
+    name: Build Desktop app (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runs_on: ubuntu-24.04
+          - platform: windows-x64
+            runs_on: windows-2025
+          - platform: macos-x64
+            runs_on: macos-15-intel
+          - platform: macos-arm64
+            runs_on: macos-15
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle files
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-desktop-${{ matrix.platform }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: |
+            gradle-desktop-${{ matrix.platform }}-
+
+      - name: Run shared and Desktop tests
+        run: ./gradlew :shared:allTests :desktopApp:test
+        working-directory: client/android-app
+
+      - name: Build and probe packaged application
+        run: ./gradlew :desktopApp:desktopNativeSmoke :desktopApp:packagedNativeProbe :desktopApp:packageDistributionForCurrentOS
+        working-directory: client/android-app
+
+      - name: Inspect Linux distribution
+        if: runner.os == 'Linux'
+        run: .github/scripts/verify-desktop-package.sh ${{ matrix.platform }}
+
+      - name: Inspect macOS distribution
+        if: runner.os == 'macOS'
+        run: .github/scripts/verify-desktop-package.sh ${{ matrix.platform }}
+
+      - name: Inspect Windows distribution
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/verify-desktop-package.ps1
+
+      - name: Upload unsigned Desktop distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpxy-desktop-${{ matrix.platform }}-unsigned
+          if-no-files-found: error
+          path: |
+            client/android-app/desktopApp/build/compose/binaries/main/portable/*.tar.gz
+            client/android-app/desktopApp/build/compose/binaries/main/msi/*.msi
+            client/android-app/desktopApp/build/compose/binaries/main/dmg/*.dmg
 
   build_executables:
     name: Build executables
@@ -120,9 +196,11 @@ jobs:
         if: matrix.target.build_with_cross == true
         run: cross build --release --target ${{ matrix.target.rust }}
 
-      - name: Install NDK
+      - name: Install pinned Android native tooling
         if: matrix.target.build_with_ndk == true
-        run: cargo binstall cargo-ndk
+        run: |
+          cargo binstall cargo-ndk --version 4.1.2 --locked
+          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -169,7 +247,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Upload Release Assets

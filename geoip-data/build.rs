@@ -1,58 +1,28 @@
-use cpxy_ng::geoip::{GeoIPv4Entry, serialize_entries};
-use geoip_v2ray::proto::GeoIp;
-use ipnet::Ipv4Net;
-use prost::Message;
-use reqwest::blocking::get;
-use std::fs::File;
-use std::io::Read;
-use std::net::Ipv4Addr;
-use std::path::Path;
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
+
+const SOURCE_PATH: &str = "data/cn-geoip.dat";
+const EXPECTED_SHA256: &str = "76997024829ff7b43948f781c69fd8aa90f4ba1e3d3e3f6b84363fb68a6c8ed1";
 
 fn main() {
-    let output_file = Path::new(std::env::var("OUT_DIR").unwrap().as_str()).join("geoip.dat");
-    if output_file.exists() {
-        return;
-    }
+    let manifest_dir = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo must provide CARGO_MANIFEST_DIR"),
+    );
+    let source = manifest_dir.join(SOURCE_PATH);
+    println!("cargo:rerun-if-changed={}", source.display());
 
-    let mut resp = get("https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/geoip.dat")
-        .expect("Could not get response");
+    let bytes = std::fs::read(&source)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", source.display()));
+    let actual_sha256 = format!("{:x}", Sha256::digest(&bytes));
+    assert_eq!(
+        actual_sha256,
+        EXPECTED_SHA256,
+        "{} does not match the reviewed GeoIP input; follow SOURCE.md when updating it",
+        source.display(),
+    );
 
-    let mut buf = Default::default();
-    resp.read_to_end(&mut buf).expect("To read all files");
-
-    let list = geoip_v2ray::proto::GeoIpList::decode(buf.as_slice()).expect("To deserialize data");
-    let entries: Vec<_> = list
-        .entry
-        .into_iter()
-        .filter(|i| {
-            i.country_code.eq_ignore_ascii_case("china")
-                || i.country_code.eq_ignore_ascii_case("cn")
-        })
-        .flat_map(|GeoIp { cidr, .. }| {
-            let country_code = *b"CN";
-
-            cidr.into_iter()
-                .filter_map(|cidr| {
-                    if cidr.ip.len() == 4 {
-                        Some((
-                            Ipv4Addr::from([cidr.ip[0], cidr.ip[1], cidr.ip[2], cidr.ip[3]]),
-                            cidr.prefix,
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .map(move |(addr, prefix)| {
-                    let net = Ipv4Net::new(addr, prefix as u8).unwrap();
-                    GeoIPv4Entry::new(addr, net.broadcast(), country_code)
-                })
-        })
-        .collect();
-
-    let mut file = File::options()
-        .create(true)
-        .write(true)
-        .open(output_file)
-        .expect("Could not create GeoIP archive");
-    serialize_entries(&mut file, entries).expect("Could not serialize GeoIP archive");
+    let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo must provide OUT_DIR"))
+        .join("geoip.dat");
+    std::fs::write(&output, bytes)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }
