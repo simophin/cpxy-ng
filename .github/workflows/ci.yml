@@ -56,7 +56,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install pinned Android NDK
-        run: "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
+        run: >
+          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "ndk;28.2.13676358"
 
       - name: Build APK and Gradle-owned Rust libraries
         run: ./gradlew :androidApp:assembleRelease
