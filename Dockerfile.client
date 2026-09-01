@@ -2,6 +2,7 @@ FROM docker.io/clux/muslrust
 
 WORKDIR /usr/src/app
 COPY . .
+RUN rustup target add "$CARGO_BUILD_TARGET"
 RUN cargo build --release --bin client_cn
 RUN mv target/*/release/client_cn client_cn
 
