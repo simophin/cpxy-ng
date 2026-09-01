@@ -147,7 +147,7 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_path_to_error",
- "sha1",
+ "sha1 0.10.7",
  "sync_wrapper",
  "tokio",
  "tokio-tungstenite",
@@ -396,7 +396,7 @@ dependencies = [
  "pin-project-lite",
  "rand",
  "rkyv",
- "sha1",
+ "sha1 0.11.0",
  "sha2 0.11.0",
  "tokio",
  "tokio-rustls",
@@ -1752,6 +1752,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2125,7 +2136,7 @@ dependencies = [
  "httparse",
  "log",
  "rand",
- "sha1",
+ "sha1 0.10.7",
  "thiserror",
  "utf-8",
 ]
@@ -2142,7 +2153,7 @@ dependencies = [
  "httparse",
  "log",
  "rand",
- "sha1",
+ "sha1 0.10.7",
  "thiserror",
 ]
 
