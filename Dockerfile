@@ -7,8 +7,8 @@ ARG TARGETARCH
 WORKDIR /usr/src/app
 COPY . .
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/app/target \
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
+    --mount=type=cache,id=server-target-${TARGETARCH},target=/usr/src/app/target \
     case "$TARGETARCH" in \
         amd64) rust_target=x86_64-unknown-linux-musl ;; \
         arm64) rust_target=aarch64-unknown-linux-musl ;; \
