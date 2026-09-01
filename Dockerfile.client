@@ -1,13 +1,26 @@
-FROM docker.io/clux/muslrust
+# syntax=docker/dockerfile:1
 
+# Run Cargo and rustc on the BuildKit host instead of emulating the target CPU.
+FROM --platform=$BUILDPLATFORM ghcr.io/rust-cross/cargo-zigbuild:0.23.3 AS builder
+
+ARG TARGETARCH
 WORKDIR /usr/src/app
 COPY . .
-RUN rustup target add "$CARGO_BUILD_TARGET"
-RUN cargo build --release --bin client_cn
-RUN mv target/*/release/client_cn client_cn
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/app/target \
+    case "$TARGETARCH" in \
+        amd64) rust_target=x86_64-unknown-linux-musl ;; \
+        arm64) rust_target=aarch64-unknown-linux-musl ;; \
+        *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    rustup target add "$rust_target" && \
+    cargo zigbuild --release --locked --target "$rust_target" --bin client_cn && \
+    mkdir -p /out && \
+    cp "target/$rust_target/release/client_cn" /out/client_cn
 
 FROM scratch
-COPY --from=0 /usr/src/app/client_cn /client_cn
+COPY --from=builder /out/client_cn /client_cn
 
 ENV HTTP_PROXY_LISTEN 0.0.0.0:8080
 ENV SOCKS5_PROXY_LISTEN 0.0.0.0:1080
