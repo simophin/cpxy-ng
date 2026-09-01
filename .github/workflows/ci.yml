@@ -168,18 +168,6 @@ jobs:
             runs_on: macos-latest
           - rust: aarch64-apple-darwin
             runs_on: macos-latest
-          - rust: aarch64-linux-android
-            runs_on: ubuntu-latest
-            build_with_ndk: true
-          - rust: armv7-linux-androideabi
-            runs_on: ubuntu-latest
-            build_with_ndk: true
-          - rust: x86_64-linux-android
-            runs_on: ubuntu-latest
-            build_with_ndk: true
-          - rust: i686-linux-android
-            runs_on: ubuntu-latest
-            build_with_ndk: true
     runs-on: ${{ matrix.target.runs_on }}
     steps:
       - uses: actions/checkout@v5
@@ -198,20 +186,8 @@ jobs:
         if: matrix.target.build_with_cross == true
         run: cross build --release --target ${{ matrix.target.rust }}
 
-      - name: Install pinned Android native tooling
-        if: matrix.target.build_with_ndk == true
-        run: |
-          cargo binstall cargo-ndk --version 4.1.2 --locked
-          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build with NDK
-        if: matrix.target.build_with_ndk == true
-        run: cargo ndk -t ${{ matrix.target.rust }} build --release
-
       - name: Build
-        if: matrix.target.build_with_cross != true && matrix.target.build_with_ndk != true
+        if: matrix.target.build_with_cross != true
         run: cargo build --release --target ${{ matrix.target.rust }}
 
       - name: Rename files
