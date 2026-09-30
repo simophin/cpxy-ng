@@ -132,7 +132,7 @@ Most ordinary HTTPS applications retain the hostname for SNI and certificate ver
 
 ### SQLite contract
 
-Use SQLite as the durable ownership registry, with an in-memory lookup cache. A DNS cache and an address-ownership registry have different lifetimes.
+Use SQLite through **SQLx's async SQLite support with Tokio** as the durable ownership registry, with an in-memory lookup cache. A DNS cache and an address-ownership registry have different lifetimes.
 
 Suggested schema (integer addresses use consistent unsigned IPv4 values stored in SQLite INTEGER):
 
@@ -151,7 +151,21 @@ CREATE TABLE fake_ip_mapping (
 );
 ```
 
-Store schema version, pool CIDR, allocator position, and dataset/config diagnostics in metadata. Do not store credentials in this database. Use transactions and database uniqueness constraints to make concurrent first queries allocate one stable mapping. Run blocking SQLite operations outside Tokio worker threads, preferably through a bounded database worker.
+Store pool CIDR, allocator position, and dataset/config diagnostics in metadata. SQLx's migration history is the source of truth for schema versions; do not maintain a second schema-version counter in application metadata. Do not store credentials in this database. Use async SQLx transactions and database uniqueness constraints to make concurrent first queries allocate one stable mapping.
+
+Use a shared `SqlitePool` with a small, explicitly bounded connection count (initially one), bounded acquisition/busy timeouts, and parameterized queries. SQLx manages SQLite's blocking work internally; application database calls should use its async API rather than a separate hand-written synchronous database worker. Configure `SqliteConnectOptions` explicitly: foreign keys enabled, WAL journal mode, and FULL synchronous durability for allocations. Verify those settings on the target filesystem, bound/checkpoint WAL growth, and close the pool gracefully. Enable database creation only during explicit first initialization; ordinary startup must not recreate a missing established database. Select and pin a SQLx release compatible with the workspace toolchain and OpenWrt target, enabling only the needed SQLite, Tokio runtime, migration and macro features.
+
+### Schema migrations
+
+- Commit ordered, versioned SQL migrations under `router/migrations/`, beginning with `0001_initial.sql` for the schema above and its constraints/indexes. Every later schema change is a new migration; never edit, reorder or remove a migration that has shipped. Keep SQL files using LF line endings for stable checksums.
+- Embed the migrations in the binary with `sqlx::migrate!("./migrations")` and run the migrator asynchronously against the pool. Add `router/build.rs` with `cargo:rerun-if-changed=migrations` so adding a migration rebuilds the embedded set. Production routers need neither the SQLx CLI nor a separate migrations directory.
+- Run and validate migrations during startup, before serving DNS/SOCKS5 requests or reporting readiness. Keep forwarding protection active throughout. Only one service instance may own and migrate the database; acquire an instance lock before opening it for migration. Use SQLx migration transactions for the supported SQLite DDL and do not opt out of transactions in the prototype.
+- Treat migration errors, checksum mismatches, dirty/incomplete history, and a database containing versions newer than the binary knows as startup failures. Do not ignore missing migrations, reset migration history, auto-downgrade, or delete/recreate the database. Report the failing version without exposing mapping contents.
+- Upgrades must preserve every fake-IP-to-hostname association and allocator state. Before migrating an existing installation, create a consistent backup using SQLite's backup facility or a quiesced, checkpointed database; copying only the main file while WAL writes are active is insufficient. Define restoration as an explicit operator action with the service stopped.
+- A runtime DNS-mode switch does not run migrations or rebuild tables. Package upgrades restart through the same migration entry point; rerunning with an up-to-date schema is a no-op. Prefer forward migrations; document binary downgrade compatibility rather than automatically applying destructive down migrations.
+- Keep database schema tests independent of a live development database. Runtime parameterized SQLx queries are sufficient; if compile-time query macros are used, commit and check the required offline metadata so clean/cross builds do not depend on a developer's database.
+
+### Allocation and persistence rules
 
 - Suggested pool: `198.18.0.0/15`, configurable; it is special benchmarking space, not public address space. Verify no overlap with LAN/WAN/VPN routes or the TUN interface's own address subnet. Do not use the tun2socks example's interface address if it conflicts with this allocation pool.
 - Allocate monotonically and **do not reassign an address to another hostname in the prototype**, even after DNS TTL expiration. Endpoint caches can outlive TTLs, and reassigning an address could connect a device to the wrong hostname.
@@ -292,7 +306,7 @@ Initial defaults to tune on hardware:
 
 1. **Policy and fixtures.** Add the router crate, pure classifiers and DNS decision types. Record current v1 wire fixtures before refactoring. Build fake local/remote resolvers with controlled delays and deterministic answers.
 2. **Remote Resolve.** Add explicit version dispatch, capabilities, resolver handler and bounded result framing. Prove old client/new server compatibility and clear old-server rejection. Reuse transport helpers without changing legacy wire semantics.
-3. **DNS modes and storage.** Implement UDP/TCP DNS handling, whole-answer policy, both strategies, coalescing/cache limits and SQLite mapping allocation. Confirm durable-before-answer behavior.
+3. **DNS modes and storage.** Implement UDP/TCP DNS handling, whole-answer policy, both strategies, coalescing/cache limits and async SQLx mapping allocation. Add embedded versioned schema migrations, startup validation and consistent upgrade backups. Confirm durable-before-answer behavior.
 4. **TCP integration.** Add router-specific outbound selection and actual SOCKS5 error replies. Test fake hostname forwarding, exact-IP forwarding and direct TCP. Drain completed tasks in listener supervision; the current `JoinSet` must not grow forever without reaping finished connections.
 5. **Live control.** Implement atomic configuration generations, persistent mode changes, status and mapping inspection. Test old fake/real cached destinations across switches.
 6. **Linux integration.** Run a protected client namespace, router namespace, controlled local resolver, tun2socks and remote cpxy server. Verify routing and packet captures without requiring a physical router.
@@ -313,6 +327,9 @@ Initial defaults to tune on hardware:
 
 ### Mapping and runtime control
 
+- Initialize a fresh on-disk database using the embedded SQLx migrations; rerunning startup is a no-op. Verify tables, indexes, constraints and migration history.
+- Upgrade fixtures from every supported prior schema with existing mappings; verify exact address/hostname associations and allocator state survive. Test migration rollback on failure, interruption/restart, checksum mismatch, newer-schema rejection, instance-lock contention, and backup restoration with WAL enabled.
+- Verify async SQLx pool exhaustion/busy timeouts fail within bounds without blocking unrelated DNS tasks. Confirm database creation is restricted to initialization and a mode switch never changes migration history.
 - Parallel allocations of case variants yield one canonical hostname mapping; different original qnames sharing a CNAME may have distinct stable mappings.
 - Allocation transaction failure emits no fake answer; restart preserves previously answered mappings. Missing/corrupt established DB fails safely.
 - TTL expiry does not permit reassignment; pool exhaustion does not corrupt old entries. Unknown fake IP fails without an outbound connect.
@@ -347,3 +364,5 @@ These references support platform/DNS constraints; the two policies and suggeste
 - [RFC 5452](https://www.rfc-editor.org/rfc/rfc5452.html): DNS response-matching and forgery-resistance requirements; these do not authenticate an untrusted on-path resolver.
 - [RFC 2308](https://www.rfc-editor.org/info/rfc2308/) and [RFC 9520](https://www.rfc-editor.org/info/rfc9520/): negative answers and resolution-failure caching.
 - [RFC 9460](https://www.rfc-editor.org/rfc/rfc9460.html): HTTPS/SVCB records can contain address hints that require explicit policy.
+
+- [SQLx embedded migrations](https://docs.rs/sqlx/latest/sqlx/macro.migrate.html), [Migrator](https://docs.rs/sqlx/latest/sqlx/migrate/struct.Migrator.html), and [SQLite connection options](https://docs.rs/sqlx/latest/sqlx/sqlite/struct.SqliteConnectOptions.html): embedding, startup migration validation, rebuild tracking, and explicit connection settings.
