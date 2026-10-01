@@ -1,4 +1,6 @@
 pub mod counted_stream;
+#[cfg(feature = "dns-split")]
+pub mod dns_split;
 pub mod handshaker;
 pub mod http_proxy_server;
 pub mod protocol_config;

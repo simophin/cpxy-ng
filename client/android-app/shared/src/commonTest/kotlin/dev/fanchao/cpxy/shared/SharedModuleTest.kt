@@ -7,6 +7,6 @@ class SharedModuleTest {
     @Test
     fun describesInitialSharedTargets() {
         assertEquals("Cpxy", SharedModule.info.name)
-        assertEquals(setOf("Android", "Desktop"), SharedModule.info.supportedPlatforms)
+        assertEquals(setOf("Android"), SharedModule.info.supportedPlatforms)
     }
 }
