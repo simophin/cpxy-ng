@@ -184,18 +184,23 @@ jobs:
 
       - name: Build with cross
         if: matrix.target.build_with_cross == true
-        run: cross build --release --target ${{ matrix.target.rust }}
+        run:
+          cross build --release --target ${{ matrix.target.rust }} &&
+          cross build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin dns_split
 
       - name: Build
         if: matrix.target.build_with_cross != true
-        run: cargo build --release --target ${{ matrix.target.rust }}
+        run:
+          cargo build --release --target ${{ matrix.target.rust }} &&
+          cargo build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin dns_split
 
       - name: Rename files
         run:
           mkdir artifacts &&
           mv -v target/${{ matrix.target.rust }}/release/standalone${{ matrix.target.binary_ext }} artifacts/client-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
           mv -v target/${{ matrix.target.rust }}/release/client_cn${{ matrix.target.binary_ext }} artifacts/client_cn-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
-          mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/server-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
+          mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/server-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
+          mv -v target/${{ matrix.target.rust }}/release/dns_split${{ matrix.target.binary_ext }} artifacts/dns_split-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
