@@ -13,8 +13,11 @@ engine="$(command -v podman || command -v docker)"
 script='
 set -e
 mkdir -p /var/lock /tmp
-opkg update >/dev/null
-opkg install ip-full kmod-tun >/dev/null 2>&1 || true
+# Offline: mark the dependencies (ip-full, kmod-tun) as already installed
+for dep in ip-full kmod-tun; do
+	printf "Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n" "$dep" >>/usr/lib/opkg/status
+	: >"/usr/lib/opkg/info/$dep.list"
+done
 opkg install /pkg.ipk >/dev/null 2>&1
 
 uci set cpxy.main.enabled=1

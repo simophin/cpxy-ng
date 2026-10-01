@@ -16,8 +16,12 @@ set -eu
 # Compare settings, not file text: `uci commit` rewrites a file with normalised quoting and no comments
 snapshot() { for f in $(ls /etc/config); do echo "== $f"; uci export "$f"; done; ls /etc/rc.d /etc/init.d; }
 mkdir -p /var/lock /tmp
-opkg update >/dev/null
-opkg install ip-full kmod-tun >/dev/null 2>&1 || true
+# Offline: this tests what the package changes, not dependency resolution, so mark the
+# dependencies (ip-full, kmod-tun) as already installed
+for dep in ip-full kmod-tun; do
+	printf "Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n" "$dep" >>/usr/lib/opkg/status
+	: >"/usr/lib/opkg/info/$dep.list"
+done
 snapshot >/before.txt
 
 opkg install /pkg.ipk
