@@ -55,7 +55,6 @@ start_service() {
 	config_get dns_listen main dns_listen 127.0.0.1:5353
 	config_get_bool dns_cache main dns_cache 1
 
-	_require_list dns_server || return 1
 	if [ "$dns_split" = 1 ]; then
 		_require_list dns_upstream || return 1
 		_require_list dns_alternative || return 1

@@ -19,8 +19,6 @@ opkg install /pkg.ipk >/dev/null 2>&1
 
 uci set cpxy.main.enabled=1
 uci set cpxy.main.server="https://:s3cret@proxy.example:443"
-uci add_list cpxy.main.dns_server=192.0.2.10
-uci add_list cpxy.main.dns_server=192.0.2.11
 uci add_list cpxy.main.dns_upstream=192.0.2.20
 uci add_list cpxy.main.dns_upstream=tcp://192.0.2.21:53
 uci commit cpxy
@@ -49,7 +47,11 @@ uci commit cpxy
 config_load cpxy
 start_service 2>/dev/null || { echo "FAIL: dns_split=0 should not need dns_upstream/dns_alternative"; exit 1; }
 grep -qF "instance dns" "$LOG" && { echo "FAIL: dns instance started with dns_split=0"; exit 1; }
+# dns_server is optional: without it client_cn gets no --dns-server flag
+grep -qF -- "--dns-server" "$LOG" && { echo "FAIL: --dns-server passed although dns_server is unset"; exit 1; }
 : >"$LOG"
+uci add_list cpxy.main.dns_server=192.0.2.10
+uci add_list cpxy.main.dns_server=192.0.2.11
 uci set cpxy.main.dns_split=1
 uci add_list cpxy.main.dns_alternative=https://192.0.2.30/dns-query
 uci commit cpxy

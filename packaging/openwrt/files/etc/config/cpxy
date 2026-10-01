@@ -9,8 +9,10 @@ config cpxy 'main'
 	# UCI network interfaces whose devices are proxied (more than one allowed)
 	list lan_interface 'lan'
 
-	# REQUIRED. DNS servers client_cn uses to look up domain names for its CN/non-CN decisions.
-	# Each is an IP address. Add with: uci add_list cpxy.main.dns_server='<ip>'
+	# Optional. DNS servers (IP addresses) client_cn uses to look up a destination given as a domain
+	# name, to decide direct or proxy. LAN traffic arrives as IP addresses, so this is rarely used.
+	# When none is set client_cn uses its own built-in default.
+	# Add with: uci add_list cpxy.main.dns_server='<ip>'
 
 	# LAN DNS: dnsmasq forwards public queries to dns_split. Set dns_split to 0 to leave dnsmasq alone.
 	option dns_split '1'
