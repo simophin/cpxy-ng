@@ -19,8 +19,10 @@ opkg install /pkg.ipk >/dev/null 2>&1
 
 uci set cpxy.main.enabled=1
 uci set cpxy.main.server="https://:s3cret@proxy.example:443"
-uci add_list cpxy.main.dns_server=1.1.1.1
-uci add_list cpxy.main.dns_upstream=9.9.9.9
+uci add_list cpxy.main.dns_server=192.0.2.10
+uci add_list cpxy.main.dns_server=192.0.2.11
+uci add_list cpxy.main.dns_upstream=192.0.2.20
+uci add_list cpxy.main.dns_upstream=tcp://192.0.2.21:53
 uci commit cpxy
 
 LOG=/tmp/calls.txt; : >"$LOG"
@@ -37,23 +39,38 @@ network_get_device() { eval "$1=br-lan"; }
 logger() { :; }
 cpxy_net_up() { echo "net_up $*" >>"$LOG"; }
 cpxy_dnsmasq_up() { echo "dnsmasq_up $*" >>"$LOG"; }
+
+# Nothing is guessed: a missing required option stops the service before anything is set up
+if start_service 2>/tmp/err; then echo "FAIL: started without dns_alternative"; exit 1; fi
+grep -q "dns_alternative. is required" /tmp/err || { echo "FAIL: no clear message:"; cat /tmp/err; exit 1; }
+[ ! -s "$LOG" ] || { echo "FAIL: set things up before validating:"; cat "$LOG"; exit 1; }
+uci set cpxy.main.dns_split=0
+uci commit cpxy
+config_load cpxy
+start_service 2>/dev/null || { echo "FAIL: dns_split=0 should not need dns_upstream/dns_alternative"; exit 1; }
+grep -qF "instance dns" "$LOG" && { echo "FAIL: dns instance started with dns_split=0"; exit 1; }
+: >"$LOG"
+uci set cpxy.main.dns_split=1
+uci add_list cpxy.main.dns_alternative=https://192.0.2.30/dns-query
+uci commit cpxy
+config_load cpxy
 start_service
 
 cat "$LOG"
 want() { grep -qF -- "$1" "$LOG" || { echo "FAIL: expected: $1"; exit 1; }; }
 want "instance proxy"
 want "set command /usr/bin/cpxy-client --socks5-proxy-listen 127.0.0.1:1080 --api-listen 127.0.0.1:3010"
-want "append command --dns-server 223.5.5.5"
-want "append command --dns-server 1.1.1.1"
+want "append command --dns-server 192.0.2.10"
+want "append command --dns-server 192.0.2.11"
 want "set env SERVER=https://:s3cret@proxy.example:443 NO_COLOR=1"
 want "instance tun"
 want "set command /usr/bin/cpxy-tun2proxy --proxy socks5://127.0.0.1:1080 --tun cpxy0 --dns direct --exit-on-fatal-error"
 want "net_up br-lan"
 want "instance dns"
 want "set command /usr/bin/cpxy-dns-split --listen 127.0.0.1:5353"
-want "append command --upstream 223.5.5.5"
-want "append command --upstream 9.9.9.9"
-want "append command --alternative https://1.1.1.1/dns-query"
+want "append command --upstream 192.0.2.20"
+want "append command --upstream tcp://192.0.2.21:53"
+want "append command --alternative https://192.0.2.30/dns-query"
 want "append command --cache-db /tmp/cpxy/dns-cache.sqlite"
 want "dnsmasq_up 127.0.0.1:5353"
 # The key must only travel by environment

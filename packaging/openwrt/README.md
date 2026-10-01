@@ -26,10 +26,18 @@ scp cpxy-router_*.ipk root@192.168.8.1:/tmp/
 ssh root@192.168.8.1
 opkg update && opkg install /tmp/cpxy-router_*.ipk      # also pulls in ip-full and kmod-tun
 uci set cpxy.main.server='https://:<key>@<host>:<port>'
+uci add_list cpxy.main.dns_server='<ip>'            # client_cn's resolver
+uci add_list cpxy.main.dns_upstream='<server>'      # dns_split: preferred when its answer is all CN
+uci add_list cpxy.main.dns_alternative='<server>'   # dns_split: used otherwise
 uci set cpxy.main.enabled='1'
 uci commit cpxy
 /etc/init.d/cpxy restart
 ```
+
+`server`, `dns_server`, `dns_upstream` and `dns_alternative` have no defaults and are all required
+(the last two only while `dns_split` is `1`): the service logs which one is missing and does not
+start. A DNS server is an IP, or a `udp://`, `tcp://`, `tls://` or `https://` URL (`tls://` and
+`https://` accept `?ip=<addr>` to skip the startup hostname lookup).
 
 Check it: `logread -e cpxy`, `ip rule show`, `ip link show cpxy0`.
 Change settings with `uci` (see `/etc/config/cpxy`), then `/etc/init.d/cpxy restart`.

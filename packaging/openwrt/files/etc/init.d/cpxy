@@ -27,6 +27,15 @@ _add_lan_interface() {
 	fi
 }
 
+_count_entry() { _entries=$((_entries + 1)); }
+
+# Fail with a clear message when a required list option in the main section is empty
+_require_list() {
+	_entries=0
+	config_list_foreach main "$1" _count_entry
+	[ "$_entries" -gt 0 ] || { _log "option '$1' is required: uci add_list cpxy.main.$1='<value>'"; return 1; }
+}
+
 _add_arg_list() {
 	# _add_arg_list <flag> <value>: appends "--flag value" to the instance command
 	procd_append_param command "$1" "$2"
@@ -45,6 +54,12 @@ start_service() {
 	config_get_bool dns_split main dns_split 1
 	config_get dns_listen main dns_listen 127.0.0.1:5353
 	config_get_bool dns_cache main dns_cache 1
+
+	_require_list dns_server || return 1
+	if [ "$dns_split" = 1 ]; then
+		_require_list dns_upstream || return 1
+		_require_list dns_alternative || return 1
+	fi
 
 	LAN_DEVS=""
 	config_list_foreach main lan_interface _add_lan_interface
