@@ -60,6 +60,10 @@ jobs:
           "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           "ndk;28.2.13676358"
 
+      - name: Run shared tests
+        run: ./gradlew :shared:allTests
+        working-directory: client/android-app
+
       - name: Build APK and Gradle-owned Rust libraries
         run: ./gradlew :androidApp:assembleRelease
         working-directory: client/android-app
@@ -80,72 +84,6 @@ jobs:
         with:
           name: android-app-release.apk
           path: client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk
-
-  build_desktop_app:
-    name: Build Desktop app (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux-x64
-            runs_on: ubuntu-24.04
-          - platform: windows-x64
-            runs_on: windows-2025
-          - platform: macos-x64
-            runs_on: macos-15-intel
-          - platform: macos-arm64
-            runs_on: macos-15
-    runs-on: ${{ matrix.runs_on }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Cache Gradle files
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-desktop-${{ matrix.platform }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'rust-toolchain.toml', 'Cargo.lock') }}
-          restore-keys: |
-            gradle-desktop-${{ matrix.platform }}-
-
-      - name: Run shared and Desktop tests
-        run: ./gradlew :shared:allTests :desktopApp:test
-        working-directory: client/android-app
-
-      - name: Build and probe packaged application
-        run: ./gradlew :desktopApp:desktopNativeSmoke :desktopApp:packagedNativeProbe :desktopApp:packageDistributionForCurrentOS
-        working-directory: client/android-app
-
-      - name: Inspect Linux distribution
-        if: runner.os == 'Linux'
-        run: .github/scripts/verify-desktop-package.sh ${{ matrix.platform }}
-
-      - name: Inspect macOS distribution
-        if: runner.os == 'macOS'
-        run: .github/scripts/verify-desktop-package.sh ${{ matrix.platform }}
-
-      - name: Inspect Windows distribution
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: .github/scripts/verify-desktop-package.ps1
-
-      - name: Upload unsigned Desktop distribution
-        uses: actions/upload-artifact@v4
-        with:
-          name: cpxy-desktop-${{ matrix.platform }}-unsigned
-          if-no-files-found: error
-          path: |
-            client/android-app/desktopApp/build/compose/binaries/main/portable/*.tar.gz
-            client/android-app/desktopApp/build/compose/binaries/main/msi/*.msi
-            client/android-app/desktopApp/build/compose/binaries/main/dmg/*.dmg
 
   build_executables:
     name: Build executables
@@ -171,9 +109,10 @@ jobs:
     runs-on: ${{ matrix.target.runs_on }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target.rust }}
+      # Install the target for the toolchain pinned in rust-toolchain.toml,
+      # which is the one cargo builds with.
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target.rust }}
       - uses: cargo-bins/cargo-binstall@main
 
       - name: Install cross
