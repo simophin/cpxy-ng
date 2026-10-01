@@ -23,3 +23,17 @@ serde_json = "1.0.145"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 hickory-resolver = "0.25.2"
+hickory-proto = { version = "0.25.2", optional = true, default-features = false, features = ["std", "tokio", "https-ring"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = { version = "1", optional = true }
+sqlx = { version = "0.8", optional = true, default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+
+[features]
+dns-split = ["dep:hickory-proto", "dep:rustls", "dep:webpki-roots", "dep:sqlx"]
+
+[[bin]]
+name = "dns_split"
+required-features = ["dns-split"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }

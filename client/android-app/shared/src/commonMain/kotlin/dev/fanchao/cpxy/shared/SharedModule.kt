@@ -9,6 +9,6 @@ data class SharedModuleInfo(
 object SharedModule {
     val info = SharedModuleInfo(
         name = "Cpxy",
-        supportedPlatforms = setOf("Android", "Desktop"),
+        supportedPlatforms = setOf("Android"),
     )
 }
