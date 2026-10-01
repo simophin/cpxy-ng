@@ -135,8 +135,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for CipherStream<S> {
         };
 
         let enc_len = enc_len.min(enc_buf.len());
-        cipher.apply_keystream_b2b(&buf[..enc_len], &mut enc_buf[..enc_len])
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        cipher.apply_keystream_b2b(&buf[..enc_len], &mut enc_buf[..enc_len]);
 
         let ret = Pin::new(&mut self.stream).poll_write(cx, &enc_buf[..enc_len]);
 
