@@ -80,7 +80,7 @@ jobs:
                 lib/x86_64/libclient.so)
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-app-release.apk
           path: client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk
@@ -142,7 +142,7 @@ jobs:
           mv -v target/${{ matrix.target.rust }}/release/dns_split${{ matrix.target.binary_ext }} artifacts/dns_split-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: executables-${{ matrix.target.rust }}
           path: artifacts
