@@ -109,9 +109,10 @@ jobs:
     runs-on: ${{ matrix.target.runs_on }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target.rust }}
+      # Install the target for the toolchain pinned in rust-toolchain.toml,
+      # which is the one cargo builds with.
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target.rust }}
       - uses: cargo-bins/cargo-binstall@main
 
       - name: Install cross
