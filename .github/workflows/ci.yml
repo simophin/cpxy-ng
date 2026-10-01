@@ -9,10 +9,13 @@ on:
   release:
     types: [published]
 
-# Limit concurrency to one per branch
+# PRs only run unit tests; the per-platform builds run on main and releases.
+# PR runs are cancelled when superseded. Everything else shares a single
+# group so only one build runs at a time (a newer pending run replaces an
+# older pending one, but a running build is never cancelled).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.ref) || format('{0}-build', github.workflow) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
@@ -20,6 +23,7 @@ permissions:
 jobs:
   build_android_app:
     name: Build Android app
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -87,6 +91,7 @@ jobs:
 
   build_executables:
     name: Build executables
+    if: github.event_name != 'pull_request'
     strategy:
       matrix:
         target:
