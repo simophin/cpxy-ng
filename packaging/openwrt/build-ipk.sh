@@ -14,6 +14,9 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 mkdir -p "$work/data/usr/bin" "$work/control" "$outdir"
+# The archives are written from inside other directories, so use absolute paths
+bindir="$(cd "$bindir" && pwd)"
+outdir="$(cd "$outdir" && pwd)"
 cp -R "$here/files/." "$work/data/"
 for bin in cpxy-client cpxy-dns-split cpxy-tun2proxy; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
