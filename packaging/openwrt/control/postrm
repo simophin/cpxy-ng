@@ -1,0 +1,8 @@
+#!/bin/sh
+# opkg leaves empty directories behind
+rmdir "${IPKG_INSTROOT}/usr/libexec/cpxy" 2>/dev/null
+# The package's nftables snippet is gone now; make fw4 forget it
+if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
+	/etc/init.d/firewall reload >/dev/null 2>&1
+fi
+exit 0

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Run once by the package's postinst. Adds the firewall zone for the cpxy TUN device and lets
+# the LAN forward into it. Removed again by the package's prerm. Idempotent.
+uci -q batch <<UCI
+delete firewall.cpxy_zone
+set firewall.cpxy_zone=zone
+set firewall.cpxy_zone.name='cpxy'
+add_list firewall.cpxy_zone.device='cpxy0'
+set firewall.cpxy_zone.input='REJECT'
+set firewall.cpxy_zone.output='ACCEPT'
+set firewall.cpxy_zone.forward='REJECT'
+delete firewall.cpxy_fwd
+set firewall.cpxy_fwd=forwarding
+set firewall.cpxy_fwd.src='lan'
+set firewall.cpxy_fwd.dest='cpxy'
+commit firewall
+UCI
+/etc/init.d/firewall reload >/dev/null 2>&1
+exit 0

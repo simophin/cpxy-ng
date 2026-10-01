@@ -1,0 +1,25 @@
+config cpxy 'main'
+	# Set to 1 once `server` is filled in, then run: /etc/init.d/cpxy enable; /etc/init.d/cpxy start
+	option enabled '0'
+
+	# The cpxy server, as https://:<key>@<host>:<port> (or http://). Contains the secret key.
+	option server ''
+
+	# UCI network interfaces whose devices are proxied (more than one allowed)
+	list lan_interface 'lan'
+
+	# Resolvers client_cn uses to look up domain names for its CN/non-CN decisions
+	list dns_server '223.5.5.5'
+
+	# DNS for LAN clients: dnsmasq forwards to dns_split. An answer from the upstream servers
+	# wins when all its addresses are in the CN region; otherwise the alternative servers' answer is used.
+	option dns_split '1'
+	option dns_listen '127.0.0.1:5353'
+	list dns_upstream '223.5.5.5'
+	list dns_alternative 'https://1.1.1.1/dns-query'
+	# 1 keeps dns_split's SQLite answer cache in /tmp (RAM), 0 disables it
+	option dns_cache '1'
+
+	# Local-only listeners, bound to loopback
+	option socks5_listen '127.0.0.1:1080'
+	option api_listen '127.0.0.1:3010'

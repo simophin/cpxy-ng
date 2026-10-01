@@ -161,6 +161,111 @@ jobs:
           name: executables-${{ matrix.target.rust }}
           path: artifacts
 
+  # tun2proxy has no musl build for aarch64, and OpenWrt wants a static binary, so build it here.
+  build_openwrt_package:
+    name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
+    if: github.event_name != 'pull_request'
+    needs: build_executables
+    strategy:
+      matrix:
+        target:
+          # GL-MT3000 (mediatek/filogic); confirm with `opkg print-architecture` on the router
+          - rust: aarch64-unknown-linux-musl
+            opkg_arch: aarch64_cortex-a53
+          # OpenWrt x86 images, for testing in a VM
+          - rust: x86_64-unknown-linux-musl
+            opkg_arch: x86_64
+    runs-on: ubuntu-latest
+    env:
+      TUN2PROXY_VERSION: 0.8.4
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: openwrt-${{ matrix.target.rust }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cross
+        run: cargo binstall cross
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download cpxy executables
+        uses: actions/download-artifact@v8
+        with:
+          name: executables-${{ matrix.target.rust }}
+          path: executables
+
+      # Pinned by version and built from the crate's own Cargo.lock
+      - name: Build tun2proxy ${{ env.TUN2PROXY_VERSION }}
+        run: |
+          mkdir tun2proxy
+          curl -fsSL "https://crates.io/api/v1/crates/tun2proxy/${TUN2PROXY_VERSION}/download" \
+            | tar -xz -C tun2proxy --strip-components=1
+          cd tun2proxy
+          cross build --release --locked --target ${{ matrix.target.rust }} \
+            --no-default-features --bin tun2proxy-bin \
+            --config profile.release.strip=true --config profile.release.lto=true \
+            --config profile.release.opt-level='"s"'
+
+      - name: Build package
+        run: |
+          if [ "${{ github.event_name }}" = release ]; then
+            version="${{ github.event.release.tag_name }}"; version="${version#v}"
+          else
+            version="0.0.0-git.$(git rev-parse --short HEAD)"
+          fi
+          mkdir -p bins
+          cp executables/client_cn-${{ matrix.target.rust }} bins/cpxy-client
+          cp executables/dns_split-${{ matrix.target.rust }} bins/cpxy-dns-split
+          cp tun2proxy/target/${{ matrix.target.rust }}/release/tun2proxy-bin bins/cpxy-tun2proxy
+          packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "$version" bins openwrt-package
+          ls -l openwrt-package bins
+
+      - name: Test install and removal on OpenWrt 24.10
+        if: matrix.target.opkg_arch == 'x86_64'
+        run: packaging/openwrt/test/opkg-roundtrip.sh openwrt-package/*.ipk
+
+      # Routing and fail-closed behaviour with the real binaries, in network namespaces
+      - name: Test routing
+        if: matrix.target.opkg_arch == 'x86_64'
+        run: |
+          sudo apt-get install -y --no-install-recommends nftables
+          # Ubuntu runners restrict unprivileged user namespaces by default
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          cp executables/server-${{ matrix.target.rust }} bins/cpxy-server
+          packaging/openwrt/test/lab.sh bins
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: openwrt-package-${{ matrix.target.opkg_arch }}
+          path: openwrt-package
+
+  test_openwrt_packaging:
+    name: Test OpenWrt packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint scripts
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck
+          # OpenWrt's ash has `local`
+          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/test/*.sh \
+            packaging/openwrt/files/usr/libexec/cpxy/net.sh packaging/openwrt/control/postinst \
+            packaging/openwrt/control/prerm packaging/openwrt/control/postrm \
+            packaging/openwrt/files/etc/uci-defaults/90-cpxy
+      - name: Build package from stand-in binaries and test install and removal
+        run: |
+          mkdir bins
+          for b in cpxy-client cpxy-dns-split cpxy-tun2proxy; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
+          chmod +x bins/*
+          packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
+          packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
+          packaging/openwrt/test/init-dryrun.sh out/*.ipk
+
   test:
     name: Run tests on main platform
     runs-on: ubuntu-latest
@@ -183,7 +288,9 @@ jobs:
     needs:
       - build_android_app
       - build_executables
+      - build_openwrt_package
       - test
+      - test_openwrt_packaging
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
