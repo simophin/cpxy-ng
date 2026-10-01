@@ -212,6 +212,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test
         run: cargo test
+      - name: Test DNS split
+        run: cargo test -p client --features dns-split dns_split
 
   release-upload:
     name: Upload to Release
