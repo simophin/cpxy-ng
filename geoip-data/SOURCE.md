@@ -18,4 +18,4 @@ The upstream `release` URL is mutable. The checked-in derivative and checksum ar
 2. Decode its V2Ray `GeoIpList`, select the `CN`/`CHINA` IPv4 CIDRs, and serialize them with `cpxy_ng::geoip::serialize_entries` using the transformation above.
 3. Review the source provenance and applicable upstream licensing before redistribution.
 4. Replace `data/cn-geoip.dat`, update the date, provenance, size, and SHA-256 in this file, and update `EXPECTED_SHA256` in `build.rs` in the same commit.
-5. Run the locked offline native build and Desktop native smoke checks recorded in `docs/kmp-desktop-progress-handoff.md`.
+5. Run the locked offline native build (`cargo build --locked --offline`) and `cargo test --workspace`.
