@@ -107,8 +107,23 @@ dependencies = [
  "futures-util",
  "log",
  "pin-project-lite",
- "tokio",
  "tungstenite 0.26.2",
+]
+
+[[package]]
+name = "async-tungstenite"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ab5b7664abf9ccae07576888c72bc93750c7090c1ff4ffee9317cc05d11618"
+dependencies = [
+ "atomic-waker",
+ "futures-core",
+ "futures-io",
+ "futures-task",
+ "log",
+ "pin-project-lite",
+ "tokio",
+ "tungstenite 0.30.0",
 ]
 
 [[package]]
@@ -456,7 +471,7 @@ name = "cpxy-ng"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-tungstenite",
+ "async-tungstenite 0.35.0",
  "base64",
  "bytes",
  "chacha20 0.10.2",
@@ -2817,12 +2832,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4793cb5e56680ecbb1d843515b23b6de9a75eb04b66643e256a396d43be33c13"
 dependencies = [
  "bytes",
- "data-encoding",
- "http",
- "httparse",
  "log",
  "rand 0.9.5",
- "sha1 0.10.7",
  "thiserror",
  "utf-8",
 ]
@@ -2840,6 +2851,22 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "sha1 0.10.7",
+ "thiserror",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.10.3",
+ "sha1 0.11.0",
  "thiserror",
 ]
 
@@ -3243,7 +3270,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3c9c55940d22313a53398bfeb9438c5f519de475fa37ed7ff068f8c1ca8eb45"
 dependencies = [
- "async-tungstenite",
+ "async-tungstenite 0.29.1",
  "async_io_stream",
  "bitflags",
  "futures-core",
