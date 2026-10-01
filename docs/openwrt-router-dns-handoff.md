@@ -45,7 +45,7 @@ The observation that incorrect DNS answers are non-local-region addresses is a d
 | `cpxy-ng/src/geoip.rs`, `geoip-data` | Reuse embedded local-region IPv4 lookup; an address absent from this local-region-only database is not necessarily confirmed non-local-region. |
 | `geoip-data/SOURCE.md` | Data provenance/update procedure; record dataset identity in runtime status and tests. |
 
-Preferred structure: a new `router` workspace crate with binary `cpxy-router`, depending on `client`, `cpxy-ng`, and `geoip-data`. Keep DNS/policy/storage code independently testable. Existing Android, desktop, and standalone entry points retain their behavior.
+Preferred structure: a new `router` workspace crate with binary `cpxy-router`, depending on `client`, `cpxy-ng`, and `geoip-data`. Keep DNS/policy/storage code independently testable. Existing Android and standalone entry points retain their behavior.
 
 Suggested modules: `config`, `control`, `dns/{server,local,remote,policy,cache}`, `fake_ip_store`, `outbound`, `status`. Shared protocol additions belong in `cpxy-ng`; remote resolution belongs in `server`. Package/service scripts belong under `packaging/openwrt/`.
 
