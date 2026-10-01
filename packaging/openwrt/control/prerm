@@ -1,0 +1,13 @@
+#!/bin/sh
+[ -s "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
+. "${IPKG_INSTROOT}/lib/functions.sh"
+# Stops the service (and disables it unless this is an upgrade)
+default_prerm "$0" "$@"
+if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
+	uci -q batch <<UCI
+delete firewall.cpxy_fwd
+delete firewall.cpxy_zone
+commit firewall
+UCI
+fi
+exit 0

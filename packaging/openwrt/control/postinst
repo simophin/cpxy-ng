@@ -1,0 +1,16 @@
+#!/bin/sh
+[ -s "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
+. "${IPKG_INSTROOT}/lib/functions.sh"
+default_postinst "$0" "$@"
+if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
+	cat <<MSG
+cpxy-router installed. Set the required options (see /etc/config/cpxy), then start it:
+  uci set cpxy.main.server='https://:<key>@<host>:<port>'
+  uci add_list cpxy.main.dns_upstream='<server>'
+  uci add_list cpxy.main.dns_alternative='<server>'
+  uci set cpxy.main.enabled='1'
+  uci commit cpxy
+  /etc/init.d/cpxy restart
+MSG
+fi
+exit 0

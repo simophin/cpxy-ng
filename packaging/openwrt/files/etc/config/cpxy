@@ -1,0 +1,32 @@
+config cpxy 'main'
+	# The service starts only once every required option below is filled in and enabled is 1:
+	#   /etc/init.d/cpxy enable; uci set cpxy.main.enabled=1; uci commit cpxy; /etc/init.d/cpxy restart
+	option enabled '0'
+
+	# REQUIRED. The cpxy server, as https://:<key>@<host>:<port> (or http://). Contains the secret key.
+	option server ''
+
+	# UCI network interfaces whose devices are proxied (more than one allowed)
+	list lan_interface 'lan'
+
+	# Optional. DNS servers (IP addresses) client_cn uses to look up a destination given as a domain
+	# name, to decide direct or proxy. LAN traffic arrives as IP addresses, so this is rarely used.
+	# When none is set client_cn uses its own built-in default.
+	# Add with: uci add_list cpxy.main.dns_server='<ip>'
+
+	# LAN DNS: dnsmasq forwards public queries to dns_split. Set dns_split to 0 to leave dnsmasq alone.
+	option dns_split '1'
+	option dns_listen '127.0.0.1:5353'
+
+	# REQUIRED when dns_split is 1. An answer from the upstream servers wins when all its addresses
+	# are in the CN region; otherwise the alternative servers' answer is used.
+	# Each entry is an IP, or a udp://, tcp://, tls:// or https:// URL (tls:// and https:// accept ?ip=<addr>).
+	# Add with: uci add_list cpxy.main.dns_upstream='<server>'
+	#           uci add_list cpxy.main.dns_alternative='<server>'
+
+	# 1 keeps dns_split's SQLite answer cache in /tmp (RAM), 0 disables it
+	option dns_cache '1'
+
+	# Local-only listeners, bound to loopback
+	option socks5_listen '127.0.0.1:1080'
+	option api_listen '127.0.0.1:3010'

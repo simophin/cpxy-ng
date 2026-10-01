@@ -1,0 +1,4 @@
+# Included at the start of fw4's forward chain (package-owned; removed with the package).
+# cpxy has no UDP path yet. Refuse it at once so applications (QUIC in particular) fall back to TCP
+# instead of waiting for a timeout. Only traffic routed into the cpxy TUN device is affected.
+oifname "cpxy0" meta l4proto udp reject
