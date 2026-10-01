@@ -53,6 +53,11 @@ jobs:
           x86_64-linux-android
           i686-linux-android
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - uses: cargo-bins/cargo-binstall@main
       - name: Install cargo-ndk
         run: cargo binstall cargo-ndk --version 4.1.2 --locked
@@ -118,6 +123,10 @@ jobs:
       # which is the one cargo builds with.
       - name: Install Rust target
         run: rustup target add ${{ matrix.target.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target.rust }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: cargo-bins/cargo-binstall@main
 
       - name: Install cross
@@ -159,6 +168,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test
         run: cargo test
       - name: Test DNS split
