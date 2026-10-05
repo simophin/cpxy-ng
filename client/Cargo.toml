@@ -26,7 +26,7 @@ hickory-resolver = "0.25.2"
 hickory-proto = { version = "0.25.2", optional = true, default-features = false, features = ["std", "tokio", "https-ring"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = { version = "1", optional = true }
-sqlx = { version = "0.8", optional = true, default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+sqlx = { version = "0.9", optional = true, default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 
 [features]
 dns-split = ["dep:hickory-proto", "dep:rustls", "dep:webpki-roots", "dep:sqlx"]
