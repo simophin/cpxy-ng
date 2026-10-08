@@ -20,7 +20,11 @@ PKG="$(cd "$(dirname "$0")/../files" && pwd)"
 WORK="$(mktemp -d)"
 FAILED=0
 PIDS=""
-cleanup() { for p in $PIDS; do kill "$p" 2>/dev/null; done; rm -rf "$WORK"; }
+# $PIDS can be wrapper subshells, so also kill whatever still runs inside the lab's namespaces
+cleanup() {
+	for p in $PIDS $(for ns in inet router lan; do ip netns pids "$ns" 2>/dev/null; done); do kill "$p" 2>/dev/null; done
+	rm -rf "$WORK"
+}
 trap cleanup EXIT
 
 pass() { echo "ok   - $1"; }
@@ -102,7 +106,10 @@ bg in_router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-client" --socks5-p
 	--api-listen 127.0.0.1:3010 --dns-server 192.0.2.1 2>"$WORK/client.log"
 in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_up lan0r"
 check "policy routing installs" in_router ip rule show
-bg in_router "$BIN/cpxy-tun2proxy" --proxy socks5://127.0.0.1:1080 --tun cpxy0 --dns direct --exit-on-fatal-error 2>"$WORK/tun.log"
+# Not via in_router: `ip netns exec` execs, so $! is tun2proxy itself (pgrep would also match
+# processes outside the lab)
+bg ip netns exec router "$BIN/cpxy-tun2proxy" --proxy socks5://127.0.0.1:1080 --tun cpxy0 --dns direct --exit-on-fatal-error 2>"$WORK/tun.log"
+TUN_PID=$!
 sleep 2
 
 echo "--- running"
@@ -125,8 +132,7 @@ except socket.timeout: print("timeout"); sys.exit(1)
 PY' >"$WORK/out" 2>&1 && pass "UDP gets an immediate ICMP refusal" || { fail "UDP was not refused (got: $(cat "$WORK/out"))"; }
 
 # --- Fail closed: tun2proxy dies ---
-tun_pid="$(pgrep -f 'cpxy-tun2proxy' | head -1)"
-kill "$tun_pid"; sleep 1
+kill "$TUN_PID"; sleep 1
 mark; check_not "tun2proxy down: LAN traffic is refused" fetch
 expect_not_direct "tun2proxy down: nothing leaked via the WAN"
 

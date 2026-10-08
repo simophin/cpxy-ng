@@ -198,6 +198,10 @@ jobs:
           name: executables-${{ matrix.target.rust }}
           path: executables
 
+      # Artifacts don't keep file modes
+      - name: Make cpxy executables executable
+        run: chmod +x executables/*
+
       # Pinned by version and built from the crate's own Cargo.lock. Extracted outside the
       # checkout, otherwise cargo treats it as an undeclared member of our workspace.
       - name: Build tun2proxy ${{ env.TUN2PROXY_VERSION }}
