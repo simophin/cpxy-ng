@@ -198,13 +198,14 @@ jobs:
           name: executables-${{ matrix.target.rust }}
           path: executables
 
-      # Pinned by version and built from the crate's own Cargo.lock
+      # Pinned by version and built from the crate's own Cargo.lock. Extracted outside the
+      # checkout, otherwise cargo treats it as an undeclared member of our workspace.
       - name: Build tun2proxy ${{ env.TUN2PROXY_VERSION }}
         run: |
-          mkdir tun2proxy
+          mkdir "$RUNNER_TEMP/tun2proxy"
           curl -fsSL "https://crates.io/api/v1/crates/tun2proxy/${TUN2PROXY_VERSION}/download" \
-            | tar -xz -C tun2proxy --strip-components=1
-          cd tun2proxy
+            | tar -xz -C "$RUNNER_TEMP/tun2proxy" --strip-components=1
+          cd "$RUNNER_TEMP/tun2proxy"
           cross build --release --locked --target ${{ matrix.target.rust }} \
             --no-default-features --bin tun2proxy-bin \
             --config profile.release.strip=true --config profile.release.lto=true \
@@ -220,7 +221,7 @@ jobs:
           mkdir -p bins
           cp executables/client_cn-${{ matrix.target.rust }} bins/cpxy-client
           cp executables/dns_split-${{ matrix.target.rust }} bins/cpxy-dns-split
-          cp tun2proxy/target/${{ matrix.target.rust }}/release/tun2proxy-bin bins/cpxy-tun2proxy
+          cp "$RUNNER_TEMP"/tun2proxy/target/${{ matrix.target.rust }}/release/tun2proxy-bin bins/cpxy-tun2proxy
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "$version" bins openwrt-package
           ls -l openwrt-package bins
 
