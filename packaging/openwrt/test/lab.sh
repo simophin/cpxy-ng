@@ -16,7 +16,7 @@ if [ -z "${CPXY_LAB_INNER:-}" ]; then
 fi
 
 BIN="$(cd "$1" && pwd)"
-PKG="$(cd "$(dirname "$0")/../files" && pwd)"
+NET="$(cd "$(dirname "$0")/../../common" && pwd)/net.sh"
 WORK="$(mktemp -d)"
 FAILED=0
 PIDS=""
@@ -126,7 +126,7 @@ mark; check "baseline: LAN reaches the web server directly" fetch
 expect_seen "baseline: request arrives from the router's WAN address" 192.0.2.2
 
 # --- Start the service pieces exactly as the init script does ---
-in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_up lan0r"
+in_router sh -c ". '$NET'; cpxy_net_up lan0r"
 check "policy routing installs" in_router ip rule show
 # ip netns exec execs, so $! is the native worker itself.
 bg ip netns exec router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun cpxy0 >"$WORK/tun.log" 2>&1
@@ -142,7 +142,7 @@ got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "request came through cpxy, not the router WAN (web server saw: $got)"
 else fail "request did not go through the proxy (web server saw: '${got}')"; fi
 # A reload runs cpxy_net_up again while native worker keeps running; it must stay attached to cpxy0
-in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_up lan0r"
+in_router sh -c ". '$NET'; cpxy_net_up lan0r"
 mark; check "reload: LAN still reaches the web server through the proxy" fetch
 got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "reload: still through cpxy"
@@ -173,7 +173,7 @@ grep -q '^192.0.2.2 ' "$WORK/direct.log" && pass "local-region TCP goes direct" 
 
 # --- A second network selects a genuinely different upstream server. ---
 bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
-in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
+in_router sh -c ". '$NET'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
 bg ip netns exec router env SERVER=http://:guestlab@192.0.3.1:8444 "$BIN/cpxy-router" --tun cpxy1 >"$WORK/guest-tun.log" 2>&1
 GUEST_PID=$!
 sleep 1
@@ -182,7 +182,7 @@ mark; check "guest uses second upstream" guest_fetch
 expect_seen "guest upstream has its own source address" 192.0.3.1
 mark; check "main still uses first upstream" fetch
 expect_seen "main upstream unchanged" 93.184.216.34
-in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
+in_router sh -c ". '$NET'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
 mark; check "guest reload preserves second upstream" guest_fetch
 expect_seen "guest reload keeps second source address" 192.0.3.1
 kill "$GUEST_PID"
@@ -191,7 +191,7 @@ mark; check_not "guest worker failure is closed" guest_fetch
 expect_not_direct "guest failure has no WAN fallback"
 mark; check "guest failure leaves main working" fetch
 expect_seen "main upstream after guest failure" 93.184.216.34
-in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_select cpxy1 101 9110; cpxy_net_down_routing"
+in_router sh -c ". '$NET'; cpxy_net_select cpxy1 101 9110; cpxy_net_down_routing"
 mark; check "guest stop restores direct routing" guest_fetch
 expect_seen "guest direct after stop" 192.0.2.2
 mark; check "guest stop leaves main working" fetch
@@ -219,7 +219,7 @@ if wait "$TUN_PID"; then pass "worker stops cleanly"; else fail "worker stop ret
 check_not "worker never panicked" grep -m3 panicked "$WORK/tun.log"
 
 # --- Stop: the original setup is back ---
-in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_down_routing"
+in_router sh -c ". '$NET'; cpxy_net_down_routing"
 [ "$(in_router ip -4 rule show | grep -c 910)" = 0 ] && pass "stop: rules removed" || fail "stop: rules remain"
 [ "$(in_router ip -4 route show table 100 | wc -l)" = 0 ] && pass "stop: table 100 empty" || fail "stop: table 100 not empty"
 mark; check "stop: LAN reaches the internet directly again" fetch

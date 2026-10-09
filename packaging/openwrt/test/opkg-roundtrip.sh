@@ -28,7 +28,7 @@ opkg install /pkg.ipk
 
 # What the install added
 for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split \
-	/etc/init.d/cpxy /etc/config/cpxy /usr/libexec/cpxy/net.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/dns-split.sh \
+	/etc/init.d/cpxy /etc/config/cpxy /usr/libexec/cpxy/net.sh /usr/libexec/cpxy/dnsmasq.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/dns-split.sh \
 	/usr/libexec/cpxy/fw3-include.sh \
 	/usr/share/nftables.d/chain-pre/forward/10-cpxy.nft; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }

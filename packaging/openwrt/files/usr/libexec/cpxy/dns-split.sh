@@ -4,7 +4,7 @@
 # When dns_split exits, dnsmasq goes back to its own servers until procd starts it again.
 #
 # usage: dns-split.sh <listen host:port> <dns_split command...>
-. /usr/libexec/cpxy/net.sh
+. /usr/libexec/cpxy/dnsmasq.sh
 
 listen="$1"
 shift

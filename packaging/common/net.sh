@@ -1,7 +1,7 @@
 #!/bin/sh
-# Runtime network state for cpxy: the TUN device, policy routing and the dnsmasq drop-in.
-# Sourced by /etc/init.d/cpxy. Everything here lives in the kernel or /tmp, so stopping
-# the service (or rebooting) removes it; nothing is written to /etc.
+# Runtime network state for cpxy: the TUN device and policy routing. Shared by the OpenWrt
+# package (sourced by /etc/init.d/cpxy) and the Debian package (sourced by gateway.sh).
+# Everything here lives in the kernel, so stopping the service (or rebooting) removes it.
 #
 # Packet path for a proxied LAN device:
 #   LAN TCP -> ip rule (prio 9103: table 100) -> default dev cpxy0 -> cpxy-router -> shared TCP outbound
@@ -26,7 +26,6 @@ cpxy_net_select() {
 	CPXY_PRIO_TUN=$(($3 + 3))
 }
 cpxy_net_select cpxy0 100 9100
-CPXY_DNSMASQ_DROPIN=cpxy.conf
 
 # Delete every rule of ours at a priority, however many there are (one per device and family).
 _cpxy_flush_rules() {
@@ -76,39 +75,4 @@ cpxy_net_down_routing() {
 	_cpxy_net_down_rules
 	ip link del "$CPXY_TUN" 2>/dev/null
 	return 0
-}
-
-# Where dnsmasq reads extra config files from (see the dnsmasq init script)
-_cpxy_dnsmasq_confdir() {
-	local dir name
-	dir="$(uci -q get 'dhcp.@dnsmasq[0].confdir')"
-	if [ -z "$dir" ]; then
-		name="$(uci -q show 'dhcp.@dnsmasq[0]' | sed -n '1s/^dhcp\.\([^.=]*\)=.*/\1/p')"
-		dir="/tmp/dnsmasq${name:+.$name}.d"
-	fi
-	echo "$dir"
-}
-
-# cpxy_dnsmasq_up <dns_split listen address as host:port>
-# Public queries go to dns_split; DHCP leases and local names still resolve in dnsmasq.
-cpxy_dnsmasq_up() {
-	local listen="$1" dir host port
-	host="${listen%:*}"
-	port="${listen##*:}"
-	dir="$(_cpxy_dnsmasq_confdir)"
-	mkdir -p "$dir" || return 1
-	cat >"$dir/$CPXY_DNSMASQ_DROPIN" <<EOF
-# Managed by /etc/init.d/cpxy; removed when the service stops.
-no-resolv
-server=$host#$port
-EOF
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
-}
-
-cpxy_dnsmasq_down() {
-	local dir
-	dir="$(_cpxy_dnsmasq_confdir)"
-	[ -e "$dir/$CPXY_DNSMASQ_DROPIN" ] || return 0
-	rm -f "$dir/$CPXY_DNSMASQ_DROPIN"
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
 }

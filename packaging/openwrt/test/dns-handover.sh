@@ -20,7 +20,7 @@ done
 opkg install /pkg.ipk >/dev/null 2>&1 || { echo "FAIL: install"; exit 1; }
 
 printf "#!/bin/sh\necho \"\$*\" >>/tmp/dnsmasq-calls\n" >/etc/init.d/dnsmasq
-. /usr/libexec/cpxy/net.sh
+. /usr/libexec/cpxy/dnsmasq.sh
 dropin="$(_cpxy_dnsmasq_confdir)/cpxy.conf"
 W=/usr/libexec/cpxy/dns-split.sh
 # Word-split on purpose when used
