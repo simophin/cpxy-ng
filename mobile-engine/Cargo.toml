@@ -1,0 +1,26 @@
+[package]
+name = "mobile-engine"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+client = { path = "../client", features = ["dns-split"] }
+cpxy-ng = { path = "../cpxy-ng" }
+geoip-data = { path = "../geoip-data" }
+ipstack = "1.0.1"
+etherparse = { version = "0.20", default-features = false, features = ["std"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }
+tracing = "0"
+anyhow = "1"
+futures = "0.3.31"
+hickory-proto = { version = "0.25.2", default-features = false, features = ["std"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["signal"] }
+tracing-subscriber = "0"
