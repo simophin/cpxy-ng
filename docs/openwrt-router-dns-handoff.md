@@ -42,7 +42,7 @@ The observation that incorrect DNS answers are non-local-region addresses is a d
 | `client/src/outbound/direct.rs` | Can connect to an explicitly supplied IPv4 address. Reuse for direct TCP without resolving the hostname again. |
 | `client/src/outbound/` (existing regional policy module) | Existing regional/site/Tailscale policy and UDP resolver. Do not use unchanged: it defaults unresolved destinations to direct and has unrelated routing exceptions. |
 | `client/src/outbound/resolving_ip.rs` | Takes only the first IPv4 result; insufficient for whole-answer classification. |
-| `cpxy-ng/src/geoip.rs`, `geoip-data` | Reuse embedded local-region IPv4 lookup; an address absent from this local-region-only database is not necessarily confirmed non-local-region. |
+| `cpxy-ng/src/geoip.rs`, `geoip-data` | Reuse embedded IPv4 country lookup; the local region is the addresses it classifies as `CN`. |
 | `geoip-data/SOURCE.md` | Data provenance/update procedure; record dataset identity in runtime status and tests. |
 
 Preferred structure: a new `router` workspace crate with binary `cpxy-router`, depending on `client`, `cpxy-ng`, and `geoip-data`. Keep DNS/policy/storage code independently testable. Existing Android and standalone entry points retain their behavior.

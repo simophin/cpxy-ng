@@ -6,7 +6,7 @@ use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
 use cpxy_ng::geoip::find_country_code_v4;
 use cpxy_ng::outbound::Outbound;
-use geoip_data::CN_GEOIP;
+use geoip_data::GEOIP;
 use hickory_resolver::Resolver;
 use hickory_resolver::config::{NameServerConfig, ResolverConfig};
 use hickory_resolver::name_server::TokioConnectionProvider;
@@ -82,7 +82,7 @@ fn ip_should_route_direct(ip: Option<Ipv4Addr>) -> bool {
                 || ip.is_loopback()
                 || ip.is_link_local()
                 || TAILSCALE_NETWORK.contains(&ip)
-                || matches!(find_country_code_v4(&ip, CN_GEOIP), Ok(Some("CN")))
+                || matches!(find_country_code_v4(&ip, GEOIP), Ok(Some("CN")))
         }
         _ => true,
     }
