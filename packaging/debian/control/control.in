@@ -1,0 +1,13 @@
+Package: cpxy-gateway
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: cpxy-ng <https://github.com/simophin/cpxy-ng>
+Depends: iproute2
+Section: net
+Priority: optional
+Homepage: https://github.com/simophin/cpxy-ng
+Description: cpxy for traffic a Linux box forwards, such as a Tailscale exit node's
+ Routes forwarded TCP from chosen interfaces (tailscale0 by default) through a cpxy server, with
+ local-region traffic going direct, and makes cpxy-dns-split the box's resolver so exit-node
+ clients get split DNS. Configure /etc/cpxy/cpxy.conf, then enable cpxy-router and
+ cpxy-dns-split. Stopping or removing them restores the original setup.

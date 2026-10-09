@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+[ "$1" = configure ] || exit 0
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload
+	sysctl -q -p /usr/lib/sysctl.d/60-cpxy.conf || true
+	# An upgrade picks up the new binaries; services that were not running stay stopped
+	if [ -n "${2:-}" ]; then
+		systemctl try-restart cpxy-dns-split.service cpxy-router.service || true
+	fi
+fi
+
+if [ -z "${2:-}" ]; then
+	cat <<'MSG'
+cpxy-gateway installed. Set SERVER (and check the DNS servers) in /etc/cpxy/cpxy.conf, then:
+  systemctl enable --now cpxy-dns-split cpxy-router
+Guide: https://github.com/simophin/cpxy-ng/blob/main/docs/cpxy-gateway.md
+MSG
+fi
+exit 0

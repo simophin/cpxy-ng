@@ -9,6 +9,10 @@ fn main() -> anyhow::Result<()> {
     struct Options {
         #[arg(long, default_value = "cpxy0")]
         tun: String,
+        /// The engine sizes TCP segments to this and ignores the peer's MSS, so it must not
+        /// exceed the smallest MTU on the path back to clients (1280 behind tailscale0).
+        #[arg(long, default_value_t = mobile_engine::DEFAULT_MTU)]
+        mtu: u16,
         // Keep the secret out of process arguments and parser diagnostics.
     }
     struct Listener;
@@ -22,7 +26,7 @@ fn main() -> anyhow::Result<()> {
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid SERVER URL"))?;
     let tun = mobile_engine::linux::create_tun(&options.tun)?;
-    let engine = mobile_engine::start_router(tun, server, Arc::new(Listener))?;
+    let engine = mobile_engine::start_router(tun, server, options.mtu, Arc::new(Listener))?;
     let result = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
