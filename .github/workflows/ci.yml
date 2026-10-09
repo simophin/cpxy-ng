@@ -372,10 +372,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends shellcheck
           # OpenWrt's ash has `local`
           shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/test/*.sh \
-            packaging/openwrt/files/usr/libexec/cpxy/net.sh packaging/openwrt/files/usr/libexec/cpxy/dns-split.sh \
+            packaging/openwrt/files/usr/libexec/cpxy/net.sh packaging/openwrt/files/usr/libexec/cpxy/firewall.sh \
+            packaging/openwrt/files/usr/libexec/cpxy/dns-split.sh \
             packaging/openwrt/files/usr/libexec/cpxy/fw3-include.sh packaging/openwrt/control/postinst \
             packaging/openwrt/control/prerm packaging/openwrt/control/postrm \
-            packaging/openwrt/files/etc/uci-defaults/90-cpxy
+            packaging/openwrt/files/etc/uci-defaults/90-cpxy packaging/openwrt/files/etc/init.d/cpxy
       - name: Build package from stand-in binaries and test install and removal
         run: |
           mkdir bins

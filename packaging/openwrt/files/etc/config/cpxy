@@ -9,6 +9,12 @@ config cpxy 'main'
 	# UCI network interfaces whose devices are proxied (more than one allowed)
 	list lan_interface 'lan'
 
+	# main defaults; every additional instance must specify its own resources.
+	option tun 'cpxy0'
+	option routing_table '100'
+	# Reserves this priority and the next three.
+	option rule_priority '9100'
+
 	# LAN DNS: dnsmasq forwards public queries to dns_split. Set dns_split to 0 to leave dnsmasq alone.
 	option dns_split '1'
 	# Not 5353: that is the mDNS port, already taken where avahi or umdns runs
@@ -24,3 +30,14 @@ config cpxy 'main'
 	option dns_cache '1'
 
 	# Legacy socks5_listen, api_listen and dns_server options are ignored.
+
+# Example second upstream (uncomment and fill in server to enable):
+# config cpxy 'guest'
+#	option enabled '1'
+#	option server 'https://:<key>@<host>:443'
+#	list lan_interface 'guest'
+#	option tun 'cpxy1'
+#	option routing_table '101'
+#	option rule_priority '9110'
+#	# DNS is shared with main; only one instance may enable dns_split.
+#	option dns_split '0'

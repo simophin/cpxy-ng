@@ -53,20 +53,61 @@ an IP, or a `udp://`, `tcp://`, `tls://` or `https://` URL (`tls://` and `https:
 Check it: `logread -e cpxy`, `ip rule show`, `ip link show cpxy0`.
 Change settings with `uci` (see `/etc/config/cpxy`), then `/etc/init.d/cpxy restart`.
 
+## Multiple upstreams
+
+Each named `config cpxy` section runs one independently supervised native worker.
+Existing `main` configurations retain defaults `cpxy0`, table `100`, priorities `9100–9103`.
+Additional instances must specify distinct `tun`, `routing_table` and `rule_priority` values:
+
+```uci
+config cpxy 'guest'
+    option enabled '1'
+    option server 'https://:<second-key>@<second-host>:443'
+    list lan_interface 'guest'
+    option tun 'cpxy1'
+    option routing_table '101'
+    option rule_priority '9110'
+    option dns_split '0'
+```
+
+The OpenWrt network/SSID must already exist. `lan_interface` is sufficient to select
+its traffic and configure forwarding: the service discovers the enabled firewall zone
+containing each network, including when zone and network names differ. Networks with
+no zone or multiple zones are rejected. Existing network isolation and WAN forwarding
+remain as configured; this package does not create SSIDs or impose guest isolation.
+
+Only one enabled section may own `dns_split`; `main` defaults to `1`, additional
+sections to `0`. That resolver serves all networks using the first dnsmasq instance.
+Its DNS policy and readiness-based handover are shared, rather than bound to an upstream
+connection. DNS is still router-originated traffic and does not travel through either TUN.
+Separate DNS policies for multiple dnsmasq instances are not supported yet.
+
+`rule_priority` reserves four consecutive priorities, and `routing_table` accepts
+1–65535 except the reserved tables 253–255. Choose resources unused by other routing
+services. Duplicate TUNs, tables, overlapping priority ranges, networks and resolved
+bridge devices are rejected before applying a reload.
+
+Apply edits with `/etc/init.d/cpxy reload`. Unchanged workers keep running; disabled,
+deleted or reassigned instances have their saved old routing resources removed.
+An invalid reload leaves the running workers and their routing/firewall state intact.
+Changing only the guest server or disabling guest does not restart the main worker.
+`restart` deliberately stops every instance before starting the new configuration.
+
 ## What it changes, and how it is undone
 
 | Where | Change | Removed by |
 |---|---|---|
-| Package files | binaries, `/etc/init.d/cpxy`, `/usr/libexec/cpxy/`, `/etc/config/cpxy`, an nftables snippet in `/usr/share/nftables.d/chain-pre/forward/` | `opkg remove` |
-| `/etc/config/firewall` | zone `cpxy_zone` (device `cpxy0`) and forwarding `cpxy_fwd` (`lan` → `cpxy`); on fw3 only, include `cpxy_udp` (`/usr/libexec/cpxy/fw3-include.sh`) | `opkg remove` (prerm) |
-| iptables (fw3 only) | `FORWARD -o cpxy0 -p udp -j REJECT`, added by the include on every firewall start and reload | `opkg remove` (prerm) |
-| Kernel | the `cpxy0` TUN device, `ip rule` priorities 9100 and 9103 (v4 and v6) and 9101/9102 (UDP, v4), and routing table 100 | `stop`, `opkg remove` |
-| dnsmasq | a drop-in (`no-resolv`, `server=127.0.0.1#5335`) in dnsmasq's runtime config directory under `/tmp`, present only while dns_split listens | dns_split exiting, `stop`, `opkg remove`, reboot |
+| Package files | binaries, init script, helpers, default UCI configuration and compatibility firewall includes | `opkg remove` |
+| `/etc/config/firewall` | `cpxy_inst_<section>_*` zone, source-zone forwarding and UDP refusal rule for each enabled instance; source networks are discovered automatically | disabled/deleted instance on reload, `stop`, `opkg remove` |
+| Kernel | persistent TUN, four rule priorities and routing table per instance | instance reassignment/removal on reload, `stop`, `opkg remove` |
+| `/tmp/cpxy/instances` | saved resource assignments for cleanup, without endpoint credentials | `stop`, reboot |
+| dnsmasq | runtime `cpxy.conf` drop-in (`no-resolv`, shared DNS forwarder), present only while dns_split listens | dns_split exiting, `stop`, `opkg remove`, reboot |
 
-`/etc/config/dhcp`, `/etc/config/network` and the existing `lan → wan` forwarding are never edited.
-While the service stops, the LAN goes direct again, as before the install. `uci commit` rewrites
-`/etc/config/firewall` in normalised form (comments are dropped, settings are unchanged); that
-happens on any firewall edit, including LuCI's.
+`/etc/config/dhcp`, `/etc/config/network` and existing forwarding are never edited.
+Stopping restores the networks' previous direct routing. Firewall UCI commits normalize
+that file and remove comments, as other UCI/LuCI edits do. The package owns only its
+prefixed sections. fw3 and fw4 use the same generated UCI rules; installation removes
+the old fixed `cpxy_zone`, `cpxy_fwd` and `cpxy_udp` configuration.
 
 ## Behaviour to know about
 
@@ -87,8 +128,7 @@ happens on any firewall edit, including LuCI's.
   The dns instance runs dns_split under `/usr/libexec/cpxy/dns-split.sh`, which adds the dnsmasq
   drop-in once dns_split listens on UDP and TCP and removes it when dns_split exits. Unlike TCP,
   DNS fails open: while dns_split is down, dnsmasq uses its usual servers again.
-- **Firewall backends.** fw4 includes the nftables snippet itself. fw3 does not read it, so on fw3
-  the package registers an iptables include doing the same. The zone and forwarding work on both.
+- **Firewall backends.** Both fw3 and fw4 compile the per-instance UCI zones, forwarding and UDP refusal rules.
 - **Flow offloading.** Software offload does not touch the TUN path. Hardware offload (a GL.iNet
   option) may; the service logs a warning when it is on.
 
@@ -112,6 +152,10 @@ packaging/openwrt/test/dns-handover.sh out/*.ipk
 # Routing and fail-closed behaviour with real binaries in network namespaces (no root needed)
 packaging/openwrt/test/lab.sh bins
 ```
+
+The routing lab also exercises a second network/upstream, independent worker failure,
+and stopping the guest instance while main remains proxied. The init dry run exercises
+real UCI firewall generation, collision rejection and reload/disable/resource-change cleanup.
 
 `lab.sh` needs the binaries named `cpxy-router` and `cpxy-server` (the cpxy server)
 for the host architecture, plus `iproute2`, `nft`, `curl` and `python3`. `opkg-roundtrip.sh` needs

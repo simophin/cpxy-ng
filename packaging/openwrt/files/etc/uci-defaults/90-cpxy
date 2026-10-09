@@ -1,33 +1,11 @@
 #!/bin/sh
-# Run by the package's postinst, on install and on upgrade. Adds the firewall zone for the cpxy TUN
-# device and lets the LAN forward into it. Removed again by the package's prerm. Idempotent.
-uci -q batch <<UCI
-delete firewall.cpxy_zone
-set firewall.cpxy_zone=zone
-set firewall.cpxy_zone.name='cpxy'
-add_list firewall.cpxy_zone.device='cpxy0'
-set firewall.cpxy_zone.input='REJECT'
-set firewall.cpxy_zone.output='ACCEPT'
-set firewall.cpxy_zone.forward='REJECT'
-delete firewall.cpxy_fwd
-set firewall.cpxy_fwd=forwarding
-set firewall.cpxy_fwd.src='lan'
-set firewall.cpxy_fwd.dest='cpxy'
-delete firewall.cpxy_udp
-commit firewall
-UCI
-
-# fw4 picks up the package's nftables snippet by itself. fw3 (iptables) does not read it, so
-# register the iptables counterpart as a firewall include.
-if [ ! -x /sbin/fw4 ] && [ -x /sbin/fw3 ]; then
-	uci -q batch <<UCI
-set firewall.cpxy_udp=include
-set firewall.cpxy_udp.type='script'
-set firewall.cpxy_udp.path='/usr/libexec/cpxy/fw3-include.sh'
-set firewall.cpxy_udp.reload='1'
-commit firewall
-UCI
+# Remove the former fixed zone/include. Active instances configure their own firewall.
+. /lib/functions.sh
+. /usr/libexec/cpxy/firewall.sh
+cpxy_firewall_clear
+uci commit firewall
+if command -v iptables >/dev/null; then
+	while iptables -D FORWARD -o cpxy0 -p udp -j REJECT 2>/dev/null; do :; done
 fi
-
 /etc/init.d/firewall reload >/dev/null 2>&1
 exit 0

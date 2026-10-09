@@ -22,7 +22,7 @@ FAILED=0
 PIDS=""
 # $PIDS can be wrapper subshells, so also kill whatever still runs inside the lab's namespaces
 cleanup() {
-	for p in $PIDS $(for ns in inet router lan; do ip netns pids "$ns" 2>/dev/null; done); do kill "$p" 2>/dev/null; done
+	for p in $PIDS $(for ns in inet router lan guest upstream; do ip netns pids "$ns" 2>/dev/null; done); do kill "$p" 2>/dev/null; done
 	rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -40,15 +40,20 @@ check_not() {
 bg() { "$@" & PIDS="$PIDS $!"; }
 
 mount -t tmpfs tmpfs /run && mkdir -p /run/netns
-for ns in inet router lan; do ip netns add "$ns"; done
+for ns in inet router lan guest upstream; do ip netns add "$ns"; done
 ip link add wan0 type veth peer name wan0r
 ip link set wan0 netns inet; ip link set wan0r netns router
 ip link add lan0r type veth peer name lan0
 ip link set lan0r netns router; ip link set lan0 netns lan
+ip link add guest0r type veth peer name guest0
+ip link set guest0r netns router; ip link set guest0 netns guest
+ip link add up0 type veth peer name up0i
+ip link set up0 netns upstream; ip link set up0i netns inet
 
 in_inet() { ip netns exec inet "$@"; }
 in_router() { ip netns exec router "$@"; }
 in_lan() { ip netns exec lan "$@"; }
+in_guest() { ip netns exec guest "$@"; }
 
 in_inet sh -c 'ip link set lo up; ip addr add 93.184.216.34/32 dev lo; ip addr add 192.0.2.1/24 dev wan0; ip link set wan0 up
 	ip route add 192.168.8.0/24 via 192.0.2.2'
@@ -57,15 +62,21 @@ in_router sh -c 'ip link set lo up; ip addr add 192.0.2.2/24 dev wan0r; ip addr 
 	sysctl -qw net.ipv4.ip_forward=1 net.ipv4.conf.all.rp_filter=1 net.ipv4.conf.default.rp_filter=1'
 in_lan sh -c 'ip link set lo up; ip addr add 192.168.8.50/24 dev lan0; ip link set lan0 up; ip route add default via 192.168.8.1'
 
+in_inet sh -c 'ip addr add 192.0.3.2/24 dev up0i; ip link set up0i up; sysctl -qw net.ipv4.ip_forward=1'
+ip netns exec upstream sh -c 'ip link set lo up; ip addr add 192.0.3.1/24 dev up0; ip link set up0 up; ip route add default via 192.0.3.2'
+in_router sh -c 'ip addr add 192.168.9.1/24 dev guest0r; ip link set guest0r up; ip route add 192.0.3.0/24 via 192.0.2.1'
+in_guest sh -c 'ip link set lo up; ip addr add 192.168.9.50/24 dev guest0; ip link set guest0 up; ip route add default via 192.168.9.1'
+
 # Router firewall, shaped like fw4: forward drops by default, the package snippet comes first,
 # LAN may go to WAN (the original setup) and to the TUN device (the cpxy zone).
 cat >"$WORK/fw.nft" <<EOF
 table inet fw4 {
 	chain forward {
 		type filter hook forward priority filter; policy drop;
-		include "$PKG/usr/share/nftables.d/chain-pre/forward/10-cpxy.nft"
+		oifname { "cpxy0", "cpxy1" } meta l4proto udp reject
 		ct state established,related accept
 		iifname "lan0r" oifname { "wan0r", "cpxy0" } accept
+		iifname "guest0r" oifname { "wan0r", "cpxy1" } accept
 	}
 }
 table ip nat {
@@ -159,6 +170,32 @@ got="$(udp_probe 9999)"
 # The shared regional policy opens direct TCP sockets from the router.
 check "local-region TCP is reachable" in_lan curl -sS --max-time 5 --noproxy '*' http://114.114.114.114:8000/index.html
 grep -q '^192.0.2.2 ' "$WORK/direct.log" && pass "local-region TCP goes direct" || fail "local-region TCP was not direct"
+
+# --- A second network selects a genuinely different upstream server. ---
+bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
+in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
+bg ip netns exec router env SERVER=http://:guestlab@192.0.3.1:8444 "$BIN/cpxy-router" --tun cpxy1 >"$WORK/guest-tun.log" 2>&1
+GUEST_PID=$!
+sleep 1
+guest_fetch() { in_guest curl -sS --max-time 5 --noproxy '*' "$URL"; }
+mark; check "guest uses second upstream" guest_fetch
+expect_seen "guest upstream has its own source address" 192.0.3.1
+mark; check "main still uses first upstream" fetch
+expect_seen "main upstream unchanged" 93.184.216.34
+in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
+mark; check "guest reload preserves second upstream" guest_fetch
+expect_seen "guest reload keeps second source address" 192.0.3.1
+kill "$GUEST_PID"
+sleep 0.5
+mark; check_not "guest worker failure is closed" guest_fetch
+expect_not_direct "guest failure has no WAN fallback"
+mark; check "guest failure leaves main working" fetch
+expect_seen "main upstream after guest failure" 93.184.216.34
+in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_select cpxy1 101 9110; cpxy_net_down_routing"
+mark; check "guest stop restores direct routing" guest_fetch
+expect_seen "guest direct after stop" 192.0.2.2
+mark; check "guest stop leaves main working" fetch
+expect_seen "main upstream after guest stop" 93.184.216.34
 
 # --- Fail closed: native worker dies ---
 kill "$TUN_PID"; sleep 1
