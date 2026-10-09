@@ -256,16 +256,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # The mobile TUN engine is Unix-only and has its own build/test jobs.
       - name: Build with cross
         if: matrix.target.build_with_cross == true
         run:
-          cross build --release --target ${{ matrix.target.rust }} &&
+          cross build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine &&
           cross build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin dns_split
 
       - name: Build
         if: matrix.target.build_with_cross != true
         run:
-          cargo build --release --target ${{ matrix.target.rust }} &&
+          cargo build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine &&
           cargo build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin dns_split
 
       - name: Rename files

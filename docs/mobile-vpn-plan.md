@@ -187,8 +187,9 @@ namespace lab), `test_mobile_shared` (`:shared:allTests`) and `build_mobile_vpn`
 main and releases, after both test jobs pass). The APK job installs the four Rust targets, pinned
 NDK and cargo-ndk, checks the packaged engine library for all four ABIs and uploads
 `mobile-vpn-release.apk`. The distinct asset filename keeps it separate from the existing app's
-`androidApp-release.apk`. `release-upload` depends on the new build and test jobs. Existing jobs
-are unchanged.
+`androidApp-release.apk`. `release-upload` depends on the new build and test jobs. Desktop
+executable builds use `--workspace --exclude mobile-engine`: the engine uses Unix TUN descriptors
+and must not be compiled by the Windows release jobs. It is built by its dedicated mobile jobs.
 
 Validation: actionlint accepted the workflow; all 15 engine tests and 9 shared JVM tests passed;
 the release Linux TUN lab passed (peak engine RSS 11 MB); `:androidApp:assembleRelease` passed
