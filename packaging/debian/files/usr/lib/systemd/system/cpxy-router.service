@@ -1,0 +1,18 @@
+[Unit]
+Description=cpxy gateway: proxies forwarded TCP (e.g. a Tailscale exit node's) through a cpxy server
+Documentation=https://github.com/simophin/cpxy-ng/blob/main/docs/cpxy-gateway.md
+Wants=network-online.target
+After=network-online.target tailscaled.service
+
+[Service]
+ExecStartPre=/usr/libexec/cpxy/gateway.sh up
+# Restarts the engine itself when it dies, keeping the routing in place meanwhile so forwarded
+# traffic is refused rather than leaked. (Restart= would run ExecStopPost and drop the routing.)
+ExecStart=/usr/libexec/cpxy/gateway.sh run
+ExecStopPost=/usr/libexec/cpxy/gateway.sh down
+Environment=NO_COLOR=1
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

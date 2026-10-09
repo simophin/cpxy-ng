@@ -1,0 +1,19 @@
+[Unit]
+Description=cpxy split DNS resolver
+Documentation=https://github.com/simophin/cpxy-ng/blob/main/docs/cpxy-gateway.md
+Wants=network-online.target
+After=network-online.target
+# Tailscale answers exit-node clients' DNS from the box's resolver, so be ready before it
+Before=tailscaled.service
+
+[Service]
+ExecStart=/usr/libexec/cpxy/dns.sh run
+ExecStartPost=/usr/libexec/cpxy/dns.sh takeover
+ExecStopPost=/usr/libexec/cpxy/dns.sh restore
+CacheDirectory=cpxy
+StateDirectory=cpxy
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
