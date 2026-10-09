@@ -1,7 +1,8 @@
 # Mobile VPN app (Android + iOS): plan
 
-Status: Phase 0 done (the `mobile-engine` crate and its Linux lab); Phase 1 next. Work through
-the phases in order and update this file as decisions change.
+Status: Phase 0 (the `mobile-engine` crate and its Linux lab) and Phase 1 (the Android app in
+`mobile/`) done; Phase 2 next. Work through the phases in order and update this file as decisions
+change.
 
 ## Goal
 
@@ -37,7 +38,7 @@ Decisions already made:
 | `client::outbound` (`IPDivertOutbound`, `DirectOutbound`, `ProtocolOutbound`, `StatReportingOutbound`) | Reused. Compose them like `cn_outbound` but without the AI/Tailscale branches: private, loopback, link-local or CN → direct, else proxy. |
 | tun2proxy (TUN → SOCKS5) | Replaced by `ipstack`: each TCP flow from the TUN goes straight into the `Outbound`. |
 | Firewall rejects UDP 443; other UDP leaves via WAN | Done in the engine: UDP 443 is answered with ICMP port unreachable, other UDP is relayed through direct sockets. |
-| IPv6 refused | Route `::/0` into the TUN; the engine answers with ICMPv6 administratively prohibited. |
+| IPv6 refused | Route `::/0` into the TUN; the engine answers with ICMPv6 administratively prohibited. On Android the TUN has no IPv6 address, so apps do not try IPv6 at all and the route only keeps it off the underlying network. |
 | Fail closed when the proxy dies | The TUN stays up while the engine runs; a proxy failure fails the connection, never sends it direct. |
 
 ### Avoiding routing loops
@@ -82,11 +83,19 @@ tunnel.
   flows 60 seconds, DNS flows 10 seconds.
 - Rust API (Phase 0): `mobile_engine::start(OwnedFd, &str, Arc<dyn EventListener>) ->
   Result<EngineHandle>`, `EngineHandle::stop()` and `EngineHandle::traffic()`. `start` blocks while
-  the DNS servers are set up. Phase 1 wraps it in UniFFI.
-- FFI through **UniFFI**, generating both the Kotlin and the Swift bindings. Minimal surface:
-  - `start(tun_fd: i32, config_json: String, listener: EventListener) -> EngineHandle`
-  - `EngineHandle.stop()`
-  - `EventListener` callback for state changes and traffic stats (reuse `OutboundEvent`).
+  the DNS servers are set up. `stop` ends every flow and waits until the TUN descriptor is closed
+  before shutting the runtime down: ipstack's TCP streams block until their tasks end when dropped,
+  which never happens in a runtime that is shutting down, and the descriptor leaked that way.
+- FFI through **UniFFI** (`src/ffi.rs`, proc macros, `uniffi.toml` sets the Kotlin package
+  `dev.fanchao.cpxy.vpn.engine`), generating both the Kotlin and the Swift bindings:
+  - `startEngine(tunFd: Int, configJson: String, listener: EngineListener): Engine`, throwing
+    `EngineException.Failed(reason)`
+  - `Engine.stop()`, `Engine.traffic(): TrafficStats`
+  - `EngineListener.onConnection(ConnectionEvent)`: a record mirroring `OutboundEvent` (host, port,
+    `direct`/`proxy`, delay, time, optional error).
+- `uniffi-bindgen` is a binary of the crate behind the `bindgen` feature. It reads the bindings from
+  a host debug build: release libraries are stripped and carry no UniFFI metadata.
+- On Android the engine logs to logcat with the tag `cpxy-engine` (`paranoid-android`).
 - Config (JSON, defined once in Rust with serde and mirrored in Kotlin):
   `server` (cpxy URL with key), `dns_upstream: [ServerSpec]`, `dns_alternative: [ServerSpec]`,
   optional `mtu`. `ServerSpec` is the existing `client::dns_split::spec` format (IP, `udp://`,
@@ -103,14 +112,17 @@ tunnel.
 ### KMP app: `mobile/`
 
 - Own Gradle build (separate from `client/android-app`): `shared` (Compose Multiplatform UI,
-  profile storage, `expect`-based `VpnController`), `androidApp`, and `iosApp/` (Xcode project with
-  the app target and a PacketTunnel extension target).
+  profiles in a preferences DataStore, and a `VpnController` interface that each platform
+  implements; an interface rather than `expect`, so the UI takes it as a parameter), `androidApp`,
+  and `iosApp/` (Xcode project with the app target and a PacketTunnel extension target).
 - Screens: profile list/edit (server URL, upstream and alternative DNS lists), connect/disconnect,
-  status and traffic.
-- Android: `CpxyVpnService` (`VpnService`) as a foreground service with a notification and stop
-  action; hands `ParcelFileDescriptor.detachFd()` to the engine. Gradle builds the Rust libraries with
-  cargo-ndk (NDK `28.2.13676358`, cargo-ndk `4.1.2`, the same pins as the existing app) and generates
-  the UniFFI Kotlin bindings, both as declared task inputs/outputs under `build/`.
+  status, traffic and the recent connections with their outbound.
+- Android: `CpxyVpnService` (`VpnService`) as a foreground service (type `specialUse`, subtype
+  `vpn`) with a notification and stop action; hands `ParcelFileDescriptor.detachFd()` to the
+  engine. Engine calls run one at a time off the main thread. `AndroidVpnController` asks for the
+  VPN consent through the activity and starts the service. Gradle builds `libmobile_engine.so` with
+  cargo-ndk (NDK `28.2.13676358`, cargo-ndk `4.1.2`, the same pins as the existing app) and
+  generates the UniFFI Kotlin bindings, both as declared task inputs/outputs under `build/`.
 - iOS: the extension passes the utun fd (from `packetFlow` via the usual KVC lookup) to the engine;
   fall back to bridging `readPackets`/`writePackets` if that breaks. Config reaches the extension
   through `NETunnelProviderProtocol.providerConfiguration`.
@@ -139,12 +151,24 @@ mobile-engine/test/tun-lab.sh bins
 Besides the checks above it covers DNS over TCP, TCP 853 and IPv6 refusals, 16 parallel 4 MB
 downloads, fail-closed when the server dies, and a clean stop. It is not in CI yet (Phase 2).
 
-### Phase 1: Android MVP
+### Phase 1: Android MVP (done)
 
 - `mobile/` Gradle project, shared UI, `CpxyVpnService`, UniFFI bindings, cargo-ndk build for
   `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`.
 - Manual smoke check on a device: connect, browse a CN and a non-CN site, check the public IP,
   disconnect.
+
+Done: `mobile/` (see [mobile/README.md](../mobile/README.md)), with JVM tests for the profile
+store, the engine config JSON and validation (`./gradlew :shared:allTests`). Debug and release
+APKs carry `libmobile_engine.so` for all four ABIs.
+
+The smoke check ran on an API 36 x86_64 emulator against a local `server`, with the consent
+granted by `appops set dev.fanchao.cpxy.vpn ACTIVATE_VPN allow`: connect; the DNS split answered;
+non-CN traffic (e.g. `ifconfig.me`) went through the server; CN addresses (223.5.5.5,
+119.29.29.29) went direct and never reached it; disconnect from the app and from the notification
+removed `tun0` and the foreground service, also with a flow open. The run found the descriptor
+leak fixed in `stop` above. Still to do on a physical phone: a CN and a non-CN site in a browser
+with the real server, and the public IP.
 
 ### Phase 2: CI for the APK
 
@@ -154,9 +178,10 @@ New jobs in `.github/workflows/ci.yml`; existing jobs unchanged.
   `./gradlew :shared:allTests` in `mobile/`.
 - main and releases: `./gradlew :androidApp:assembleRelease`, check that
   `lib/*/libmobile_engine.so` is in the APK for all four ABIs, upload the APK as an artifact, and add
-  the job to `release-upload`'s `needs`.
-- Signing: start with a checked-in debug keystore like the existing app; move to a release keystore
-  from GitHub secrets later.
+  the job to `release-upload`'s `needs`. The job needs the NDK, cargo-ndk and the four Rust
+  targets; generating the bindings also builds the engine for the host.
+- Signing: start with the checked-in debug keystore (`mobile/debug.keystore`, already used by the
+  release build); move to a release keystore from GitHub secrets later.
 
 ### Phase 3: iOS
 
