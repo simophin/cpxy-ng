@@ -9,8 +9,8 @@ removing it. For what the package changes on the router, and how to build and te
 
 You need:
 
-- A router on **OpenWrt 24.10** (opkg, fw4, procd). GL.iNet routers work on their OpenWrt-based
-  firmware (for example the GL-MT3000 on the `-op24` firmware).
+- A router on **OpenWrt 24.10** (opkg, fw4, procd), or GL.iNet's stock 4.x firmware (OpenWrt
+  21.02-based, fw3). Tested on a GL-MT3000 on both the `-op24` and the stock firmware.
 - SSH access as `root`.
 - A running cpxy server, and its URL with the key: `https://:<key>@<host>:<port>` (or `http://`).
 - Two sets of DNS servers if you keep the DNS feature on (the default): an **upstream** set and an
@@ -71,7 +71,7 @@ uci commit cpxy
 | `dns_alternative` (list) | none, **required** with `dns_split` | DNS servers whose answer is used otherwise. |
 | `dns_cache` | `1` | `1` keeps a DNS answer cache in RAM (`/tmp`); `0` disables it. |
 | `dns_server` (list) | client default | DNS servers (IPs only) used when a connection names a host rather than an IP. Rarely needed. |
-| `dns_listen` | `127.0.0.1:5353` | Where the DNS resolver listens. dnsmasq forwards to it. |
+| `dns_listen` | `127.0.0.1:5335` | Where the DNS resolver listens. dnsmasq forwards to it. Avoid 5353, the mDNS port. |
 | `socks5_listen` | `127.0.0.1:1080` | Local SOCKS5 listener used internally. |
 | `api_listen` | `127.0.0.1:3010` | Local API listener. |
 
@@ -100,6 +100,10 @@ With `dns_split` on, dnsmasq keeps serving DHCP and local hostnames, and forward
 the package's resolver. For each name it asks both server sets: if the `dns_upstream` answer contains
 only local-region addresses, that answer is used; otherwise the `dns_alternative` answer is used.
 
+dnsmasq is pointed at the resolver only once it is listening, and back at its usual servers
+whenever the resolver is not running, so a resolver that fails to start costs the split, not the
+LAN's DNS. `logread -e cpxy-dns` shows why it stopped.
+
 If `dhcp.@dnsmasq[0].server` is set (custom DNS forwarders in LuCI), dnsmasq may still send some
 queries there; clear it for all lookups to go through the resolver.
 
@@ -115,7 +119,7 @@ Then check:
 ```sh
 logread -e cpxy             # service messages; a missing required option is reported here
 ip link show cpxy0          # the tunnel device exists
-ip rule show                # rules at priorities 9100 and 9101 for each LAN device
+ip rule show                # rules at priorities 9100-9103 for each LAN device
 ```
 
 From a LAN device, browse to a site that should go through the server and one that should not, and
@@ -146,8 +150,10 @@ behind; delete it if you do not need it.
 
 - **When enabled, it fails closed.** If a component crashes, LAN traffic stops rather than going
   out directly; procd restarts the component within seconds. Use `stop` when you want direct access.
-- **TCP over IPv4 only.** UDP into the tunnel is refused at once, so apps using QUIC fall back to
-  TCP. IPv6 from the LAN is refused too, so devices use IPv4. DNS to the router is unaffected.
+- **Only TCP goes through the server, over IPv4.** QUIC (UDP 443) is refused at once, so browsers
+  fall back to TCP through the server. Other UDP (video calls, games, VoIP) goes out directly, so
+  those services see your real address. IPv6 from the LAN is refused, so devices use IPv4. DNS to
+  the router is unaffected.
 - **Only LAN clients are proxied.** Traffic from the router itself (opkg, NTP, …) goes direct.
 - **Hardware flow offloading** (a GL.iNet firewall option) may bypass the tunnel. The service logs
   a warning when it is on; turn it off. Software offloading is fine.

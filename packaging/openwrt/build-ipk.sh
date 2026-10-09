@@ -22,6 +22,7 @@ for bin in cpxy-client cpxy-dns-split cpxy-tun2proxy; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
 chmod 0755 "$work/data/etc/init.d/cpxy" "$work/data/etc/uci-defaults/90-cpxy"
+chmod 0755 "$work/data/usr/libexec/cpxy/dns-split.sh" "$work/data/usr/libexec/cpxy/fw3-include.sh"
 chmod 0644 "$work/data/etc/config/cpxy" "$work/data/usr/libexec/cpxy/net.sh"
 
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/control/control.in" >"$work/control/control"

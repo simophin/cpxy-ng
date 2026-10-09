@@ -16,7 +16,8 @@ config cpxy 'main'
 
 	# LAN DNS: dnsmasq forwards public queries to dns_split. Set dns_split to 0 to leave dnsmasq alone.
 	option dns_split '1'
-	option dns_listen '127.0.0.1:5353'
+	# Not 5353: that is the mDNS port, already taken where avahi or umdns runs
+	option dns_listen '127.0.0.1:5335'
 
 	# REQUIRED when dns_split is 1. An answer from the upstream servers wins when all its addresses
 	# are in the CN region; otherwise the alternative servers' answer is used.
