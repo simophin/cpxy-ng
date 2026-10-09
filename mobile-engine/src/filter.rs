@@ -82,9 +82,11 @@ fn classify_v6(packet: &[u8]) -> Verdict {
         return Verdict::Drop;
     }
 
-    // IPv6 is not supported: the GeoIP data only covers IPv4.
+    // IPv6 is not supported: the GeoIP data only covers IPv4. "Administratively prohibited" is
+    // a hard error for both TCP and UDP sockets (unlike "no route", which UDP sockets ignore
+    // unless they ask for ICMP errors), so apps fall back to IPv4 at once.
     let quote = &packet[..packet.len().min(ICMPV6_MAX_QUOTE)];
-    Verdict::Reply(no_route_v6(dst, src, quote))
+    Verdict::Reply(prohibited_v6(dst, src, quote))
 }
 
 fn port_unreachable_v4(from: Ipv4Addr, to: Ipv4Addr, quote: &[u8]) -> Vec<u8> {
@@ -98,9 +100,9 @@ fn port_unreachable_v4(from: Ipv4Addr, to: Ipv4Addr, quote: &[u8]) -> Vec<u8> {
     out
 }
 
-fn no_route_v6(from: Ipv6Addr, to: Ipv6Addr, quote: &[u8]) -> Vec<u8> {
+fn prohibited_v6(from: Ipv6Addr, to: Ipv6Addr, quote: &[u8]) -> Vec<u8> {
     let builder = PacketBuilder::ipv6(from.octets(), to.octets(), TTL).icmpv6(
-        Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::NoRoute),
+        Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Prohibited),
     );
     let mut out = Vec::with_capacity(builder.size(quote.len()));
     builder
@@ -191,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn ipv6_gets_no_route() {
+    fn ipv6_gets_prohibited() {
         let dst: Ipv6Addr = "2001:db8::1".parse().unwrap();
         let packet = reply(classify(&tcp_syn_v6(dst)));
 
@@ -205,7 +207,7 @@ mod tests {
         };
         assert_eq!(
             icmp.icmp_type(),
-            Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::NoRoute)
+            Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Prohibited)
         );
     }
 
