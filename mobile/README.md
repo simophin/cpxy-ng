@@ -36,6 +36,17 @@ cargo install cargo-ndk --version 4.1.2 --locked
 sdkmanager "ndk;28.2.13676358"
 ```
 
+## CI and release APK
+
+The repository CI runs the engine unit tests, the Linux namespace TUN lab and
+`:shared:allTests` on pull requests, main and releases. On main and releases it also builds the
+release APK with the pinned NDK and cargo-ndk, then checks that `libmobile_engine.so` is packaged
+for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`.
+
+Download the `mobile-vpn-release.apk` artifact from the CI run, or the asset with the same name
+from a GitHub release. The distinct filename keeps it separate from the existing Android app.
+Release APKs currently use the checked-in debug signing key.
+
 ## Manual smoke check
 
 1. Install the debug APK, add a profile (server URL with key, upstream and alternative DNS) and
