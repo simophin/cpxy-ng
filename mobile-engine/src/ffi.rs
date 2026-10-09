@@ -2,8 +2,12 @@
 //! `src/bin/uniffi-bindgen.rs`). A thin wrapper over [`crate::start`].
 
 use crate::{EngineHandle, EventListener, OutboundEvent, TrafficStats};
+use cpxy_ng::geoip::find_country_code_v4;
+use geoip_data::GEOIP;
+use std::net::Ipv4Addr;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum EngineError {
@@ -24,6 +28,16 @@ pub struct ConnectionEvent {
     pub time_millis: u64,
     /// Set when connecting failed.
     pub error: Option<String>,
+    /// The ISO 3166-1 alpha-2 code of the country `host` is in, when known.
+    pub country_code: Option<String>,
+}
+
+fn country_code_of(host: &str) -> Option<String> {
+    let ip: Ipv4Addr = host.parse().ok()?;
+    find_country_code_v4(&ip, GEOIP)
+        .ok()
+        .flatten()
+        .map(str::to_owned)
 }
 
 impl From<OutboundEvent> for ConnectionEvent {
@@ -36,6 +50,7 @@ impl From<OutboundEvent> for ConnectionEvent {
                 delay_mills,
                 request_time_mills,
             } => Self {
+                country_code: country_code_of(&host),
                 host,
                 port,
                 outbound: outbound.into_owned(),
@@ -51,6 +66,7 @@ impl From<OutboundEvent> for ConnectionEvent {
                 request_time_mills,
                 error,
             } => Self {
+                country_code: country_code_of(&host),
                 host,
                 port,
                 outbound: outbound.into_owned(),
@@ -69,19 +85,28 @@ pub trait EngineListener: Send + Sync {
     fn on_connection(&self, event: ConnectionEvent);
 }
 
-struct ListenerAdapter(Arc<dyn EngineListener>);
+struct ListenerAdapter {
+    listener: Arc<dyn EngineListener>,
+    enabled: Arc<AtomicBool>,
+}
 
 impl EventListener for ListenerAdapter {
     fn on_outbound_event(&self, event: OutboundEvent) {
-        self.0.on_connection(event.into());
+        if self.enabled.load(Ordering::Relaxed) {
+            self.listener.on_connection(event.into());
+        }
     }
 }
 
 #[derive(uniffi::Object)]
-pub struct Engine(EngineHandle);
+pub struct Engine {
+    handle: EngineHandle,
+    events_enabled: Arc<AtomicBool>,
+}
 
 /// Starts the engine on `tun_fd`, which it takes ownership of and closes when stopped. Blocks
 /// while the DNS servers are set up, so do not call it on a UI thread. See [`crate::start`].
+/// `listener` is not called until [`Engine::set_events_enabled`] turns it on.
 #[uniffi::export]
 pub fn start_engine(
     tun_fd: i32,
@@ -96,8 +121,18 @@ pub fn start_engine(
     }
     // SAFETY: the caller hands over a TUN descriptor it no longer uses.
     let tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
-    crate::start(tun, &config_json, Arc::new(ListenerAdapter(listener)))
-        .map(|handle| Arc::new(Engine(handle)))
+    let events_enabled = Arc::new(AtomicBool::new(false));
+    let adapter = ListenerAdapter {
+        listener,
+        enabled: events_enabled.clone(),
+    };
+    crate::start(tun, &config_json, Arc::new(adapter))
+        .map(|handle| {
+            Arc::new(Engine {
+                handle,
+                events_enabled,
+            })
+        })
         .map_err(|e| EngineError::Failed {
             reason: format!("{e:#}"),
         })
@@ -108,11 +143,17 @@ impl Engine {
     /// Stops the engine and closes the TUN descriptor; blocks for up to a few seconds. Calling it
     /// again does nothing.
     pub fn stop(&self) {
-        self.0.stop();
+        self.handle.stop();
     }
 
     pub fn traffic(&self) -> TrafficStats {
-        self.0.traffic()
+        self.handle.traffic()
+    }
+
+    /// Whether connections are reported to the listener. Off at start, so nothing crosses the
+    /// FFI boundary while no one is watching.
+    pub fn set_events_enabled(&self, enabled: bool) {
+        self.events_enabled.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -137,7 +178,7 @@ mod tests {
     #[test]
     fn converts_outbound_events() {
         let event: ConnectionEvent = OutboundEvent::Error {
-            host: "1.2.3.4".into(),
+            host: "1.0.0.1".into(),
             port: 443,
             outbound: Cow::Borrowed("proxy"),
             delay_mills: 12,
@@ -148,14 +189,23 @@ mod tests {
         assert_eq!(
             event,
             ConnectionEvent {
-                host: "1.2.3.4".into(),
+                host: "1.0.0.1".into(),
                 port: 443,
                 outbound: "proxy".into(),
                 delay_millis: 12,
                 time_millis: 34,
                 error: Some("refused".into()),
+                country_code: Some("AU".into()),
             }
         );
+    }
+
+    #[test]
+    fn looks_up_country_codes() {
+        assert_eq!(country_code_of("1.0.1.1").as_deref(), Some("CN"));
+        assert_eq!(country_code_of("8.8.8.8").as_deref(), Some("US"));
+        assert_eq!(country_code_of("192.168.1.1"), None);
+        assert_eq!(country_code_of("example.com"), None);
     }
 
     #[test]

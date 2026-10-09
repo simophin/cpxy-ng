@@ -35,11 +35,12 @@ class CpxyVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // The engine calls block, so they run one at a time off the main thread. Only touch
-    // `engine` and `trafficJob` from here.
+    // `engine` and `monitorJob` from here.
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val engineDispatcher = Dispatchers.IO.limitedParallelism(1)
     private var engine: Engine? = null
-    private var trafficJob: Job? = null
+    /** Reports the traffic, and turns the connection events on while the UI wants them. */
+    private var monitorJob: Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_START) {
@@ -88,7 +89,10 @@ class CpxyVpnService : VpnService() {
         started.onSuccess { started ->
             engine = started
             controller.reportState(VpnState.Connected(profileId))
-            trafficJob = launch {
+            monitorJob = launch {
+                launch {
+                    controller.connectionsWanted.collect(started::setEventsEnabled)
+                }
                 while (isActive) {
                     val traffic = started.traffic()
                     controller.reportTraffic(Traffic(traffic.sent.toLong(), traffic.received.toLong()))
@@ -109,8 +113,8 @@ class CpxyVpnService : VpnService() {
     }
 
     private fun stopEngine() {
-        trafficJob?.cancel()
-        trafficJob = null
+        monitorJob?.cancel()
+        monitorJob = null
         engine?.let {
             it.stop()
             it.close()
@@ -163,6 +167,7 @@ class CpxyVpnService : VpnService() {
                     delayMillis = event.delayMillis.toLong(),
                     timeMillis = event.timeMillis.toLong(),
                     error = event.error,
+                    countryCode = event.countryCode,
                 )
             )
         }

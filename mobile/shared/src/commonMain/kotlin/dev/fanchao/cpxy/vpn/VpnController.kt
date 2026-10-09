@@ -1,5 +1,6 @@
 package dev.fanchao.cpxy.vpn
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface VpnState {
@@ -25,6 +26,8 @@ data class ConnectionEvent(
     val delayMillis: Long,
     val timeMillis: Long,
     val error: String?,
+    /** ISO 3166-1 alpha-2 code of the country [host] is in, when known. */
+    val countryCode: String?,
 )
 
 /** Starts and stops the VPN on the platform. */
@@ -32,8 +35,11 @@ interface VpnController {
     val state: StateFlow<VpnState>
     val traffic: StateFlow<Traffic>
 
-    /** The most recent connections, newest first. */
-    val connections: StateFlow<List<ConnectionEvent>>
+    /**
+     * Connections as the engine reports them, without history. The engine only reports them while
+     * this is collected.
+     */
+    val connections: Flow<ConnectionEvent>
 
     /** Asks for the VPN permission if needed, then connects. */
     suspend fun connect(profile: Profile)

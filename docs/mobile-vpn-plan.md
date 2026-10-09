@@ -114,8 +114,11 @@ tunnel.
   profiles in a preferences DataStore, and a `VpnController` interface that each platform
   implements; an interface rather than `expect`, so the UI takes it as a parameter), `androidApp`,
   and `iosApp/` (Xcode project with the app target and a PacketTunnel extension target).
-- Screens: profile list/edit (server URL, upstream and alternative DNS lists), connect/disconnect,
-  status, traffic and the recent connections with their outbound.
+- Screens: two bottom navigation tabs. "VPN": connect/disconnect, status, traffic and the profile
+  list/edit (server URL, upstream and alternative DNS lists). "Traffic": a log of the connections
+  made while it is shown, with their outbound and the country flag of the destination; it follows
+  the newest unless the user scrolls away, caps itself at about 5 MB, and is dropped on leaving the
+  tab, when the engine also stops reporting connections.
 - Android: `CpxyVpnService` (`VpnService`) as a foreground service (type `specialUse`, subtype
   `vpn`) with a notification and stop action; hands `ParcelFileDescriptor.detachFd()` to the
   engine. Engine calls run one at a time off the main thread. `AndroidVpnController` asks for the

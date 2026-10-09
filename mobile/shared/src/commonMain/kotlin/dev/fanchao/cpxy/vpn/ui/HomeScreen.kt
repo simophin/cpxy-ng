@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,6 +23,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -29,11 +33,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.vpn.ConnectionEvent
 import dev.fanchao.cpxy.vpn.Profile
 import dev.fanchao.cpxy.vpn.ProfileRepository
 import dev.fanchao.cpxy.vpn.StoredProfiles
@@ -42,6 +49,11 @@ import dev.fanchao.cpxy.vpn.VpnController
 import dev.fanchao.cpxy.vpn.VpnState
 import kotlinx.coroutines.launch
 
+private enum class Tab(val label: String, val title: String, val icon: ImageVector) {
+    Vpn("VPN", "CPXY VPN", Icons.Default.VpnKey),
+    Traffic("Traffic", "Traffic", Icons.AutoMirrored.Default.List),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -49,69 +61,92 @@ fun HomeScreen(
     controller: VpnController,
     onEditProfile: (profileId: String?) -> Unit,
 ) {
-    val stored by repository.profiles.collectAsState(StoredProfiles())
-    val state by controller.state.collectAsState()
-    val traffic by controller.traffic.collectAsState()
-    val connections by controller.connections.collectAsState()
-    val scope = rememberCoroutineScope()
+    var tab by rememberSaveable { mutableStateOf(Tab.Vpn) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("CPXY VPN") }) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { onEditProfile(null) }) {
-                Icon(Icons.Default.Add, contentDescription = "Add profile")
-            }
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding() + 88.dp,
-            ),
-        ) {
-            item {
-                StatusCard(
-                    state = state,
-                    traffic = traffic,
-                    stored = stored,
-                    onConnect = { profile -> scope.launch { controller.connect(profile) } },
-                    onDisconnect = controller::disconnect,
-                )
-            }
-
-            item { SectionTitle("Profiles") }
-            if (stored.profiles.isEmpty()) {
-                item {
-                    Text(
-                        "Add a profile with the + button.",
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
+        topBar = { TopAppBar(title = { Text(tab.title) }) },
+        bottomBar = {
+            NavigationBar {
+                for (item in Tab.entries) {
+                    NavigationBarItem(
+                        selected = tab == item,
+                        onClick = { tab = item },
+                        icon = { Icon(item.icon, contentDescription = null) },
+                        label = { Text(item.label) },
                     )
                 }
             }
-            items(stored.profiles, key = { it.id }) { profile ->
-                ListItem(
-                    modifier = Modifier.clickable { scope.launch { repository.select(profile.id) } },
-                    leadingContent = {
-                        RadioButton(
-                            selected = profile.id == stored.selectedId,
-                            onClick = { scope.launch { repository.select(profile.id) } },
-                        )
-                    },
-                    headlineContent = { Text(profile.name) },
-                    trailingContent = {
-                        IconButton(onClick = { onEditProfile(profile.id) }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit ${profile.name}")
-                        }
-                    },
+        },
+        floatingActionButton = {
+            if (tab == Tab.Vpn) {
+                FloatingActionButton(onClick = { onEditProfile(null) }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add profile")
+                }
+            }
+        },
+    ) { padding ->
+        when (tab) {
+            Tab.Vpn -> VpnTab(repository, controller, onEditProfile, padding)
+            Tab.Traffic -> TrafficScreen(controller, padding)
+        }
+    }
+}
+
+@Composable
+private fun VpnTab(
+    repository: ProfileRepository,
+    controller: VpnController,
+    onEditProfile: (profileId: String?) -> Unit,
+    padding: PaddingValues,
+) {
+    val stored by repository.profiles.collectAsState(StoredProfiles())
+    val state by controller.state.collectAsState()
+    val traffic by controller.traffic.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = padding.calculateTopPadding() + 8.dp,
+            bottom = padding.calculateBottomPadding() + 88.dp,
+        ),
+    ) {
+        item {
+            StatusCard(
+                state = state,
+                traffic = traffic,
+                stored = stored,
+                onConnect = { profile -> scope.launch { controller.connect(profile) } },
+                onDisconnect = controller::disconnect,
+            )
+        }
+
+        item { SectionTitle("Profiles") }
+        if (stored.profiles.isEmpty()) {
+            item {
+                Text(
+                    "Add a profile with the + button.",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
-
-            if (connections.isNotEmpty()) {
-                item { SectionTitle("Recent connections") }
-                items(connections) { ConnectionRow(it) }
-            }
+        }
+        items(stored.profiles, key = { it.id }) { profile ->
+            ListItem(
+                modifier = Modifier.clickable { scope.launch { repository.select(profile.id) } },
+                leadingContent = {
+                    RadioButton(
+                        selected = profile.id == stored.selectedId,
+                        onClick = { scope.launch { repository.select(profile.id) } },
+                    )
+                },
+                headlineContent = { Text(profile.name) },
+                trailingContent = {
+                    IconButton(onClick = { onEditProfile(profile.id) }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit ${profile.name}")
+                    }
+                },
+            )
         }
     }
 }
@@ -172,21 +207,6 @@ private fun SectionTitle(text: String) {
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-    )
-}
-
-@Composable
-private fun ConnectionRow(event: ConnectionEvent) {
-    val detail = event.error?.let { "${event.outbound} failed: $it" }
-        ?: "${event.outbound}, ${event.delayMillis} ms"
-    ListItem(
-        headlineContent = { Text("${event.host}:${event.port}") },
-        supportingContent = {
-            Text(
-                detail,
-                color = if (event.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
     )
 }
 

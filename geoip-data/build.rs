@@ -1,8 +1,8 @@
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
-const SOURCE_PATH: &str = "data/cn-geoip.dat";
-const EXPECTED_SHA256: &str = "76997024829ff7b43948f781c69fd8aa90f4ba1e3d3e3f6b84363fb68a6c8ed1";
+const SOURCE_PATH: &str = "data/geoip.dat";
+const EXPECTED_SHA256: &str = "150dba0a921e014d6284b4fdb14803aca9e585e6cad41022e9be0f07ee454683";
 
 fn main() {
     let manifest_dir = PathBuf::from(

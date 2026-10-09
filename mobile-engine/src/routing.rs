@@ -3,7 +3,7 @@ use client::protocol_config::Config as ServerConfig;
 use client::stats_server::OutboundEvent;
 use cpxy_ng::geoip::find_country_code_v4;
 use cpxy_ng::outbound::Outbound;
-use geoip_data::CN_GEOIP;
+use geoip_data::GEOIP;
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use tokio::sync::broadcast;
@@ -34,7 +34,7 @@ pub fn should_route_direct(ip: Ipv4Addr) -> bool {
     ip.is_private()
         || ip.is_loopback()
         || ip.is_link_local()
-        || matches!(find_country_code_v4(&ip, CN_GEOIP), Ok(Some("CN")))
+        || matches!(find_country_code_v4(&ip, GEOIP), Ok(Some("CN")))
 }
 
 #[cfg(test)]
@@ -56,8 +56,9 @@ mod tests {
 
     #[test]
     fn cn_addresses_go_direct() {
-        // AliDNS, DNSPod, 114DNS
-        for ip in ["223.5.5.5", "119.29.29.29", "114.114.114.114"] {
+        // AliDNS, Baidu DNS, 114DNS. Not DNSPod's 119.29.29.29: DB-IP places that anycast
+        // address in Singapore.
+        for ip in ["223.5.5.5", "180.76.76.76", "114.114.114.114"] {
             assert!(should_route_direct(ip.parse().unwrap()), "{ip}");
         }
     }
