@@ -102,9 +102,10 @@ pub fn start(
 pub fn start_router(
     tun: OwnedFd,
     server: client::protocol_config::Config,
+    mtu: u16,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
-    start_inner(tun, server, DEFAULT_MTU, listener, None)
+    start_inner(tun, server, mtu, listener, None)
 }
 
 fn start_inner(
