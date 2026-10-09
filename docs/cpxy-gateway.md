@@ -16,6 +16,9 @@ phone ── Tailscale ──► exit node (tailscale0)
 It uses the same packet engine and `dns_split` resolver as the OpenWrt package
 ([cpxy-router](cpxy-router.md)), and the same routing script.
 
+Setting up a new box? Follow the [step-by-step setup guide](cpxy-gateway-setup.md); this page is
+the reference.
+
 ## Before you start
 
 - A Debian 12 or 13 or Ubuntu 24.04 box, `amd64` or `arm64`, with systemd.
