@@ -5,8 +5,8 @@ use hickory_proto::op::{Edns, Message, MessageType, OpCode, ResponseCode};
 use hickory_proto::rr::RecordType;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, UdpSocket};
 
 /// The EDNS payload size we advertise, as recommended by DNS Flag Day 2020.
 const EDNS_PAYLOAD: u16 = 1232;
@@ -112,7 +112,7 @@ fn encode(response: &Message) -> anyhow::Result<Vec<u8>> {
 }
 
 /// Encodes a UDP reply, truncating it when it is larger than the client accepts.
-fn encode_udp(request: &Message, response: &Message) -> anyhow::Result<Vec<u8>> {
+pub fn encode_udp(request: &Message, response: &Message) -> anyhow::Result<Vec<u8>> {
     let bytes = encode(response)?;
     let limit = usize::from(request.max_payload().min(EDNS_PAYLOAD));
     if bytes.len() <= limit {
@@ -172,8 +172,9 @@ pub async fn serve_tcp(listener: TcpListener, handler: Arc<DnsSplitHandler>) -> 
     }
 }
 
-async fn serve_tcp_connection(
-    mut stream: TcpStream,
+/// Answers length-prefixed DNS queries on one TCP connection until it goes idle or closes.
+pub async fn serve_tcp_connection(
+    mut stream: impl AsyncRead + AsyncWrite + Unpin,
     handler: &DnsSplitHandler,
 ) -> anyhow::Result<()> {
     loop {
