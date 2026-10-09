@@ -1,7 +1,7 @@
 # Mobile VPN app (Android + iOS): plan
 
-Status: agreed plan, not started. Work through the phases in order and update this file as
-decisions change.
+Status: Phase 0 done (the `mobile-engine` crate and its Linux lab); Phase 1 next. Work through
+the phases in order and update this file as decisions change.
 
 ## Goal
 
@@ -36,8 +36,8 @@ Decisions already made:
 | `client::dns_split` (`Racer`, `DnsSplitHandler::handle`, `DnsCache::open_in_memory`) | Reused. `handle(&Message) -> Message` is transport-independent, so DNS packets read from the TUN are fed to it. Use the in-memory cache. |
 | `client::outbound` (`IPDivertOutbound`, `DirectOutbound`, `ProtocolOutbound`, `StatReportingOutbound`) | Reused. Compose them like `cn_outbound` but without the AI/Tailscale branches: private, loopback, link-local or CN → direct, else proxy. |
 | tun2proxy (TUN → SOCKS5) | Replaced by `ipstack`: each TCP flow from the TUN goes straight into the `Outbound`. |
-| Firewall rejects UDP 443; other UDP leaves via WAN | Done in the engine: UDP 443 is dropped (preferably answered with ICMP port unreachable), other UDP is relayed through direct sockets. |
-| IPv6 refused | Route `::/0` into the TUN and reject it. |
+| Firewall rejects UDP 443; other UDP leaves via WAN | Done in the engine: UDP 443 is answered with ICMP port unreachable, other UDP is relayed through direct sockets. |
+| IPv6 refused | Route `::/0` into the TUN; the engine answers with ICMPv6 administratively prohibited. |
 | Fail closed when the proxy dies | The TUN stays up while the engine runs; a proxy failure fails the connection, never sends it direct. |
 
 ### Avoiding routing loops
@@ -73,6 +73,16 @@ tunnel.
 - New workspace member at `mobile-engine/` (added to the root `Cargo.toml`), depending on `client`
   with the `dns-split` feature and on `ipstack`.
 - `crate-type = ["cdylib", "staticlib", "rlib"]`: `.so` for Android, xcframework for iOS.
+- Refusals are decided per packet in `filter.rs`, in front of ipstack, which cannot write raw
+  packets back. UDP 443 and TCP 853 get ICMP port unreachable. IPv6 gets ICMPv6
+  *administratively prohibited*, not *no route*: Linux UDP sockets ignore the soft no-route error
+  unless they ask for ICMP errors, so UDP apps would wait for a timeout. ICMP, multicast and
+  broadcast are dropped silently.
+- Idle timeouts: TCP flows 1 hour (ipstack's 1-minute default would cut idle push channels), UDP
+  flows 60 seconds, DNS flows 10 seconds.
+- Rust API (Phase 0): `mobile_engine::start(OwnedFd, &str, Arc<dyn EventListener>) ->
+  Result<EngineHandle>`, `EngineHandle::stop()` and `EngineHandle::traffic()`. `start` blocks while
+  the DNS servers are set up. Phase 1 wraps it in UniFFI.
 - FFI through **UniFFI**, generating both the Kotlin and the Swift bindings. Minimal surface:
   - `start(tun_fd: i32, config_json: String, listener: EventListener) -> EngineHandle`
   - `EngineHandle.stop()`
@@ -83,8 +93,8 @@ tunnel.
   `tcp://`, `tls://`, `https://`, `?ip=`).
 - TUN parameters (set by the platform, mirrored in the engine): address `10.233.0.1/30`, DNS server
   `10.233.0.2` (virtual, answered by the engine), routes `0.0.0.0/0` and `::/0`, MTU 1500.
-- Keep the tokio runtime small (current-thread or 2 workers): the iOS extension has a ~50 MB memory
-  limit.
+- Keep the tokio runtime small: 2 workers, since the iOS extension has a ~50 MB memory limit.
+  It must be multi-threaded: ipstack's TCP streams block in place when dropped.
 - The engine resolves the cpxy server hostname with the system resolver, which works because the
   engine is outside the tunnel. TUN flows arrive as IPs, so no extra resolver is needed for routing.
 - Private DNS (Android DoT): reject TCP 853 so Android falls back to plain DNS, which the engine
@@ -107,7 +117,7 @@ tunnel.
 
 ## Phases
 
-### Phase 0: engine, tested on Linux
+### Phase 0: engine, tested on Linux (done)
 
 - `mobile-engine` crate: ipstack loop, TCP → outbound, DNS hook, UDP 443 drop, UDP relay, IPv6
   reject.
@@ -115,6 +125,19 @@ tunnel.
 - A Linux integration test: open a real TUN in a network namespace, run the engine against a local
   `server` binary, and check CN-direct, proxied TCP, DNS split, QUIC refusal and direct UDP. Model it
   on `packaging/openwrt/test/lab.sh`. This is the main correctness gate and needs no phone.
+
+Done: `mobile-engine/`, with unit tests for the config, the packet filter and the routing decision,
+and `mobile-engine/test/tun-lab.sh`. The lab runs `mobile-engine-linux` (creates a TUN device and
+runs the engine on it) and the release `server`:
+
+```sh
+cargo build --release -p server -p mobile-engine
+mkdir -p bins && cp target/release/server bins/cpxy-server && cp target/release/mobile-engine-linux bins/
+mobile-engine/test/tun-lab.sh bins
+```
+
+Besides the checks above it covers DNS over TCP, TCP 853 and IPv6 refusals, 16 parallel 4 MB
+downloads, fail-closed when the server dies, and a clean stop. It is not in CI yet (Phase 2).
 
 ### Phase 1: Android MVP
 
@@ -151,8 +174,9 @@ New jobs in `.github/workflows/ci.yml`; existing jobs unchanged.
 
 ## Risks to watch
 
-1. iOS extension memory limit (~50 MB): measure engine RSS under load in Phase 0.
+1. iOS extension memory limit (~50 MB): the lab measured a peak RSS of 12 MB on Linux (release
+   build, 16 parallel downloads) and fails above 50 MB. Re-measure on iOS.
 2. UDP relay: NAT table size and idle timeouts; load-test with a video call.
-3. QUIC fallback speed: dropping UDP 443 silently makes browsers wait for a timeout; prefer an ICMP
-   port-unreachable reply if ipstack allows writing raw packets back.
+3. QUIC fallback speed: resolved. UDP 443 gets an ICMP port-unreachable reply, written to the TUN
+   by the engine's packet filter, so browsers fall back at once.
 4. Android Private DNS bypassing the virtual DNS server (mitigated by rejecting TCP 853).
