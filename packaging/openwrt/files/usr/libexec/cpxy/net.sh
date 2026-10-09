@@ -25,13 +25,15 @@ _cpxy_flush_rules() {
 }
 
 # cpxy_net_up <lan device>...
+# Also run on every reload (a config change, a LAN interface coming up) while tun2proxy keeps
+# running, so an existing cpxy0 is kept: a new device would leave tun2proxy attached to the old one.
 cpxy_net_up() {
 	local dev fam
 
-	# Idempotent: start from a clean slate
-	cpxy_net_down_routing
+	# Idempotent: rules and routes start from a clean slate
+	_cpxy_net_down_rules
 
-	ip tuntap add dev "$CPXY_TUN" mode tun || return 1
+	ip link show "$CPXY_TUN" >/dev/null 2>&1 || ip tuntap add dev "$CPXY_TUN" mode tun || return 1
 	ip link set "$CPXY_TUN" up || return 1
 
 	for fam in -4 -6; do
@@ -45,13 +47,17 @@ cpxy_net_up() {
 	ip -4 route replace default dev "$CPXY_TUN" table "$CPXY_TABLE" metric 10 || return 1
 }
 
-cpxy_net_down_routing() {
+_cpxy_net_down_rules() {
 	local fam
 	for fam in -4 -6; do
 		_cpxy_flush_rules "$fam" "$CPXY_PRIO_MAIN"
 		_cpxy_flush_rules "$fam" "$CPXY_PRIO_TUN"
 		ip $fam route flush table "$CPXY_TABLE" 2>/dev/null
 	done
+}
+
+cpxy_net_down_routing() {
+	_cpxy_net_down_rules
 	ip link del "$CPXY_TUN" 2>/dev/null
 	return 0
 }

@@ -52,7 +52,7 @@ start_service() {
 	config_get socks5_listen main socks5_listen 127.0.0.1:1080
 	config_get api_listen main api_listen 127.0.0.1:3010
 	config_get_bool dns_split main dns_split 1
-	config_get dns_listen main dns_listen 127.0.0.1:5353
+	config_get dns_listen main dns_listen 127.0.0.1:5335
 	config_get_bool dns_cache main dns_cache 1
 
 	if [ "$dns_split" = 1 ]; then
@@ -95,9 +95,10 @@ start_service() {
 	cpxy_net_up $LAN_DEVS || { _log "could not set up policy routing"; cpxy_net_down_routing; return 1; }
 
 	# --- DNS (dns_split behind dnsmasq) ---
+	# The wrapper hands dnsmasq to dns_split once it listens, and takes it back when it exits
 	if [ "$dns_split" = 1 ]; then
 		procd_open_instance dns
-		procd_set_param command $BIN/cpxy-dns-split --listen "$dns_listen"
+		procd_set_param command /usr/libexec/cpxy/dns-split.sh "$dns_listen" $BIN/cpxy-dns-split --listen "$dns_listen"
 		config_list_foreach main dns_upstream _add_dns_upstream
 		config_list_foreach main dns_alternative _add_dns_alternative
 		if [ "$dns_cache" = 1 ]; then
@@ -111,8 +112,6 @@ start_service() {
 		procd_set_param stdout 1
 		procd_set_param stderr 1
 		procd_close_instance
-
-		cpxy_dnsmasq_up "$dns_listen"
 	fi
 }
 

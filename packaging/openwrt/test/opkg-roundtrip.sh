@@ -28,12 +28,15 @@ opkg install /pkg.ipk
 
 # What the install added
 for f in /usr/bin/cpxy-client /usr/bin/cpxy-dns-split /usr/bin/cpxy-tun2proxy \
-	/etc/init.d/cpxy /etc/config/cpxy /usr/libexec/cpxy/net.sh \
+	/etc/init.d/cpxy /etc/config/cpxy /usr/libexec/cpxy/net.sh /usr/libexec/cpxy/dns-split.sh \
+	/usr/libexec/cpxy/fw3-include.sh \
 	/usr/share/nftables.d/chain-pre/forward/10-cpxy.nft; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }
 done
 [ "$(uci get firewall.cpxy_zone.name)" = cpxy ] || { echo "FAIL: firewall zone not added"; exit 1; }
 [ "$(uci get firewall.cpxy_fwd.dest)" = cpxy ] || { echo "FAIL: forwarding not added"; exit 1; }
+# fw4 reads the nftables snippet; the iptables include is for fw3 only
+uci -q get firewall.cpxy_udp && { echo "FAIL: fw3 include added on fw4"; exit 1; }
 [ -e /etc/uci-defaults/90-cpxy ] && { echo "FAIL: uci-defaults script was not consumed"; exit 1; }
 ls /etc/rc.d | grep -q cpxy || { echo "FAIL: service not enabled"; exit 1; }
 echo "install ok"

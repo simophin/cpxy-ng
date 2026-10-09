@@ -6,7 +6,7 @@ One package, `cpxy-router`, runs three programs on the router and wires them int
 |---|---|---|
 | `client_cn` | `/usr/bin/cpxy-client` | SOCKS5 proxy on `127.0.0.1:1080`; CN destinations go direct, the rest through your cpxy server |
 | tun2proxy (built by CI, pinned) | `/usr/bin/cpxy-tun2proxy` | Turns routed LAN TCP into SOCKS5 connections |
-| `dns_split` | `/usr/bin/cpxy-dns-split` | DNS resolver for the LAN, behind dnsmasq on `127.0.0.1:5353` |
+| `dns_split` | `/usr/bin/cpxy-dns-split` | DNS resolver for the LAN, behind dnsmasq on `127.0.0.1:5335` |
 
 ```text
 LAN device ── DNS ──► dnsmasq (DHCP, local names) ──► dns_split
@@ -14,8 +14,9 @@ LAN device ── DNS ──► dnsmasq (DHCP, local names) ──► dns_split
                       ► tun2proxy ► client_cn (SOCKS5) ► cpxy server  (CN traffic: direct)
 ```
 
-Targets OpenWrt 24.10 (opkg, fw4/nftables, procd): built for `aarch64_cortex-a53` (GL-MT3000 on
-the `-op24` firmware) and `x86_64` (VMs). Check yours with `opkg print-architecture`.
+Targets OpenWrt 24.10 (opkg, fw4/nftables, procd) and GL.iNet's stock 4.x firmware (OpenWrt
+21.02-based, fw3/iptables): built for `aarch64_cortex-a53` (GL-MT3000) and `x86_64` (VMs). Check
+yours with `opkg print-architecture`.
 
 ## Install
 
@@ -50,9 +51,10 @@ Change settings with `uci` (see `/etc/config/cpxy`), then `/etc/init.d/cpxy rest
 | Where | Change | Removed by |
 |---|---|---|
 | Package files | binaries, `/etc/init.d/cpxy`, `/usr/libexec/cpxy/`, `/etc/config/cpxy`, an nftables snippet in `/usr/share/nftables.d/chain-pre/forward/` | `opkg remove` |
-| `/etc/config/firewall` | zone `cpxy_zone` (device `cpxy0`) and forwarding `cpxy_fwd` (`lan` → `cpxy`) | `opkg remove` (prerm) |
+| `/etc/config/firewall` | zone `cpxy_zone` (device `cpxy0`) and forwarding `cpxy_fwd` (`lan` → `cpxy`); on fw3 only, include `cpxy_udp` (`/usr/libexec/cpxy/fw3-include.sh`) | `opkg remove` (prerm) |
+| iptables (fw3 only) | `FORWARD -o cpxy0 -p udp -j REJECT`, added by the include on every firewall start and reload | `opkg remove` (prerm) |
 | Kernel | the `cpxy0` TUN device, `ip rule` priorities 9100/9101 (v4 and v6) and routing table 100 | `stop`, `opkg remove` |
-| dnsmasq | a drop-in (`no-resolv`, `server=127.0.0.1#5353`) in dnsmasq's runtime config directory under `/tmp` | `stop`, `opkg remove`, reboot |
+| dnsmasq | a drop-in (`no-resolv`, `server=127.0.0.1#5335`) in dnsmasq's runtime config directory under `/tmp`, present only while dns_split listens | dns_split exiting, `stop`, `opkg remove`, reboot |
 
 `/etc/config/dhcp`, `/etc/config/network` and the existing `lan → wan` forwarding are never edited.
 While the service stops, the LAN goes direct again, as before the install. `uci commit` rewrites
@@ -73,6 +75,11 @@ happens on any firewall edit, including LuCI's.
 - **DNS.** dnsmasq keeps DHCP and local names; public lookups go to dns_split, which prefers the
   `dns_upstream` answer when all addresses are in the CN region and otherwise uses `dns_alternative`.
   If `dhcp.@dnsmasq[0].server` is set, dnsmasq may still use those servers; the service logs a warning.
+  The dns instance runs dns_split under `/usr/libexec/cpxy/dns-split.sh`, which adds the dnsmasq
+  drop-in once dns_split listens on UDP and TCP and removes it when dns_split exits. Unlike TCP,
+  DNS fails open: while dns_split is down, dnsmasq uses its usual servers again.
+- **Firewall backends.** fw4 includes the nftables snippet itself. fw3 does not read it, so on fw3
+  the package registers an iptables include doing the same. The zone and forwarding work on both.
 - **Flow offloading.** Software offload does not touch the TUN path. Hardware offload (a GL.iNet
   option) may; the service logs a warning when it is on.
 
@@ -85,11 +92,16 @@ packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container
 packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
 
+# The init script's commands (stubbed procd), and the dnsmasq hand-over around dns_split
+packaging/openwrt/test/init-dryrun.sh out/*.ipk
+packaging/openwrt/test/dns-handover.sh out/*.ipk
+
 # Routing and fail-closed behaviour with real binaries in network namespaces (no root needed)
 packaging/openwrt/test/lab.sh bins
 ```
 
 `lab.sh` needs the binaries named `cpxy-client`, `cpxy-server` (the cpxy server) and `cpxy-tun2proxy`
 for the host architecture, plus `iproute2`, `nft`, `curl` and `python3`. `opkg-roundtrip.sh` needs
-podman or docker. Neither runs the real fw4, dnsmasq or procd, so the init script, the dnsmasq
-drop-in and fw4's handling of the zone and snippet are only verified on a router.
+podman or docker. None of them runs the real fw3/fw4, dnsmasq or procd, so the init script, the
+dnsmasq drop-in and the firewall's handling of the zone, snippet and include are only verified on a
+router.

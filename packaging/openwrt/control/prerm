@@ -7,7 +7,12 @@ if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
 	uci -q batch <<UCI
 delete firewall.cpxy_fwd
 delete firewall.cpxy_zone
+delete firewall.cpxy_udp
 commit firewall
 UCI
+	# The fw3 include's rule lives on in iptables after its include is gone
+	if command -v iptables >/dev/null; then
+		while iptables -D FORWARD -o cpxy0 -p udp -j REJECT 2>/dev/null; do :; done
+	fi
 fi
 exit 0

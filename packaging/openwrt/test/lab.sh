@@ -120,6 +120,12 @@ mark; check "LAN reaches the web server through the proxy" fetch
 got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "request came through cpxy, not the router WAN (web server saw: $got)"
 else fail "request did not go through the proxy (web server saw: '${got}')"; fi
+# A reload runs cpxy_net_up again while tun2proxy keeps running; it must stay attached to cpxy0
+in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_up lan0r"
+mark; check "reload: LAN still reaches the web server through the proxy" fetch
+got="$(seen)"
+if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "reload: still through cpxy"
+else fail "reload: request did not go through the proxy (web server saw: '${got}')"; fi
 mark; check "router's own traffic still goes out WAN" in_router curl -sS --max-time 5 --noproxy '*' "$URL"
 expect_seen "router traffic is not captured" 192.0.2.2
 check "LAN can still reach the router itself" in_lan ping -c1 -W2 192.168.8.1

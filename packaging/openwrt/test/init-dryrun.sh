@@ -72,12 +72,13 @@ want "instance tun"
 want "set command /usr/bin/cpxy-tun2proxy --proxy socks5://127.0.0.1:1080 --tun cpxy0 --dns direct --exit-on-fatal-error"
 want "net_up br-lan"
 want "instance dns"
-want "set command /usr/bin/cpxy-dns-split --listen 127.0.0.1:5353"
+want "set command /usr/libexec/cpxy/dns-split.sh 127.0.0.1:5335 /usr/bin/cpxy-dns-split --listen 127.0.0.1:5335"
 want "append command --upstream 192.0.2.20"
 want "append command --upstream tcp://192.0.2.21:53"
 want "append command --alternative https://192.0.2.30/dns-query"
 want "append command --cache-db /tmp/cpxy/dns-cache.sqlite"
-want "dnsmasq_up 127.0.0.1:5353"
+# dnsmasq is handed over by the wrapper of the dns instance once dns_split listens, not by start_service
+grep -qF "dnsmasq_up" "$LOG" && { echo "FAIL: start_service pointed dnsmasq at dns_split before it runs"; exit 1; }
 # The key must only travel by environment
 grep -F "s3cret" "$LOG" | grep -vF "set env SERVER=" && { echo "FAIL: the key appears outside the environment"; exit 1; }
 echo "dry run ok"
