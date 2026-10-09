@@ -11,12 +11,16 @@
 
 mod config;
 mod dns;
+mod ffi;
 mod filter;
 mod routing;
 mod tun;
 
 pub use client::stats_server::OutboundEvent;
 pub use config::{Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_PREFIX_LEN};
+pub use ffi::{ConnectionEvent, Engine, EngineError, EngineListener, start_engine};
+
+uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
@@ -50,7 +54,7 @@ pub trait EventListener: Send + Sync {
     fn on_outbound_event(&self, event: OutboundEvent);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, uniffi::Record)]
 pub struct TrafficStats {
     /// IP bytes from the device into the tunnel.
     pub sent: u64,
