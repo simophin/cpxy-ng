@@ -9,7 +9,7 @@ on:
   release:
     types: [published]
 
-# PRs only run unit tests; the per-platform builds run on main and releases.
+# PRs run tests, including the mobile TUN lab; APK and per-platform builds run on main and releases.
 # PR runs are cancelled when superseded. Everything else shares a single
 # group so only one build runs at a time (a newer pending run replaces an
 # older pending one, but a running build is never cancelled).
@@ -93,6 +93,127 @@ jobs:
         with:
           name: android-app-release.apk
           path: client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk
+
+  build_mobile_vpn:
+    name: Build mobile VPN APK
+    if: github.event_name != 'pull_request'
+    needs: [test_mobile_engine, test_mobile_shared]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle files
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install all the required targets
+        run: >
+          rustup target add
+          aarch64-linux-android
+          armv7-linux-androideabi
+          x86_64-linux-android
+          i686-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mobile-android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-ndk
+        run: cargo binstall cargo-ndk --version 4.1.2 --locked
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pinned Android NDK
+        run: >
+          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "ndk;28.2.13676358"
+
+      - name: Build APK and Gradle-owned Rust libraries
+        run: ./gradlew :androidApp:assembleRelease
+        working-directory: mobile
+
+      - name: Inspect packaged native libraries
+        run: |
+          unzip -Z1 mobile/androidApp/build/outputs/apk/release/androidApp-release.apk \
+            | grep '^lib/.*/libmobile_engine\.so$' \
+            | sort \
+            | diff -u - <(printf '%s\n' \
+                lib/arm64-v8a/libmobile_engine.so \
+                lib/armeabi-v7a/libmobile_engine.so \
+                lib/x86/libmobile_engine.so \
+                lib/x86_64/libmobile_engine.so)
+
+      - name: Name VPN APK for release upload
+        run: cp mobile/androidApp/build/outputs/apk/release/androidApp-release.apk mobile-vpn-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: mobile-vpn-release.apk
+          path: mobile-vpn-release.apk
+          if-no-files-found: error
+
+  test_mobile_engine:
+    name: Test mobile engine and TUN routing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mobile-engine
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Test engine
+        run: cargo test --locked -p mobile-engine
+      - name: Build Linux lab executables
+        run: cargo build --release --locked -p server -p mobile-engine
+      - name: Prepare namespace lab
+        run: |
+          sudo apt-get install -y --no-install-recommends iproute2 curl python3
+          # Ubuntu runners restrict unprivileged user namespaces by default.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          mkdir -p bins
+          cp target/release/server bins/cpxy-server
+          cp target/release/mobile-engine-linux bins/
+      - name: Test TUN routing, DNS split, refusals and fail-closed behaviour
+        run: mobile-engine/test/tun-lab.sh bins
+
+  test_mobile_shared:
+    name: Test mobile shared UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache Gradle files
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+      - name: Run shared tests
+        run: ./gradlew :shared:allTests
+        working-directory: mobile
 
   build_executables:
     name: Build executables
@@ -294,6 +415,9 @@ jobs:
       contents: write
     needs:
       - build_android_app
+      - build_mobile_vpn
+      - test_mobile_engine
+      - test_mobile_shared
       - build_executables
       - build_openwrt_package
       - test

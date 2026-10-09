@@ -1,8 +1,7 @@
 # Mobile VPN app (Android + iOS): plan
 
-Status: Phase 0 (the `mobile-engine` crate and its Linux lab) and Phase 1 (the Android app in
-`mobile/`) done; Phase 2 next. Work through the phases in order and update this file as decisions
-change.
+Status: Phases 0–2 (engine, Android MVP and APK CI) done; Phase 3 (iOS) next. Work through the
+phases in order and update this file as decisions change.
 
 ## Goal
 
@@ -149,7 +148,7 @@ mobile-engine/test/tun-lab.sh bins
 ```
 
 Besides the checks above it covers DNS over TCP, TCP 853 and IPv6 refusals, 16 parallel 4 MB
-downloads, fail-closed when the server dies, and a clean stop. It is not in CI yet (Phase 2).
+downloads, fail-closed when the server dies, and a clean stop. It runs in CI on pull requests, main and releases (Phase 2).
 
 ### Phase 1: Android MVP (done)
 
@@ -170,7 +169,7 @@ removed `tun0` and the foreground service, also with a flow open. The run found 
 leak fixed in `stop` above. Still to do on a physical phone: a CN and a non-CN site in a browser
 with the real server, and the public IP.
 
-### Phase 2: CI for the APK
+### Phase 2: CI for the APK (done)
 
 New jobs in `.github/workflows/ci.yml`; existing jobs unchanged.
 
@@ -182,6 +181,20 @@ New jobs in `.github/workflows/ci.yml`; existing jobs unchanged.
   targets; generating the bindings also builds the engine for the host.
 - Signing: start with the checked-in debug keystore (`mobile/debug.keystore`, already used by the
   release build); move to a release keystore from GitHub secrets later.
+
+Done: `.github/workflows/ci.yml` now has `test_mobile_engine` (unit tests and the real-TUN
+namespace lab), `test_mobile_shared` (`:shared:allTests`) and `build_mobile_vpn` (release APK on
+main and releases, after both test jobs pass). The APK job installs the four Rust targets, pinned
+NDK and cargo-ndk, checks the packaged engine library for all four ABIs and uploads
+`mobile-vpn-release.apk`. The distinct asset filename keeps it separate from the existing app's
+`androidApp-release.apk`. `release-upload` depends on the new build and test jobs. Existing jobs
+are unchanged.
+
+Validation: actionlint accepted the workflow; all 15 engine tests and 9 shared JVM tests passed;
+the release Linux TUN lab passed (peak engine RSS 11 MB); `:androidApp:assembleRelease` passed
+and the exact CI inspection confirmed all four engine libraries in the APK. The inspection also
+rejected a fixture missing an ABI. Signing still uses the checked-in debug keystore; switching to
+a release key in GitHub secrets remains later work.
 
 ### Phase 3: iOS
 
