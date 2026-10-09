@@ -6,9 +6,9 @@
 #   inet: a cpxy server on 192.0.2.1:8443 and a web server on 93.184.216.34:8000
 #
 # The router mimics OpenWrt: strict rp_filter, forward policy drop, and the package's real
-# routing code (net.sh), tun2proxy wrapper and nftables snippet. It does not run fw4 or dnsmasq.
+# routing code (net.sh), native packet engine and nftables snippet. It does not run fw4 or dnsmasq.
 #
-# usage: lab.sh <dir with cpxy-client, cpxy-server and cpxy-tun2proxy>
+# usage: lab.sh <dir with cpxy-router and cpxy-server>
 set -u
 
 if [ -z "${CPXY_LAB_INNER:-}" ]; then
@@ -79,8 +79,11 @@ check "router firewall loads" in_router nft -f "$WORK/fw.nft"
 
 # --- Internet side ---
 mkdir "$WORK/www" && echo hello >"$WORK/www/index.html"
-bg in_inet "$BIN/cpxy-server" --key lab 192.0.2.1:8443 2>"$WORK/server.log"
+bg ip netns exec inet "$BIN/cpxy-server" --key lab 192.0.2.1:8443 >"$WORK/server.log" 2>&1
+SERVER_PID=$!
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 93.184.216.34 2>"$WORK/web.log")
+in_inet ip addr add 114.114.114.114/32 dev lo
+(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 114.114.114.114 2>"$WORK/direct.log")
 # UDP echo on 443 and 9999: replies with the source address it saw
 bg in_inet python3 -c '
 import selectors, socket
@@ -112,13 +115,10 @@ mark; check "baseline: LAN reaches the web server directly" fetch
 expect_seen "baseline: request arrives from the router's WAN address" 192.0.2.2
 
 # --- Start the service pieces exactly as the init script does ---
-bg in_router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-client" --socks5-proxy-listen 127.0.0.1:1080 \
-	--api-listen 127.0.0.1:3010 --dns-server 192.0.2.1 2>"$WORK/client.log"
 in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_up lan0r"
 check "policy routing installs" in_router ip rule show
-# Not via in_router: `ip netns exec` execs, so $! is tun2proxy itself (pgrep would also match
-# processes outside the lab)
-bg ip netns exec router "$BIN/cpxy-tun2proxy" --proxy socks5://127.0.0.1:1080 --tun cpxy0 --dns direct --exit-on-fatal-error 2>"$WORK/tun.log"
+# ip netns exec execs, so $! is the native worker itself.
+bg ip netns exec router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun cpxy0 >"$WORK/tun.log" 2>&1
 TUN_PID=$!
 sleep 2
 
@@ -130,7 +130,7 @@ mark; check "LAN reaches the web server through the proxy" fetch
 got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "request came through cpxy, not the router WAN (web server saw: $got)"
 else fail "request did not go through the proxy (web server saw: '${got}')"; fi
-# A reload runs cpxy_net_up again while tun2proxy keeps running; it must stay attached to cpxy0
+# A reload runs cpxy_net_up again while native worker keeps running; it must stay attached to cpxy0
 in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_up lan0r"
 mark; check "reload: LAN still reaches the web server through the proxy" fetch
 got="$(seen)"
@@ -156,10 +156,30 @@ got="$(udp_probe 9999)"
 [ "$got" = "reply from 192.0.2.2" ] && pass "other UDP goes out the WAN directly ($got)" ||
 	fail "UDP 9999 did not go out the WAN directly (got: $got)"
 
-# --- Fail closed: tun2proxy dies ---
+# The shared regional policy opens direct TCP sockets from the router.
+check "local-region TCP is reachable" in_lan curl -sS --max-time 5 --noproxy '*' http://114.114.114.114:8000/index.html
+grep -q '^192.0.2.2 ' "$WORK/direct.log" && pass "local-region TCP goes direct" || fail "local-region TCP was not direct"
+
+# --- Fail closed: native worker dies ---
 kill "$TUN_PID"; sleep 1
-mark; check_not "tun2proxy down: LAN traffic is refused" fetch
-expect_not_direct "tun2proxy down: nothing leaked via the WAN"
+mark; check_not "native worker down: LAN traffic is refused" fetch
+expect_not_direct "native worker down: nothing leaked via the WAN"
+
+# The persistent TUN survives worker exit and can be attached again without redoing routes.
+check "worker exit preserves the TUN device" in_router ip link show cpxy0
+bg ip netns exec router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun cpxy0 >>"$WORK/tun.log" 2>&1
+TUN_PID=$!
+sleep 1
+mark; check "worker restart restores proxied TCP" fetch
+expect_not_direct "worker restart still uses cpxy"
+
+kill "$SERVER_PID"; sleep 0.5
+mark; check_not "server down: non-local TCP fails closed" fetch
+expect_not_direct "server down: no direct fallback"
+check "server down: local-region TCP still works" in_lan curl -sS --max-time 5 --noproxy '*' http://114.114.114.114:8000/index.html
+kill -TERM "$TUN_PID"
+if wait "$TUN_PID"; then pass "worker stops cleanly"; else fail "worker stop returned an error"; fi
+check_not "worker never panicked" grep -m3 panicked "$WORK/tun.log"
 
 # --- Stop: the original setup is back ---
 in_router sh -c ". '$PKG/usr/libexec/cpxy/net.sh'; cpxy_net_down_routing"
@@ -172,6 +192,6 @@ if [ "$FAILED" = 0 ]; then
 	echo "lab passed"
 else
 	echo "lab FAILED"
-	for f in client tun server; do echo "== $f.log"; tail -n 15 "$WORK/$f.log" 2>/dev/null; done
+	for f in tun server; do echo "== $f.log"; tail -n 15 "$WORK/$f.log" 2>/dev/null; done
 fi
 exit "$FAILED"

@@ -183,7 +183,7 @@ jobs:
         run: cargo build --release --locked -p server -p mobile-engine
       - name: Prepare namespace lab
         run: |
-          sudo apt-get install -y --no-install-recommends iproute2 curl python3
+          sudo apt-get install -y --no-install-recommends iproute2 nftables curl python3
           # Ubuntu runners restrict unprivileged user namespaces by default.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           mkdir -p bins
@@ -191,6 +191,10 @@ jobs:
           cp target/release/mobile-engine-linux bins/
       - name: Test TUN routing, DNS split, refusals and fail-closed behaviour
         run: mobile-engine/test/tun-lab.sh bins
+      - name: Test native OpenWrt routing
+        run: |
+          cp target/release/cpxy-router bins/
+          packaging/openwrt/test/lab.sh bins
 
   test_mobile_shared:
     name: Test mobile shared UI
@@ -282,7 +286,7 @@ jobs:
           name: executables-${{ matrix.target.rust }}
           path: artifacts
 
-  # tun2proxy has no musl build for aarch64, and OpenWrt wants a static binary, so build it here.
+  # Build the shared packet engine as a static native router client.
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
@@ -297,8 +301,6 @@ jobs:
           - rust: x86_64-unknown-linux-musl
             opkg_arch: x86_64
     runs-on: ubuntu-latest
-    env:
-      TUN2PROXY_VERSION: 0.8.4
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust target
@@ -323,18 +325,8 @@ jobs:
       - name: Make cpxy executables executable
         run: chmod +x executables/*
 
-      # Pinned by version and built from the crate's own Cargo.lock. Extracted outside the
-      # checkout, otherwise cargo treats it as an undeclared member of our workspace.
-      - name: Build tun2proxy ${{ env.TUN2PROXY_VERSION }}
-        run: |
-          mkdir "$RUNNER_TEMP/tun2proxy"
-          curl -fsSL "https://crates.io/api/v1/crates/tun2proxy/${TUN2PROXY_VERSION}/download" \
-            | tar -xz -C "$RUNNER_TEMP/tun2proxy" --strip-components=1
-          cd "$RUNNER_TEMP/tun2proxy"
-          cross build --release --locked --target ${{ matrix.target.rust }} \
-            --no-default-features --bin tun2proxy-bin \
-            --config profile.release.strip=true --config profile.release.lto=true \
-            --config profile.release.opt-level='"s"'
+      - name: Build native router client
+        run: cross build --release --locked --target ${{ matrix.target.rust }} -p mobile-engine --bin cpxy-router
 
       - name: Build package
         run: |
@@ -344,9 +336,8 @@ jobs:
             version="0.0.0-git.$(git rev-parse --short HEAD)"
           fi
           mkdir -p bins
-          cp executables/client_cn-${{ matrix.target.rust }} bins/cpxy-client
           cp executables/dns_split-${{ matrix.target.rust }} bins/cpxy-dns-split
-          cp "$RUNNER_TEMP"/tun2proxy/target/${{ matrix.target.rust }}/release/tun2proxy-bin bins/cpxy-tun2proxy
+          cp target/${{ matrix.target.rust }}/release/cpxy-router bins/cpxy-router
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "$version" bins openwrt-package
           ls -l openwrt-package bins
 
@@ -387,7 +378,7 @@ jobs:
       - name: Build package from stand-in binaries and test install and removal
         run: |
           mkdir bins
-          for b in cpxy-client cpxy-dns-split cpxy-tun2proxy; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
+          for b in cpxy-router cpxy-dns-split; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
           chmod +x bins/*
           packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
           packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk

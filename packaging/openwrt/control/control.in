@@ -4,6 +4,6 @@ Depends: ip-full, kmod-tun
 Section: net
 Architecture: @ARCH@
 Maintainer: cpxy-ng
-Description: cpxy proxy for the LAN: client_cn, tun2proxy and dns_split wired into OpenWrt
+Description: cpxy proxy for the LAN: native shared packet engine and dns_split wired into OpenWrt
  Routes LAN TCP through a cpxy server (CN traffic goes direct) and resolves LAN DNS with
  dns_split. Configure /etc/config/cpxy. Removing the package restores the original setup.

@@ -13,6 +13,8 @@ mod config;
 mod dns;
 mod ffi;
 mod filter;
+#[cfg(target_os = "linux")]
+pub mod linux;
 mod routing;
 mod tun;
 
@@ -86,35 +88,59 @@ pub fn start(
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
     let settings = Config::from_json(config_json)?.settings()?;
+    start_inner(
+        tun,
+        settings.server,
+        settings.mtu,
+        listener,
+        Some((&settings.dns_upstream, &settings.dns_alternative)),
+    )
+}
+
+/// Starts the shared packet engine for a router. DNS stays with dnsmasq/dns_split;
+/// no synthetic DNS address is intercepted and no SOCKS listener is needed.
+pub fn start_router(
+    tun: OwnedFd,
+    server: client::protocol_config::Config,
+    listener: Arc<dyn EventListener>,
+) -> anyhow::Result<EngineHandle> {
+    start_inner(tun, server, DEFAULT_MTU, listener, None)
+}
+
+fn start_inner(
+    tun: OwnedFd,
+    server: client::protocol_config::Config,
+    mtu: u16,
+    listener: Arc<dyn EventListener>,
+    dns_specs: Option<(
+        &[client::dns_split::spec::ServerSpec],
+        &[client::dns_split::spec::ServerSpec],
+    )>,
+) -> anyhow::Result<EngineHandle> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(WORKER_THREADS)
         .thread_name("cpxy-engine")
         .enable_all()
         .build()?;
-
-    let dns = Arc::new(runtime.block_on(dns::handler(
-        &settings.dns_upstream,
-        &settings.dns_alternative,
-    ))?);
+    let dns = dns_specs
+        .map(|(upstream, alternative)| {
+            runtime
+                .block_on(dns::handler(upstream, alternative))
+                .map(Arc::new)
+        })
+        .transpose()?;
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
     let device = {
         let _guard = runtime.enter();
-        TunDevice::new(tun, settings.mtu, traffic.clone(), device_closed_tx)?
+        TunDevice::new(tun, mtu, traffic.clone(), device_closed_tx)?
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
-    let outbound = Arc::new(routing::outbound(settings.server, events_tx));
+    let outbound = Arc::new(routing::outbound(server, events_tx));
     let (shutdown, shutdown_rx) = oneshot::channel();
     runtime.spawn(forward_events(events_rx, listener));
-    let stopped = runtime.spawn(run(
-        device,
-        device_closed,
-        settings.mtu,
-        outbound,
-        dns,
-        shutdown_rx,
-    ));
+    let stopped = runtime.spawn(run(device, device_closed, mtu, outbound, dns, shutdown_rx));
     tracing::info!("Engine started");
 
     Ok(EngineHandle {
@@ -144,6 +170,15 @@ impl EngineHandle {
         }
         running.runtime.shutdown_timeout(STOP_TIMEOUT);
         tracing::info!("Engine stopped");
+    }
+
+    /// False when the packet worker has ended, so a supervisor can restart it.
+    pub fn is_running(&self) -> bool {
+        self.running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|r| !r.stopped.is_finished())
     }
 
     pub fn traffic(&self) -> TrafficStats {
@@ -180,7 +215,7 @@ async fn run<O: Outbound + Send + Sync + 'static>(
     device_closed: oneshot::Receiver<()>,
     mtu: u16,
     outbound: Arc<O>,
-    dns: Arc<DnsSplitHandler>,
+    dns: Option<Arc<DnsSplitHandler>>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut tcp_config = TcpConfig::default();
@@ -235,12 +270,14 @@ fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
 async fn handle_tcp<O: Outbound>(
     mut flow: IpStackTcpStream,
     outbound: Arc<O>,
-    dns: Arc<DnsSplitHandler>,
+    dns: Option<Arc<DnsSplitHandler>>,
 ) {
     let Some(dst) = ipv4_dst(flow.peer_addr()) else {
         return;
     };
-    if is_dns(dst) {
+    if is_dns(dst)
+        && let Some(dns) = dns
+    {
         return dns::serve_tcp_flow(flow, dns).await;
     }
 
@@ -262,11 +299,13 @@ async fn handle_tcp<O: Outbound>(
     }
 }
 
-async fn handle_udp(flow: IpStackUdpStream, dns: Arc<DnsSplitHandler>) {
+async fn handle_udp(flow: IpStackUdpStream, dns: Option<Arc<DnsSplitHandler>>) {
     let Some(dst) = ipv4_dst(flow.peer_addr()) else {
         return;
     };
-    if is_dns(dst) {
+    if is_dns(dst)
+        && let Some(dns) = dns
+    {
         return dns::serve_udp_flow(flow, dns).await;
     }
     if let Err(e) = relay_udp(flow, dst).await {

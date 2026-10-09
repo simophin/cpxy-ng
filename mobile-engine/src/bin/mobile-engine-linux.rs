@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("usage: mobile-engine-linux <tun name> <config json file>");
     };
     let config = std::fs::read_to_string(&config).with_context(|| format!("Reading {config}"))?;
-    let tun = linux::create_tun(&name)?;
+    let tun = mobile_engine::linux::create_tun(&name)?;
 
     let engine = mobile_engine::start(tun, &config, Arc::new(LogListener))?;
     println!("running on {name}");
@@ -51,46 +51,6 @@ fn main() -> anyhow::Result<()> {
         traffic.sent, traffic.received
     );
     Ok(())
-}
-
-#[cfg(target_os = "linux")]
-mod linux {
-    use anyhow::{Context, ensure};
-    use std::fs::OpenOptions;
-    use std::os::fd::{AsRawFd, OwnedFd};
-
-    const TUNSETIFF: libc::c_ulong = 0x400454ca;
-
-    #[repr(C)]
-    struct IfReq {
-        name: [u8; libc::IFNAMSIZ],
-        flags: libc::c_short,
-        _pad: [u8; 22],
-    }
-
-    pub fn create_tun(name: &str) -> anyhow::Result<OwnedFd> {
-        ensure!(name.len() < libc::IFNAMSIZ, "TUN name {name} is too long");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("/dev/net/tun")
-            .context("Opening /dev/net/tun")?;
-
-        let mut req = IfReq {
-            name: [0; libc::IFNAMSIZ],
-            flags: (libc::IFF_TUN | libc::IFF_NO_PI) as libc::c_short,
-            _pad: [0; 22],
-        };
-        req.name[..name.len()].copy_from_slice(name.as_bytes());
-        // SAFETY: TUNSETIFF reads and writes an ifreq, which IfReq lays out.
-        let r = unsafe { libc::ioctl(file.as_raw_fd(), TUNSETIFF as _, &mut req) };
-        ensure!(
-            r == 0,
-            "Creating TUN {name}: {}",
-            std::io::Error::last_os_error()
-        );
-        Ok(file.into())
-    }
 }
 
 #[cfg(not(target_os = "linux"))]

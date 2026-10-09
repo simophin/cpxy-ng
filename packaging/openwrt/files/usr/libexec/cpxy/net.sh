@@ -4,15 +4,15 @@
 # the service (or rebooting) removes it; nothing is written to /etc.
 #
 # Packet path for a proxied LAN device:
-#   LAN TCP -> ip rule (prio 9103: table 100) -> default dev cpxy0 -> tun2proxy -> SOCKS5 -> client_cn
+#   LAN TCP -> ip rule (prio 9103: table 100) -> default dev cpxy0 -> cpxy-router -> shared TCP outbound
 #
 # cpxy has no UDP path. UDP 443 (QUIC, HTTP/3) is sent to cpxy0 too (prio 9101), where the firewall
 # refuses it, so browsers fall back to TCP through the proxy instead of revealing the WAN address.
 # All other IPv4 UDP (WebRTC, games, VoIP, DNS to outside resolvers) goes out the WAN (prio 9102).
 #
-# cpxy0 is created here, not by tun2proxy: without --setup tun2proxy neither addresses nor brings
-# up its device, and --setup would reroute the router's own traffic. tun2proxy attaches by name.
-# If tun2proxy dies the device stays and drops what it is sent; if the device goes, table 100's
+# cpxy0 is created persistently here; the worker attaches by name and leaves routing alone.
+# Router-originated outbound sockets therefore use the ordinary WAN routing table.
+# If cpxy-router dies the device stays and drops what it is sent; if the device goes, table 100's
 # `unreachable default` refuses LAN traffic. Either way nothing leaks out the WAN.
 # Routes for the LAN itself stay in main through the `suppress_prefixlength 0` rules (prio 9100).
 
@@ -31,8 +31,8 @@ _cpxy_flush_rules() {
 }
 
 # cpxy_net_up <lan device>...
-# Also run on every reload (a config change, a LAN interface coming up) while tun2proxy keeps
-# running, so an existing cpxy0 is kept: a new device would leave tun2proxy attached to the old one.
+# Also run on every reload (a config change, a LAN interface coming up) while cpxy-router keeps
+# running, so an existing cpxy0 is kept: a new device would leave cpxy-router attached to the old one.
 cpxy_net_up() {
 	local dev fam
 

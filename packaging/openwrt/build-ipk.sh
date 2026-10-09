@@ -3,7 +3,7 @@
 #
 # usage: build-ipk.sh <opkg arch> <version> <bin dir> <out dir>
 #   <opkg arch>  what `opkg print-architecture` shows on the router, e.g. aarch64_cortex-a53
-#   <bin dir>    holds cpxy-client, cpxy-dns-split and cpxy-tun2proxy for that architecture
+#   <bin dir>    holds cpxy-router and cpxy-dns-split for that architecture
 set -eu
 
 [ $# -eq 4 ] || { sed -n '2,6p' "$0" >&2; exit 2; }
@@ -18,7 +18,7 @@ mkdir -p "$work/data/usr/bin" "$work/control" "$outdir"
 bindir="$(cd "$bindir" && pwd)"
 outdir="$(cd "$outdir" && pwd)"
 cp -R "$here/files/." "$work/data/"
-for bin in cpxy-client cpxy-dns-split cpxy-tun2proxy; do
+for bin in cpxy-router cpxy-dns-split; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
 chmod 0755 "$work/data/etc/init.d/cpxy" "$work/data/etc/uci-defaults/90-cpxy"
