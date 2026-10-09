@@ -23,7 +23,7 @@ for bin in cpxy-router cpxy-dns-split; do
 done
 chmod 0755 "$work/data/etc/init.d/cpxy" "$work/data/etc/uci-defaults/90-cpxy"
 chmod 0755 "$work/data/usr/libexec/cpxy/dns-split.sh" "$work/data/usr/libexec/cpxy/fw3-include.sh"
-chmod 0644 "$work/data/etc/config/cpxy" "$work/data/usr/libexec/cpxy/net.sh"
+chmod 0644 "$work/data/etc/config/cpxy" "$work/data/usr/libexec/cpxy/net.sh" "$work/data/usr/libexec/cpxy/firewall.sh"
 
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/control/control.in" >"$work/control/control"
 cp "$here/control/conffiles" "$here/control/postinst" "$here/control/prerm" "$here/control/postrm" "$work/control/"

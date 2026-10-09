@@ -65,15 +65,15 @@ uci commit cpxy
 |---|---|---|
 | `enabled` | `0` | `1` to run the service. |
 | `server` | none, **required** | The cpxy server URL, including the key. It is kept out of the process list. |
-| `lan_interface` (list) | `lan` | UCI interfaces whose clients are proxied, e.g. add `guest`. |
-| `dns_split` | `1` | `1` to let the package answer the LAN's DNS (see [DNS](#dns)); `0` leaves dnsmasq untouched. |
+| `lan_interface` (list) | `lan` in the default section | UCI networks whose clients use this section's upstream; firewall source zones are discovered automatically. |
+| `tun` | `cpxy0` for `main` | Persistent TUN; required and distinct for additional instances. |
+| `routing_table` | `100` for `main` | Routing table; required and distinct for additional instances. |
+| `rule_priority` | `9100` for `main` | First of four rule priorities; required and nonoverlapping for additional instances. |
+| `dns_split` | `1` for `main`, `0` for others | `1` owns the shared resolver (see [DNS](#dns)); `0` starts no DNS worker for this section. Only one enabled section may own it. |
 | `dns_upstream` (list) | none, **required** with `dns_split` | DNS servers whose answer is used when every address in it is in the local region. |
 | `dns_alternative` (list) | none, **required** with `dns_split` | DNS servers whose answer is used otherwise. |
 | `dns_cache` | `1` | `1` keeps a DNS answer cache in RAM (`/tmp`); `0` disables it. |
-| `dns_server` (list) | client default | DNS servers (IPs only) used when a connection names a host rather than an IP. Rarely needed. |
 | `dns_listen` | `127.0.0.1:5335` | Where the DNS resolver listens. dnsmasq forwards to it. Avoid 5353, the mDNS port. |
-| `socks5_listen` | `127.0.0.1:1080` | Local SOCKS5 listener used internally. |
-| `api_listen` | `127.0.0.1:3010` | Local API listener. |
 
 A DNS server entry is either a plain IP or a URL:
 
@@ -93,6 +93,36 @@ To replace a list rather than add to it, delete it first:
 uci delete cpxy.main.dns_alternative
 uci add_list cpxy.main.dns_alternative='tls://dns.google?ip=8.8.8.8'
 ```
+
+### A second upstream for another SSID
+
+Create the `guest` network/SSID using OpenWrt first. Then add to `/etc/config/cpxy`:
+
+```uci
+config cpxy 'guest'
+    option enabled '1'
+    option server 'http://:<second-key>@<second-host>:80'
+    list lan_interface 'guest'
+    option tun 'cpxy1'
+    option routing_table '101'
+    option rule_priority '9110'
+    option dns_split '0'
+```
+
+Run `/etc/init.d/cpxy reload`. Devices on `guest` use the second server for proxied TCP;
+CN destinations still go direct. The service automatically discovers the source firewall
+zone, adds forwarding to the second tunnel, and leaves existing network isolation as configured.
+Both networks share main's DNS resolver. To disable only the second connection:
+
+```sh
+uci set cpxy.guest.enabled='0'
+uci commit cpxy
+/etc/init.d/cpxy reload
+```
+
+Main stays running; guest returns to its original routing. Use `reload` for instance edits:
+validation errors preserve running state, and unchanged workers are not restarted.
+Legacy `socks5_listen`, `api_listen` and `dns_server` options are ignored by the native engine.
 
 ### DNS
 
@@ -127,7 +157,7 @@ check the public IP each one reports.
 
 ## Day-to-day use
 
-**Change a setting:** edit with `uci`, `uci commit cpxy`, then `/etc/init.d/cpxy restart`.
+**Change a setting:** edit with `uci`, `uci commit cpxy`, then `/etc/init.d/cpxy reload`.
 
 **Turn it off temporarily:** `/etc/init.d/cpxy stop`. The LAN goes direct again, exactly as before
 the install. `start` (or a reboot, if enabled) brings it back.

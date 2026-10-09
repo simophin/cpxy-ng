@@ -1,4 +1,1 @@
-# Included at the start of fw4's forward chain (package-owned; removed with the package).
-# cpxy has no UDP path yet. The only UDP routed into the cpxy TUN device is QUIC (UDP 443; other UDP
-# goes out the WAN): refuse it at once so browsers fall back to TCP instead of waiting for a timeout.
-oifname "cpxy0" meta l4proto udp reject
+# UDP rejection is generated per instance as a UCI firewall rule, on fw3 and fw4.

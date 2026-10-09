@@ -16,12 +16,16 @@
 # `unreachable default` refuses LAN traffic. Either way nothing leaks out the WAN.
 # Routes for the LAN itself stay in main through the `suppress_prefixlength 0` rules (prio 9100).
 
-CPXY_TUN=cpxy0
-CPXY_TABLE=100
-CPXY_PRIO_MAIN=9100
-CPXY_PRIO_QUIC=9101
-CPXY_PRIO_UDP=9102
-CPXY_PRIO_TUN=9103
+# Defaults preserve the original main instance and standalone routing lab.
+cpxy_net_select() {
+	CPXY_TUN="$1"
+	CPXY_TABLE="$2"
+	CPXY_PRIO_MAIN="$3"
+	CPXY_PRIO_QUIC=$(($3 + 1))
+	CPXY_PRIO_UDP=$(($3 + 2))
+	CPXY_PRIO_TUN=$(($3 + 3))
+}
+cpxy_net_select cpxy0 100 9100
 CPXY_DNSMASQ_DROPIN=cpxy.conf
 
 # Delete every rule of ours at a priority, however many there are (one per device and family).

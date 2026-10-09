@@ -1,16 +1,11 @@
 #!/bin/sh
 [ -s "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
 . "${IPKG_INSTROOT}/lib/functions.sh"
-# Stops the service (and disables it unless this is an upgrade)
 default_prerm "$0" "$@"
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
-	uci -q batch <<UCI
-delete firewall.cpxy_fwd
-delete firewall.cpxy_zone
-delete firewall.cpxy_udp
-commit firewall
-UCI
-	# The fw3 include's rule lives on in iptables after its include is gone
+	. /usr/libexec/cpxy/firewall.sh
+	cpxy_firewall_clear
+	uci commit firewall
 	if command -v iptables >/dev/null; then
 		while iptables -D FORWARD -o cpxy0 -p udp -j REJECT 2>/dev/null; do :; done
 	fi
