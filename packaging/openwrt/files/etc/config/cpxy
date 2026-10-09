@@ -29,6 +29,9 @@ config cpxy 'main'
 	# 1 keeps dns_split's SQLite answer cache in /tmp (RAM), 0 disables it
 	option dns_cache '1'
 
+	# 1 answers names on the built-in ad blocklist with an address the router silently drops
+	option block_ads '1'
+
 	# Legacy socks5_listen, api_listen and dns_server options are ignored.
 
 # Example second upstream (uncomment and fill in server to enable):

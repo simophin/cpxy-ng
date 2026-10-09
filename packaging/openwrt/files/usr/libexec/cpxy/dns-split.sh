@@ -17,6 +17,12 @@ _cpxy_bound() {
 		"/proc/net/$1" "/proc/net/${1}6" 2>/dev/null
 }
 
+case " $* " in
+*" --sinkhole "*) sinkhole=1 ;;
+*) sinkhole=0 ;;
+esac
+
+[ "$sinkhole" = 1 ] && cpxy_sinkhole_up
 "$@" &
 pid=$!
 trap 'kill "$pid" 2>/dev/null' TERM INT
@@ -35,4 +41,5 @@ status=$?
 # `wait` returns early when a trapped signal arrives; reap the child before handing DNS back
 kill -0 "$pid" 2>/dev/null && wait "$pid"
 cpxy_dnsmasq_down
+cpxy_sinkhole_down
 exit "$status"

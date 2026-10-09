@@ -27,6 +27,8 @@ data class EngineConfig(
     @SerialName("dns_upstream") val dnsUpstream: List<String>,
     @SerialName("dns_alternative") val dnsAlternative: List<String>,
     val mtu: Int? = null,
+    /** Resolves names on the engine's built-in ad blocklist to an address it drops. */
+    @SerialName("block_ads") val blockAds: Boolean = false,
 )
 
 /** The TUN parameters the platform sets up, mirroring `mobile-engine/src/config.rs`. */
@@ -47,6 +49,7 @@ fun Profile.engineConfigJson(): String = engineJson.encodeToString(
         dnsUpstream = dnsUpstream,
         dnsAlternative = dnsAlternative,
         mtu = TunParameters.MTU,
+        blockAds = true,
     )
 )
 

@@ -127,13 +127,14 @@ _start_worker() {
 _add_dns_upstream() { procd_append_param command --upstream "$1"; }
 _add_dns_alternative() { procd_append_param command --alternative "$1"; }
 _start_dns() {
-	local listen cache
-	[ -n "$DNS_OWNER" ] || { cpxy_dnsmasq_down; return 0; }
+	local listen cache block_ads
+	[ -n "$DNS_OWNER" ] || { cpxy_dnsmasq_down; cpxy_sinkhole_down; return 0; }
 	if [ -n "$(uci -q get 'dhcp.@dnsmasq[0].server')" ]; then
 		_log "warning: dhcp.@dnsmasq[0].server is set; dnsmasq may bypass dns_split for those servers"
 	fi
 	config_get listen "$DNS_OWNER" dns_listen 127.0.0.1:5335
 	config_get_bool cache "$DNS_OWNER" dns_cache 1
+	config_get_bool block_ads "$DNS_OWNER" block_ads 1
 	procd_open_instance dns
 	procd_set_param command /usr/libexec/cpxy/dns-split.sh "$listen" "$BIN/cpxy-dns-split" --listen "$listen"
 	config_list_foreach "$DNS_OWNER" dns_upstream _add_dns_upstream
@@ -143,6 +144,7 @@ _start_dns() {
 	else
 		procd_append_param command --no-cache
 	fi
+	[ "$block_ads" = 1 ] && procd_append_param command --sinkhole "$CPXY_SINKHOLE_ADDR"
 	procd_set_param env NO_COLOR=1
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1
@@ -203,6 +205,7 @@ reload_service() {
 stop_service() {
 	local state
 	cpxy_dnsmasq_down
+	cpxy_sinkhole_down
 	for state in "$CPXY_STATE"/*; do
 		[ -f "$state" ] || continue
 		_read_state "$state"

@@ -1,6 +1,6 @@
 #!/bin/sh
-# The dnsmasq drop-in that hands LAN DNS to dns_split. Sourced by /etc/init.d/cpxy; the drop-in
-# lives in /tmp, so a reboot removes it.
+# The dnsmasq drop-in that hands LAN DNS to dns_split, and the sinkhole route for blocked names.
+# Sourced by /etc/init.d/cpxy; the drop-in lives in /tmp, so a reboot removes it.
 
 CPXY_DNSMASQ_DROPIN=cpxy.conf
 
@@ -37,4 +37,20 @@ cpxy_dnsmasq_down() {
 	[ -e "$dir/$CPXY_DNSMASQ_DROPIN" ] || return 0
 	rm -f "$dir/$CPXY_DNSMASQ_DROPIN"
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
+
+# Names on the ad blocklist resolve into this range (dns_split --sinkhole). The kernel drops what
+# LAN devices send to a blackhole route without an ICMP error, so blocked connections hang instead
+# of failing. Not a private range: dnsmasq's rebind protection would discard those answers.
+# Kept in step with mobile-engine/src/config.rs.
+CPXY_SINKHOLE_ADDR=198.18.0.1
+CPXY_SINKHOLE_NET=198.18.0.0/24
+
+cpxy_sinkhole_up() {
+	ip -4 route replace blackhole "$CPXY_SINKHOLE_NET"
+}
+
+cpxy_sinkhole_down() {
+	ip -4 route del blackhole "$CPXY_SINKHOLE_NET" 2>/dev/null
+	return 0
 }

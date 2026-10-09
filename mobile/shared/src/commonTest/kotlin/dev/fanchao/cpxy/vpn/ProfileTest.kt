@@ -27,7 +27,8 @@ class ProfileTest {
                     "server": "https://:key@example.com",
                     "dns_upstream": ["223.5.5.5", "tcp://119.29.29.29"],
                     "dns_alternative": ["https://dns.google/dns-query?ip=8.8.8.8"],
-                    "mtu": 1500
+                    "mtu": 1500,
+                    "block_ads": true
                 }
                 """
             ) as JsonObject,
