@@ -1,20 +1,29 @@
 # cpxy on OpenWrt / GL.iNet
 
-One package, `cpxy-router`, runs three programs on the router and wires them into OpenWrt:
+One package, `cpxy-router`, runs two programs built from this repository:
 
 | Program | Installed as | Role |
 |---|---|---|
-| `client_cn` | `/usr/bin/cpxy-client` | SOCKS5 proxy on `127.0.0.1:1080`; CN destinations go direct, the rest through your cpxy server |
-| tun2proxy (built by CI, pinned) | `/usr/bin/cpxy-tun2proxy` | Turns routed LAN TCP into SOCKS5 connections |
+| Native shared packet engine | `/usr/bin/cpxy-router` | Reads LAN TCP from `cpxy0`; private/local-region destinations go direct, others through cpxy |
 | `dns_split` | `/usr/bin/cpxy-dns-split` | DNS resolver for the LAN, behind dnsmasq on `127.0.0.1:5335` |
 
 ```text
 LAN device ── DNS ──► dnsmasq (DHCP, local names) ──► dns_split
-           └─ TCP ──► ip rule: from LAN ► table 100: default dev cpxy0
-                      ► tun2proxy ► client_cn (SOCKS5) ► cpxy server  (CN traffic: direct)
+           └─ TCP ──► LAN policy routing ► cpxy0 ► shared Rust packet engine
+                      ► cpxy server (local-region/private traffic: direct)
            └─ UDP 443 (QUIC) ► cpxy0 ► rejected, browser falls back to TCP
            └─ other UDP ──► WAN, direct
 ```
+
+The packet engine is shared with the Android VPN in `mobile-engine`. No external tun2proxy
+binary, local SOCKS server, or SOCKS proxy configuration is needed. DNS remains separately
+supervised to preserve dnsmasq's readiness-based handover and SQLite cache lifecycle.
+The existing Rust TCP/IP stack dependency (`ipstack`) is still required at build time.
+
+When upgrading, existing `socks5_listen`, `api_listen` and `dns_server` UCI options are ignored;
+the old statistics listener is removed. Unlike the previous `client_cn`, the shared engine does not
+send all of `100.0.0.0/8` direct: these addresses follow normal regional routing.
+TCP 853 (DNS over TLS) is refused by the shared filter; other UDP retains the router's direct path.
 
 Targets OpenWrt 24.10 (opkg, fw4/nftables, procd) and GL.iNet's stock 4.x firmware (OpenWrt
 21.02-based, fw3/iptables): built for `aarch64_cortex-a53` (GL-MT3000) and `x86_64` (VMs). Check
@@ -41,10 +50,6 @@ while `dns_split` is `1`): the service logs which one is missing and does not st
 an IP, or a `udp://`, `tcp://`, `tls://` or `https://` URL (`tls://` and `https://` accept
 `?ip=<addr>` to skip the startup hostname lookup).
 
-`dns_server` is optional: DNS servers (IPs) `client_cn` uses to look up a destination given as a
-domain name. LAN traffic arrives as IP addresses, so it is rarely used; when unset, `client_cn`
-uses its own built-in default.
-
 Check it: `logread -e cpxy`, `ip rule show`, `ip link show cpxy0`.
 Change settings with `uci` (see `/etc/config/cpxy`), then `/etc/init.d/cpxy restart`.
 
@@ -65,9 +70,9 @@ happens on any firewall edit, including LuCI's.
 
 ## Behaviour to know about
 
-- **Fails closed while enabled.** The `cpxy0` device outlives tun2proxy and drops what it is sent,
-  and table 100 also holds an `unreachable default`. If tun2proxy or client_cn dies, LAN TCP stops
-  working (it is never sent out the WAN) until procd restarts them. `stop` deliberately restores
+- **Fails closed while enabled.** The `cpxy0` device outlives the packet worker and drops what it is sent,
+  and table 100 also holds an `unreachable default`. If the packet worker dies, LAN TCP stops
+  working (it is never sent out the WAN) until procd restarts it. `stop` deliberately restores
   direct access.
 - **TCP is proxied; UDP is not.** cpxy has no UDP path. QUIC (UDP 443) is routed into the tunnel
   and rejected immediately, so browsers fall back to TCP through the proxy rather than reaching sites
@@ -90,7 +95,11 @@ happens on any firewall edit, including LuCI's.
 ## Build and test
 
 ```sh
-# CI does this per architecture; locally, with the three binaries for your target in bins/
+cargo build --release --locked -p mobile-engine --bin cpxy-router
+cargo build --release --locked -p client --features dns-split --bin dns_split
+# Copy them into bins/ as cpxy-router and cpxy-dns-split.
+
+# CI does this per architecture; locally, with the two binaries for your target in bins/
 packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container
@@ -104,8 +113,12 @@ packaging/openwrt/test/dns-handover.sh out/*.ipk
 packaging/openwrt/test/lab.sh bins
 ```
 
-`lab.sh` needs the binaries named `cpxy-client`, `cpxy-server` (the cpxy server) and `cpxy-tun2proxy`
+`lab.sh` needs the binaries named `cpxy-router` and `cpxy-server` (the cpxy server)
 for the host architecture, plus `iproute2`, `nft`, `curl` and `python3`. `opkg-roundtrip.sh` needs
 podman or docker. None of them runs the real fw3/fw4, dnsmasq or procd, so the init script, the
 dnsmasq drop-in and the firewall's handling of the zone, snippet and include are only verified on a
 router.
+
+The native client was also exercised on a GL-MT3000 with GL.iNet firmware and fw3.
+See [hardware validation results](../../docs/openwrt-native-validation.md) for the setup,
+checks, measured memory use and remaining hardware coverage.

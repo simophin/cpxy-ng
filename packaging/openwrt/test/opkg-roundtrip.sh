@@ -27,7 +27,7 @@ snapshot >/before.txt
 opkg install /pkg.ipk
 
 # What the install added
-for f in /usr/bin/cpxy-client /usr/bin/cpxy-dns-split /usr/bin/cpxy-tun2proxy \
+for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split \
 	/etc/init.d/cpxy /etc/config/cpxy /usr/libexec/cpxy/net.sh /usr/libexec/cpxy/dns-split.sh \
 	/usr/libexec/cpxy/fw3-include.sh \
 	/usr/share/nftables.d/chain-pre/forward/10-cpxy.nft; do
@@ -42,7 +42,7 @@ ls /etc/rc.d | grep -q cpxy || { echo "FAIL: service not enabled"; exit 1; }
 echo "install ok"
 
 opkg remove cpxy-router
-for f in /usr/bin/cpxy-client /usr/bin/cpxy-dns-split /usr/bin/cpxy-tun2proxy /etc/init.d/cpxy \
+for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split /etc/init.d/cpxy \
 	/usr/libexec/cpxy /usr/share/nftables.d/chain-pre/forward/10-cpxy.nft /etc/uci-defaults/90-cpxy; do
 	[ ! -e "$f" ] || { echo "FAIL: left behind $f"; exit 1; }
 done

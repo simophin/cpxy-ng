@@ -50,7 +50,7 @@ uci commit cpxy
 config_load cpxy
 start_service 2>/dev/null || { echo "FAIL: dns_split=0 should not need dns_upstream/dns_alternative"; exit 1; }
 grep -qF "instance dns" "$LOG" && { echo "FAIL: dns instance started with dns_split=0"; exit 1; }
-# dns_server is optional: without it client_cn gets no --dns-server flag
+# Legacy dns_server must not be passed to the native worker
 grep -qF -- "--dns-server" "$LOG" && { echo "FAIL: --dns-server passed although dns_server is unset"; exit 1; }
 : >"$LOG"
 uci add_list cpxy.main.dns_server=192.0.2.10
@@ -63,13 +63,13 @@ start_service
 
 cat "$LOG"
 want() { grep -qF -- "$1" "$LOG" || { echo "FAIL: expected: $1"; exit 1; }; }
-want "instance proxy"
-want "set command /usr/bin/cpxy-client --socks5-proxy-listen 127.0.0.1:1080 --api-listen 127.0.0.1:3010"
-want "append command --dns-server 192.0.2.10"
-want "append command --dns-server 192.0.2.11"
 want "set env SERVER=https://:s3cret@proxy.example:443 NO_COLOR=1"
 want "instance tun"
-want "set command /usr/bin/cpxy-tun2proxy --proxy socks5://127.0.0.1:1080 --tun cpxy0 --dns direct --exit-on-fatal-error"
+want "set command /usr/bin/cpxy-router --tun cpxy0"
+# Obsolete proxy options must not reintroduce a SOCKS listener or extra worker.
+grep -qF "instance proxy" "$LOG" && { echo "FAIL: legacy proxy instance"; exit 1; }
+grep -qF "socks5" "$LOG" && { echo "FAIL: SOCKS configuration passed"; exit 1; }
+grep -qF -- "--dns-server" "$LOG" && { echo "FAIL: legacy resolver configuration passed"; exit 1; }
 want "net_up br-lan"
 want "instance dns"
 want "set command /usr/libexec/cpxy/dns-split.sh 127.0.0.1:5335 /usr/bin/cpxy-dns-split --listen 127.0.0.1:5335"
