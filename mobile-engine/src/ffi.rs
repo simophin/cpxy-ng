@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum EngineError {
-    #[error("{message}")]
-    Failed { message: String },
+    #[error("{reason}")]
+    Failed { reason: String },
 }
 
 /// A TCP flow connected through an outbound, or failing to.
@@ -91,7 +91,7 @@ pub fn start_engine(
     init_logging();
     if tun_fd < 0 {
         return Err(EngineError::Failed {
-            message: format!("Invalid TUN descriptor {tun_fd}"),
+            reason: format!("Invalid TUN descriptor {tun_fd}"),
         });
     }
     // SAFETY: the caller hands over a TUN descriptor it no longer uses.
@@ -99,7 +99,7 @@ pub fn start_engine(
     crate::start(tun, &config_json, Arc::new(ListenerAdapter(listener)))
         .map(|handle| Arc::new(Engine(handle)))
         .map_err(|e| EngineError::Failed {
-            message: format!("{e:#}"),
+            reason: format!("{e:#}"),
         })
 }
 
