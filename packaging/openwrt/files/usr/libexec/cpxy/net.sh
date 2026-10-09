@@ -4,7 +4,11 @@
 # the service (or rebooting) removes it; nothing is written to /etc.
 #
 # Packet path for a proxied LAN device:
-#   LAN -> ip rule (prio 9101: table 100) -> default dev cpxy0 -> tun2proxy -> SOCKS5 -> client_cn
+#   LAN TCP -> ip rule (prio 9103: table 100) -> default dev cpxy0 -> tun2proxy -> SOCKS5 -> client_cn
+#
+# cpxy has no UDP path. UDP 443 (QUIC, HTTP/3) is sent to cpxy0 too (prio 9101), where the firewall
+# refuses it, so browsers fall back to TCP through the proxy instead of revealing the WAN address.
+# All other IPv4 UDP (WebRTC, games, VoIP, DNS to outside resolvers) goes out the WAN (prio 9102).
 #
 # cpxy0 is created here, not by tun2proxy: without --setup tun2proxy neither addresses nor brings
 # up its device, and --setup would reroute the router's own traffic. tun2proxy attaches by name.
@@ -15,7 +19,9 @@
 CPXY_TUN=cpxy0
 CPXY_TABLE=100
 CPXY_PRIO_MAIN=9100
-CPXY_PRIO_TUN=9101
+CPXY_PRIO_QUIC=9101
+CPXY_PRIO_UDP=9102
+CPXY_PRIO_TUN=9103
 CPXY_DNSMASQ_DROPIN=cpxy.conf
 
 # Delete every rule of ours at a priority, however many there are (one per device and family).
@@ -45,12 +51,18 @@ cpxy_net_up() {
 	done
 	# IPv4 only: IPv6 from the LAN stays refused so clients fall back to IPv4
 	ip -4 route replace default dev "$CPXY_TUN" table "$CPXY_TABLE" metric 10 || return 1
+	for dev in "$@"; do
+		ip -4 rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto udp dport 443 lookup "$CPXY_TABLE" || return 1
+		ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
+	done
 }
 
 _cpxy_net_down_rules() {
 	local fam
 	for fam in -4 -6; do
 		_cpxy_flush_rules "$fam" "$CPXY_PRIO_MAIN"
+		_cpxy_flush_rules "$fam" "$CPXY_PRIO_QUIC"
+		_cpxy_flush_rules "$fam" "$CPXY_PRIO_UDP"
 		_cpxy_flush_rules "$fam" "$CPXY_PRIO_TUN"
 		ip $fam route flush table "$CPXY_TABLE" 2>/dev/null
 	done

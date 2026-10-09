@@ -119,7 +119,7 @@ Then check:
 ```sh
 logread -e cpxy             # service messages; a missing required option is reported here
 ip link show cpxy0          # the tunnel device exists
-ip rule show                # rules at priorities 9100 and 9101 for each LAN device
+ip rule show                # rules at priorities 9100-9103 for each LAN device
 ```
 
 From a LAN device, browse to a site that should go through the server and one that should not, and
@@ -150,8 +150,10 @@ behind; delete it if you do not need it.
 
 - **When enabled, it fails closed.** If a component crashes, LAN traffic stops rather than going
   out directly; procd restarts the component within seconds. Use `stop` when you want direct access.
-- **TCP over IPv4 only.** UDP into the tunnel is refused at once, so apps using QUIC fall back to
-  TCP. IPv6 from the LAN is refused too, so devices use IPv4. DNS to the router is unaffected.
+- **Only TCP goes through the server, over IPv4.** QUIC (UDP 443) is refused at once, so browsers
+  fall back to TCP through the server. Other UDP (video calls, games, VoIP) goes out directly, so
+  those services see your real address. IPv6 from the LAN is refused, so devices use IPv4. DNS to
+  the router is unaffected.
 - **Only LAN clients are proxied.** Traffic from the router itself (opkg, NTP, …) goes direct.
 - **Hardware flow offloading** (a GL.iNet firewall option) may bypass the tunnel. The service logs
   a warning when it is on; turn it off. Software offloading is fine.

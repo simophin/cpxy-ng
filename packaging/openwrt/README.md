@@ -12,6 +12,8 @@ One package, `cpxy-router`, runs three programs on the router and wires them int
 LAN device ── DNS ──► dnsmasq (DHCP, local names) ──► dns_split
            └─ TCP ──► ip rule: from LAN ► table 100: default dev cpxy0
                       ► tun2proxy ► client_cn (SOCKS5) ► cpxy server  (CN traffic: direct)
+           └─ UDP 443 (QUIC) ► cpxy0 ► rejected, browser falls back to TCP
+           └─ other UDP ──► WAN, direct
 ```
 
 Targets OpenWrt 24.10 (opkg, fw4/nftables, procd) and GL.iNet's stock 4.x firmware (OpenWrt
@@ -53,7 +55,7 @@ Change settings with `uci` (see `/etc/config/cpxy`), then `/etc/init.d/cpxy rest
 | Package files | binaries, `/etc/init.d/cpxy`, `/usr/libexec/cpxy/`, `/etc/config/cpxy`, an nftables snippet in `/usr/share/nftables.d/chain-pre/forward/` | `opkg remove` |
 | `/etc/config/firewall` | zone `cpxy_zone` (device `cpxy0`) and forwarding `cpxy_fwd` (`lan` → `cpxy`); on fw3 only, include `cpxy_udp` (`/usr/libexec/cpxy/fw3-include.sh`) | `opkg remove` (prerm) |
 | iptables (fw3 only) | `FORWARD -o cpxy0 -p udp -j REJECT`, added by the include on every firewall start and reload | `opkg remove` (prerm) |
-| Kernel | the `cpxy0` TUN device, `ip rule` priorities 9100/9101 (v4 and v6) and routing table 100 | `stop`, `opkg remove` |
+| Kernel | the `cpxy0` TUN device, `ip rule` priorities 9100 and 9103 (v4 and v6) and 9101/9102 (UDP, v4), and routing table 100 | `stop`, `opkg remove` |
 | dnsmasq | a drop-in (`no-resolv`, `server=127.0.0.1#5335`) in dnsmasq's runtime config directory under `/tmp`, present only while dns_split listens | dns_split exiting, `stop`, `opkg remove`, reboot |
 
 `/etc/config/dhcp`, `/etc/config/network` and the existing `lan → wan` forwarding are never edited.
@@ -67,9 +69,11 @@ happens on any firewall edit, including LuCI's.
   and table 100 also holds an `unreachable default`. If tun2proxy or client_cn dies, LAN TCP stops
   working (it is never sent out the WAN) until procd restarts them. `stop` deliberately restores
   direct access.
-- **TCP only.** UDP from the LAN into the tunnel is rejected immediately (so QUIC falls back to TCP).
-  IPv6 from the LAN is refused with the same mechanism, so clients use IPv4. LAN DNS queries to the
-  router work normally.
+- **TCP is proxied; UDP is not.** cpxy has no UDP path. QUIC (UDP 443) is routed into the tunnel
+  and rejected immediately, so browsers fall back to TCP through the proxy rather than reaching sites
+  from the WAN address. All other UDP (WebRTC and video calls, games, VoIP, DNS to outside
+  resolvers) goes out the WAN directly, so those peers see the router's real address. IPv6 from the
+  LAN is refused, so clients use IPv4. LAN DNS queries to the router work normally.
 - **Only LAN clients** (the interfaces in `lan_interface`) are proxied. Traffic from the router
   itself is not.
 - **DNS.** dnsmasq keeps DHCP and local names; public lookups go to dns_split, which prefers the
