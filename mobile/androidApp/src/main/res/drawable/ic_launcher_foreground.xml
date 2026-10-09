@@ -4,17 +4,18 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The C-shaped route connects the starting point to its destination. -->
+    <!-- One route forks in two: the hollow end goes direct, the filled end through the proxy. -->
     <path
-        android:fillColor="#20C5F5"
-        android:pathData="M75,30A8,8 0,1 0,91 30A8,8 0,1 0,75 30" />
+        android:pathData="M54,80V60M54,60C54,49 38,47 38,38M54,60C54,49 70,47 70,38"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
     <path
-        android:fillColor="#20C5F5"
-        android:pathData="M76,25C64,18 48,18 36,25C23,32 16,45 17,59C18,73 27,85 40,90L46,75C38,72 33,65 32,57C31,49 36,41 43,37C51,33 61,34 68,38Z" />
-    <path
-        android:fillColor="#43E0AE"
-        android:pathData="M40,90C52,95 67,93 77,86L77,94L94,78L77,62V70C69,77 57,80 46,75Z" />
+        android:pathData="M33,31a5,5 0,1 0,10 0a5,5 0,1 0,-10 0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,43L66,55L54,67L42,55Z" />
+        android:pathData="M63.5,31a6.5,6.5 0,1 0,13 0a6.5,6.5 0,1 0,-13 0" />
 </vector>
