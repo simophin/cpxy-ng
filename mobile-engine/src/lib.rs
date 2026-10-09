@@ -36,6 +36,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
 use tokio::sync::{broadcast, oneshot};
+use tokio::task::{JoinHandle, JoinSet};
 use tun::{Traffic, TunDevice};
 
 /// Small, to stay within the iOS packet tunnel extension's memory limit. ipstack needs a
@@ -47,6 +48,8 @@ const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(3600);
 /// Idle UDP flows are closed, and their direct sockets released, after this long.
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const DNS_PORT: u16 = 53;
+/// How long stopping waits for the flows to end, and then for the runtime to shut down.
+const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Receives what the engine reports while it runs. Called from engine threads.
 pub trait EventListener: Send + Sync {
@@ -63,9 +66,15 @@ pub struct TrafficStats {
 }
 
 pub struct EngineHandle {
-    runtime: Mutex<Option<Runtime>>,
-    shutdown: Mutex<Option<oneshot::Sender<()>>>,
+    running: Mutex<Option<Running>>,
     traffic: Arc<Traffic>,
+}
+
+struct Running {
+    runtime: Runtime,
+    shutdown: oneshot::Sender<()>,
+    /// Ends once every flow has ended and the TUN descriptor is closed.
+    stopped: JoinHandle<()>,
 }
 
 /// Starts the engine on a TUN device the platform has set up with [`TUN_ADDR`], [`DNS_ADDR`] as
@@ -88,21 +97,32 @@ pub fn start(
         &settings.dns_alternative,
     ))?);
     let traffic = Arc::new(Traffic::default());
+    let (device_closed_tx, device_closed) = oneshot::channel();
     let device = {
         let _guard = runtime.enter();
-        TunDevice::new(tun, settings.mtu, traffic.clone())?
+        TunDevice::new(tun, settings.mtu, traffic.clone(), device_closed_tx)?
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
     let outbound = Arc::new(routing::outbound(settings.server, events_tx));
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (shutdown, shutdown_rx) = oneshot::channel();
     runtime.spawn(forward_events(events_rx, listener));
-    runtime.spawn(run(device, settings.mtu, outbound, dns, shutdown_rx));
+    let stopped = runtime.spawn(run(
+        device,
+        device_closed,
+        settings.mtu,
+        outbound,
+        dns,
+        shutdown_rx,
+    ));
     tracing::info!("Engine started");
 
     Ok(EngineHandle {
-        runtime: Mutex::new(Some(runtime)),
-        shutdown: Mutex::new(Some(shutdown_tx)),
+        running: Mutex::new(Some(Running {
+            runtime,
+            shutdown,
+            stopped,
+        })),
         traffic,
     })
 }
@@ -111,13 +131,19 @@ impl EngineHandle {
     /// Stops the engine and closes the TUN descriptor. Must not be called from an engine thread,
     /// such as an [`EventListener`] callback.
     pub fn stop(&self) {
-        if let Some(shutdown) = self.shutdown.lock().unwrap().take() {
-            let _ = shutdown.send(());
+        let Some(running) = self.running.lock().unwrap().take() else {
+            return;
+        };
+        let _ = running.shutdown.send(());
+        // Wait while the runtime still works: dropping a flow waits for its tasks.
+        let stopped = running
+            .runtime
+            .block_on(async { tokio::time::timeout(STOP_TIMEOUT, running.stopped).await });
+        if stopped.is_err() {
+            tracing::warn!("Engine did not stop in time; the TUN descriptor may stay open");
         }
-        if let Some(runtime) = self.runtime.lock().unwrap().take() {
-            runtime.shutdown_timeout(Duration::from_secs(2));
-            tracing::info!("Engine stopped");
-        }
+        running.runtime.shutdown_timeout(STOP_TIMEOUT);
+        tracing::info!("Engine stopped");
     }
 
     pub fn traffic(&self) -> TrafficStats {
@@ -151,6 +177,7 @@ async fn forward_events(
 
 async fn run<O: Outbound + Send + Sync + 'static>(
     device: TunDevice,
+    device_closed: oneshot::Receiver<()>,
     mtu: u16,
     outbound: Arc<O>,
     dns: Arc<DnsSplitHandler>,
@@ -164,27 +191,37 @@ async fn run<O: Outbound + Send + Sync + 'static>(
         .udp_timeout(UDP_IDLE_TIMEOUT)
         .with_tcp_config(tcp_config);
     let mut stack = IpStack::new(config, device);
+    let mut flows = JoinSet::new();
 
     loop {
         let stream = tokio::select! {
             stream = stack.accept() => stream,
-            _ = &mut shutdown => return,
+            // Reap the flows that ended.
+            Some(_) = flows.join_next() => continue,
+            _ = &mut shutdown => break,
         };
         match stream {
             Ok(IpStackStream::Tcp(tcp)) => {
-                tokio::spawn(handle_tcp(tcp, outbound.clone(), dns.clone()));
+                flows.spawn(handle_tcp(tcp, outbound.clone(), dns.clone()));
             }
             Ok(IpStackStream::Udp(udp)) => {
-                tokio::spawn(handle_udp(udp, dns.clone()));
+                flows.spawn(handle_udp(udp, dns.clone()));
             }
             // ICMP and anything else the filter let through: not relayed.
             Ok(IpStackStream::UnknownTransport(_) | IpStackStream::UnknownNetwork(_)) => {}
             Err(e) => {
                 tracing::error!("IP stack stopped: {e}");
-                return;
+                break;
             }
         }
     }
+
+    // Stop in order. ipstack's TCP streams wait for their tasks when dropped, which never happens
+    // once the runtime shuts down, so the flows must end first. Dropping the stack aborts the task
+    // that owns the device.
+    drop(stack);
+    flows.shutdown().await;
+    let _ = device_closed.await;
 }
 
 fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
@@ -261,4 +298,56 @@ async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddrV4) -> std::io::Re
 
 fn is_dns(dst: SocketAddrV4) -> bool {
     *dst.ip() == DNS_ADDR && dst.port() == DNS_PORT
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    struct Ignore;
+    impl EventListener for Ignore {
+        fn on_outbound_event(&self, _: OutboundEvent) {}
+    }
+
+    fn is_open(fd: i32) -> bool {
+        // SAFETY: F_GETFD only inspects the descriptor table.
+        unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+
+    #[test]
+    fn stop_closes_the_tun_descriptor() {
+        let mut fds = [0; 2];
+        // SAFETY: socketpair fills in two descriptors we then own.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, fds.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: both descriptors were just created and are owned here.
+        let (tun, _peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        let raw = tun.as_raw_fd();
+
+        let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
+        let engine = start(tun, config, Arc::new(Ignore)).unwrap();
+        assert!(is_open(raw));
+
+        // Keep a TCP flow open while stopping: loopback goes direct, to this listener.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let syn = {
+            let builder = etherparse::PacketBuilder::ipv4(TUN_ADDR.octets(), [127, 0, 0, 1], 64)
+                .tcp(40000, port, 1, 65535)
+                .syn();
+            let mut packet = Vec::with_capacity(builder.size(0));
+            builder.write(&mut packet, &[]).unwrap();
+            packet
+        };
+        // SAFETY: writing our own buffer to the peer socket.
+        let sent = unsafe { libc::write(_peer.as_raw_fd(), syn.as_ptr() as *const _, syn.len()) };
+        assert_eq!(sent, syn.len() as isize);
+        let _accepted = listener.accept().unwrap();
+
+        engine.stop();
+        assert!(!is_open(raw), "the TUN descriptor is still open");
+    }
 }

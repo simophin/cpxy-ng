@@ -123,7 +123,7 @@ fn init_logging() {
         use tracing_subscriber::layer::SubscriberExt;
         let subscriber = tracing_subscriber::registry()
             .with(tracing_subscriber::filter::LevelFilter::INFO)
-            .with(paranoid_android::layer("cpxy-engine"));
+            .with(paranoid_android::layer("cpxy-engine").with_ansi(false));
         // Fails when already set by an earlier start, which is fine.
         let _ = tracing::subscriber::set_global_default(subscriber);
     }

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll, ready};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::sync::oneshot;
 
 /// iOS and macOS utun devices prefix every packet with the address family.
 const PACKET_INFO: bool = cfg!(any(target_os = "ios", target_os = "macos"));
@@ -30,15 +31,23 @@ pub struct TunDevice {
     fd: AsyncFd<OwnedFd>,
     buf: Vec<u8>,
     traffic: Arc<Traffic>,
+    /// Dropped after `fd`, so its receiver learns that the descriptor is closed.
+    _closed: oneshot::Sender<()>,
 }
 
 impl TunDevice {
-    pub fn new(fd: OwnedFd, mtu: u16, traffic: Arc<Traffic>) -> io::Result<Self> {
+    pub fn new(
+        fd: OwnedFd,
+        mtu: u16,
+        traffic: Arc<Traffic>,
+        closed: oneshot::Sender<()>,
+    ) -> io::Result<Self> {
         set_nonblocking(&fd)?;
         Ok(Self {
             fd: AsyncFd::new(fd)?,
             buf: vec![0; usize::from(mtu) + PACKET_INFO_LEN],
             traffic,
+            _closed: closed,
         })
     }
 
