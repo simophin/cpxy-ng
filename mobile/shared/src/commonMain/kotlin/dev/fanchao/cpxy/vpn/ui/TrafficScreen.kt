@@ -53,7 +53,7 @@ import dev.fanchao.cpxy.vpn.VpnController
 import dev.fanchao.cpxy.vpn.VpnState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -100,9 +100,19 @@ private fun TrafficLogView(
     }
 
     LaunchedEffect(log) {
-        snapshotFlow { log.hasOlder && listState.firstVisibleItemIndex < LOAD_OLDER_WITHIN }
-            .filter { it }
-            .collect { log.loadOlder() }
+        while (true) {
+            // Checked afresh after each page: the list may still be near the oldest entry.
+            snapshotFlow { log.hasOlder && listState.firstVisibleItemIndex < LOAD_OLDER_WITHIN }.first { it }
+            val inserted = log.loadOlder()
+            // The list only follows its first visible entry by key when it moved a little, so it
+            // is kept in place here. Requested before the next layout, so nothing jumps.
+            listState.requestScrollToItem(
+                listState.firstVisibleItemIndex + inserted,
+                listState.firstVisibleItemScrollOffset,
+            )
+            // Until the list lays the new entries out, it still looks near the oldest.
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= log.entries.size }
+        }
     }
 
     val followWhenAtEnd = remember(listState) {

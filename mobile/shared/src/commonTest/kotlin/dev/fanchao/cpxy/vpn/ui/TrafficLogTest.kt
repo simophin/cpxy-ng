@@ -92,10 +92,10 @@ class TrafficLogTest {
         val controller = FakeController().apply { add(25) }
         val log = TrafficLog(controller, pageSize = 10)
         log.loadNewer()
-        log.loadOlder()
+        assertEquals(10, log.loadOlder())
         assertEquals((5L..24L).toList(), log.seqs)
         assertTrue(log.hasOlder)
-        log.loadOlder()
+        assertEquals(5, log.loadOlder())
         assertEquals((0L..24L).toList(), log.seqs)
         assertFalse(log.hasOlder)
     }

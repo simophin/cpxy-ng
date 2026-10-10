@@ -46,15 +46,19 @@ internal class TrafficLog(
         }
     }
 
-    /** Loads a page of connections before the oldest entry. */
-    suspend fun loadOlder() = mutex.withLock {
-        val first = mutableEntries.firstOrNull() ?: return@withLock
+    /**
+     * Loads a page of connections before the oldest entry, and returns how many were inserted
+     * before it.
+     */
+    suspend fun loadOlder(): Int = mutex.withLock {
+        val first = mutableEntries.firstOrNull() ?: return@withLock 0
         val page = controller.connectionsBefore(first.seq, pageSize)
         mutableEntries.addAll(0, page.records)
         hasOlder = page.hasOlder()
         if (mutableEntries.size > maxEntries) {
             mutableEntries.removeRange(maxEntries, mutableEntries.size)
         }
+        page.records.size
     }
 
     private suspend fun replaceWithLatest() {
