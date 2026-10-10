@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,8 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import dev.fanchao.cpxy.vpn.AppFilter
+import dev.fanchao.cpxy.vpn.Platform
 import dev.fanchao.cpxy.vpn.Profile
 import dev.fanchao.cpxy.vpn.ProfileRepository
+import dev.fanchao.cpxy.vpn.SettingsRepository
 import dev.fanchao.cpxy.vpn.StoredProfiles
 import dev.fanchao.cpxy.vpn.Traffic
 import dev.fanchao.cpxy.vpn.VpnController
@@ -52,14 +56,18 @@ import kotlinx.coroutines.launch
 private enum class Tab(val label: String, val title: String, val icon: ImageVector) {
     Vpn("VPN", "CPXY VPN", Icons.Default.VpnKey),
     Traffic("Traffic", "Traffic", Icons.AutoMirrored.Default.List),
+    Settings("Settings", "Settings", Icons.Default.Settings),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     repository: ProfileRepository,
+    settingsRepository: SettingsRepository,
     controller: VpnController,
+    platform: Platform,
     onEditProfile: (profileId: String?) -> Unit,
+    onChooseApps: (AppFilter) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.Vpn) }
 
@@ -88,6 +96,7 @@ fun HomeScreen(
         when (tab) {
             Tab.Vpn -> VpnTab(repository, controller, onEditProfile, padding)
             Tab.Traffic -> TrafficScreen(controller, padding)
+            Tab.Settings -> SettingsScreen(settingsRepository, controller, platform, onChooseApps, padding)
         }
     }
 }
@@ -201,7 +210,7 @@ private fun StatusCard(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(
         text,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),

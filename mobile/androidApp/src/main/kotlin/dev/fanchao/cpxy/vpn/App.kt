@@ -14,6 +14,10 @@ class App : Application() {
         ProfileRepository.create(filesDir.toOkioPath() / "profiles.preferences_pb", scope)
     }
 
+    val settingsRepository: SettingsRepository by lazy {
+        SettingsRepository.create(filesDir.toOkioPath() / "settings.preferences_pb", scope)
+    }
+
     val controller: AndroidVpnController by lazy { AndroidVpnController(this) }
 }
 

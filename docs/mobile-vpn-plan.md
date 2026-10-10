@@ -1,6 +1,7 @@
 # Mobile VPN app (Android + iOS): plan
 
-Status: Phases 0–2 (engine, Android MVP and APK CI) done; Phase 3 (iOS) next. Work through the
+Status: Phases 0–2 (engine, Android MVP and APK CI) and the Android part of Phase 4 (polish)
+done; Phase 3 (iOS) next. Work through the
 phases in order and update this file as decisions change.
 
 ## Goal
@@ -118,17 +119,26 @@ tunnel.
   profiles in a preferences DataStore, and a `VpnController` interface that each platform
   implements; an interface rather than `expect`, so the UI takes it as a parameter), `androidApp`,
   and `iosApp/` (Xcode project with the app target and a PacketTunnel extension target).
-- Screens: two bottom navigation tabs. "VPN": connect/disconnect, status, traffic and the profile
+- Screens: three bottom navigation tabs. "VPN": connect/disconnect, status, traffic and the profile
   list/edit (server URL, upstream and alternative DNS lists). "Traffic": a log of the connections
   made while it is shown, with their outbound and the country flag of the destination; it follows
   the newest unless the user scrolls away, caps itself at about 5 MB, and is dropped on leaving the
-  tab, when the engine also stops reporting connections.
+  tab, when the engine also stops reporting connections. "Settings": always-on VPN, the quick
+  settings tile, and which apps use the VPN (all, only selected ones, or all except selected ones;
+  each list is kept while the other is used, and changes apply on the next connect). Settings
+  that apply to every profile live in their own DataStore; the platform features reach the shared
+  UI through a `Platform` interface, null where a platform lacks them.
 - Android: `CpxyVpnService` (`VpnService`) as a foreground service (type `specialUse`, subtype
   `vpn`) with a notification and stop action; hands `ParcelFileDescriptor.detachFd()` to the
   engine. Engine calls run one at a time off the main thread. `AndroidVpnController` asks for the
   VPN consent through the activity and starts the service. Gradle builds `libmobile_engine.so` with
   cargo-ndk (NDK `28.2.13676358`, cargo-ndk `4.1.2`, the same pins as the existing app) and
   generates the UniFFI Kotlin bindings, both as declared task inputs/outputs under `build/`.
+  The service also starts without a profile in its intent, for the always-on VPN or a sticky
+  restart, and then connects the selected profile. Per-app routing uses
+  `addAllowedApplication`/`addDisallowedApplication`, skipping uninstalled apps; the app itself is
+  always left out. `CpxyTileService` is the quick settings tile; when the VPN consent is still
+  needed it opens the activity to connect.
 - iOS: the extension passes the utun fd (from `packetFlow` via the usual KVC lookup) to the engine;
   fall back to bridging `readPackets`/`writePackets` if that breaks. Config reaches the extension
   through `NETunnelProviderProtocol.providerConfiguration`.
@@ -213,10 +223,16 @@ a release key in GitHub secrets remains later work.
 - Device testing via TestFlight once a paid Apple Developer account exists (signing secrets in CI,
   App Store Connect upload).
 
-### Phase 4: polish
+### Phase 4: polish (Android done)
 
 - Android always-on VPN and a quick-settings tile.
-- Per-app bypass list.
+- Per-app VPN: an allowlist or a blocklist, chosen in the new Settings tab.
+
+Validation on an API 36 emulator: the tile connected and disconnected; turning on always-on in
+the system settings started the service with the selected profile, as did reinstalling the app;
+the VPN's UID ranges held only Chrome with "Only selected apps", and left out Chrome and the app
+with "All apps except selected". After `kill -9` of the app process the system did not restart the
+service (no restart was scheduled), so reconnecting after the process dies is left to the system.
 
 ## Risks to watch
 

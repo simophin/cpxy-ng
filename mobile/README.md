@@ -55,5 +55,11 @@ Release APKs currently use the checked-in debug signing key.
    `proxy`.
 3. Check the public IP (e.g. `https://ifconfig.me`): it is the cpxy server's.
 4. Disconnect from the app or the notification.
+5. In Settings, add the quick settings tile; it connects and disconnects with the selected
+   profile.
+6. In Settings, choose "Only selected apps" with a browser, reconnect, and check that only the
+   browser goes through the VPN (`adb shell dumpsys connectivity | grep 'VPN CONNECTED'` lists
+   its UID ranges).
+7. Turn on always-on VPN from Settings; the VPN connects with the selected profile.
 
 The engine logs to logcat with the tag `cpxy-engine`.

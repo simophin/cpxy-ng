@@ -10,8 +10,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import dev.fanchao.cpxy.vpn.ui.CpxyVpnApp
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var consentResult: CompletableDeferred<Boolean>? = null
@@ -40,8 +43,28 @@ class MainActivity : ComponentActivity() {
 
         app.controller.permissionRequester = requestConsent
         enableEdgeToEdge()
+        val platform = AndroidPlatform(this)
         setContent {
-            CpxyVpnApp(repository = app.repository, controller = app.controller)
+            CpxyVpnApp(
+                repository = app.repository,
+                settingsRepository = app.settingsRepository,
+                controller = app.controller,
+                platform = platform,
+            )
+        }
+        if (savedInstanceState == null) handle(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
+
+    /** Connects for the quick settings tile, which needs the activity for the VPN consent. */
+    private fun handle(intent: Intent) {
+        if (intent.action != ACTION_CONNECT) return
+        lifecycleScope.launch {
+            app.repository.profiles.first().selected?.let { app.controller.connect(it) }
         }
     }
 
@@ -51,5 +74,9 @@ class MainActivity : ComponentActivity() {
         }
         consentResult?.cancel()
         super.onDestroy()
+    }
+
+    companion object {
+        const val ACTION_CONNECT = "dev.fanchao.cpxy.vpn.CONNECT"
     }
 }
