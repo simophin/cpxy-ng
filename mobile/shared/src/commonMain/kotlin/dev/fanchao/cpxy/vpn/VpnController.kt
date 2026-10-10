@@ -1,6 +1,5 @@
 package dev.fanchao.cpxy.vpn
 
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface VpnState {
@@ -30,16 +29,40 @@ data class ConnectionEvent(
     val countryCode: String?,
 )
 
+/** A connection the engine recorded, numbered by [seq]. */
+data class ConnectionRecord(
+    /** Increases with every connection, and is never reused while the app runs. */
+    val seq: Long,
+    val event: ConnectionEvent,
+)
+
+data class ConnectionPage(
+    /** Oldest first. */
+    val records: List<ConnectionRecord>,
+    /**
+     * The [ConnectionRecord.seq] of the oldest connection the engine still keeps, or of the next
+     * one when it keeps none. Connections before it are gone.
+     */
+    val oldestSeq: Long,
+)
+
 /** Starts and stops the VPN on the platform. */
 interface VpnController {
     val state: StateFlow<VpnState>
     val traffic: StateFlow<Traffic>
 
     /**
-     * Connections as the engine reports them, without history. The engine only reports them while
-     * this is collected.
+     * The oldest [limit] of the engine's recent connections from [since] on. When [since] is
+     * before [ConnectionPage.oldestSeq], connections in between were dropped. Empty while
+     * disconnected.
      */
-    val connections: Flow<ConnectionEvent>
+    suspend fun connectionsSince(since: Long, limit: Int): ConnectionPage
+
+    /**
+     * The newest [limit] of the engine's recent connections before [before], or the newest of all
+     * when it is null. Empty while disconnected.
+     */
+    suspend fun connectionsBefore(before: Long?, limit: Int): ConnectionPage
 
     /** Asks for the VPN permission if needed, then connects. */
     suspend fun connect(profile: Profile)

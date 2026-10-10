@@ -13,7 +13,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import dev.fanchao.cpxy.vpn.engine.Engine
 import dev.fanchao.cpxy.vpn.engine.EngineException
-import dev.fanchao.cpxy.vpn.engine.EngineListener
 import dev.fanchao.cpxy.vpn.engine.startEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +23,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import dev.fanchao.cpxy.vpn.engine.ConnectionEvent as EngineConnectionEvent
 
 /**
  * Sets up the TUN device and runs the engine on it. The app itself is excluded from the VPN, so
@@ -39,7 +37,7 @@ class CpxyVpnService : VpnService() {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val engineDispatcher = Dispatchers.IO.limitedParallelism(1)
     private var engine: Engine? = null
-    /** Reports the traffic, and turns the connection events on while the UI wants them. */
+    /** Reports the traffic. */
     private var monitorJob: Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -83,16 +81,14 @@ class CpxyVpnService : VpnService() {
                 .establish()
                 ?: error("The VPN permission was revoked")
             // The engine owns the descriptor from here, and closes it even when it fails to start.
-            startEngine(tun.detachFd(), config, Listener(controller))
+            startEngine(tun.detachFd(), config)
         }
 
         started.onSuccess { started ->
             engine = started
+            controller.engine = started
             controller.reportState(VpnState.Connected(profileId))
             monitorJob = launch {
-                launch {
-                    controller.connectionsWanted.collect(started::setEventsEnabled)
-                }
                 while (isActive) {
                     val traffic = started.traffic()
                     controller.reportTraffic(Traffic(traffic.sent.toLong(), traffic.received.toLong()))
@@ -115,6 +111,7 @@ class CpxyVpnService : VpnService() {
     private fun stopEngine() {
         monitorJob?.cancel()
         monitorJob = null
+        controller.engine = null
         engine?.let {
             it.stop()
             it.close()
@@ -155,23 +152,6 @@ class CpxyVpnService : VpnService() {
         Intent(this, MainActivity::class.java),
         PendingIntent.FLAG_IMMUTABLE,
     )
-
-    /** Called from engine threads. */
-    private class Listener(private val controller: AndroidVpnController) : EngineListener {
-        override fun onConnection(event: EngineConnectionEvent) {
-            controller.reportConnection(
-                ConnectionEvent(
-                    host = event.host,
-                    port = event.port.toInt(),
-                    outbound = event.outbound,
-                    delayMillis = event.delayMillis.toLong(),
-                    timeMillis = event.timeMillis.toLong(),
-                    error = event.error,
-                    countryCode = event.countryCode,
-                )
-            )
-        }
-    }
 
     companion object {
         private const val TAG = "CpxyVpnService"

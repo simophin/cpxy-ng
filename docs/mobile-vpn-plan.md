@@ -87,11 +87,15 @@ tunnel.
   which never happens in a runtime that is shutting down, and the descriptor leaked that way.
 - FFI through **UniFFI** (`src/ffi.rs`, proc macros, `uniffi.toml` sets the Kotlin package
   `dev.fanchao.cpxy.vpn.engine`), generating both the Kotlin and the Swift bindings:
-  - `startEngine(tunFd: Int, configJson: String, listener: EngineListener): Engine`, throwing
+  - `startEngine(tunFd: Int, configJson: String): Engine`, throwing
     `EngineException.Failed(reason)`
   - `Engine.stop()`, `Engine.traffic(): TrafficStats`
-  - `EngineListener.onConnection(ConnectionEvent)`: a record mirroring `OutboundEvent` (host, port,
-    `direct`/`proxy`, delay, time, optional error).
+  - `Engine.connectionsSince(since, limit)` and `Engine.connectionsBefore(before?, limit)`: pages
+    of the last 10,000 connections (`src/connection_log.rs`), each a `ConnectionEvent` mirroring
+    `OutboundEvent` (host, port, `direct`/`proxy`, delay, time, optional error, country) with a
+    `seq` that is never reused in the process. A page's `oldestSeq` shows which were dropped. The
+    traffic screen polls `connectionsSince` every 500 ms while it follows the newest, and pages
+    back with `connectionsBefore`.
 - `uniffi-bindgen` is a binary of the crate behind the `bindgen` feature. It reads the bindings from
   a host debug build: release libraries are stripped and carry no UniFFI metadata.
 - On Android the engine logs to logcat with the tag `cpxy-engine` (`paranoid-android`).

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,12 +30,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
@@ -47,16 +51,16 @@ import androidx.lifecycle.compose.currentStateAsState
 import dev.fanchao.cpxy.vpn.ConnectionEvent
 import dev.fanchao.cpxy.vpn.VpnController
 import dev.fanchao.cpxy.vpn.VpnState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * The connections made while the screen is shown, as a log: the newest at the bottom, followed
- * until the user scrolls away from it. Leaving the screen, or the app, drops the log and stops
- * the engine reporting connections.
+ * The engine's recent connections, as a log: the newest at the bottom, followed and polled for
+ * until the user scrolls away from it. Scrolling up loads older ones. Nothing is polled while the
+ * screen, or the app, is not shown.
  */
 @Composable
 internal fun TrafficScreen(
@@ -77,25 +81,37 @@ private fun TrafficLogView(
     modifier: Modifier,
 ) {
     val vpnState by controller.state.collectAsState()
-    val log = remember { TrafficLog() }
+    val log = remember(controller) { TrafficLog(controller) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    // Whether to keep the newest connection in view as more arrive.
+    // Whether to keep the newest connection in view, and poll for more.
     var following by remember { mutableStateOf(true) }
-    // The attribution row comes before the entries.
-    val lastIndex = { log.entries.size }
+    val lastIndex = { (log.entries.size - 1).coerceAtLeast(0) }
 
-    LaunchedEffect(controller) {
-        val pending = Channel<ConnectionEvent>(Channel.UNLIMITED)
-        launch(Dispatchers.Default) { controller.connections.collect(pending::send) }
+    LaunchedEffect(log) {
+        snapshotFlow { following }.collectLatest { following ->
+            while (following) {
+                log.loadNewer()
+                // In its own coroutine: a user's scroll cancels it, which must not end this loop.
+                launch { listState.scrollToItem(lastIndex()) }
+                delay(POLL_INTERVAL)
+            }
+        }
+    }
+
+    LaunchedEffect(log) {
         while (true) {
-            // Batched, so a burst of connections recomposes and scrolls once.
-            val batch = mutableListOf(pending.receive())
-            delay(BATCH_DELAY)
-            while (true) batch += pending.tryReceive().getOrNull() ?: break
-            log.append(batch)
-            // In its own coroutine: a user's scroll cancels it, which must not end this loop.
-            if (following) launch { listState.scrollToItem(lastIndex()) }
+            // Checked afresh after each page: the list may still be near the oldest entry.
+            snapshotFlow { log.hasOlder && listState.firstVisibleItemIndex < LOAD_OLDER_WITHIN }.first { it }
+            val inserted = log.loadOlder()
+            // The list only follows its first visible entry by key when it moved a little, so it
+            // is kept in place here. Requested before the next layout, so nothing jumps.
+            listState.requestScrollToItem(
+                listState.firstVisibleItemIndex + inserted,
+                listState.firstVisibleItemScrollOffset,
+            )
+            // Until the list lays the new entries out, it still looks near the oldest.
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= log.entries.size }
         }
     }
 
@@ -110,43 +126,57 @@ private fun TrafficLogView(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().nestedScroll(followWhenAtEnd),
-            state = listState,
-            contentPadding = contentPadding,
-        ) {
-            item(key = "attribution") { Attribution() }
-            if (log.entries.isEmpty()) {
-                item(key = "empty") {
-                    Text(
-                        if (vpnState is VpnState.Connected) "Waiting for connections…" else "Connect to see the traffic.",
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+    val layoutDirection = LocalLayoutDirection.current
+    Column(modifier = modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
+        // Outside the list: as its first item, it would stay in view while older entries are
+        // inserted after it, so they would keep loading.
+        Attribution()
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().nestedScroll(followWhenAtEnd),
+                state = listState,
+                contentPadding = PaddingValues(
+                    start = contentPadding.calculateStartPadding(layoutDirection),
+                    end = contentPadding.calculateEndPadding(layoutDirection),
+                    bottom = contentPadding.calculateBottomPadding(),
+                ),
+            ) {
+                if (log.entries.isEmpty()) {
+                    item(key = "empty") {
+                        Text(
+                            if (vpnState is VpnState.Connected) "Waiting for connections…" else "Connect to see the traffic.",
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                items(log.entries, key = { it.seq }) { ConnectionRow(it.event) }
             }
-            items(log.entries, key = { it.id }) { ConnectionRow(it.event) }
-        }
 
-        AnimatedVisibility(
-            visible = !following,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = contentPadding.calculateBottomPadding() + 16.dp),
-        ) {
-            ExtendedFloatingActionButton(
+            LatestButton(
+                visible = !following,
                 onClick = {
                     following = true
                     scope.launch { listState.animateScrollToItem(lastIndex()) }
                 },
-                icon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
-                text = { Text("Latest") },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = contentPadding.calculateBottomPadding() + 16.dp),
             )
         }
+    }
+}
+
+/** Outside the column, which would otherwise pick its own `AnimatedVisibility`. */
+@Composable
+private fun LatestButton(visible: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut(), modifier = modifier) {
+        ExtendedFloatingActionButton(
+            onClick = onClick,
+            icon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
+            text = { Text("Latest") },
+        )
     }
 }
 
@@ -196,4 +226,7 @@ private fun ConnectionRow(event: ConnectionEvent) {
     }
 }
 
-private val BATCH_DELAY = 100.milliseconds
+private val POLL_INTERVAL = 500.milliseconds
+
+/** How close to the oldest entry the list gets before more are loaded. */
+private const val LOAD_OLDER_WITHIN = 20

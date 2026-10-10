@@ -4,34 +4,25 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import dev.fanchao.cpxy.vpn.engine.Engine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import dev.fanchao.cpxy.vpn.engine.ConnectionPage as EngineConnectionPage
 
 /** Starts and stops [CpxyVpnService], which reports back through the `report` methods. */
 class AndroidVpnController(private val context: Context) : VpnController {
     private val mutableState = MutableStateFlow<VpnState>(VpnState.Disconnected)
     private val mutableTraffic = MutableStateFlow(Traffic())
-    private val mutableConnections = MutableSharedFlow<ConnectionEvent>(
-        extraBufferCapacity = CONNECTION_BUFFER,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+
+    /** The running engine, set by [CpxyVpnService]. */
+    @Volatile
+    internal var engine: Engine? = null
 
     override val state: StateFlow<VpnState> = mutableState.asStateFlow()
     override val traffic: StateFlow<Traffic> = mutableTraffic.asStateFlow()
-    override val connections: SharedFlow<ConnectionEvent> = mutableConnections.asSharedFlow()
-
-    /** Whether anything collects [connections], so the engine should report them. */
-    internal val connectionsWanted: Flow<Boolean> = mutableConnections.subscriptionCount
-        .map { it > 0 }
-        .distinctUntilChanged()
 
     /**
      * Shows the system's VPN consent dialog and returns whether the user agreed. Set by the
@@ -64,13 +55,39 @@ class AndroidVpnController(private val context: Context) : VpnController {
         mutableTraffic.value = traffic
     }
 
-    /** Called from engine threads. */
-    internal fun reportConnection(event: ConnectionEvent) {
-        mutableConnections.tryEmit(event)
-    }
+    override suspend fun connectionsSince(since: Long, limit: Int): ConnectionPage =
+        queryConnections { it.connectionsSince(since.toULong(), limit.toUInt()) }
 
-    private companion object {
-        /** Absorbs bursts while collectors catch up; the oldest are dropped beyond it. */
-        const val CONNECTION_BUFFER = 1024
-    }
+    override suspend fun connectionsBefore(before: Long?, limit: Int): ConnectionPage =
+        queryConnections { it.connectionsBefore(before?.toULong(), limit.toUInt()) }
+
+    private suspend fun queryConnections(query: (Engine) -> EngineConnectionPage): ConnectionPage =
+        withContext(Dispatchers.Default) {
+            val page = engine?.let {
+                // The service closes the engine when it stops, maybe while this runs.
+                try {
+                    query(it)
+                } catch (_: IllegalStateException) {
+                    null
+                }
+            } ?: return@withContext ConnectionPage(emptyList(), oldestSeq = 0)
+            ConnectionPage(
+                records = page.records.map { record ->
+                    val event = record.event
+                    ConnectionRecord(
+                        seq = record.seq.toLong(),
+                        event = ConnectionEvent(
+                            host = event.host,
+                            port = event.port.toInt(),
+                            outbound = event.outbound,
+                            delayMillis = event.delayMillis.toLong(),
+                            timeMillis = event.timeMillis.toLong(),
+                            error = event.error,
+                            countryCode = event.countryCode,
+                        ),
+                    )
+                },
+                oldestSeq = page.oldestSeq.toLong(),
+            )
+        }
 }
