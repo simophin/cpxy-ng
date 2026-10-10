@@ -1,7 +1,9 @@
 //! The packet engine of the mobile VPN app: reads IP packets from the platform's TUN device and
 //! does what `cpxy-router` does on OpenWrt (see `docs/mobile-vpn-plan.md`):
 //!
-//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`.
+//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. With `block_ads`, names on the
+//!   built-in blocklist resolve to [`config::SINKHOLE_ADDR`], and packets to the sinkhole range
+//!   are dropped without a reply.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - UDP 443 (QUIC) and TCP 853 (DNS over TLS) are refused; other UDP is relayed direct.
@@ -93,7 +95,12 @@ pub fn start(
         settings.server,
         settings.mtu,
         listener,
-        Some((&settings.dns_upstream, &settings.dns_alternative)),
+        Some((
+            &settings.dns_upstream,
+            &settings.dns_alternative,
+            // Only referenced here, so cpxy-router does not embed the list.
+            settings.block_ads.then_some(&blocklist_data::BASELINE),
+        )),
     )
 }
 
@@ -116,6 +123,7 @@ fn start_inner(
     dns_specs: Option<(
         &[client::dns_split::spec::ServerSpec],
         &[client::dns_split::spec::ServerSpec],
+        Option<&'static blocklist_data::Blocklist>,
     )>,
 ) -> anyhow::Result<EngineHandle> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -124,9 +132,9 @@ fn start_inner(
         .enable_all()
         .build()?;
     let dns = dns_specs
-        .map(|(upstream, alternative)| {
+        .map(|(upstream, alternative, blocklist)| {
             runtime
-                .block_on(dns::handler(upstream, alternative))
+                .block_on(dns::handler(upstream, alternative, blocklist))
                 .map(Arc::new)
         })
         .transpose()?;

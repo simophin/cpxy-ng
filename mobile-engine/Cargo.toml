@@ -18,6 +18,7 @@ required-features = ["bindgen"]
 client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
 geoip-data = { path = "../geoip-data" }
+blocklist-data = { path = "../blocklist-data" }
 ipstack = "1.0.1"
 etherparse = { version = "0.20", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }

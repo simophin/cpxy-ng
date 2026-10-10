@@ -9,7 +9,17 @@ pub const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 1);
 pub const TUN_PREFIX_LEN: u8 = 30;
 /// The DNS server the platform hands to the device. It only exists inside the engine.
 pub const DNS_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 2);
+/// Blocked names resolve here. The engine drops whatever is sent to [`is_sinkhole`] addresses
+/// without a reply. OpenWrt uses the same range (`packaging/openwrt`), where it must not be
+/// private: dnsmasq's rebind protection discards answers with private addresses.
+pub const SINKHOLE_ADDR: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 pub const DEFAULT_MTU: u16 = 1500;
+
+/// Whether `ip` is in 198.18.0.0/24, the range kept for blocked names: benchmarking space
+/// (RFC 2544) that is never routed on the internet.
+pub fn is_sinkhole(ip: Ipv4Addr) -> bool {
+    matches!(ip.octets(), [198, 18, 0, _])
+}
 
 /// The engine configuration, as JSON from the app.
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -23,6 +33,9 @@ pub struct Config {
     pub dns_alternative: Vec<String>,
     #[serde(default)]
     pub mtu: Option<u16>,
+    /// Resolves names on the built-in ad blocklist to [`SINKHOLE_ADDR`].
+    #[serde(default)]
+    pub block_ads: bool,
 }
 
 /// A config that has been checked and parsed.
@@ -31,6 +44,7 @@ pub struct Settings {
     pub dns_upstream: Vec<ServerSpec>,
     pub dns_alternative: Vec<ServerSpec>,
     pub mtu: u16,
+    pub block_ads: bool,
 }
 
 impl Config {
@@ -55,6 +69,7 @@ impl Config {
             dns_upstream: parse_specs("upstream", &self.dns_upstream)?,
             dns_alternative: parse_specs("alternative", &self.dns_alternative)?,
             mtu,
+            block_ads: self.block_ads,
         })
     }
 }
@@ -87,12 +102,31 @@ mod tests {
     }
 
     #[test]
-    fn mtu_defaults_to_1500() {
+    fn defaults() {
         let config = Config::from_json(
             r#"{"server": "http://:k@1.2.3.4:80", "dns_upstream": ["1.1.1.1"], "dns_alternative": ["8.8.8.8"]}"#,
         )
         .unwrap();
-        assert_eq!(config.settings().unwrap().mtu, 1500);
+        let settings = config.settings().unwrap();
+        assert_eq!(settings.mtu, 1500);
+        assert!(!settings.block_ads);
+    }
+
+    #[test]
+    fn block_ads_is_read() {
+        let config = Config::from_json(
+            r#"{"server": "http://:k@1.2.3.4:80", "dns_upstream": ["1.1.1.1"], "dns_alternative": ["8.8.8.8"], "block_ads": true}"#,
+        )
+        .unwrap();
+        assert!(config.settings().unwrap().block_ads);
+    }
+
+    #[test]
+    fn sinkhole_range() {
+        assert!(is_sinkhole(SINKHOLE_ADDR));
+        assert!(is_sinkhole(Ipv4Addr::new(198, 18, 0, 255)));
+        assert!(!is_sinkhole(DNS_ADDR));
+        assert!(!is_sinkhole(Ipv4Addr::new(198, 18, 1, 1)));
     }
 
     #[test]

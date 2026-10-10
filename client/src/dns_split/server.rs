@@ -1,8 +1,11 @@
 use super::cache::{DnsCache, unix_now};
 use super::policy::Racer;
 use anyhow::Context;
-use hickory_proto::op::{Edns, Message, MessageType, OpCode, ResponseCode};
-use hickory_proto::rr::RecordType;
+use blocklist_data::Blocklist;
+use hickory_proto::op::{Edns, Message, MessageType, OpCode, Query, ResponseCode};
+use hickory_proto::rr::rdata::A;
+use hickory_proto::rr::{RData, Record, RecordType};
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -11,15 +14,35 @@ use tokio::net::{TcpListener, UdpSocket};
 /// The EDNS payload size we advertise, as recommended by DNS Flag Day 2020.
 const EDNS_PAYLOAD: u16 = 1232;
 const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Short, so turning blocking off soon reaches the clients' own caches.
+const SINKHOLE_TTL: u32 = 60;
 
 pub struct DnsSplitHandler {
     racer: Racer,
     cache: Option<Arc<DnsCache>>,
+    sinkhole: Option<Sinkhole>,
+}
+
+/// Answers blocked names with an address that leads nowhere.
+struct Sinkhole {
+    blocklist: &'static Blocklist,
+    addr: Ipv4Addr,
 }
 
 impl DnsSplitHandler {
     pub fn new(racer: Racer, cache: Option<Arc<DnsCache>>) -> Self {
-        Self { racer, cache }
+        Self {
+            racer,
+            cache,
+            sinkhole: None,
+        }
+    }
+
+    /// Answers A queries for blocked names with `addr`, and other queries for them with no
+    /// records. Whatever carries the traffic is expected to drop packets sent to `addr`.
+    pub fn with_sinkhole(mut self, blocklist: &'static Blocklist, addr: Ipv4Addr) -> Self {
+        self.sinkhole = Some(Sinkhole { blocklist, addr });
+        self
     }
 
     pub async fn handle(&self, request: &Message) -> Message {
@@ -34,6 +57,13 @@ impl DnsSplitHandler {
         // IPv6 is not supported: answer AAAA with no records so clients fall back to IPv4.
         if query.query_type() == RecordType::AAAA {
             return finalize(request, error(ResponseCode::NoError));
+        }
+
+        if let Some(sinkhole) = &self.sinkhole
+            && sinkhole.blocklist.is_blocked(&query.name().to_ascii())
+        {
+            tracing::info!("Blocked {query}");
+            return finalize(request, sinkhole.answer(query));
         }
 
         if let Some(cache) = &self.cache {
@@ -79,6 +109,20 @@ impl DnsSplitHandler {
         }
 
         finalize(request, resolution.message)
+    }
+}
+
+impl Sinkhole {
+    fn answer(&self, query: &Query) -> Message {
+        let mut message = error(ResponseCode::NoError);
+        if query.query_type() == RecordType::A {
+            message.add_answer(Record::from_rdata(
+                query.name().clone(),
+                SINKHOLE_TTL,
+                RData::A(A(self.addr)),
+            ));
+        }
+        message
     }
 }
 
@@ -241,6 +285,41 @@ mod tests {
         assert_eq!(response.response_code(), ResponseCode::NoError);
         assert!(response.answers().is_empty());
         assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn blocked_names_are_sinkholed_without_querying() {
+        let upstream = FakeUpstream::new("u", 0, Some(answer(&[Ipv4Addr::new(1, 2, 3, 4)])));
+        let (handler, _) = handler(&[(Group::Upstream, upstream.clone())]).await;
+        let blocklist = Box::leak(Box::new(
+            Blocklist::from_list("||ads.example.com^").unwrap(),
+        ));
+        let sinkhole = Ipv4Addr::new(198, 18, 0, 1);
+        let handler = handler.with_sinkhole(blocklist, sinkhole);
+
+        let response = handler
+            .handle(&request("x.ads.example.com.", RecordType::A))
+            .await;
+        assert_eq!(response.id(), 4242);
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+        let [record] = response.answers() else {
+            panic!("expected one answer, got {:?}", response.answers())
+        };
+        assert_eq!(record.data(), &RData::A(A(sinkhole)));
+
+        let response = handler
+            .handle(&request("ads.example.com.", RecordType::HTTPS))
+            .await;
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+        assert!(response.answers().is_empty());
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
+
+        // Other names still resolve
+        let response = handler
+            .handle(&request("example.com.", RecordType::A))
+            .await;
+        assert_eq!(response.answers().len(), 1);
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

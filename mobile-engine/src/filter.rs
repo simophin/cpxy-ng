@@ -1,6 +1,7 @@
 //! Decides, before the IP stack sees it, what happens to each packet the device sends into the
 //! tunnel. Refused traffic gets an ICMP error back so apps fail fast instead of timing out.
 
+use crate::config::is_sinkhole;
 use etherparse::{Icmpv4Type, Icmpv6Type, PacketBuilder, icmpv4, icmpv6};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -50,6 +51,11 @@ fn classify_v4(packet: &[u8]) -> Verdict {
     let dst = Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
     if dst.is_multicast() || dst.is_broadcast() || protocol == PROTO_ICMP {
         // Neither is relayed, and an ICMP error must never answer these.
+        return Verdict::Drop;
+    }
+    if is_sinkhole(dst) {
+        // A blocked name: no reply at all, so the ad's connection hangs instead of failing at
+        // once and being retried elsewhere.
         return Verdict::Drop;
     }
 
@@ -234,6 +240,15 @@ mod tests {
         .write(&mut neighbour_solicitation, &[])
         .unwrap();
         assert_eq!(classify(&neighbour_solicitation), Verdict::Drop);
+    }
+
+    #[test]
+    fn sinkhole_is_dropped_without_reply() {
+        let sinkhole = crate::config::SINKHOLE_ADDR;
+        assert_eq!(classify(&tcp_syn_v4(sinkhole, 443)), Verdict::Drop);
+        assert_eq!(classify(&tcp_syn_v4(sinkhole, 80)), Verdict::Drop);
+        // Even QUIC, which elsewhere gets port unreachable
+        assert_eq!(classify(&udp_v4(sinkhole, 443)), Verdict::Drop);
     }
 
     #[test]

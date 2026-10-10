@@ -73,6 +73,7 @@ uci commit cpxy
 | `dns_upstream` (list) | none, **required** with `dns_split` | DNS servers whose answer is used when every address in it is in the local region. |
 | `dns_alternative` (list) | none, **required** with `dns_split` | DNS servers whose answer is used otherwise. |
 | `dns_cache` | `1` | `1` keeps a DNS answer cache in RAM (`/tmp`); `0` disables it. |
+| `block_ads` | `1` | `1` blocks ads and trackers with the blocklist built into the package (see [DNS](#dns)); `0` turns it off. |
 | `dns_listen` | `127.0.0.1:5335` | Where the DNS resolver listens. dnsmasq forwards to it. Avoid 5353, the mDNS port. |
 
 A DNS server entry is either a plain IP or a URL:
@@ -136,6 +137,13 @@ LAN's DNS. `logread -e cpxy-dns` shows why it stopped.
 
 If `dhcp.@dnsmasq[0].server` is set (custom DNS forwarders in LuCI), dnsmasq may still send some
 queries there; clear it for all lookups to go through the resolver.
+
+With `block_ads` on, the resolver answers names on the built-in blocklist ([HaGeZi Multi
+NORMAL](https://github.com/hagezi/dns-blocklists), refreshed with each release) with `198.18.0.1`,
+and the router silently drops everything sent to `198.18.0.0/24`. A blocked ad's connection hangs
+until the device gives up rather than failing at once. Devices using their own encrypted DNS
+(DNS over HTTPS) are not covered. There is no custom list or allowlist yet; set `block_ads` to `0`
+if a site breaks.
 
 ## 4. Start and check
 

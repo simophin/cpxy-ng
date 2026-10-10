@@ -15,6 +15,7 @@ dotenvy = "0"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 geoip-data = { path = "../geoip-data" }
+blocklist-data = { path = "../blocklist-data", optional = true }
 url = "2"
 ipnet = "2"
 futures = "0.3.31"
@@ -29,7 +30,7 @@ webpki-roots = { version = "1", optional = true }
 sqlx = { version = "0.8", optional = true, default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 
 [features]
-dns-split = ["dep:hickory-proto", "dep:rustls", "dep:webpki-roots", "dep:sqlx"]
+dns-split = ["dep:blocklist-data", "dep:hickory-proto", "dep:rustls", "dep:webpki-roots", "dep:sqlx"]
 
 [[bin]]
 name = "dns_split"

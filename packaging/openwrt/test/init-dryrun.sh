@@ -55,6 +55,7 @@ cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPX
 cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 _cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 cpxy_dnsmasq_down() { :; }
+cpxy_sinkhole_down() { :; }
 fail() { echo "FAIL: $*"; cat "$LOG"; cat /tmp/err 2>/dev/null; exit 1; }
 want() { grep -qF -- "$1" "$LOG" || fail "expected: $1"; }
 absent() { if grep -qF -- "$1" "$LOG"; then fail "unexpected: $1"; fi; }
@@ -138,6 +139,12 @@ uci set cpxy.guest.dns_split=0
 reload_service
 want 'instance dns'
 want 'append command --cache-db /tmp/cpxy/dns-cache.sqlite'
+want 'append command --sinkhole 198.18.0.1'
+uci set cpxy.main.block_ads=0
+: >"$LOG"
+reload_service
+absent '--sinkhole'
+uci delete cpxy.main.block_ads
 # Disable guest without tearing down main routing or its worker.
 uci set cpxy.guest.enabled=0
 : >"$LOG"

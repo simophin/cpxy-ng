@@ -6,7 +6,7 @@ use client::dns_split::policy::Racer;
 use client::dns_split::server::{DnsSplitHandler, serve_tcp, serve_udp};
 use client::dns_split::spec::ServerSpec;
 use client::dns_split::upstream::{DnsUpstream, Group, HickoryUpstream, tls_client_config};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,6 +53,11 @@ struct CliOptions {
     /// Maximum time to cache a negative answer (no such name, or no records), in seconds
     #[clap(long, env, default_value_t = 300)]
     cache_negative_ttl: u32,
+
+    /// Answer names on the built-in ad blocklist with this address, which the network should
+    /// drop silently. Without it, nothing is blocked.
+    #[clap(long, env)]
+    sinkhole: Option<Ipv4Addr>,
 }
 
 #[tokio::main]
@@ -97,10 +102,13 @@ async fn main() -> anyhow::Result<()> {
         Some(cache)
     };
 
-    let handler = Arc::new(DnsSplitHandler::new(
-        Racer::new(servers, timeout, is_local_region_ip),
-        cache,
-    ));
+    let mut handler = DnsSplitHandler::new(Racer::new(servers, timeout, is_local_region_ip), cache);
+    if let Some(sinkhole) = options.sinkhole {
+        let blocklist = &blocklist_data::BASELINE;
+        tracing::info!("Blocking {} domains with {sinkhole}", blocklist.len());
+        handler = handler.with_sinkhole(blocklist, sinkhole);
+    }
+    let handler = Arc::new(handler);
 
     let udp = UdpSocket::bind(options.listen)
         .await
