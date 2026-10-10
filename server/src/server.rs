@@ -1,4 +1,4 @@
-use crate::routing::{Router, dial};
+use crate::routing::Router;
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
 use cpxy_ng::time_util::now_epoch_seconds;
@@ -46,7 +46,9 @@ pub async fn handle_connection(
             port = req.request.port,
             "Server: establishing TCP connection"
         );
-        let upstream = dial(route, req.request.host.as_str(), req.request.port).await?;
+        let upstream = router
+            .dial(route, req.request.host.as_str(), req.request.port)
+            .await?;
 
         let mut upstream =
             connect_tls(req.request.host.as_str(), req.request.tls, upstream).await?;
