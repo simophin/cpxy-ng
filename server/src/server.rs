@@ -1,21 +1,23 @@
+use crate::routing::{Router, dial};
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
-use cpxy_ng::ws_stream::new_ws_stream;
 use cpxy_ng::time_util::now_epoch_seconds;
 use cpxy_ng::tls_stream::connect_tls;
+use cpxy_ng::ws_stream::new_ws_stream;
 use cpxy_ng::{Key, http_protocol, protocol};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::instrument;
 
-#[instrument(ret, skip(conn, key), level = "info")]
+#[instrument(ret, skip(conn, key, router), level = "info")]
 pub async fn handle_connection(
     conn: impl AsyncRead + AsyncWrite + Unpin + Send,
     _from_addr: SocketAddr,
     key: Key,
+    router: Arc<Router>,
 ) -> anyhow::Result<()> {
     let (req, mut conn) = match http_protocol::Request::parse(conn, &key).await {
         Ok(v) => v.take_head(),
@@ -27,7 +29,11 @@ pub async fn handle_connection(
         }
     };
 
+    let route = router.route(&req.host);
+
     tracing::info!(
+        ingress_host = req.host.as_str(),
+        %route,
         target_host = req.request.host.as_str(),
         target_port = req.request.port,
         target_tls = req.request.tls,
@@ -40,13 +46,7 @@ pub async fn handle_connection(
             port = req.request.port,
             "Server: establishing TCP connection"
         );
-        let upstream = TcpStream::connect((req.request.host.as_str(), req.request.port))
-            .await
-            .context("Error connecting to upstream")?;
-
-        upstream
-            .set_nodelay(true)
-            .context("Error setting nodelay")?;
+        let upstream = dial(route, req.request.host.as_str(), req.request.port).await?;
 
         let mut upstream =
             connect_tls(req.request.host.as_str(), req.request.tls, upstream).await?;
@@ -124,19 +124,14 @@ pub async fn handle_connection(
 mod tests {
     use super::*;
     use client::outbound::ProtocolOutbound;
-    use cpxy_ng::outbound::Outbound;
     use client::protocol_config::Config;
     use cpxy_ng::key_util::derive_password;
+    use cpxy_ng::outbound::Outbound;
     use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    /// Spins up a real echo server, a real cpxy server, and a ProtocolOutbound client,
-    /// then verifies data round-trips correctly through the full HTTP-upgrade →
-    /// WebSocket-framing → ChaCha20-cipher stack.
-    #[tokio::test]
-    async fn full_tunnel_echo() {
-        // 1. TCP echo server — represents the upstream target the proxy connects to.
+    async fn spawn_echo_server() -> SocketAddr {
         let echo_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let echo_addr = echo_listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -144,19 +139,25 @@ mod tests {
             let (mut r, mut w) = tokio::io::split(stream);
             let _ = tokio::io::copy(&mut r, &mut w).await;
         });
+        echo_addr
+    }
 
-        // 2. cpxy server — runs handle_connection for a single inbound connection.
+    /// Opens a tunnel through a single-connection cpxy server using `router`, with the
+    /// client connecting via `server_host` (which becomes the `Host` header), then
+    /// verifies an echo round-trip to `echo_addr`.
+    async fn assert_tunnel_echo(router: Router, server_host: &str, echo_addr: SocketAddr) {
         let cpxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let cpxy_addr = cpxy_listener.local_addr().unwrap();
         let key: Key = derive_password("integration_test_key").into();
+        let router = Arc::new(router);
         tokio::spawn(async move {
             let (conn, addr) = cpxy_listener.accept().await.unwrap();
-            let _ = handle_connection(conn, addr, key).await;
+            let _ = handle_connection(conn, addr, key, router).await;
         });
 
-        // 3. Client — ProtocolOutbound mirrors what client_cn does for each connection.
+        // ProtocolOutbound mirrors what client_cn does for each connection.
         let config = Config {
-            host: "127.0.0.1".to_string(),
+            host: server_host.to_string(),
             port: cpxy_addr.port(),
             key: derive_password("integration_test_key").into(),
             tls: false,
@@ -171,11 +172,85 @@ mod tests {
             .await
             .expect("tunnel setup failed");
 
-        // 4. Verify echo round-trip.
         let msg = b"hello cpxy tunnel!";
         stream.write_all(msg).await.unwrap();
         let mut buf = vec![0u8; msg.len()];
         stream.read_exact(&mut buf).await.unwrap();
         assert_eq!(&buf, msg);
+    }
+
+    /// Spins up a real echo server, a real cpxy server, and a ProtocolOutbound client,
+    /// then verifies data round-trips correctly through the full HTTP-upgrade →
+    /// WebSocket-framing → ChaCha20-cipher stack.
+    #[tokio::test]
+    async fn full_tunnel_echo() {
+        let echo_addr = spawn_echo_server().await;
+        assert_tunnel_echo(Router::default(), "127.0.0.1", echo_addr).await;
+    }
+
+    /// A minimal single-connection SOCKS5 server. Sends the requested `host:port`
+    /// on the returned channel, then relays to it.
+    async fn spawn_socks5_server() -> (SocketAddr, tokio::sync::oneshot::Receiver<(String, u16)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut greeting = [0u8; 2];
+            s.read_exact(&mut greeting).await.unwrap();
+            let mut methods = vec![0u8; greeting[1] as usize];
+            s.read_exact(&mut methods).await.unwrap();
+
+            // Read the CONNECT request before replying to the greeting: this only
+            // completes if the client pipelines the two.
+            let mut head = [0u8; 5];
+            s.read_exact(&mut head).await.unwrap();
+            s.write_all(&[5, 0]).await.unwrap();
+            assert_eq!(
+                &head[..4],
+                &[5, 1, 0, 3],
+                "expected CONNECT with a domain name"
+            );
+            let mut host = vec![0u8; head[4] as usize];
+            s.read_exact(&mut host).await.unwrap();
+            let port = s.read_u16().await.unwrap();
+            let host = String::from_utf8(host).unwrap();
+
+            let mut upstream = tokio::net::TcpStream::connect((host.as_str(), port))
+                .await
+                .unwrap();
+            s.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
+            tx.send((host, port)).unwrap();
+            let _ = tokio::io::copy_bidirectional(&mut s, &mut upstream).await;
+        });
+        (addr, rx)
+    }
+
+    #[tokio::test]
+    async fn routes_by_host_header_through_socks5() {
+        let echo_addr = spawn_echo_server().await;
+        let (socks_addr, requested) = spawn_socks5_server().await;
+        let router = Router::new(vec![
+            format!("localhost=socks5://{socks_addr}").parse().unwrap(),
+        ]);
+
+        timeout(
+            Duration::from_secs(5),
+            assert_tunnel_echo(router, "localhost", echo_addr),
+        )
+        .await
+        .expect("SOCKS5 handshake should be pipelined");
+        assert_eq!(
+            requested.await.unwrap(),
+            ("127.0.0.1".to_string(), echo_addr.port())
+        );
+    }
+
+    #[tokio::test]
+    async fn unmatched_host_header_connects_directly() {
+        let echo_addr = spawn_echo_server().await;
+        // Would fail tunnel setup if used: nothing listens on port 1.
+        let router = Router::new(vec!["localhost=socks5://127.0.0.1:1".parse().unwrap()]);
+        assert_tunnel_echo(router, "127.0.0.1", echo_addr).await;
     }
 }
