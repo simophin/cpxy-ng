@@ -55,7 +55,7 @@ Apply changes with `sudo systemctl restart cpxy-router cpxy-dns-split`. Upgrades
 | `INTERFACES` | `tailscale0` | Interfaces whose forwarded traffic is proxied, separated by spaces or commas. A WireGuard interface or LAN bridge works too. |
 | `MTU` | `1280` | Largest packet the engine sends back to clients. It must not exceed the smallest MTU on the way back to them; `tailscale0`'s is 1280. Too high and pages stall partway. |
 | `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | DNS servers whose answer is used when every address in it is in the local region. |
-| `DNS_ALTERNATIVE` | `https://dns.google/dns-query?ip=8.8.8.8` | DNS servers whose answer is used otherwise. |
+| `DNS_ALTERNATIVE` | `https://dns.google/dns-query?ip=8.8.8.8` | DNS servers whose answer is used otherwise. A resolver on your tailnet is the reliable choice (see [Choosing the servers](#choosing-the-servers)). |
 | `DNS_SYSTEM` | `1` | `1` makes `cpxy-dns-split` the box's resolver (see [DNS](#dns)). `0` leaves `/etc/resolv.conf` alone. |
 | `DNS_LISTEN` | `127.0.0.1:53` | Where `cpxy-dns-split` listens. Must be port 53 with `DNS_SYSTEM=1`. |
 | `TAILSCALE_ACCEPT_DNS_OFF` | `1` | Turns off Tailscale's "accept DNS" on this box (see [DNS](#dns)). |
@@ -63,8 +63,8 @@ Apply changes with `sudo systemctl restart cpxy-router cpxy-dns-split`. Upgrades
 | `TUN`, `ROUTING_TABLE`, `RULE_PRIORITY` | `cpxy0`, `100`, `9100` | Change only if they clash with something else. The priority and the next three are used. |
 | `TUN_ADDRESS` | `198.18.0.1/30` | Tailscale masquerades what it forwards, which needs an address on the TUN. |
 
-DNS servers are a plain IP, or a `udp://`, `tcp://`, `tls://` or `https://` URL; `tls://` and
-`https://` accept `?ip=<addr>` so no lookup is needed at startup.
+DNS servers are a plain IP (with an optional `:port`), or a `udp://`, `tcp://`, `tls://` or
+`https://` URL; `tls://` and `https://` accept `?ip=<addr>` so no lookup is needed at startup.
 
 ## DNS
 
@@ -82,6 +82,27 @@ are unchanged, and `.ts.net` names still work on every other device. Set
 
 Keep the admin console's DNS nameservers without **Use with exit node**; otherwise clients send
 DNS to those servers instead of the exit node.
+
+### Choosing the servers
+
+The split works by asking both groups at once: an upstream answer is used when every address in it
+is in the local region, and the alternative answer otherwise. Where DNS is tampered with, blocked
+names get fake addresses outside the local region, so a tampered upstream answer can never send a
+blocked site direct. What has to be trustworthy is the **alternative** answer:
+
+- Plain DNS to an overseas server (`DNS_ALTERNATIVE=1.1.1.1`) is poisoned on the way back. Clients
+  then connect to fake addresses, and the log shows the server failing to reach them (`Error
+  connecting to upstream`).
+- DNS over HTTPS or TLS works only while its server is reachable, and some, `dns.google` among
+  them, are blocked by name.
+- **A resolver on your tailnet** is reached inside Tailscale's encrypted tunnel, so it can be neither
+  poisoned nor blocked. Run one on the cpxy server, so CDNs answer for where traffic leaves, and set
+  `DNS_ALTERNATIVE=<its Tailscale IP>:<port>`. The [setup guide](cpxy-gateway-setup.md#4b-recommended-an-overseas-resolver-on-your-tailnet)
+  shows how.
+
+For `DNS_UPSTREAM`, the resolvers your router hands out over DHCP (`resolvectl status`) are usually
+the fastest and give the nearest CDN nodes for your ISP. Check that each server you list answers: a
+dead one costs nothing visible but means local-region names wait for the alternative answer.
 
 ## Check it
 
@@ -115,9 +136,9 @@ and DNS. `apt purge` also deletes `/etc/cpxy/cpxy.conf` and the cache.
   UDP (video calls, games) goes out directly from the box. IPv6 from clients is refused.
 - **Only forwarded traffic is proxied.** The box's own traffic (apt, Tailscale itself) goes direct.
 - **"Local region" is decided where the box is.** Local-region destinations, and DNS answers from
-  `DNS_UPSTREAM`, go direct from the box. Outside China, Chinese DNS servers return overseas
-  addresses, so the split mostly picks `DNS_ALTERNATIVE` there; it works as intended on a box in
-  China.
+  `DNS_UPSTREAM`, go direct from the box. On a box outside the local region, the upstream servers
+  return addresses outside it, so the split mostly picks `DNS_ALTERNATIVE` there; it works as
+  intended on a box inside the region.
 - **A firewall that drops forwarded traffic** (ufw, or an nftables policy of drop) also needs
   forwarding from the interfaces to `cpxy0` allowed, e.g. `ufw route allow in on tailscale0 out on cpxy0`.
 
@@ -128,6 +149,7 @@ and DNS. `apt purge` also deletes `/etc/cpxy/cpxy.conf` and the cache.
 | Services fail to start | `journalctl -u cpxy-router -u cpxy-dns-split`: a missing setting is named there. |
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: see `journalctl -u cpxy-router`. `systemctl stop cpxy-router` restores direct access meanwhile. |
 | Pages start loading, then stall | `MTU` is higher than the clients' link; the log warns when an interface's MTU is lower. |
+| Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned: `journalctl -u cpxy-dns-split` shows the name answered from the alternative server with a wrong address. Use a [resolver on your tailnet](#choosing-the-servers). |
 | Clients do not get split DNS | `/etc/resolv.conf` should say "Managed by cpxy-dns-split", and `tailscale debug prefs` should show `"CorpDNS": false`. Another resolver on port 53 (dnsmasq, bind) stops `cpxy-dns-split` from starting. |
 
 ## Building and testing

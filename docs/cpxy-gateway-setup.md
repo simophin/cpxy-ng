@@ -85,13 +85,67 @@ At minimum, set the server:
 SERVER=https://:<key>@<host>:<port>
 ```
 
-Then check the DNS servers. The defaults suit a box in mainland China:
+Then check the DNS servers:
 
-- `DNS_UPSTREAM` (default `223.5.5.5,tcp://119.29.29.29`) is used for names that resolve to China.
-- `DNS_ALTERNATIVE` (default Google over HTTPS) is used for everything else.
+- `DNS_UPSTREAM` (default `223.5.5.5,tcp://119.29.29.29`) is used for names that resolve to the
+  local region. The resolvers your router hands out over DHCP are usually the fastest and give
+  the nearest CDN nodes for your ISP: `resolvectl status` lists them, e.g.
+  `DNS_UPSTREAM=192.168.1.1`.
+- `DNS_ALTERNATIVE` (default Google over HTTPS) is used for everything else. It must not be poisoned
+  on its way to the box: plain DNS to an overseas server (such as `1.1.1.1`) is, and DNS over HTTPS
+  works only while its server is not blocked. The reliable choice is a resolver on your tailnet,
+  set up in the next step.
 
 Leave the other settings alone unless the [user guide](cpxy-gateway.md#settings) says otherwise for
 your setup.
+
+## 4b. Recommended: an overseas resolver on your tailnet
+
+Queries to a tailnet machine travel inside Tailscale's encrypted tunnel, so they cannot be poisoned
+or blocked by name. Pick a Debian machine outside the local region that is on the tailnet, ideally the cpxy
+server itself, so CDNs answer for where traffic leaves. On it:
+
+```sh
+sudo apt install dnsmasq-base       # the binary only; the full dnsmasq package would want port 53
+sudo mkdir -p /etc/tailnet-dns
+sudo tee /etc/tailnet-dns/dnsmasq.conf <<'EOF'
+port=5335
+interface=tailscale0
+bind-dynamic
+no-resolv
+no-hosts
+server=1.1.1.1
+server=8.8.8.8
+cache-size=10000
+EOF
+sudo tee /etc/systemd/system/tailnet-dns.service <<'EOF'
+[Unit]
+Description=dnsmasq resolver for tailnet peers on port 5335
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/etc/tailnet-dns/dnsmasq.conf --pid-file=
+DynamicUser=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now tailnet-dns
+```
+
+It answers only on the machine's Tailscale addresses. Any port works; 5335 keeps it clear of
+another resolver on 53. If the machine runs a firewall, allow port 5335 from `tailscale0`, and if
+your tailnet has access rules, allow the gateway to reach it.
+
+Then point the gateway at it, using the machine's Tailscale IP (`tailscale ip -4 <machine>`), in
+`/etc/cpxy/cpxy.conf`:
+
+```sh
+DNS_ALTERNATIVE=100.x.y.z:5335
+```
 
 ## 5. Start it
 
@@ -119,7 +173,7 @@ tailscale set --exit-node=<box name>
 curl https://ifconfig.me          # should print the cpxy server's public IP
 ```
 
-Then open a local-region site (e.g. `baidu.com` for a box in China): it should load directly, and
+Then open a local-region site (one hosted in the box's region): it should load directly, and
 `journalctl -u cpxy-router -f` on the box shows each connection and whether it was proxied. Stop
 using the exit node with `tailscale set --exit-node=`.
 
