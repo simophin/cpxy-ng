@@ -4,7 +4,7 @@ mod server;
 use clap::Parser;
 use cpxy_ng::{Key, key_util::derive_password};
 use dotenvy::dotenv;
-use routing::{Router, Rule};
+use routing::{Router, Rule, RuleList};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -19,12 +19,18 @@ struct CliOptions {
     bind_addr: String,
 
     /// Route requests to a SOCKS5 server based on the HTTP `Host` header the client
-    /// connected with, as `<HOST_PATTERN>=<TARGET>`. HOST_PATTERN is `example.com`
-    /// (also matches subdomains), `=example.com` (exact) or `*`; TARGET is
-    /// `socks5://host:port` or `direct`. The most specific match wins; requests that
-    /// match no rule connect directly. Repeatable, or comma-separated in the env var.
-    #[clap(long, env = "SOCKS5_ROUTES", value_delimiter = ',')]
+    /// connected with, as `<HOST_REGEX>=<TARGET>`. HOST_REGEX is a case-insensitive
+    /// regex that must match the whole host (port stripped), e.g.
+    /// `(.+\.)?example\.com`; TARGET is `socks5://host:port` or `direct`. Rules are
+    /// tried in order and the first match wins; requests that match no rule connect
+    /// directly. Repeatable.
+    #[clap(long)]
     socks5_route: Vec<Rule>,
+
+    /// More `--socks5-route` rules, separated by whitespace or newlines, tried after
+    /// the ones given on the command line.
+    #[clap(long, env = "SOCKS5_ROUTES")]
+    socks5_routes: Option<RuleList>,
 }
 
 #[tokio::main]
@@ -35,11 +41,13 @@ async fn main() {
     let CliOptions {
         key,
         bind_addr,
-        socks5_route,
+        mut socks5_route,
+        socks5_routes,
     } = CliOptions::parse();
 
+    socks5_route.extend(socks5_routes.unwrap_or_default().0);
     for rule in &socks5_route {
-        tracing::info!(?rule, "Server: SOCKS5 route configured");
+        tracing::info!(%rule, "Server: SOCKS5 route configured");
     }
     let router = Arc::new(Router::new(socks5_route));
 

@@ -2536,6 +2536,7 @@ dependencies = [
  "client",
  "cpxy-ng",
  "dotenvy",
+ "regex",
  "tokio",
  "tracing",
  "tracing-subscriber",
