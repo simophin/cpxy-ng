@@ -14,4 +14,4 @@ clap = { version = "4", features = ["derive", "env"] }
 
 [dev-dependencies]
 client = { path = "../client" }
-tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync"] }

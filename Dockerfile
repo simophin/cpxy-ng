@@ -23,7 +23,7 @@ FROM debian:bookworm-slim
 COPY --from=builder /out/server /usr/local/bin/server
 
 ENV KEY=
-ENV BIND_ADDRESS=0.0.0.0:3000
+ENV BIND_ADDR=0.0.0.0:3000
 EXPOSE 3000
 
 CMD ["server"]
