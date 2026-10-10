@@ -43,6 +43,7 @@ cpxy_dnsmasq_down() {
 # LAN devices send to a blackhole route without an ICMP error, so blocked connections hang instead
 # of failing. Not a private range: dnsmasq's rebind protection would discard those answers.
 # Kept in step with mobile-engine/src/config.rs.
+# shellcheck disable=SC2034 # read by /etc/init.d/cpxy, which sources this
 CPXY_SINKHOLE_ADDR=198.18.0.1
 CPXY_SINKHOLE_NET=198.18.0.0/24
 
