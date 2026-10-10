@@ -200,12 +200,10 @@ mod tests {
             s.read_exact(&mut greeting).await.unwrap();
             let mut methods = vec![0u8; greeting[1] as usize];
             s.read_exact(&mut methods).await.unwrap();
+            s.write_all(&[5, 0]).await.unwrap();
 
-            // Read the CONNECT request before replying to the greeting: this only
-            // completes if the client pipelines the two.
             let mut head = [0u8; 5];
             s.read_exact(&mut head).await.unwrap();
-            s.write_all(&[5, 0]).await.unwrap();
             assert_eq!(
                 &head[..4],
                 &[5, 1, 0, 3],
@@ -234,12 +232,7 @@ mod tests {
             format!("localhost=socks5://{socks_addr}").parse().unwrap(),
         ]);
 
-        timeout(
-            Duration::from_secs(5),
-            assert_tunnel_echo(router, "localhost", echo_addr),
-        )
-        .await
-        .expect("SOCKS5 handshake should be pipelined");
+        assert_tunnel_echo(router, "localhost", echo_addr).await;
         assert_eq!(
             requested.await.unwrap(),
             ("127.0.0.1".to_string(), echo_addr.port())

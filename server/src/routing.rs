@@ -1,8 +1,12 @@
 use anyhow::{Context, bail, ensure};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
+
+const SOCKS5_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Where to send the upstream connection for a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,8 +181,11 @@ pub async fn dial(route: &Route, host: &str, port: u16) -> anyhow::Result<TcpStr
             let stream = TcpStream::connect(proxy.as_str())
                 .await
                 .with_context(|| format!("Error connecting to SOCKS5 server {proxy}"))?;
-            socks5_connect(stream, host, port)
+            // The SOCKS5 server may accept the TCP connection but never answer.
+            timeout(SOCKS5_HANDSHAKE_TIMEOUT, socks5_connect(stream, host, port))
                 .await
+                .map_err(anyhow::Error::from)
+                .and_then(|r| r)
                 .with_context(|| format!("SOCKS5 CONNECT via {proxy} failed"))?
         }
     };
@@ -189,20 +196,10 @@ pub async fn dial(route: &Route, host: &str, port: u16) -> anyhow::Result<TcpStr
 
 /// Performs an unauthenticated SOCKS5 CONNECT, passing `host` through as a
 /// domain name so the SOCKS5 server does the DNS resolution.
-///
-/// The greeting and CONNECT request are pipelined in one write (we only offer
-/// "no auth", so the method reply is known in advance), making the handshake a
-/// single round trip.
 async fn socks5_connect(mut stream: TcpStream, host: &str, port: u16) -> anyhow::Result<TcpStream> {
     ensure!(host.len() <= 255, "Host name too long for SOCKS5");
 
-    let mut req = Vec::with_capacity(10 + host.len());
-    req.extend_from_slice(&[5, 1, 0]);
-    req.extend_from_slice(&[5, 1, 0, 3, host.len() as u8]);
-    req.extend_from_slice(host.as_bytes());
-    req.extend_from_slice(&port.to_be_bytes());
-    stream.write_all(&req).await?;
-
+    stream.write_all(&[5, 1, 0]).await?;
     let mut reply = [0u8; 2];
     stream
         .read_exact(&mut reply)
@@ -210,6 +207,12 @@ async fn socks5_connect(mut stream: TcpStream, host: &str, port: u16) -> anyhow:
         .context("Reading method selection")?;
     ensure!(reply[0] == 5, "Unexpected SOCKS version {}", reply[0]);
     ensure!(reply[1] == 0, "SOCKS5 server requires authentication");
+
+    let mut req = Vec::with_capacity(7 + host.len());
+    req.extend_from_slice(&[5, 1, 0, 3, host.len() as u8]);
+    req.extend_from_slice(host.as_bytes());
+    req.extend_from_slice(&port.to_be_bytes());
+    stream.write_all(&req).await?;
 
     let mut head = [0u8; 4];
     stream
