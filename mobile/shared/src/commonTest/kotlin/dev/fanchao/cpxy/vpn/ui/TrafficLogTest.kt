@@ -1,41 +1,118 @@
 package dev.fanchao.cpxy.vpn.ui
 
 import dev.fanchao.cpxy.vpn.ConnectionEvent
+import dev.fanchao.cpxy.vpn.ConnectionPage
+import dev.fanchao.cpxy.vpn.ConnectionRecord
+import dev.fanchao.cpxy.vpn.Profile
+import dev.fanchao.cpxy.vpn.Traffic
+import dev.fanchao.cpxy.vpn.VpnController
+import dev.fanchao.cpxy.vpn.VpnState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+/** Keeps the newest [capacity] connections, like the engine. */
+private class FakeController(private val capacity: Int = 100) : VpnController {
+    override val state: StateFlow<VpnState> = MutableStateFlow(VpnState.Disconnected)
+    override val traffic: StateFlow<Traffic> = MutableStateFlow(Traffic())
+
+    private val records = ArrayDeque<ConnectionRecord>()
+    private var nextSeq = 0L
+
+    fun add(count: Int) = repeat(count) {
+        if (records.size == capacity) records.removeFirst()
+        records += ConnectionRecord(nextSeq++, event)
+    }
+
+    private fun page(records: List<ConnectionRecord>) =
+        ConnectionPage(records, this.records.firstOrNull()?.seq ?: nextSeq)
+
+    override suspend fun connectionsSince(since: Long, limit: Int) =
+        page(records.filter { it.seq >= since }.take(limit))
+
+    override suspend fun connectionsBefore(before: Long?, limit: Int) =
+        page(records.filter { before == null || it.seq < before }.takeLast(limit))
+
+    override suspend fun connect(profile: Profile) = Unit
+    override fun disconnect() = Unit
+
+    private companion object {
+        val event = ConnectionEvent(
+            host = "1.2.3.4",
+            port = 443,
+            outbound = "proxy",
+            delayMillis = 1,
+            timeMillis = 2,
+            error = null,
+            countryCode = "AU",
+        )
+    }
+}
 
 class TrafficLogTest {
-    private fun event(port: Int) = ConnectionEvent(
-        host = "1.2.3.4",
-        port = port,
-        outbound = "proxy",
-        delayMillis = 1,
-        timeMillis = 2,
-        error = null,
-        countryCode = "AU",
-    )
+    private val TrafficLog.seqs get() = entries.map { it.seq }
 
     @Test
-    fun keepsEntriesOldestFirst() {
-        val log = TrafficLog()
-        log.append(listOf(event(1), event(2)))
-        log.append(listOf(event(3)))
-        assertEquals(listOf(1, 2, 3), log.entries.map { it.event.port })
-        assertEquals(listOf(0L, 1L, 2L), log.entries.map { it.id })
+    fun startsWithTheNewestPage() = runTest {
+        val controller = FakeController().apply { add(25) }
+        val log = TrafficLog(controller, pageSize = 10)
+        log.loadNewer()
+        assertEquals((15L..24L).toList(), log.seqs)
+        assertTrue(log.hasOlder)
     }
 
     @Test
-    fun dropsTheOldestBeyondTheLimit() {
-        val size = event(0).estimatedBytes().toLong()
-        val log = TrafficLog(maxBytes = size * 3)
-        log.append((1..2).map(::event))
-        log.append((3..5).map(::event))
-        assertEquals(listOf(3, 4, 5), log.entries.map { it.event.port })
+    fun appendsEveryNewerPage() = runTest {
+        val controller = FakeController().apply { add(5) }
+        val log = TrafficLog(controller, pageSize = 10)
+        log.loadNewer()
+        controller.add(25)
+        log.loadNewer()
+        assertEquals((0L..29L).toList(), log.seqs)
+        assertFalse(log.hasOlder)
+    }
 
-        log.append(listOf(event(6)))
-        assertEquals(listOf(4, 5, 6), log.entries.map { it.event.port })
-        // Ids keep counting, so the remaining rows keep their keys.
-        assertEquals(listOf(3L, 4L, 5L), log.entries.map { it.id })
+    @Test
+    fun reloadsTheNewestWhenConnectionsWereDroppedInBetween() = runTest {
+        val controller = FakeController(capacity = 20).apply { add(5) }
+        val log = TrafficLog(controller, pageSize = 10)
+        log.loadNewer()
+        controller.add(30)
+        log.loadNewer()
+        assertEquals((25L..34L).toList(), log.seqs)
+        assertTrue(log.hasOlder)
+    }
+
+    @Test
+    fun prependsOlderPagesUntilTheOldest() = runTest {
+        val controller = FakeController().apply { add(25) }
+        val log = TrafficLog(controller, pageSize = 10)
+        log.loadNewer()
+        log.loadOlder()
+        assertEquals((5L..24L).toList(), log.seqs)
+        assertTrue(log.hasOlder)
+        log.loadOlder()
+        assertEquals((0L..24L).toList(), log.seqs)
+        assertFalse(log.hasOlder)
+    }
+
+    @Test
+    fun dropsFromTheOtherEndBeyondTheLimit() = runTest {
+        val controller = FakeController().apply { add(30) }
+        val log = TrafficLog(controller, pageSize = 10, maxEntries = 15)
+        log.loadNewer()
+        log.loadOlder()
+        // The newest are dropped while loading older ones…
+        assertEquals((10L..24L).toList(), log.seqs)
+        controller.add(10)
+        log.loadNewer()
+        // …and the oldest while loading newer ones.
+        assertEquals((25L..39L).toList(), log.seqs)
+        assertTrue(log.hasOlder)
     }
 
     @Test

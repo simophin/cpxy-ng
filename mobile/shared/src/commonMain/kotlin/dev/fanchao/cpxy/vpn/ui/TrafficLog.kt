@@ -1,53 +1,76 @@
 package dev.fanchao.cpxy.vpn.ui
 
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import dev.fanchao.cpxy.vpn.ConnectionEvent
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import dev.fanchao.cpxy.vpn.ConnectionPage
+import dev.fanchao.cpxy.vpn.ConnectionRecord
+import dev.fanchao.cpxy.vpn.VpnController
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * The connections shown on the traffic screen, oldest first. Once their estimated size passes
- * [maxBytes], the oldest are dropped.
+ * A window onto the engine's recent connections, oldest first, paged in from either end. Holds
+ * at most [maxEntries], dropping from the end away from the one being loaded.
  */
-internal class TrafficLog(private val maxBytes: Long = MAX_BYTES) {
-    class Entry(
-        /** Unique within the log, to key the list rows. */
-        val id: Long,
-        val event: ConnectionEvent,
-    ) {
-        internal val estimatedBytes = event.estimatedBytes()
+internal class TrafficLog(
+    private val controller: VpnController,
+    private val pageSize: Int = PAGE_SIZE,
+    private val maxEntries: Int = MAX_ENTRIES,
+) {
+    private val mutableEntries = mutableStateListOf<ConnectionRecord>()
+    val entries: List<ConnectionRecord> get() = mutableEntries
+
+    /** Whether the engine keeps connections older than the [entries]. */
+    var hasOlder by mutableStateOf(false)
+        private set
+
+    // Loads from both ends may overlap, and each reads the entries across a query.
+    private val mutex = Mutex()
+
+    /** Loads the connections after the newest entry, or the newest page when there are none. */
+    suspend fun loadNewer() = mutex.withLock {
+        while (true) {
+            val since = (mutableEntries.lastOrNull() ?: return@withLock replaceWithLatest()).seq + 1
+            val page = controller.connectionsSince(since, pageSize)
+            // Connections were dropped in between, so the entries would have a hole.
+            if (page.oldestSeq > since) return@withLock replaceWithLatest()
+            mutableEntries += page.records
+            val excess = mutableEntries.size - maxEntries
+            if (excess > 0) {
+                mutableEntries.removeRange(0, excess)
+                hasOlder = true
+            }
+            if (page.records.size < pageSize) return@withLock
+        }
     }
 
-    private val mutableEntries = mutableStateListOf<Entry>()
-    val entries: List<Entry> get() = mutableEntries
-
-    private var nextId = 0L
-    private var bytes = 0L
-
-    fun append(events: List<ConnectionEvent>) {
-        for (event in events) {
-            val entry = Entry(nextId++, event)
-            mutableEntries += entry
-            bytes += entry.estimatedBytes
+    /** Loads a page of connections before the oldest entry. */
+    suspend fun loadOlder() = mutex.withLock {
+        val first = mutableEntries.firstOrNull() ?: return@withLock
+        val page = controller.connectionsBefore(first.seq, pageSize)
+        mutableEntries.addAll(0, page.records)
+        hasOlder = page.hasOlder()
+        if (mutableEntries.size > maxEntries) {
+            mutableEntries.removeRange(maxEntries, mutableEntries.size)
         }
+    }
 
-        var dropped = 0
-        while (bytes > maxBytes && dropped < mutableEntries.size) {
-            bytes -= mutableEntries[dropped++].estimatedBytes
-        }
-        if (dropped > 0) mutableEntries.removeRange(0, dropped)
+    private suspend fun replaceWithLatest() {
+        val page = controller.connectionsBefore(null, pageSize)
+        mutableEntries.clear()
+        mutableEntries += page.records
+        hasOlder = page.hasOlder()
     }
 
     companion object {
-        const val MAX_BYTES = 5L * 1024 * 1024
+        const val PAGE_SIZE = 200
+        const val MAX_ENTRIES = 10_000
     }
 }
 
-/** Roughly what an entry holds on the heap: the objects, the strings and its slot in the list. */
-internal fun ConnectionEvent.estimatedBytes(): Int {
-    val chars = host.length + outbound.length + (error?.length ?: 0) + (countryCode?.length ?: 0)
-    return ENTRY_OVERHEAD_BYTES + 2 * chars
-}
-
-private const val ENTRY_OVERHEAD_BYTES = 160
+private fun ConnectionPage.hasOlder() = records.firstOrNull()?.let { it.seq > oldestSeq } ?: false
 
 /** The flag emoji of an ISO 3166-1 alpha-2 country code, or a globe when it is unknown. */
 internal fun flagEmoji(countryCode: String?): String {

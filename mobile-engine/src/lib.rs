@@ -12,6 +12,7 @@
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
 
 mod config;
+mod connection_log;
 mod dns;
 mod ffi;
 mod filter;
@@ -22,7 +23,8 @@ mod tun;
 
 pub use client::stats_server::OutboundEvent;
 pub use config::{Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_PREFIX_LEN};
-pub use ffi::{ConnectionEvent, Engine, EngineError, EngineListener, start_engine};
+pub use connection_log::{ConnectionPage, ConnectionRecord};
+pub use ffi::{ConnectionEvent, Engine, EngineError, start_engine};
 
 uniffi::setup_scaffolding!();
 

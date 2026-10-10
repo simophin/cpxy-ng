@@ -1,13 +1,13 @@
 //! The UniFFI surface the apps call, generating the Kotlin and Swift bindings (see
 //! `src/bin/uniffi-bindgen.rs`). A thin wrapper over [`crate::start`].
 
+use crate::connection_log::{self, ConnectionLog, ConnectionPage};
 use crate::{EngineHandle, EventListener, OutboundEvent, TrafficStats};
 use cpxy_ng::geoip::find_country_code_v4;
 use geoip_data::GEOIP;
 use std::net::Ipv4Addr;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum EngineError {
@@ -78,41 +78,25 @@ impl From<OutboundEvent> for ConnectionEvent {
     }
 }
 
-/// Implemented by the app. Called from engine threads, so it must not block or call
-/// [`Engine::stop`].
-#[uniffi::export(with_foreign)]
-pub trait EngineListener: Send + Sync {
-    fn on_connection(&self, event: ConnectionEvent);
-}
+/// Records the engine's connections in the log. Called from an engine thread.
+struct LogListener(Arc<ConnectionLog>);
 
-struct ListenerAdapter {
-    listener: Arc<dyn EngineListener>,
-    enabled: Arc<AtomicBool>,
-}
-
-impl EventListener for ListenerAdapter {
+impl EventListener for LogListener {
     fn on_outbound_event(&self, event: OutboundEvent) {
-        if self.enabled.load(Ordering::Relaxed) {
-            self.listener.on_connection(event.into());
-        }
+        self.0.push(event.into());
     }
 }
 
 #[derive(uniffi::Object)]
 pub struct Engine {
     handle: EngineHandle,
-    events_enabled: Arc<AtomicBool>,
+    connections: Arc<ConnectionLog>,
 }
 
 /// Starts the engine on `tun_fd`, which it takes ownership of and closes when stopped. Blocks
 /// while the DNS servers are set up, so do not call it on a UI thread. See [`crate::start`].
-/// `listener` is not called until [`Engine::set_events_enabled`] turns it on.
 #[uniffi::export]
-pub fn start_engine(
-    tun_fd: i32,
-    config_json: String,
-    listener: Arc<dyn EngineListener>,
-) -> Result<Arc<Engine>, EngineError> {
+pub fn start_engine(tun_fd: i32, config_json: String) -> Result<Arc<Engine>, EngineError> {
     init_logging();
     if tun_fd < 0 {
         return Err(EngineError::Failed {
@@ -121,21 +105,21 @@ pub fn start_engine(
     }
     // SAFETY: the caller hands over a TUN descriptor it no longer uses.
     let tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
-    let events_enabled = Arc::new(AtomicBool::new(false));
-    let adapter = ListenerAdapter {
-        listener,
-        enabled: events_enabled.clone(),
-    };
-    crate::start(tun, &config_json, Arc::new(adapter))
-        .map(|handle| {
-            Arc::new(Engine {
-                handle,
-                events_enabled,
-            })
+    let connections = Arc::new(ConnectionLog::new(connection_log::CAPACITY));
+    crate::start(
+        tun,
+        &config_json,
+        Arc::new(LogListener(connections.clone())),
+    )
+    .map(|handle| {
+        Arc::new(Engine {
+            handle,
+            connections,
         })
-        .map_err(|e| EngineError::Failed {
-            reason: format!("{e:#}"),
-        })
+    })
+    .map_err(|e| EngineError::Failed {
+        reason: format!("{e:#}"),
+    })
 }
 
 #[uniffi::export]
@@ -150,10 +134,16 @@ impl Engine {
         self.handle.traffic()
     }
 
-    /// Whether connections are reported to the listener. Off at start, so nothing crosses the
-    /// FFI boundary while no one is watching.
-    pub fn set_events_enabled(&self, enabled: bool) {
-        self.events_enabled.store(enabled, Ordering::Relaxed);
+    /// The oldest `limit` of the recent connections from `since` on. When `since` is before
+    /// [`ConnectionPage::oldest_seq`], connections in between were dropped.
+    pub fn connections_since(&self, since: u64, limit: u32) -> ConnectionPage {
+        self.connections.since(since, limit as usize)
+    }
+
+    /// The newest `limit` of the recent connections before `before`, or the newest of all when
+    /// it is `None`.
+    pub fn connections_before(&self, before: Option<u64>, limit: u32) -> ConnectionPage {
+        self.connections.before(before, limit as usize)
     }
 }
 
@@ -210,11 +200,7 @@ mod tests {
 
     #[test]
     fn rejects_a_negative_descriptor() {
-        struct Ignore;
-        impl EngineListener for Ignore {
-            fn on_connection(&self, _: ConnectionEvent) {}
-        }
         let config = r#"{"server": "http://:k@1.2.3.4", "dns_upstream": ["1.1.1.1"], "dns_alternative": ["8.8.8.8"]}"#;
-        assert!(start_engine(-1, config.into(), Arc::new(Ignore)).is_err());
+        assert!(start_engine(-1, config.into()).is_err());
     }
 }
