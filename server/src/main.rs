@@ -19,15 +19,16 @@ struct CliOptions {
     bind_addr: String,
 
     /// Route requests to a SOCKS5 server based on the HTTP `Host` header the client
-    /// connected with, as `<HOST_REGEX>=<TARGET>`. HOST_REGEX is a case-insensitive
-    /// regex that must match the whole host (port stripped), e.g.
-    /// `(.+\.)?example\.com`; TARGET is `socks5://host:port` or `direct`. Rules are
-    /// tried in order and the first match wins; requests that match no rule connect
-    /// directly. Repeatable.
+    /// connected with, as `<HOST_PATTERN>=<TARGET>`. HOST_PATTERN must match the whole
+    /// host (case-insensitive, port stripped) and may contain any number of `*`
+    /// wildcards, each matching any run of characters including dots, e.g.
+    /// `*.example.com` or `us*.proxy.*.net`. TARGET is `socks5://host:port` or `direct`.
+    /// Rules are tried in order and the first match wins; requests that match no rule
+    /// connect directly. Repeatable.
     #[clap(long)]
     socks5_route: Vec<Rule>,
 
-    /// More `--socks5-route` rules, separated by whitespace or newlines, tried after
+    /// More `--socks5-route` rules, separated by commas and/or whitespace, tried after
     /// the ones given on the command line.
     #[clap(long, env = "SOCKS5_ROUTES")]
     socks5_routes: Option<RuleList>,

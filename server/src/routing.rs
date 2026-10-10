@@ -1,5 +1,4 @@
 use anyhow::{Context, bail, ensure};
-use regex::{Regex, RegexBuilder};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -22,13 +21,44 @@ impl Display for Route {
     }
 }
 
-/// A single `--socks5-route` rule: `<HOST_REGEX>=<TARGET>`.
+/// Matches a whole host against a pattern where each `*` matches any run of
+/// characters (including none, and including dots). Both are expected lowercase.
+fn wildcard_match(pattern: &str, host: &str) -> bool {
+    let mut parts = pattern.split('*');
+    // `split` always yields at least one part.
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = host.strip_prefix(first) else {
+        return false;
+    };
+
+    let mut parts = parts.peekable();
+    if parts.peek().is_none() {
+        // No `*` at all: exact match.
+        return rest.is_empty();
+    }
+
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            // The last part must end the host.
+            return rest.ends_with(part);
+        }
+        // Middle parts: take the earliest occurrence, leaving the most room for the rest.
+        match rest.find(part) {
+            Some(i) => rest = &rest[i + part.len()..],
+            None => return false,
+        }
+    }
+    unreachable!("the loop returns on the last part")
+}
+
+/// A single `--socks5-route` rule: `<HOST_PATTERN>=<TARGET>`.
 ///
-/// The regex is case-insensitive and must match the whole `Host` header value
-/// (with any port and trailing dot stripped).
+/// The pattern is case-insensitive and must match the whole `Host` header value
+/// (with any port and trailing dot stripped); each `*` in it matches any run of
+/// characters, including dots.
 #[derive(Debug, Clone)]
 pub struct Rule {
-    pattern: Regex,
+    pattern: String,
     route: Route,
 }
 
@@ -43,16 +73,19 @@ impl FromStr for Rule {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        // Targets never contain `=`, so split on the last one and leave the regex free to.
         let (pattern, target) = s
-            .rsplit_once('=')
-            .with_context(|| format!("Invalid route {s:?}: expected <HOST_REGEX>=<TARGET>"))?;
+            .split_once('=')
+            .with_context(|| format!("Invalid route {s:?}: expected <HOST_PATTERN>=<TARGET>"))?;
 
-        ensure!(!pattern.is_empty(), "Invalid route {s:?}: empty host regex");
-        let pattern = RegexBuilder::new(&format!("^(?:{pattern})$"))
-            .case_insensitive(true)
-            .build()
-            .with_context(|| format!("Invalid route {s:?}: bad host regex"))?;
+        let pattern = normalize_host(pattern);
+        ensure!(
+            !pattern.is_empty(),
+            "Invalid route {s:?}: empty host pattern"
+        );
+        ensure!(
+            !pattern.contains(|c: char| c.is_whitespace() || c == ','),
+            "Invalid route {s:?}: host pattern can't contain whitespace or commas"
+        );
 
         let target = target.trim();
         let route = if target.eq_ignore_ascii_case("direct") {
@@ -78,8 +111,7 @@ impl FromStr for Rule {
     }
 }
 
-/// A whitespace-separated list of [`Rule`]s, as given in `SOCKS5_ROUTES`.
-/// Commas are common in regexes (e.g. `{1,3}`), so they can't separate rules.
+/// A list of [`Rule`]s separated by commas and/or whitespace, as given in `SOCKS5_ROUTES`.
 #[derive(Debug, Clone, Default)]
 pub struct RuleList(pub Vec<Rule>);
 
@@ -87,7 +119,8 @@ impl FromStr for RuleList {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.split_whitespace()
+        s.split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|r| !r.is_empty())
             .map(Rule::from_str)
             .collect::<Result<_, _>>()
             .map(RuleList)
@@ -105,14 +138,14 @@ impl Router {
         Self { rules }
     }
 
-    /// Returns the route of the first rule whose regex matches, or [`Route::Direct`]
+    /// Returns the route of the first rule whose pattern matches, or [`Route::Direct`]
     /// if none do. `host_header` is the raw `Host` header value (it may carry a port).
     pub fn route(&self, host_header: &str) -> &Route {
         static DIRECT: Route = Route::Direct;
         let host = normalize_host_header(host_header);
         self.rules
             .iter()
-            .find(|r| r.pattern.is_match(&host))
+            .find(|r| wildcard_match(&r.pattern, &host))
             .map_or(&DIRECT, |r| &r.route)
     }
 }
@@ -217,24 +250,18 @@ mod tests {
 
     #[test]
     fn parses_rules() {
-        let rule: Rule = r"(.+\.)?example\.com=socks5://10.0.0.1:1080"
-            .parse()
-            .unwrap();
+        let rule: Rule = "*.Example.COM.=socks5://10.0.0.1:1080".parse().unwrap();
+        assert_eq!(rule.pattern, "*.example.com");
         assert_eq!(rule.route, socks("10.0.0.1:1080"));
-        // Only the last `=` separates the target, so the regex may contain one.
         assert_eq!(
-            "a=b=direct".parse::<Rule>().unwrap().pattern.as_str(),
-            "^(?:a=b)$"
-        );
-        assert_eq!(
-            ".*=socks5://[::1]:1080".parse::<Rule>().unwrap().route,
+            "*=socks5://[::1]:1080".parse::<Rule>().unwrap().route,
             socks("[::1]:1080")
         );
 
         for bad in [
             "example.com",
             "=direct",
-            "(unclosed=direct",
+            "a=b=direct",
             "example.com=http://a:1",
             "example.com=socks5://a",
             "example.com=socks5://a:notaport",
@@ -246,11 +273,11 @@ mod tests {
 
     #[test]
     fn parses_rule_lists() {
-        let RuleList(rules) = "  a\\.com=direct\n\tb{1,3}\\.com=socks5://h:1  "
+        let RuleList(rules) = " a.com=direct,b.com=direct ,\n\t*.c.com=socks5://h:1, "
             .parse()
             .unwrap();
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[1].route, socks("h:1"));
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[2].route, socks("h:1"));
         assert!("".parse::<RuleList>().unwrap().0.is_empty());
         assert!("a.com=direct bad".parse::<RuleList>().is_err());
     }
@@ -265,23 +292,60 @@ mod tests {
     }
 
     #[test]
+    fn wildcard_matching() {
+        for (pattern, host) in [
+            ("example.com", "example.com"),
+            ("*", ""),
+            ("*", "anything.at.all"),
+            ("*.example.com", "a.example.com"),
+            ("*.example.com", "a.b.example.com"),
+            ("us*.proxy.*.net", "us1.proxy.hk.net"),
+            ("us*.proxy.*.net", "us.proxy.a.b.net"),
+            ("*.us.*", "a.us.b"),
+            ("a*b*c", "abc"),
+            ("a*b*c", "aXbYbZc"),
+            ("**.com", "x.com"),
+        ] {
+            assert!(
+                wildcard_match(pattern, host),
+                "{pattern} should match {host}"
+            );
+        }
+
+        for (pattern, host) in [
+            ("example.com", "a.example.com"),
+            ("example.com", "example.co"),
+            ("*.example.com", "example.com"),
+            ("*.example.com", "badexample.com"),
+            ("*.example.com", "a.example.com.evil.net"),
+            ("us*.proxy.*.net", "us1.proxy.net"),
+            ("a*a", "a"),
+            ("a*b*c", "acb"),
+        ] {
+            assert!(
+                !wildcard_match(pattern, host),
+                "{pattern} shouldn't match {host}"
+            );
+        }
+    }
+
+    #[test]
     fn matches_whole_host_and_first_rule_wins() {
         let r = router(&[
-            r"corp\.example\.com=direct",
-            r"(.+\.)?example\.com=socks5://suffix:1",
-            r"us[0-9]+\.proxy\.net=socks5://us:1",
-            ".*=socks5://any:1",
+            "corp.example.com=direct",
+            "example.com=socks5://apex:1",
+            "*.example.com=socks5://sub:1",
+            "us*.proxy.*.net=socks5://us:1",
+            "*=socks5://any:1",
         ]);
 
-        assert_eq!(r.route("example.com"), &socks("suffix:1"));
-        assert_eq!(r.route("A.Example.com:443"), &socks("suffix:1"));
+        assert_eq!(r.route("example.com"), &socks("apex:1"));
+        assert_eq!(r.route("A.Example.com:443"), &socks("sub:1"));
         assert_eq!(r.route("corp.example.com"), &Route::Direct);
         // The earlier rule only matches that exact name, so subdomains fall through.
-        assert_eq!(r.route("x.corp.example.com"), &socks("suffix:1"));
-        assert_eq!(r.route("us12.proxy.net"), &socks("us:1"));
-        // Anchored: no partial matches.
+        assert_eq!(r.route("x.corp.example.com"), &socks("sub:1"));
+        assert_eq!(r.route("us12.proxy.hk.net"), &socks("us:1"));
         assert_eq!(r.route("badexample.com"), &socks("any:1"));
-        assert_eq!(r.route("example.com.evil.net"), &socks("any:1"));
         assert_eq!(r.route(""), &socks("any:1"));
     }
 
@@ -289,7 +353,7 @@ mod tests {
     fn defaults_to_direct() {
         assert_eq!(Router::default().route("example.com"), &Route::Direct);
         assert_eq!(
-            router(&[r"example\.com=socks5://a:1"]).route("other.com"),
+            router(&["example.com=socks5://a:1"]).route("other.com"),
             &Route::Direct
         );
     }
