@@ -176,10 +176,20 @@ pub async fn dial(route: &Route, host: &str, port: u16) -> anyhow::Result<TcpStr
 
 /// Performs an unauthenticated SOCKS5 CONNECT, passing `host` through as a
 /// domain name so the SOCKS5 server does the DNS resolution.
+///
+/// The greeting and CONNECT request are pipelined in one write (we only offer
+/// "no auth", so the method reply is known in advance), making the handshake a
+/// single round trip.
 async fn socks5_connect(mut stream: TcpStream, host: &str, port: u16) -> anyhow::Result<TcpStream> {
     ensure!(host.len() <= 255, "Host name too long for SOCKS5");
 
-    stream.write_all(&[5, 1, 0]).await?;
+    let mut req = Vec::with_capacity(10 + host.len());
+    req.extend_from_slice(&[5, 1, 0]);
+    req.extend_from_slice(&[5, 1, 0, 3, host.len() as u8]);
+    req.extend_from_slice(host.as_bytes());
+    req.extend_from_slice(&port.to_be_bytes());
+    stream.write_all(&req).await?;
+
     let mut reply = [0u8; 2];
     stream
         .read_exact(&mut reply)
@@ -187,12 +197,6 @@ async fn socks5_connect(mut stream: TcpStream, host: &str, port: u16) -> anyhow:
         .context("Reading method selection")?;
     ensure!(reply[0] == 5, "Unexpected SOCKS version {}", reply[0]);
     ensure!(reply[1] == 0, "SOCKS5 server requires authentication");
-
-    let mut req = Vec::with_capacity(7 + host.len());
-    req.extend_from_slice(&[5, 1, 0, 3, host.len() as u8]);
-    req.extend_from_slice(host.as_bytes());
-    req.extend_from_slice(&port.to_be_bytes());
-    stream.write_all(&req).await?;
 
     let mut head = [0u8; 4];
     stream
