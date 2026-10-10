@@ -30,6 +30,7 @@ use client::dns_split::server::DnsSplitHandler;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
+    TcpOptions,
 };
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::fd::OwnedFd;
@@ -52,6 +53,9 @@ const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(3600);
 /// Idle UDP flows are closed, and their direct sockets released, after this long.
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const DNS_PORT: u16 = 53;
+/// IPv6 and TCP headers without options. The MSS counts payload only (RFC 6691), and ipstack
+/// advertises one MSS for both IP versions, so it allows for the larger IPv6 header.
+const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -229,6 +233,8 @@ async fn run<O: Outbound + Send + Sync + 'static>(
 ) {
     let mut tcp_config = TcpConfig::default();
     tcp_config.timeout = TCP_IDLE_TIMEOUT;
+    // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
+    tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
     let mut config = IpStackConfig::default();
     config
         .mtu_unchecked(mtu)
@@ -266,6 +272,10 @@ async fn run<O: Outbound + Send + Sync + 'static>(
     drop(stack);
     flows.shutdown().await;
     let _ = device_closed.await;
+}
+
+fn mss_for_mtu(mtu: u16) -> u16 {
+    mtu.saturating_sub(TCP_IP_HEADERS_LEN)
 }
 
 fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
@@ -361,6 +371,13 @@ mod tests {
     fn is_open(fd: i32) -> bool {
         // SAFETY: F_GETFD only inspects the descriptor table.
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+
+    #[test]
+    fn mss_fits_an_ipv6_packet_in_the_mtu() {
+        assert_eq!(mss_for_mtu(1280), 1220);
+        assert_eq!(mss_for_mtu(1500), 1440);
+        assert_eq!(mss_for_mtu(40), 0);
     }
 
     #[test]
