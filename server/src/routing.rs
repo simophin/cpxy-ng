@@ -1,7 +1,9 @@
+use crate::socks5::Socks5Pool;
 use anyhow::{Context, bail, ensure};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Arc;
 use tokio::net::TcpStream;
 
 /// Where to send the upstream connection for a request.
@@ -127,15 +129,56 @@ impl FromStr for RuleList {
     }
 }
 
-/// Picks a [`Route`] for an incoming request based on its HTTP `Host` header.
+/// Picks a [`Route`] for an incoming request based on its HTTP `Host` header,
+/// and connects along it.
 #[derive(Debug, Default)]
 pub struct Router {
     rules: Vec<Rule>,
+    /// One pool per distinct SOCKS5 server in `rules`.
+    socks5_pools: HashMap<String, Arc<Socks5Pool>>,
 }
 
 impl Router {
     pub fn new(rules: Vec<Rule>) -> Self {
-        Self { rules }
+        let socks5_pools = rules
+            .iter()
+            .filter_map(|r| match &r.route {
+                Route::Socks5(addr) => Some((addr.clone(), Socks5Pool::new(addr.clone()))),
+                Route::Direct => None,
+            })
+            .collect();
+        Self {
+            rules,
+            socks5_pools,
+        }
+    }
+
+    /// Starts keeping connections to each SOCKS5 server ready, so requests
+    /// routed through one don't wait for the TCP connect and greeting.
+    pub fn warm_up(&self) {
+        self.socks5_pools.values().for_each(Socks5Pool::warm_up);
+    }
+
+    /// Opens a TCP connection to `host:port` following `route`.
+    pub async fn dial(&self, route: &Route, host: &str, port: u16) -> anyhow::Result<TcpStream> {
+        match route {
+            Route::Direct => {
+                let stream = TcpStream::connect((host, port))
+                    .await
+                    .context("Error connecting to upstream")?;
+                stream.set_nodelay(true).context("Error setting nodelay")?;
+                Ok(stream)
+            }
+            Route::Socks5(addr) => {
+                let pool = match self.socks5_pools.get(addr) {
+                    Some(pool) => pool.clone(),
+                    None => Socks5Pool::new(addr.clone()),
+                };
+                pool.connect(host, port)
+                    .await
+                    .with_context(|| format!("SOCKS5 CONNECT via {addr} failed"))
+            }
+        }
     }
 
     /// Returns the route of the first rule whose pattern matches, or [`Route::Direct`]
@@ -165,75 +208,6 @@ fn normalize_host_header(value: &str) -> String {
         value
     };
     normalize_host(host)
-}
-
-/// Opens a TCP connection to `host:port` following `route`.
-pub async fn dial(route: &Route, host: &str, port: u16) -> anyhow::Result<TcpStream> {
-    let stream = match route {
-        Route::Direct => TcpStream::connect((host, port))
-            .await
-            .context("Error connecting to upstream")?,
-        Route::Socks5(proxy) => {
-            let stream = TcpStream::connect(proxy.as_str())
-                .await
-                .with_context(|| format!("Error connecting to SOCKS5 server {proxy}"))?;
-            socks5_connect(stream, host, port)
-                .await
-                .with_context(|| format!("SOCKS5 CONNECT via {proxy} failed"))?
-        }
-    };
-
-    stream.set_nodelay(true).context("Error setting nodelay")?;
-    Ok(stream)
-}
-
-/// Performs an unauthenticated SOCKS5 CONNECT, passing `host` through as a
-/// domain name so the SOCKS5 server does the DNS resolution.
-///
-/// The greeting and CONNECT request are pipelined in one write (we only offer
-/// "no auth", so the method reply is known in advance), making the handshake a
-/// single round trip.
-async fn socks5_connect(mut stream: TcpStream, host: &str, port: u16) -> anyhow::Result<TcpStream> {
-    ensure!(host.len() <= 255, "Host name too long for SOCKS5");
-
-    let mut req = Vec::with_capacity(10 + host.len());
-    req.extend_from_slice(&[5, 1, 0]);
-    req.extend_from_slice(&[5, 1, 0, 3, host.len() as u8]);
-    req.extend_from_slice(host.as_bytes());
-    req.extend_from_slice(&port.to_be_bytes());
-    stream.write_all(&req).await?;
-
-    let mut reply = [0u8; 2];
-    stream
-        .read_exact(&mut reply)
-        .await
-        .context("Reading method selection")?;
-    ensure!(reply[0] == 5, "Unexpected SOCKS version {}", reply[0]);
-    ensure!(reply[1] == 0, "SOCKS5 server requires authentication");
-
-    let mut head = [0u8; 4];
-    stream
-        .read_exact(&mut head)
-        .await
-        .context("Reading CONNECT reply")?;
-    ensure!(head[0] == 5, "Unexpected SOCKS version {}", head[0]);
-    ensure!(
-        head[1] == 0,
-        "SOCKS5 CONNECT rejected with code {}",
-        head[1]
-    );
-
-    // Skip the bound address and port.
-    let addr_len = match head[3] {
-        1 => 4,
-        4 => 16,
-        3 => stream.read_u8().await? as usize,
-        t => bail!("Unknown SOCKS5 address type {t}"),
-    };
-    let mut skip = vec![0u8; addr_len + 2];
-    stream.read_exact(&mut skip).await?;
-
-    Ok(stream)
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 mod routing;
 mod server;
+mod socks5;
 
 use clap::Parser;
 use cpxy_ng::{Key, key_util::derive_password};
@@ -51,6 +52,7 @@ async fn main() {
         tracing::info!(%rule, "Server: SOCKS5 route configured");
     }
     let router = Arc::new(Router::new(socks5_route));
+    router.warm_up();
 
     let listener = TcpListener::bind(bind_addr)
         .await
