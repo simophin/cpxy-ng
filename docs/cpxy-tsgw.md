@@ -32,26 +32,44 @@ WireGuard interface). For a plain Tailscale exit node, cpxy-tsgw is simpler.
 
 ## Before you start
 
-- A Linux box, `amd64` or `arm64`, with systemd for the Debian package. The binary is static and
-  runs on any Linux distribution.
+- A Linux box, `amd64` or `arm64`, with Docker, or anything that can run a static binary: it has
+  no dependencies, not even a libc.
 - A Tailscale account with admin rights on the tailnet, to approve the exit node.
 - A running cpxy server, and its URL with the key: `https://:<key>@<host>:<port>` (or `http://`).
 
 ## Install
 
-Download `cpxy-tsgw_<version>_<arch>.deb` from the
-[GitHub releases](https://github.com/simophin/cpxy-ng/releases) (or the `tsgw-debian-package-amd64`
-/ `-arm64` artifact of a CI run on `main`), then:
+**Docker.** The image `ghcr.io/simophin/cpxy-ng-tsgw` is built from `main` for `amd64` and
+`arm64`. Settings are environment variables; the node's Tailscale identity lives in
+`/var/lib/cpxy-tsgw`, so keep it in a volume or the machine is new on every recreate:
 
 ```sh
-sudo apt install ./cpxy-tsgw_*.deb
-sudoedit /etc/cpxy/cpxy-tsgw.conf          # set SERVER; check the DNS servers
-sudo systemctl enable --now cpxy-tsgw
-journalctl -u cpxy-tsgw -f                  # shows the login link
+docker run -d --name cpxy-tsgw --restart unless-stopped --network host \
+  -v cpxy-tsgw:/var/lib/cpxy-tsgw \
+  -e SERVER='https://:<key>@<host>:<port>' \
+  ghcr.io/simophin/cpxy-ng-tsgw
+docker logs -f cpxy-tsgw                    # shows the login link
 ```
 
-Without the package, run the static binary (`cpxy-tsgw-<arch>-unknown-linux-musl` in the releases)
-with the settings below in its environment, or in a file passed with `--config`.
+`--network host` lets Tailscale see the box's real addresses and reach the router over UPnP or
+NAT-PMP, so devices connect directly more often. Behind Docker's own NAT it still works, relayed
+or through the box's NAT like any Tailscale node; then set `TS_PORT` and publish it
+(`-p 41641:41641/udp`) for direct connections. Nothing in the container needs root, so `--user`
+with a volume it can write works too.
+
+**The binary.** `cpxy-tsgw-<arch>-unknown-linux-musl` in the
+[GitHub releases](https://github.com/simophin/cpxy-ng/releases) (or the `cpxy-tsgw-<target>`
+artifact of a CI run) runs on any Linux, as any user. Give it the settings in its environment, or in
+a `KEY=value` file passed with `--config`, and a `STATE_DIR` it can write:
+
+```sh
+STATE_DIR=~/.local/state/cpxy-tsgw ./cpxy-tsgw --config cpxy-tsgw.conf
+```
+
+Run it from your init system of choice; it exits with an error if the packet engine stops, so have
+it restarted on failure. A systemd unit needs only `ExecStart`, `Restart=on-failure`,
+`DynamicUser=yes`, `StateDirectory=cpxy-tsgw` (which sets `STATE_DIRECTORY`, also honoured) and an
+`EnvironmentFile` with the settings.
 
 ## Log in and approve the exit node
 
@@ -77,9 +95,9 @@ stays logged in across restarts and upgrades.
 
 ## Settings
 
-`/etc/cpxy/cpxy-tsgw.conf` holds `KEY=value` lines and is readable by root only, as it holds the
-key; systemd reads it before starting the service. Apply changes with
-`sudo systemctl restart cpxy-tsgw`. Upgrades keep your edits.
+Settings are environment variables, or `KEY=value` lines in a file passed with `--config` (the
+environment wins). Keep the file readable by you only, as it holds the key. Changes apply on
+restart.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -118,8 +136,7 @@ themselves is ordinary HTTPS traffic and goes through the server like any other.
 ## Check it
 
 ```sh
-systemctl status cpxy-tsgw
-journalctl -u cpxy-tsgw -f       # login link, approval state, every DNS answer and proxied connection
+docker logs -f cpxy-tsgw         # login link, approval state, every DNS answer and proxied connection
 ```
 
 Then on a phone, choose the node as exit node in the Tailscale app, open a site that should go
@@ -127,8 +144,8 @@ through the server, and check the reported public IP is the server's.
 
 ## Things to know
 
-- **It fails closed.** If the packet engine stops, cpxy-tsgw exits and systemd restarts it within
-  seconds; clients' traffic is not sent out directly meanwhile.
+- **It fails closed.** If the packet engine stops, cpxy-tsgw exits (and Docker or your init system
+  restarts it); clients' traffic is not sent out directly meanwhile.
 - **Only TCP goes through the server, over IPv4.** QUIC is refused so apps fall back to TCP. Other
   UDP (video calls, games) goes out directly from the box. IPv6 from clients is refused, and AAAA
   queries get no answers, so apps use IPv4.
@@ -141,21 +158,21 @@ through the server, and check the reported public IP is the server's.
 
 ## Day-to-day use
 
-**Turn it off temporarily:** `sudo systemctl stop cpxy-tsgw`. Clients using it as exit node lose
-internet access until they pick another one or it starts again.
+**Turn it off temporarily:** `docker stop cpxy-tsgw`. Clients using it as exit node lose internet
+access until they pick another one or it starts again.
 
-**Upgrade:** `sudo apt install ./cpxy-tsgw_<newer>.deb`. A running service restarts on the new
-version; the settings and the login are kept.
+**Upgrade:** `docker pull ghcr.io/simophin/cpxy-ng-tsgw`, then recreate the container with the
+same volume; the login is kept. With the binary, replace the file and restart.
 
-**Uninstall:** `sudo apt remove cpxy-tsgw` stops it. `apt purge` also deletes the settings and the
-node's Tailscale identity; remove the machine in the admin console too.
+**Uninstall:** remove the container and the volume (or the binary and its `STATE_DIR`), and remove
+the machine in the admin console.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| The service fails to start | `journalctl -u cpxy-tsgw`: a missing or invalid setting is named there. |
-| No login link in the log | It is already logged in (state in `/var/lib/private/cpxy-tsgw`), or `TS_AUTHKEY` is set. To log in again, stop it, purge or delete that directory and start it. |
+| It exits at once | The log names a missing or invalid setting. |
+| No login link in the log | It is already logged in (state in `STATE_DIR`), or `TS_AUTHKEY` is set. To log in again, stop it, delete that directory (or the volume) and start it. |
 | The exit node does not show in the Tailscale app | The log says whether it is approved; approve it in the admin console. The tailnet policy must also let the client use exit nodes (`autogroup:internet`). |
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
@@ -173,9 +190,9 @@ gateway/build.sh aarch64-unknown-linux-musl
 gateway/build.sh test                             # the Go tests, linked to the engine
 ```
 
-`packaging/debian-tsgw/build-deb.sh <amd64|arm64> <version> <binary> <out dir>` assembles the
-package from a static binary; `packaging/debian-tsgw/test/dpkg-roundtrip.sh <deb>` installs,
-reinstalls, removes and purges it in Debian and Ubuntu containers. CI does both.
+`Dockerfile.tsgw` builds the same static binary inside the `cargo-zigbuild` image, with Go added,
+into an image from `scratch`; `.github/workflows/docker-publish-tsgw.yml` publishes it from `main`.
+CI also uploads the bare binaries and attaches them to releases.
 
 `gateway/internal/e2e` tests a built binary on a real tailnet: it creates ephemeral auth keys with
 the Tailscale API, runs cpxy-tsgw, approves its exit node, joins a client that uses it, checks that

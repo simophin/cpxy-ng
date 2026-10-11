@@ -418,21 +418,18 @@ jobs:
       - name: Lint scripts
         run: |
           sudo apt-get install -y --no-install-recommends shellcheck
-          shellcheck -s sh -S warning -e SC3043 gateway/build.sh packaging/debian-tsgw/build-deb.sh \
-            packaging/debian-tsgw/test/*.sh packaging/debian-tsgw/control/postinst \
-            packaging/debian-tsgw/control/prerm packaging/debian-tsgw/control/postrm
+          shellcheck -s sh -S warning -e SC3043 gateway/build.sh
 
+  # The static binaries; the Docker image is built by docker-publish-tsgw.yml.
   build_tsgw:
-    name: Build cpxy-tsgw (${{ matrix.target.deb_arch }})
+    name: Build cpxy-tsgw (${{ matrix.target.rust }})
     if: github.event_name != 'pull_request'
     needs: test_tsgw
     strategy:
       matrix:
         target:
           - rust: x86_64-unknown-linux-musl
-            deb_arch: amd64
           - rust: aarch64-unknown-linux-musl
-            deb_arch: arm64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -461,27 +458,6 @@ jobs:
         with:
           name: cpxy-tsgw-${{ matrix.target.rust }}
           path: artifacts
-
-      - name: Build Debian package
-        run: |
-          if [ "${{ github.event_name }}" = release ]; then
-            version="${{ github.event.release.tag_name }}"; version="${version#v}"
-          else
-            version="0.0.0~git.$(git rev-parse --short HEAD)"
-          fi
-          packaging/debian-tsgw/build-deb.sh ${{ matrix.target.deb_arch }} "$version" \
-            artifacts/cpxy-tsgw-${{ matrix.target.rust }} tsgw-debian-package
-          ls -l tsgw-debian-package
-
-      - name: Test Debian package install and removal
-        if: matrix.target.deb_arch == 'amd64'
-        run: packaging/debian-tsgw/test/dpkg-roundtrip.sh tsgw-debian-package/*.deb
-
-      - name: Upload Debian package
-        uses: actions/upload-artifact@v7
-        with:
-          name: tsgw-debian-package-${{ matrix.target.deb_arch }}
-          path: tsgw-debian-package
 
   test_openwrt_packaging:
     name: Test OpenWrt packaging

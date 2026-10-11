@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+
+# Run Cargo, rustc and Go on the BuildKit host instead of emulating the target CPU. The image
+# has rustup and zig; gateway/build.sh uses zig cc for the engine's C code and the static link.
+FROM --platform=$BUILDPLATFORM ghcr.io/rust-cross/cargo-zigbuild:0.23.3 AS builder
+
+ARG BUILDARCH
+ARG TARGETARCH
+# The version gateway/go.mod asks for.
+ARG GO_VERSION=1.27.1
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${BUILDARCH}.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:$PATH
+
+WORKDIR /usr/src/app
+COPY . .
+
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
+    --mount=type=cache,id=tsgw-target-${TARGETARCH},target=/usr/src/app/target \
+    --mount=type=cache,id=go-mod,target=/root/go/pkg/mod \
+    --mount=type=cache,id=go-build-${TARGETARCH},target=/root/.cache/go-build \
+    case "$TARGETARCH" in \
+        amd64) rust_target=x86_64-unknown-linux-musl ;; \
+        arm64) rust_target=aarch64-unknown-linux-musl ;; \
+        *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    mkdir -p /out/state && \
+    gateway/build.sh "$rust_target" /out/cpxy-tsgw
+
+# The binary is static. The roots are for Tailscale's control plane and DERP servers; the
+# engine's own TLS (the cpxy server, DNS over HTTPS) uses roots built into it.
+FROM scratch
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/cpxy-tsgw /cpxy-tsgw
+# The node's Tailscale identity. Keep it across upgrades, or the machine is new each time.
+COPY --from=builder /out/state /var/lib/cpxy-tsgw
+ENV STATE_DIR=/var/lib/cpxy-tsgw
+VOLUME /var/lib/cpxy-tsgw
+
+# Settings come from the environment: SERVER (required), DNS_UPSTREAM, DNS_ALTERNATIVE,
+# TS_HOSTNAME, TS_AUTHKEY, TS_PORT, ... as in docs/cpxy-tsgw.md. Nothing to EXPOSE: WireGuard
+# listens on a random UDP port unless TS_PORT is set.
+ENTRYPOINT ["/cpxy-tsgw"]
