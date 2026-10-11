@@ -74,24 +74,25 @@ it restarted on failure. A systemd unit needs only `ExecStart`, `Restart=on-fail
 ## Log in and approve the exit node
 
 1. **Log in.** On first start the log shows
-   `To start this tsnet server, restart with TS_AUTHKEY set, or go to: https://login.tailscale.com/a/...`.
-   Open the link and sign in. To log in without a browser, create an
-   [auth key](https://login.tailscale.com/admin/settings/keys), set `TS_AUTHKEY=tskey-auth-...` in
-   the settings and restart; it is only used once.
+   `Log in by opening https://login.tailscale.com/a/...` and waits. Open the link and sign in.
+   To log in without a browser instead, create an
+   [auth key](https://login.tailscale.com/admin/settings/keys) and set `TS_AUTHKEY=tskey-auth-...`
+   in the settings; it is only used once. If the node's key ever expires, a new link appears in
+   the log the same way, and clients are back once someone opens it.
 2. **Approve the exit node.** In the [admin console](https://login.tailscale.com/admin/machines),
    find the machine (`cpxy-tsgw` unless you set `TS_HOSTNAME`), open its **⋯** menu, choose
    **Edit route settings** and tick **Use as exit node**. Until then the log says
    `the exit node is NOT approved yet`; within half a minute of approving it says
    `the exit node is approved`. (An [auto-approver](https://tailscale.com/kb/1337/acl-syntax#autoapprovers)
    in the tailnet policy does this for you.)
-3. **Disable key expiry** in the same menu, so the node does not drop off the tailnet in a few
+3. **Disable key expiry** in the same menu, so the node does not need a new login every few
    months.
 4. **DNS:** under **DNS** in the admin console, make sure no global nameserver has **Use with exit
    node** on. Otherwise clients send their DNS there instead of to the exit node, and miss the split
    DNS.
 
-The node's identity is kept in `/var/lib/private/cpxy-tsgw` (the service's state directory), so it
-stays logged in across restarts and upgrades.
+The node's identity is kept in `STATE_DIR` (the volume, with Docker), so it stays logged in across
+restarts and upgrades.
 
 ## Settings
 

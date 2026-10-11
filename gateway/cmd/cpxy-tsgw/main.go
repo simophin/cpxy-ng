@@ -28,7 +28,8 @@ import (
 )
 
 const (
-	statusInterval = 30 * time.Second
+	// Also how soon a new login link shows after the node's key expires.
+	statusInterval = 5 * time.Second
 	engineCheck    = time.Second
 )
 
@@ -86,7 +87,7 @@ func run() error {
 		ControlURL: s.controlURL,
 		// A fixed port lets a router forward it, so peers connect directly more often.
 		Port:     s.port,
-		UserLogf: log.Printf,
+		UserLogf: userLog,
 	}
 	if *verbose {
 		srv.Logf = log.Printf
@@ -98,7 +99,7 @@ func run() error {
 	engineDied := make(chan struct{})
 	go watchEngine(ctx, eng, engineDied)
 
-	log.Printf("Starting Tailscale as %q; a login link appears here unless TS_AUTHKEY is set or the state is kept", s.hostname)
+	log.Printf("Starting Tailscale as %q; on the first run a login link appears here", s.hostname)
 	if _, err := srv.Up(ctx); err != nil {
 		return failure(ctx, engineDied, fmt.Errorf("starting Tailscale: %w", err))
 	}
@@ -127,6 +128,16 @@ func run() error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// userLog logs what tsnet addresses to the user, in our words where tsnet's suggest that an auth
+// key is needed: the link alone logs the node in, and the program waits for that.
+func userLog(format string, args ...any) {
+	if strings.HasPrefix(format, "To start this tsnet server") {
+		log.Printf("Log in by opening %s (waiting; set TS_AUTHKEY to log in without a browser)", args[len(args)-1])
+		return
+	}
+	log.Printf(format, args...)
 }
 
 // failure prefers to report a dead engine or a signal over the error they caused.
@@ -163,15 +174,23 @@ func watchEngine(ctx context.Context, eng *engine.Engine, died chan<- struct{}) 
 
 type statusSource interface {
 	Status(context.Context) (*ipnstate.Status, error)
+	StartLoginInteractive(context.Context) error
+}
+
+type trafficSource interface {
+	Traffic() (sent, received uint64)
 }
 
 // statusReporter logs the node's state when it changes: its addresses and whether the exit node
-// is approved yet.
+// is approved yet. When the node's key expires it starts a new login, so the link appears in the
+// log and clients come back once someone opens it; nothing needs restarting.
 type statusReporter struct {
 	last string
+	// The login started for the current NeedsLogin state, so it is started once.
+	loginStarted bool
 }
 
-func (r *statusReporter) report(ctx context.Context, lc statusSource, eng *engine.Engine) {
+func (r *statusReporter) report(ctx context.Context, lc statusSource, eng trafficSource) {
 	st, err := lc.Status(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -181,9 +200,23 @@ func (r *statusReporter) report(ctx context.Context, lc statusSource, eng *engin
 	}
 	var line string
 	switch {
+	case st.BackendState == ipn.NeedsLogin.String():
+		if !r.loginStarted {
+			if err := lc.StartLoginInteractive(ctx); err != nil {
+				log.Printf("Starting the login: %v", err)
+				return
+			}
+			r.loginStarted = true
+		}
+		if st.AuthURL == "" {
+			return
+		}
+		line = fmt.Sprintf("Tailscale needs a login (the node's key expired?): open %s. Clients are cut off until then", st.AuthURL)
 	case st.Self == nil:
+		r.loginStarted = false
 		line = fmt.Sprintf("Tailscale is %s", st.BackendState)
 	default:
+		r.loginStarted = false
 		approved := st.Self.AllowedIPs != nil && slices.ContainsFunc(st.Self.AllowedIPs.AsSlice(), func(p netip.Prefix) bool {
 			return p == exitRoutes[0]
 		})
