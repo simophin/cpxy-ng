@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll, ready};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::oneshot;
+use tokio::sync::{Notify, oneshot};
 
 /// iOS and macOS utun devices prefix every packet with the address family.
 const PACKET_INFO: bool = cfg!(any(target_os = "ios", target_os = "macos"));
@@ -31,6 +31,8 @@ pub struct TunDevice {
     fd: AsyncFd<OwnedFd>,
     buf: Vec<u8>,
     traffic: Arc<Traffic>,
+    /// Notified when the other end of a socket closes; a TUN never does.
+    eof: Arc<Notify>,
     /// Dropped after `fd`, so its receiver learns that the descriptor is closed.
     _closed: oneshot::Sender<()>,
 }
@@ -40,6 +42,7 @@ impl TunDevice {
         fd: OwnedFd,
         mtu: u16,
         traffic: Arc<Traffic>,
+        eof: Arc<Notify>,
         closed: oneshot::Sender<()>,
     ) -> io::Result<Self> {
         set_nonblocking(&fd)?;
@@ -47,6 +50,7 @@ impl TunDevice {
             fd: AsyncFd::new(fd)?,
             buf: vec![0; usize::from(mtu) + PACKET_INFO_LEN],
             traffic,
+            eof,
             _closed: closed,
         })
     }
@@ -117,7 +121,12 @@ impl AsyncRead for TunDevice {
                 }
             });
             let n = match read {
-                Ok(Ok(0)) => return Poll::Ready(Ok(())),
+                Ok(Ok(0)) => {
+                    // The other end of a socket closed. The IP stack would take every empty read
+                    // as a packet and never stop, so it gets nothing more; the engine stops.
+                    this.eof.notify_one();
+                    return Poll::Pending;
+                }
                 Ok(Ok(n)) => n,
                 Ok(Err(e)) => return Poll::Ready(Err(e)),
                 // Spurious wake-up: readiness was cleared, poll again.

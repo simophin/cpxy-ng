@@ -393,6 +393,72 @@ jobs:
           name: debian-package-${{ matrix.target.deb_arch }}
           path: debian-package
 
+  # cpxy-tsgw: the Go Tailscale exit node linked to the Rust packet engine (gateway/).
+  test_tsgw:
+    name: Test cpxy-tsgw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tsgw-native
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      - name: Check formatting and vet
+        working-directory: gateway
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+      # Links the Go tests against the engine; the end-to-end test skips without its secrets.
+      - name: Test
+        run: gateway/build.sh test
+      - name: Lint scripts
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck -s sh -S warning -e SC3043 gateway/build.sh
+
+  # The static binaries; the Docker image is built by docker-publish-tsgw.yml.
+  build_tsgw:
+    name: Build cpxy-tsgw (${{ matrix.target.rust }})
+    if: github.event_name != 'pull_request'
+    needs: test_tsgw
+    strategy:
+      matrix:
+        target:
+          - rust: x86_64-unknown-linux-musl
+          - rust: aarch64-unknown-linux-musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tsgw-${{ matrix.target.rust }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      # zig cc compiles the engine's C dependencies and links the static binary.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build static binary
+        run: |
+          gateway/build.sh ${{ matrix.target.rust }} artifacts/cpxy-tsgw-${{ matrix.target.rust }}
+          file artifacts/*
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: cpxy-tsgw-${{ matrix.target.rust }}
+          path: artifacts
+
   test_openwrt_packaging:
     name: Test OpenWrt packaging
     runs-on: ubuntu-latest
@@ -468,6 +534,8 @@ jobs:
       - test
       - test_openwrt_packaging
       - test_debian_packaging
+      - test_tsgw
+      - build_tsgw
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:

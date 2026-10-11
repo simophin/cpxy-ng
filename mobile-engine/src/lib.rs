@@ -3,7 +3,8 @@
 //!
 //! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. With `block_ads`, names on the
 //!   built-in blocklist resolve to [`config::SINKHOLE_ADDR`], and packets to the sinkhole range
-//!   are dropped without a reply.
+//!   are dropped without a reply. As a Tailscale exit node ([`start_gateway`]), DNS to any
+//!   address is answered this way.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - UDP 443 (QUIC) and TCP 853 (DNS over TLS) are refused; other UDP is relayed direct.
@@ -11,6 +12,8 @@
 //!
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
 
+#[cfg(target_os = "linux")]
+pub mod capi;
 mod config;
 mod connection_log;
 mod dns;
@@ -30,6 +33,7 @@ uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
+use hickory_proto::op::Message;
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
     TcpOptions,
@@ -42,7 +46,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{Notify, broadcast, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 use tun::{Traffic, TunDevice};
 
@@ -78,6 +82,8 @@ pub struct TrafficStats {
 pub struct EngineHandle {
     running: Mutex<Option<Running>>,
     traffic: Arc<Traffic>,
+    /// Answers [`EngineHandle::resolve_dns`]; `None` when the engine leaves DNS alone.
+    dns: Option<Arc<DnsSplitHandler>>,
 }
 
 struct Running {
@@ -95,18 +101,39 @@ pub fn start(
     config_json: &str,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
+    start_with_dns(tun, config_json, listener, DnsIntercept::VirtualServer)
+}
+
+/// Starts the engine for a Tailscale exit node (`cpxy-tsgw`), where the device is the exit
+/// node's side of WireGuard rather than a TUN the platform set up. Like [`start`], except that DNS
+/// to any address is answered: the exit node's clients send DNS to whatever servers they have.
+pub fn start_gateway(
+    tun: OwnedFd,
+    config_json: &str,
+    listener: Arc<dyn EventListener>,
+) -> anyhow::Result<EngineHandle> {
+    start_with_dns(tun, config_json, listener, DnsIntercept::AnyServer)
+}
+
+fn start_with_dns(
+    tun: OwnedFd,
+    config_json: &str,
+    listener: Arc<dyn EventListener>,
+    intercept: DnsIntercept,
+) -> anyhow::Result<EngineHandle> {
     let settings = Config::from_json(config_json)?.settings()?;
     start_inner(
         tun,
         settings.server,
         settings.mtu,
         listener,
-        Some((
-            &settings.dns_upstream,
-            &settings.dns_alternative,
+        Some(DnsSpecs {
+            upstream: &settings.dns_upstream,
+            alternative: &settings.dns_alternative,
             // Only referenced here, so cpxy-router does not embed the list.
-            settings.block_ads.then_some(&blocklist_data::BASELINE),
-        )),
+            blocklist: settings.block_ads.then_some(&blocklist_data::BASELINE),
+            intercept,
+        }),
     )
 }
 
@@ -121,16 +148,53 @@ pub fn start_router(
     start_inner(tun, server, mtu, listener, None)
 }
 
+/// Which DNS packets the engine answers itself rather than relays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DnsIntercept {
+    /// Only DNS to [`DNS_ADDR`], the virtual server the platform hands to the device.
+    VirtualServer,
+    /// DNS to any address.
+    AnyServer,
+}
+
+impl DnsIntercept {
+    fn matches(self, dst: SocketAddrV4) -> bool {
+        dst.port() == DNS_PORT
+            && match self {
+                Self::VirtualServer => *dst.ip() == DNS_ADDR,
+                Self::AnyServer => true,
+            }
+    }
+}
+
+struct DnsSpecs<'a> {
+    upstream: &'a [client::dns_split::spec::ServerSpec],
+    alternative: &'a [client::dns_split::spec::ServerSpec],
+    blocklist: Option<&'static blocklist_data::Blocklist>,
+    intercept: DnsIntercept,
+}
+
+/// The DNS the engine answers, and how.
+#[derive(Clone)]
+struct DnsService {
+    handler: Arc<DnsSplitHandler>,
+    intercept: DnsIntercept,
+}
+
+impl DnsService {
+    /// The handler to answer a flow to `dst` with, if the engine answers it.
+    fn handler_for(dns: Option<Self>, dst: SocketAddrV4) -> Option<Arc<DnsSplitHandler>> {
+        dns.filter(|dns| dns.intercept.matches(dst))
+            .map(|dns| dns.handler)
+    }
+}
+
 fn start_inner(
     tun: OwnedFd,
     server: client::protocol_config::Config,
     mtu: u16,
     listener: Arc<dyn EventListener>,
-    dns_specs: Option<(
-        &[client::dns_split::spec::ServerSpec],
-        &[client::dns_split::spec::ServerSpec],
-        Option<&'static blocklist_data::Blocklist>,
-    )>,
+    dns_specs: Option<DnsSpecs>,
 ) -> anyhow::Result<EngineHandle> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(WORKER_THREADS)
@@ -138,24 +202,47 @@ fn start_inner(
         .enable_all()
         .build()?;
     let dns = dns_specs
-        .map(|(upstream, alternative, blocklist)| {
+        .map(|specs| {
             runtime
-                .block_on(dns::handler(upstream, alternative, blocklist))
-                .map(Arc::new)
+                .block_on(dns::handler(
+                    specs.upstream,
+                    specs.alternative,
+                    specs.blocklist,
+                ))
+                .map(|handler| DnsService {
+                    handler: Arc::new(handler),
+                    intercept: specs.intercept,
+                })
         })
         .transpose()?;
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
+    let device_eof = Arc::new(Notify::new());
     let device = {
         let _guard = runtime.enter();
-        TunDevice::new(tun, mtu, traffic.clone(), device_closed_tx)?
+        TunDevice::new(
+            tun,
+            mtu,
+            traffic.clone(),
+            device_eof.clone(),
+            device_closed_tx,
+        )?
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
     let outbound = Arc::new(routing::outbound(server, events_tx));
     let (shutdown, shutdown_rx) = oneshot::channel();
     runtime.spawn(forward_events(events_rx, listener));
-    let stopped = runtime.spawn(run(device, device_closed, mtu, outbound, dns, shutdown_rx));
+    let resolver = dns.as_ref().map(|dns| dns.handler.clone());
+    let stopped = runtime.spawn(run(
+        device,
+        device_closed,
+        device_eof,
+        mtu,
+        outbound,
+        dns,
+        shutdown_rx,
+    ));
     tracing::info!("Engine started");
 
     Ok(EngineHandle {
@@ -165,6 +252,7 @@ fn start_inner(
             stopped,
         })),
         traffic,
+        dns: resolver,
     })
 }
 
@@ -202,6 +290,28 @@ impl EngineHandle {
             received: self.traffic.received.load(Ordering::Relaxed),
         }
     }
+
+    /// Answers one wire-format DNS query the way the engine answers DNS it intercepts, for DNS
+    /// that reaches the platform some other way (a Tailscale exit node's DNS over the peer API).
+    /// Blocks the calling thread, which must not be an engine thread. May be called from several
+    /// threads at once, but not while the engine is being stopped.
+    pub fn resolve_dns(&self, query: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let handler = self
+            .dns
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("The engine does not answer DNS"))?;
+        // Not held while resolving, so queries run concurrently.
+        let runtime = self
+            .running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.runtime.handle().clone())
+            .ok_or_else(|| anyhow::anyhow!("The engine is stopped"))?;
+        let request = Message::from_vec(query)?;
+        let response = runtime.block_on(handler.handle(&request));
+        Ok(response.to_vec()?)
+    }
 }
 
 impl Drop for EngineHandle {
@@ -228,9 +338,10 @@ async fn forward_events(
 async fn run<O: Outbound + Send + Sync + 'static>(
     device: TunDevice,
     device_closed: oneshot::Receiver<()>,
+    device_eof: Arc<Notify>,
     mtu: u16,
     outbound: Arc<O>,
-    dns: Option<Arc<DnsSplitHandler>>,
+    dns: Option<DnsService>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut tcp_config = TcpConfig::default();
@@ -251,6 +362,10 @@ async fn run<O: Outbound + Send + Sync + 'static>(
             // Reap the flows that ended.
             Some(_) = flows.join_next() => continue,
             _ = &mut shutdown => break,
+            _ = device_eof.notified() => {
+                tracing::warn!("The device closed");
+                break;
+            }
         };
         match stream {
             Ok(IpStackStream::Tcp(tcp)) => {
@@ -291,15 +406,13 @@ fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
 async fn handle_tcp<O: Outbound>(
     mut flow: IpStackTcpStream,
     outbound: Arc<O>,
-    dns: Option<Arc<DnsSplitHandler>>,
+    dns: Option<DnsService>,
 ) {
     let Some(dst) = ipv4_dst(flow.peer_addr()) else {
         return;
     };
-    if is_dns(dst)
-        && let Some(dns) = dns
-    {
-        return dns::serve_tcp_flow(flow, dns).await;
+    if let Some(handler) = DnsService::handler_for(dns, dst) {
+        return dns::serve_tcp_flow(flow, handler).await;
     }
 
     let request = OutboundRequest {
@@ -320,14 +433,12 @@ async fn handle_tcp<O: Outbound>(
     }
 }
 
-async fn handle_udp(flow: IpStackUdpStream, dns: Option<Arc<DnsSplitHandler>>) {
+async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
     let Some(dst) = ipv4_dst(flow.peer_addr()) else {
         return;
     };
-    if is_dns(dst)
-        && let Some(dns) = dns
-    {
-        return dns::serve_udp_flow(flow, dns).await;
+    if let Some(handler) = DnsService::handler_for(dns, dst) {
+        return dns::serve_udp_flow(flow, handler).await;
     }
     if let Err(e) = relay_udp(flow, dst).await {
         tracing::debug!("UDP flow to {dst} ended: {e}");
@@ -356,10 +467,6 @@ async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddrV4) -> std::io::Re
     }
 }
 
-fn is_dns(dst: SocketAddrV4) -> bool {
-    *dst.ip() == DNS_ADDR && dst.port() == DNS_PORT
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +480,45 @@ mod tests {
     fn is_open(fd: i32) -> bool {
         // SAFETY: F_GETFD only inspects the descriptor table.
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+
+    #[test]
+    fn stops_when_the_other_end_of_a_socket_closes() {
+        let mut fds = [0; 2];
+        // SAFETY: socketpair fills in two descriptors we then own.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, fds.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: both descriptors were just created and are owned here.
+        let (tun, peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
+        let engine = start_gateway(tun, config, Arc::new(Ignore)).unwrap();
+        assert!(engine.is_running());
+
+        drop(peer);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while engine.is_running() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the engine still runs"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn dns_interception_depends_on_the_mode() {
+        let virtual_server = SocketAddrV4::new(DNS_ADDR, 53);
+        let public = SocketAddrV4::new(Ipv4Addr::new(8, 8, 8, 8), 53);
+        let other_port = SocketAddrV4::new(Ipv4Addr::new(8, 8, 8, 8), 5353);
+
+        assert!(DnsIntercept::VirtualServer.matches(virtual_server));
+        assert!(!DnsIntercept::VirtualServer.matches(public));
+        assert!(DnsIntercept::AnyServer.matches(virtual_server));
+        assert!(DnsIntercept::AnyServer.matches(public));
+        assert!(!DnsIntercept::AnyServer.matches(other_port));
+        assert!(!DnsIntercept::VirtualServer.matches(SocketAddrV4::new(DNS_ADDR, 80)));
     }
 
     #[test]
@@ -415,6 +561,9 @@ mod tests {
         let _accepted = listener.accept().unwrap();
 
         engine.stop();
-        assert!(!is_open(raw), "the TUN descriptor is still open");
+        // Checked through the peer, not the descriptor number, which other tests may reuse at once.
+        // SAFETY: writing our own buffer to the peer socket.
+        let sent = unsafe { libc::write(_peer.as_raw_fd(), syn.as_ptr() as *const _, syn.len()) };
+        assert!(sent < 0, "the TUN descriptor is still open");
     }
 }
