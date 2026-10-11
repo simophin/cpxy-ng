@@ -62,6 +62,14 @@ const DNS_PORT: u16 = 53;
 /// IPv6 and TCP headers without options. The MSS counts payload only (RFC 6691), and ipstack
 /// advertises one MSS for both IP versions, so it allows for the larger IPv6 header.
 const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
+/// The most a TCP flow has in flight towards the device, and buffers from it before the outbound
+/// side reads it, which is also the window it advertises; a flow moves at most this much per
+/// round trip between the device's apps and the engine. ipstack's default is 16 KiB.
+///
+/// On a phone or a router the apps are a millisecond away, and memory is tight.
+const LOCAL_TCP_WINDOW: u32 = 64 << 10;
+/// An exit node's clients are a network away: 1 MiB is 50 MB/s at 20 ms, or 10 MB/s at 100 ms.
+const GATEWAY_TCP_WINDOW: u32 = 1 << 20;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -101,7 +109,13 @@ pub fn start(
     config_json: &str,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
-    start_with_dns(tun, config_json, listener, DnsIntercept::VirtualServer)
+    start_with_dns(
+        tun,
+        config_json,
+        listener,
+        DnsIntercept::VirtualServer,
+        LOCAL_TCP_WINDOW,
+    )
 }
 
 /// Starts the engine for a Tailscale exit node (`cpxy-tsgw`), where the device is the exit
@@ -112,7 +126,13 @@ pub fn start_gateway(
     config_json: &str,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
-    start_with_dns(tun, config_json, listener, DnsIntercept::AnyServer)
+    start_with_dns(
+        tun,
+        config_json,
+        listener,
+        DnsIntercept::AnyServer,
+        GATEWAY_TCP_WINDOW,
+    )
 }
 
 fn start_with_dns(
@@ -120,12 +140,14 @@ fn start_with_dns(
     config_json: &str,
     listener: Arc<dyn EventListener>,
     intercept: DnsIntercept,
+    tcp_window: u32,
 ) -> anyhow::Result<EngineHandle> {
     let settings = Config::from_json(config_json)?.settings()?;
     start_inner(
         tun,
         settings.server,
         settings.mtu,
+        tcp_window,
         listener,
         Some(DnsSpecs {
             upstream: &settings.dns_upstream,
@@ -145,7 +167,7 @@ pub fn start_router(
     mtu: u16,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
-    start_inner(tun, server, mtu, listener, None)
+    start_inner(tun, server, mtu, LOCAL_TCP_WINDOW, listener, None)
 }
 
 /// Which DNS packets the engine answers itself rather than relays.
@@ -193,6 +215,7 @@ fn start_inner(
     tun: OwnedFd,
     server: client::protocol_config::Config,
     mtu: u16,
+    tcp_window: u32,
     listener: Arc<dyn EventListener>,
     dns_specs: Option<DnsSpecs>,
 ) -> anyhow::Result<EngineHandle> {
@@ -239,6 +262,7 @@ fn start_inner(
         device_closed,
         device_eof,
         mtu,
+        tcp_window,
         outbound,
         dns,
         shutdown_rx,
@@ -340,12 +364,15 @@ async fn run<O: Outbound + Send + Sync + 'static>(
     device_closed: oneshot::Receiver<()>,
     device_eof: Arc<Notify>,
     mtu: u16,
+    tcp_window: u32,
     outbound: Arc<O>,
     dns: Option<DnsService>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut tcp_config = TcpConfig::default();
     tcp_config.timeout = TCP_IDLE_TIMEOUT;
+    tcp_config.max_unacked_bytes = tcp_window;
+    tcp_config.read_buffer_size = tcp_window as usize;
     // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
     tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
     let mut config = IpStackConfig::default();

@@ -19,7 +19,7 @@ client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
 geoip-data = { path = "../geoip-data" }
 blocklist-data = { path = "../blocklist-data" }
-ipstack = "1.0.1"
+ipstack = { git = "https://github.com/narrowlink/ipstack", rev = "15751c253e73d7c047b88cdebb1d5f87e01872ee" } # 1.0.2-dev: window scaling
 etherparse = { version = "0.20", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }
 tracing = "0"
