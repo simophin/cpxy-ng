@@ -782,7 +782,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1441,7 +1441,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 [[package]]
 name = "ipstack"
 version = "1.0.2-dev"
-source = "git+https://github.com/narrowlink/ipstack?rev=15751c253e73d7c047b88cdebb1d5f87e01872ee#15751c253e73d7c047b88cdebb1d5f87e01872ee"
+source = "git+https://github.com/simophin/ipstack?rev=4e6ecc876409d66cbd92a09c26aa90638a692771#4e6ecc876409d66cbd92a09c26aa90638a692771"
 dependencies = [
  "ahash",
  "etherparse",
@@ -2365,7 +2365,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2959,10 +2959,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
