@@ -336,8 +336,8 @@ func transferWithin(ctx context.Context, t *testing.T, client *tsnet.Server, add
 	}
 	switch dir {
 	case 'D':
-		// By length: the server's close is not waited for.
-		if n, err := io.CopyN(io.Discard, c, size); err != nil {
+		// To the end of the stream, so a FIN that never comes fails the transfer.
+		if n, err := io.Copy(io.Discard, c); err != nil || n != size {
 			t.Fatalf("downloaded %d of %d bytes: %v", n, size, err)
 		}
 	case 'U':
