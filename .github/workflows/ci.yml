@@ -195,11 +195,6 @@ jobs:
         run: |
           cp target/release/cpxy-router bins/
           packaging/openwrt/test/lab.sh bins
-      - name: Test Debian gateway routing (Tailscale exit node stand-in)
-        run: |
-          printf '#!/bin/sh\nexit 0\n' >bins/cpxy-dns-split && chmod +x bins/cpxy-dns-split
-          packaging/debian/build-deb.sh amd64 0.0.0~test bins deb
-          packaging/debian/test/lab.sh deb/*.deb bins
 
   test_mobile_shared:
     name: Test mobile shared UI
@@ -294,7 +289,7 @@ jobs:
 
   # Build the shared packet engine as a static native router client.
   build_openwrt_package:
-    name: Build OpenWrt and Debian packages (${{ matrix.target.opkg_arch }})
+    name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
     needs: build_executables
     strategy:
@@ -303,11 +298,9 @@ jobs:
           # GL-MT3000 (mediatek/filogic); confirm with `opkg print-architecture` on the router
           - rust: aarch64-unknown-linux-musl
             opkg_arch: aarch64_cortex-a53
-            deb_arch: arm64
           # OpenWrt x86 images, for testing in a VM
           - rust: x86_64-unknown-linux-musl
             opkg_arch: x86_64
-            deb_arch: amd64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -368,30 +361,6 @@ jobs:
         with:
           name: openwrt-package-${{ matrix.target.opkg_arch }}
           path: openwrt-package
-
-      - name: Build Debian package
-        run: |
-          if [ "${{ github.event_name }}" = release ]; then
-            version="${{ github.event.release.tag_name }}"; version="${version#v}"
-          else
-            version="0.0.0~git.$(git rev-parse --short HEAD)"
-          fi
-          packaging/debian/build-deb.sh ${{ matrix.target.deb_arch }} "$version" bins debian-package
-          ls -l debian-package
-
-      - name: Test Debian package routing
-        if: matrix.target.deb_arch == 'amd64'
-        run: packaging/debian/test/lab.sh debian-package/*.deb bins
-
-      - name: Test Debian package install and removal
-        if: matrix.target.deb_arch == 'amd64'
-        run: packaging/debian/test/dpkg-roundtrip.sh debian-package/*.deb
-
-      - name: Upload Debian package
-        uses: actions/upload-artifact@v7
-        with:
-          name: debian-package-${{ matrix.target.deb_arch }}
-          path: debian-package
 
   # cpxy-tsgw: the Go Tailscale exit node linked to the Rust packet engine (gateway/).
   test_tsgw:
@@ -485,26 +454,6 @@ jobs:
           packaging/openwrt/test/init-dryrun.sh out/*.ipk
           packaging/openwrt/test/dns-handover.sh out/*.ipk
 
-  test_debian_packaging:
-    name: Test Debian packaging
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Lint scripts
-        run: |
-          sudo apt-get install -y --no-install-recommends shellcheck
-          # Debian's dash has `local`
-          shellcheck -s sh -S warning -e SC3043 packaging/debian/build-deb.sh packaging/debian/test/*.sh \
-            packaging/debian/files/usr/libexec/cpxy/*.sh packaging/debian/control/postinst \
-            packaging/debian/control/prerm packaging/debian/control/postrm
-      - name: Build package from stand-in binaries and test install and removal
-        run: |
-          mkdir bins
-          for b in cpxy-router cpxy-dns-split; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
-          chmod +x bins/*
-          packaging/debian/build-deb.sh amd64 0.0.0~test bins out
-          packaging/debian/test/dpkg-roundtrip.sh out/*.deb
-
   test:
     name: Run tests on main platform
     runs-on: ubuntu-latest
@@ -533,7 +482,6 @@ jobs:
       - build_openwrt_package
       - test
       - test_openwrt_packaging
-      - test_debian_packaging
       - test_tsgw
       - build_tsgw
     if: github.event_name == 'release'
