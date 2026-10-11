@@ -50,8 +50,8 @@ The image blocks ads by default (`BLOCK_ADS=1`); add `-e BLOCK_ADS=0` to turn th
 
 `--network host` lets Tailscale see the box's real addresses and reach the router over UPnP or
 NAT-PMP, so devices connect directly more often. Behind Docker's own NAT it still works, relayed
-or through the box's NAT like any Tailscale node; publish the WireGuard port
-(`-p 41641:41641/udp`, the image's `TS_PORT`) for direct connections. Nothing in the container
+or through the box's NAT like any Tailscale node; then set `TS_PORT` and publish it
+(`-p 41641:41641/udp`) for direct connections. Nothing in the container
 needs root, so `--user` with a volume it can write works too.
 
 **The binary.** `cpxy-tsgw-<arch>-unknown-linux-musl` in the
@@ -102,7 +102,7 @@ restart.
 | `SERVER` | none, **required** | The cpxy server URL, including the key. Never a command-line flag, so it stays out of `ps`. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The node's name on the tailnet. Also `--hostname`. |
 | `TS_AUTHKEY` | none | An auth key for the first login instead of the link in the log. |
-| `TS_PORT` | random; `41641` in the Docker image | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. If the port is taken, a random one is used. |
+| `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. |
 | `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). Also `--control-url`. |
 | `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | DNS servers whose answer is used when every address in it is in the local region. |
 | `DNS_ALTERNATIVE` | `https://dns.google/dns-query?ip=8.8.8.8` | DNS servers whose answer is used otherwise. A resolver on your tailnet is the reliable choice (see [Choosing the servers](#choosing-the-servers)). |
