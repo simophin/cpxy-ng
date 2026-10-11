@@ -46,7 +46,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{Notify, broadcast, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 use tun::{Traffic, TunDevice};
 
@@ -217,9 +217,16 @@ fn start_inner(
         .transpose()?;
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
+    let device_eof = Arc::new(Notify::new());
     let device = {
         let _guard = runtime.enter();
-        TunDevice::new(tun, mtu, traffic.clone(), device_closed_tx)?
+        TunDevice::new(
+            tun,
+            mtu,
+            traffic.clone(),
+            device_eof.clone(),
+            device_closed_tx,
+        )?
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
@@ -227,7 +234,15 @@ fn start_inner(
     let (shutdown, shutdown_rx) = oneshot::channel();
     runtime.spawn(forward_events(events_rx, listener));
     let resolver = dns.as_ref().map(|dns| dns.handler.clone());
-    let stopped = runtime.spawn(run(device, device_closed, mtu, outbound, dns, shutdown_rx));
+    let stopped = runtime.spawn(run(
+        device,
+        device_closed,
+        device_eof,
+        mtu,
+        outbound,
+        dns,
+        shutdown_rx,
+    ));
     tracing::info!("Engine started");
 
     Ok(EngineHandle {
@@ -323,6 +338,7 @@ async fn forward_events(
 async fn run<O: Outbound + Send + Sync + 'static>(
     device: TunDevice,
     device_closed: oneshot::Receiver<()>,
+    device_eof: Arc<Notify>,
     mtu: u16,
     outbound: Arc<O>,
     dns: Option<DnsService>,
@@ -346,6 +362,10 @@ async fn run<O: Outbound + Send + Sync + 'static>(
             // Reap the flows that ended.
             Some(_) = flows.join_next() => continue,
             _ = &mut shutdown => break,
+            _ = device_eof.notified() => {
+                tracing::warn!("The device closed");
+                break;
+            }
         };
         match stream {
             Ok(IpStackStream::Tcp(tcp)) => {
@@ -460,6 +480,31 @@ mod tests {
     fn is_open(fd: i32) -> bool {
         // SAFETY: F_GETFD only inspects the descriptor table.
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+
+    #[test]
+    fn stops_when_the_other_end_of_a_socket_closes() {
+        let mut fds = [0; 2];
+        // SAFETY: socketpair fills in two descriptors we then own.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, fds.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: both descriptors were just created and are owned here.
+        let (tun, peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
+        let engine = start_gateway(tun, config, Arc::new(Ignore)).unwrap();
+        assert!(engine.is_running());
+
+        drop(peer);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while engine.is_running() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the engine still runs"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     #[test]
