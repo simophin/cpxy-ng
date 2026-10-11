@@ -44,7 +44,7 @@ func main() {
 
 func run() error {
 	configPath := flag.String("config", "", "a file of KEY=value settings; the environment overrides it")
-	hostname := flag.String("hostname", "", "the node's name on the tailnet (HOSTNAME, default "+defaultHostname+")")
+	hostname := flag.String("hostname", "", "the node's name on the tailnet (TS_HOSTNAME, default "+defaultHostname+")")
 	stateDir := flag.String("state-dir", "", "where the node keeps its Tailscale state (STATE_DIR)")
 	controlURL := flag.String("control-url", "", "the coordination server, e.g. a Headscale URL (CONTROL_URL)")
 	verbose := flag.Bool("verbose", false, "log Tailscale's own debug output")

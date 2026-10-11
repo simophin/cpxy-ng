@@ -73,7 +73,8 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 			DNSUpstream:    splitList(get("DNS_UPSTREAM", defaultDNSUpstream)),
 			DNSAlternative: splitList(get("DNS_ALTERNATIVE", defaultDNSAlternative)),
 		},
-		hostname: get("HOSTNAME", defaultHostname),
+		// Not HOSTNAME, which shells and containers set to the machine's name.
+		hostname: get("TS_HOSTNAME", defaultHostname),
 		// systemd's StateDirectory= sets STATE_DIRECTORY.
 		stateDir:   get("STATE_DIR", get("STATE_DIRECTORY", "")),
 		controlURL: get("CONTROL_URL", ""),

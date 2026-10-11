@@ -57,17 +57,24 @@ func TestExitNode(t *testing.T) {
 	gwKey := ts.createAuthKey(t, "cpxy-tsgw e2e gateway")
 	gwLogs := &syncBuffer{}
 	gw := exec.Command(bin, "--verbose")
-	gw.Env = append(os.Environ(), "SERVER="+server, "TS_AUTHKEY="+gwKey, "HOSTNAME="+gwName, "STATE_DIR="+t.TempDir())
-	gw.Stdout, gw.Stderr = gwLogs, gwLogs
+	gw.Env = append(os.Environ(), "SERVER="+server, "TS_AUTHKEY="+gwKey, "TS_HOSTNAME="+gwName, "STATE_DIR="+t.TempDir())
+	var out io.Writer = gwLogs
+	if path := os.Getenv("CPXY_TSGW_E2E_LOG"); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Registered before the gateway's cleanup, so it runs after the gateway exits.
+		t.Cleanup(func() { f.Close() })
+		out = io.MultiWriter(gwLogs, f)
+	}
+	gw.Stdout, gw.Stderr = out, out
 	if err := gw.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		gw.Process.Signal(syscall.SIGTERM)
 		gw.Wait()
-		if path := os.Getenv("CPXY_TSGW_E2E_LOG"); path != "" {
-			os.WriteFile(path, gwLogs.Bytes(), 0o600)
-		}
 	})
 	waitFor(t, 2*time.Minute, "the gateway to come up", func() bool {
 		return strings.Contains(gwLogs.String(), "Tailscale is Running")
