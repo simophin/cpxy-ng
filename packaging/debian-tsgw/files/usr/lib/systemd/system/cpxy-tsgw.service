@@ -1,0 +1,31 @@
+[Unit]
+Description=cpxy-tsgw: Tailscale exit node that proxies through a cpxy server
+Documentation=https://github.com/simophin/cpxy-ng/blob/main/docs/cpxy-tsgw.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# Read by systemd as root, so the file can stay readable by root only.
+EnvironmentFile=/etc/cpxy/cpxy-tsgw.conf
+ExecStart=/usr/bin/cpxy-tsgw
+# Everything runs in user space: no capabilities, no TUN, no routing changes.
+DynamicUser=yes
+# The node's Tailscale identity; STATE_DIRECTORY tells cpxy-tsgw where it is.
+StateDirectory=cpxy-tsgw
+StateDirectoryMode=0700
+Environment=NO_COLOR=1
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+Package: cpxy-tsgw
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: cpxy-ng <https://github.com/simophin/cpxy-ng>
+Section: net
+Priority: optional
+Homepage: https://github.com/simophin/cpxy-ng
+Description: Tailscale exit node that sends its clients' traffic through a cpxy server
+ A single program that joins a tailnet as an exit node, in user space: it needs no tailscaled,
+ no TUN device, no routing changes and no root. Clients' TCP goes through a cpxy server, with
+ local-region traffic going direct, and their DNS is answered with split DNS. Configure
+ /etc/cpxy/cpxy-tsgw.conf, enable cpxy-tsgw, then log in with the link in its log.

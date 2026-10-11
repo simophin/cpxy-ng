@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload || true
+fi
+if [ "$1" = purge ]; then
+	# The node's Tailscale identity. With DynamicUser= it lives under /var/lib/private.
+	rm -rf /var/lib/private/cpxy-tsgw /var/lib/cpxy-tsgw
+fi
+exit 0

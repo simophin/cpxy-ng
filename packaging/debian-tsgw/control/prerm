@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# Upgrades keep the service running; postinst restarts it on the new version
+case "$1" in remove | deconfigure) ;; *) exit 0 ;; esac
+if [ -d /run/systemd/system ]; then
+	systemctl disable --now cpxy-tsgw.service || true
+fi
+exit 0
