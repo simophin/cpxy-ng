@@ -1440,9 +1440,8 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "ipstack"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e889a45c1ce3e97268ad2249951528563ec1d02a120fecbd4db690beac34f7fd"
+version = "1.0.2-dev"
+source = "git+https://github.com/narrowlink/ipstack?rev=15751c253e73d7c047b88cdebb1d5f87e01872ee#15751c253e73d7c047b88cdebb1d5f87e01872ee"
 dependencies = [
  "ahash",
  "etherparse",

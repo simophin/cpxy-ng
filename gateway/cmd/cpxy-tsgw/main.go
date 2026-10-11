@@ -11,6 +11,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof" // served only with CPXY_TSGW_PPROF
 	"net/netip"
 	"os"
 	"os/signal"
@@ -68,6 +70,11 @@ func run() error {
 		}
 	}
 
+	// For profiling only: Go's profiles on a local address, e.g. 127.0.0.1:6060.
+	if addr := os.Getenv("CPXY_TSGW_PPROF"); addr != "" {
+		go func() { log.Printf("pprof: %v", http.ListenAndServe(addr, nil)) }()
+	}
+
 	dev, engineFD, err := sockdev.New(s.engine.MTU)
 	if err != nil {
 		return err
@@ -107,8 +114,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	routes := exitRoutes
+	// For the benchmark (internal/bench) only: also route these, e.g. this host's private
+	// address, which an exit node alone refuses.
+	if extra := os.Getenv("CPXY_TSGW_EXTRA_ROUTES"); extra != "" {
+		routes = slices.Clone(routes)
+		for r := range strings.SplitSeq(extra, ",") {
+			p, err := netip.ParsePrefix(strings.TrimSpace(r))
+			if err != nil {
+				return fmt.Errorf("CPXY_TSGW_EXTRA_ROUTES: %w", err)
+			}
+			routes = append(routes, p)
+		}
+	}
 	if _, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
-		Prefs:              ipn.Prefs{AdvertiseRoutes: exitRoutes},
+		Prefs:              ipn.Prefs{AdvertiseRoutes: routes},
 		AdvertiseRoutesSet: true,
 	}); err != nil {
 		return failure(ctx, engineDied, fmt.Errorf("advertising the exit node: %w", err))
