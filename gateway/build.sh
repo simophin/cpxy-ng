@@ -13,10 +13,15 @@ set -eu
 target="${1:-native}"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(dirname "$here")"
+# Relative to where we were called from; the Go build runs in $here.
+out="${2:-}"
+case "$out" in "" | /*) ;; *) out="$PWD/$out" ;; esac
+# From the repository, so rustup uses the toolchain rust-toolchain.toml pins.
+cd "$repo"
 
 case "$target" in
 native | test)
-	cargo build --manifest-path "$repo/Cargo.toml" --release --locked -p mobile-engine --lib
+	cargo build --release --locked -p mobile-engine --lib
 	libdir="$repo/target/release"
 	# By path, as cargo builds a shared library beside it. The rest is what
 	# `cargo rustc -- --print native-static-libs` lists for glibc.
@@ -26,7 +31,7 @@ native | test)
 	if [ "$target" = test ]; then
 		exec go test ./...
 	fi
-	out="${2:-$libdir/cpxy-tsgw}"
+	out="${out:-$libdir/cpxy-tsgw}"
 	go build -trimpath -ldflags '-s -w' -o "$out" ./cmd/cpxy-tsgw
 	;;
 x86_64-unknown-linux-musl | aarch64-unknown-linux-musl)
@@ -59,13 +64,13 @@ CC
 	ar_var="AR_$(echo "$target" | tr '-' '_')"
 	rustup target add "$target" >/dev/null 2>&1 || true
 	env "$cc_var=$tools/cc" "$ar_var=$tools/ar" "CARGO_TARGET_${triple_env}_LINKER=$tools/cc" \
-		cargo build --manifest-path "$repo/Cargo.toml" --release --locked --target "$target" -p mobile-engine --lib
+		cargo build --release --locked --target "$target" -p mobile-engine --lib
 	libdir="$repo/target/$target/release"
 
 	# Rust's musl targets unwind with their own libunwind, which zig does not link by default.
-	unwind="$(cd "$repo" && rustc --print sysroot)/lib/rustlib/$target/lib/self-contained/libunwind.a"
+	unwind="$(rustc --print sysroot)/lib/rustlib/$target/lib/self-contained/libunwind.a"
 
-	out="${2:-$libdir/cpxy-tsgw}"
+	out="${out:-$libdir/cpxy-tsgw}"
 	cd "$here"
 	CC="$tools/cc" CGO_ENABLED=1 GOOS=linux GOARCH="$goarch" CGO_LDFLAGS="$libdir/libmobile_engine.a $unwind" \
 		go build -trimpath -tags netgo,osusergo \
