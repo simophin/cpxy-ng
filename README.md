@@ -2,9 +2,7 @@
 
 - [cpxy-router user guide](docs/cpxy-router.md)
 - [cpxy-router packaging](packaging/openwrt/README.md)
-- [cpxy-gateway user guide](docs/cpxy-gateway.md): Debian package for a Tailscale exit node
-- [Setting up a cpxy-gateway exit node](docs/cpxy-gateway-setup.md): step by step on a fresh Debian box
-- [cpxy-tsgw user guide](docs/cpxy-tsgw.md): a Tailscale exit node in one unprivileged program, no tailscaled needed
+- [cpxy-tsgw user guide](docs/cpxy-tsgw.md): a Tailscale exit node in one container or static binary, no tailscaled needed
 - [Android client development](client/android-app/README.md)
 - [GeoIP data source](geoip-data/SOURCE.md)
 - [OpenWrt router DNS design notes](docs/openwrt-router-dns-handoff.md)

@@ -19,16 +19,9 @@ phone ── Tailscale ──► cpxy-tsgw (tsnet: WireGuard, NAT traversal, DER
                          └─ the Tailscale app's DNS (sent to the exit node's peer API) ► split DNS
 ```
 
-## How it differs from cpxy-gateway
-
-[cpxy-gateway](cpxy-gateway.md) turns a box that already runs `tailscaled` into an exit node: it
-adds a TUN device, policy routing and takes over `/etc/resolv.conf`, and needs root and IP
-forwarding. `cpxy-tsgw` replaces all of that with one unprivileged service and touches nothing on
-the box. It is a separate tailnet node, so it can run on a box that also runs `tailscaled` (or
-cpxy-gateway); the two appear as two machines in the admin console.
-
-Choose cpxy-gateway when the box should proxy what other interfaces forward too (a LAN bridge, a
-WireGuard interface). For a plain Tailscale exit node, cpxy-tsgw is simpler.
+It is a separate tailnet node, so it can run on a box that also runs `tailscaled`; the two appear
+as two machines in the admin console. (It replaces the former `cpxy-gateway` Debian package, which
+needed `tailscaled`, root, a TUN device and policy routing on the box.)
 
 ## Before you start
 
@@ -40,8 +33,10 @@ WireGuard interface). For a plain Tailscale exit node, cpxy-tsgw is simpler.
 ## Install
 
 **Docker.** The image `ghcr.io/simophin/cpxy-ng-tsgw` is built from `main` for `amd64` and
-`arm64`. Settings are environment variables; the node's Tailscale identity lives in
-`/var/lib/cpxy-tsgw`, so keep it in a volume or the machine is new on every recreate:
+`arm64`. Every setting is an environment variable the image declares with its default (see
+[Settings](#settings), or `docker image inspect`), so only `SERVER` is needed. The node's
+Tailscale identity lives in the volume `/var/lib/cpxy-tsgw`; keep it, or the machine is new on
+every recreate:
 
 ```sh
 docker run -d --name cpxy-tsgw --restart unless-stopped --network host \
@@ -51,11 +46,13 @@ docker run -d --name cpxy-tsgw --restart unless-stopped --network host \
 docker logs -f cpxy-tsgw                    # shows the login link
 ```
 
+The image blocks ads by default (`BLOCK_ADS=1`); add `-e BLOCK_ADS=0` to turn that off.
+
 `--network host` lets Tailscale see the box's real addresses and reach the router over UPnP or
 NAT-PMP, so devices connect directly more often. Behind Docker's own NAT it still works, relayed
-or through the box's NAT like any Tailscale node; then set `TS_PORT` and publish it
-(`-p 41641:41641/udp`) for direct connections. Nothing in the container needs root, so `--user`
-with a volume it can write works too.
+or through the box's NAT like any Tailscale node; publish the WireGuard port
+(`-p 41641:41641/udp`, the image's `TS_PORT`) for direct connections. Nothing in the container
+needs root, so `--user` with a volume it can write works too.
 
 **The binary.** `cpxy-tsgw-<arch>-unknown-linux-musl` in the
 [GitHub releases](https://github.com/simophin/cpxy-ng/releases) (or the `cpxy-tsgw-<target>`
@@ -105,18 +102,17 @@ restart.
 | `SERVER` | none, **required** | The cpxy server URL, including the key. Never a command-line flag, so it stays out of `ps`. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The node's name on the tailnet. Also `--hostname`. |
 | `TS_AUTHKEY` | none | An auth key for the first login instead of the link in the log. |
-| `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. |
+| `TS_PORT` | random; `41641` in the Docker image | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. If the port is taken, a random one is used. |
 | `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). Also `--control-url`. |
 | `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | DNS servers whose answer is used when every address in it is in the local region. |
-| `DNS_ALTERNATIVE` | `https://dns.google/dns-query?ip=8.8.8.8` | DNS servers whose answer is used otherwise. A resolver on your tailnet is the reliable choice (see [Choosing the servers](cpxy-gateway.md#choosing-the-servers)). |
-| `BLOCK_ADS` | `0` | `1` answers names on the built-in ad blocklist with an address that goes nowhere. |
+| `DNS_ALTERNATIVE` | `https://dns.google/dns-query?ip=8.8.8.8` | DNS servers whose answer is used otherwise. A resolver on your tailnet is the reliable choice (see [Choosing the servers](#choosing-the-servers)). |
+| `BLOCK_ADS` | `0`; `1` in the Docker image | `1` answers names on the built-in ad blocklist with an address that goes nowhere, so ads and trackers fail to load on every device using the exit node. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
-| `STATE_DIR` | the service's state directory | Where the Tailscale state is kept. Also `--state-dir`. |
+| `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
 | `TS_NO_LOGS_NO_SUPPORT` | unset | `true` stops uploading Tailscale's own logs to Tailscale, as for `tailscaled`. |
 
 DNS servers are a plain IP (with an optional `:port`), or a `udp://`, `tcp://`, `tls://` or
-`https://` URL; `tls://` and `https://` accept `?ip=<addr>` so no lookup is needed at startup. The
-same advice as for cpxy-gateway applies; see [its DNS section](cpxy-gateway.md#choosing-the-servers).
+`https://` URL; `tls://` and `https://` accept `?ip=<addr>` so no lookup is needed at startup.
 
 `--verbose` adds Tailscale's own debug output to the log, including each DNS query clients send
 over the peer API (`peerapi: exitdns: ...`).
@@ -133,6 +129,72 @@ Clients using an exit node send their DNS to it in two ways, and both get split 
 
 DNS over TLS (TCP 853) is refused so devices fall back to plain DNS; DNS over HTTPS that apps do
 themselves is ordinary HTTPS traffic and goes through the server like any other.
+
+### Choosing the servers
+
+The split works by asking both groups at once: an upstream answer is used when every address in it
+is in the local region, and the alternative answer otherwise. Where DNS is tampered with, blocked
+names get fake addresses outside the local region, so a tampered upstream answer can never send a
+blocked site direct. What has to be trustworthy is the **alternative** answer:
+
+- Plain DNS to an overseas server (`DNS_ALTERNATIVE=1.1.1.1`) is poisoned on the way back. Clients
+  then connect to fake addresses, and the log shows the server failing to reach them (`Error
+  connecting to upstream`).
+- DNS over HTTPS or TLS works only while its server is reachable, and some, `dns.google` among
+  them, are blocked by name.
+- **A resolver on your tailnet** is reached inside Tailscale's encrypted tunnel, so it can be neither
+  poisoned nor blocked. Run one on the cpxy server, so CDNs answer for where traffic leaves, and set
+  `DNS_ALTERNATIVE=<its Tailscale IP>:<port>`. [Below](#a-resolver-on-your-tailnet) shows how.
+
+For `DNS_UPSTREAM`, the resolvers your router hands out over DHCP are usually the fastest and give
+the nearest CDN nodes for your ISP. Check that each server you list answers: a dead one costs
+nothing visible but means local-region names wait for the alternative answer.
+
+### A resolver on your tailnet
+
+Pick a Debian machine outside the local region that is on the tailnet, ideally the cpxy server
+itself. On it:
+
+```sh
+sudo apt install dnsmasq-base       # the binary only; the full dnsmasq package would want port 53
+sudo mkdir -p /etc/tailnet-dns
+sudo tee /etc/tailnet-dns/dnsmasq.conf <<'EOF'
+port=5335
+interface=tailscale0
+bind-dynamic
+no-resolv
+no-hosts
+server=1.1.1.1
+server=8.8.8.8
+cache-size=10000
+EOF
+sudo tee /etc/systemd/system/tailnet-dns.service <<'EOF'
+[Unit]
+Description=dnsmasq resolver for tailnet peers on port 5335
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/etc/tailnet-dns/dnsmasq.conf --pid-file=
+DynamicUser=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now tailnet-dns
+```
+
+It answers only on the machine's Tailscale addresses. Any port works; 5335 keeps it clear of
+another resolver on 53. If the machine runs a firewall, allow port 5335 from `tailscale0`, and if
+your tailnet has access rules, allow cpxy-tsgw's node to reach it.
+
+Then point cpxy-tsgw at it, using the machine's Tailscale IP (`tailscale ip -4 <machine>`):
+
+```sh
+-e DNS_ALTERNATIVE=100.x.y.z:5335
+```
 
 ## Check it
 
@@ -177,7 +239,8 @@ the machine in the admin console.
 | The exit node does not show in the Tailscale app | The log says whether it is approved; approve it in the admin console. The tailnet policy must also let the client use exit nodes (`autogroup:internet`). |
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
-| Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Use a [resolver on your tailnet](cpxy-gateway.md#choosing-the-servers). |
+| Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Use a [resolver on your tailnet](#choosing-the-servers). |
+| A site or app is missing content | The ad blocklist may be in the way: set `BLOCK_ADS=0` and compare. |
 | Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. |
 
 ## Building and testing
@@ -192,8 +255,9 @@ gateway/build.sh test                             # the Go tests, linked to the 
 ```
 
 `Dockerfile.tsgw` builds the same static binary inside the `cargo-zigbuild` image, with Go added,
-into an image from `scratch`; `.github/workflows/docker-publish-tsgw.yml` publishes it from `main`.
-CI also uploads the bare binaries and attaches them to releases.
+into an image from `scratch` that declares every setting and its default;
+`.github/workflows/docker-publish-tsgw.yml` publishes it from `main`. CI also uploads the bare
+binaries and attaches them to releases.
 
 `gateway/internal/e2e` tests a built binary on a real tailnet: it creates ephemeral auth keys with
 the Tailscale API, runs cpxy-tsgw, approves its exit node, joins a client that uses it, checks that

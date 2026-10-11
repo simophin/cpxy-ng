@@ -31,12 +31,37 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/r
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/cpxy-tsgw /cpxy-tsgw
+
+# Every runtime setting, with the image's defaults; override any with `-e`. Each is explained in
+# docs/cpxy-tsgw.md. Only SERVER has no default: the container exits at once without it.
+#
+# The cpxy server URL with its key, e.g. https://:<key>@<host>:<port>
+ENV SERVER=
+# The node's name on the tailnet, and an auth key to log in without opening the link in the log
+ENV TS_HOSTNAME=cpxy-tsgw
+ENV TS_AUTHKEY=
+# The UDP port WireGuard listens on. Fixed so it can be published (-p 41641:41641/udp) or
+# forwarded on the router; Tailscale picks a random one if it is taken.
+ENV TS_PORT=41641
+# A different coordination server, e.g. Headscale; empty means Tailscale's
+ENV CONTROL_URL=
+# Set to true to stop uploading Tailscale's own logs to Tailscale
+ENV TS_NO_LOGS_NO_SUPPORT=
+# DNS servers whose answer is used when every address in it is in the local region
+ENV DNS_UPSTREAM=223.5.5.5,tcp://119.29.29.29
+# DNS servers whose answer is used otherwise; a resolver on your tailnet is the reliable choice
+ENV DNS_ALTERNATIVE=https://dns.google/dns-query?ip=8.8.8.8
+# Answer names on the built-in ad blocklist with an address that goes nowhere; 0 turns it off
+ENV BLOCK_ADS=1
+# The largest packet sent back to clients; Tailscale's MTU is 1280
+ENV MTU=1280
+
 # The node's Tailscale identity. Keep it across upgrades, or the machine is new each time.
-COPY --from=builder /out/state /var/lib/cpxy-tsgw
 ENV STATE_DIR=/var/lib/cpxy-tsgw
+COPY --from=builder /out/state /var/lib/cpxy-tsgw
 VOLUME /var/lib/cpxy-tsgw
 
-# Settings come from the environment: SERVER (required), DNS_UPSTREAM, DNS_ALTERNATIVE,
-# TS_HOSTNAME, TS_AUTHKEY, TS_PORT, ... as in docs/cpxy-tsgw.md. Nothing to EXPOSE: WireGuard
-# listens on a random UDP port unless TS_PORT is set.
+# WireGuard. Only needed without --network host.
+EXPOSE 41641/udp
+
 ENTRYPOINT ["/cpxy-tsgw"]

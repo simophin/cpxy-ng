@@ -104,7 +104,7 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 	return s, nil
 }
 
-// splitList splits on commas and spaces, as cpxy-gateway's settings do.
+// splitList splits on commas and spaces, as cpxy-router's settings do.
 func splitList(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
 }
