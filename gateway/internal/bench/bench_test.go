@@ -9,11 +9,14 @@
 //	CPXY_TSGW_BIN          the binary, default target/release/cpxy-tsgw (gateway/build.sh)
 //	CPXY_TSGW_BENCH_MB     MB per transfer, default 200
 //	CPXY_TSGW_BENCH_RUNS   transfers per direction, default 3
+//	CPXY_TSGW_BENCH_PARALLEL  connections sharing each transfer, default 1
 //	CPXY_TSGW_BENCH_HOST   the address of this host to serve on, default the first private
 //	                       IPv4 address of an interface (an exit node refuses loopback)
 //	CPXY_TSGW_BENCH_PPROF  a directory: also take a Go CPU profile of the gateway during one
 //	                       more download and one more upload, saved there
 //	CPXY_TSGW_BENCH_HOLD   seconds to keep running after the transfers, e.g. to attach a profiler
+//	CPXY_TSGW_BENCH_LOG    where to save the gateway's output
+//	CPXY_TSGW_BENCH_GW_<name>=<value>  sets <name> for the gateway only, e.g. GOMAXPROCS
 //
 //	CPXY_TSGW_BENCH=1 go test -v -count=1 -timeout 30m ./internal/bench
 package bench
@@ -62,6 +65,7 @@ func TestThroughput(t *testing.T) {
 	}
 	size := int64(envInt(t, "CPXY_TSGW_BENCH_MB", 200)) * mb
 	runs := envInt(t, "CPXY_TSGW_BENCH_RUNS", 3)
+	parallel := envInt(t, "CPXY_TSGW_BENCH_PARALLEL", 1)
 	host := os.Getenv("CPXY_TSGW_BENCH_HOST")
 	if host == "" {
 		host = privateAddr(t)
@@ -92,13 +96,27 @@ func TestThroughput(t *testing.T) {
 		"TS_NO_LOGS_NO_SUPPORT=true",
 		// An exit node refuses private addresses; route this one explicitly.
 		"CPXY_TSGW_EXTRA_ROUTES="+host+"/32")
+	for _, kv := range os.Environ() {
+		if rest, ok := strings.CutPrefix(kv, "CPXY_TSGW_BENCH_GW_"); ok {
+			gw.Env = append(gw.Env, rest)
+		}
+	}
 	pprofDir := os.Getenv("CPXY_TSGW_BENCH_PPROF")
 	pprofAddr := ""
 	if pprofDir != "" {
 		pprofAddr = freeAddr(t)
 		gw.Env = append(gw.Env, "CPXY_TSGW_PPROF="+pprofAddr)
 	}
-	gw.Stdout, gw.Stderr = gwLogs, gwLogs
+	var out io.Writer = gwLogs
+	if path := os.Getenv("CPXY_TSGW_BENCH_LOG"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { f.Close() })
+		out = io.MultiWriter(gwLogs, f)
+	}
+	gw.Stdout, gw.Stderr = out, out
 	if err := gw.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +203,18 @@ func TestThroughput(t *testing.T) {
 	for _, dir := range []byte{'D', 'U'} {
 		name := map[byte]string{'D': "download", 'U': "upload"}[dir]
 		for i := range runs {
-			r := mon.measure(func() time.Duration { return transfer(ctx, t, client, addr, dir, size) })
+			r := mon.measure(func() time.Duration {
+				if parallel == 1 {
+					return transfer(ctx, t, client, addr, dir, size)
+				}
+				start := time.Now()
+				var wg sync.WaitGroup
+				for range parallel {
+					wg.Go(func() { transfer(ctx, t, client, addr, dir, size/int64(parallel)) })
+				}
+				wg.Wait()
+				return time.Since(start)
+			})
 			t.Logf("%s %d: %s", name, i+1, r.line(size))
 		}
 		if pprofDir != "" {
