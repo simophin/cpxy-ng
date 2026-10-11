@@ -46,7 +46,7 @@ func handler(resolver Resolver, authorize authorizer) func(ipnlocal.PeerAPIHandl
 			http.Error(w, "DNS access denied", http.StatusForbidden)
 			return
 		}
-		serve(w, r, resolver, allowName)
+		serve(w, r, resolver, allowName, h.Logf)
 	}
 }
 
@@ -114,7 +114,8 @@ func allowedByNetmap(b *ipnlocal.LocalBackend, name string) bool {
 }
 
 // serve answers one DNS over HTTPS request (RFC 8484), GET or POST.
-func serve(w http.ResponseWriter, r *http.Request, resolver Resolver, allowName func(string) bool) {
+// logf is the peer API's debug log (cpxy-tsgw --verbose).
+func serve(w http.ResponseWriter, r *http.Request, resolver Resolver, allowName func(string) bool, logf func(string, ...any)) {
 	query, publicErr := readQuery(r)
 	if publicErr != "" {
 		http.Error(w, publicErr, http.StatusBadRequest)
@@ -132,6 +133,7 @@ func serve(w http.ResponseWriter, r *http.Request, resolver Resolver, allowName 
 		return
 	}
 
+	logf("exitdns: %s %v from %v", question.Name, question.Type, r.RemoteAddr)
 	var response []byte
 	if allowName(question.Name.String()) {
 		response, err = resolver.Resolve(query)

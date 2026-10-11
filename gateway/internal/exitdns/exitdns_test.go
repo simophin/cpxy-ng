@@ -50,7 +50,7 @@ func TestAnswersGET(t *testing.T) {
 	q := query(t, "example.com.")
 	r := httptest.NewRequest("GET", "/dns-query?dns="+base64.RawURLEncoding.EncodeToString(q), nil)
 	w := httptest.NewRecorder()
-	serve(w, r, resolver, allowAll)
+	serve(w, r, resolver, allowAll, t.Logf)
 
 	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/dns-message" {
 		t.Fatalf("status %d, content type %q", w.Code, w.Header().Get("Content-Type"))
@@ -69,7 +69,7 @@ func TestAnswersPOST(t *testing.T) {
 	r := httptest.NewRequest("POST", "/dns-query", bytes.NewReader(q))
 	r.Header.Set("Content-Type", "application/dns-message")
 	w := httptest.NewRecorder()
-	serve(w, r, &echoResolver{}, allowAll)
+	serve(w, r, &echoResolver{}, allowAll, t.Logf)
 	if w.Code != http.StatusOK || w.Body.Len() != len(q) {
 		t.Fatalf("status %d, %d bytes", w.Code, w.Body.Len())
 	}
@@ -81,7 +81,7 @@ func TestRefusesFilteredNames(t *testing.T) {
 	r := httptest.NewRequest("POST", "/dns-query", bytes.NewReader(q))
 	r.Header.Set("Content-Type", "application/dns-message")
 	w := httptest.NewRecorder()
-	serve(w, r, resolver, func(name string) bool { return name != "host.tailnet.ts.net." })
+	serve(w, r, resolver, func(name string) bool { return name != "host.tailnet.ts.net." }, t.Logf)
 
 	var msg dnsmessage.Message
 	if err := msg.Unpack(w.Body.Bytes()); err != nil {
@@ -101,7 +101,7 @@ func TestRejectsBadRequests(t *testing.T) {
 		"bad method":       httptest.NewRequest("PUT", "/dns-query", nil),
 	} {
 		w := httptest.NewRecorder()
-		serve(w, r, &echoResolver{}, allowAll)
+		serve(w, r, &echoResolver{}, allowAll, t.Logf)
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("%s: status %d", name, w.Code)
 		}
@@ -111,7 +111,7 @@ func TestRejectsBadRequests(t *testing.T) {
 func TestReportsResolverErrors(t *testing.T) {
 	r := httptest.NewRequest("GET", "/dns-query?dns="+base64.RawURLEncoding.EncodeToString(query(t, "a.")), nil)
 	w := httptest.NewRecorder()
-	serve(w, r, failingResolver{}, allowAll)
+	serve(w, r, failingResolver{}, allowAll, t.Logf)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status %d", w.Code)
 	}
