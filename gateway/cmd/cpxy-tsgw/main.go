@@ -84,7 +84,9 @@ func run() error {
 		Dir:        s.stateDir,
 		Hostname:   s.hostname,
 		ControlURL: s.controlURL,
-		UserLogf:   log.Printf,
+		// A fixed port lets a router forward it, so peers connect directly more often.
+		Port:     s.port,
+		UserLogf: log.Printf,
 	}
 	if *verbose {
 		srv.Logf = log.Printf

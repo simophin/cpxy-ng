@@ -25,6 +25,8 @@ type settings struct {
 	hostname   string
 	stateDir   string
 	controlURL string
+	// The UDP port WireGuard listens on; 0 lets Tailscale pick one.
+	port uint16
 }
 
 // readConfigFile parses KEY=value lines; blank lines and # comments are skipped, and one level
@@ -87,6 +89,11 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 		return s, fmt.Errorf("invalid MTU: %w", err)
 	}
 	s.engine.MTU = mtu
+	port, err := strconv.ParseUint(get("TS_PORT", "0"), 10, 16)
+	if err != nil {
+		return s, fmt.Errorf("invalid TS_PORT: %w", err)
+	}
+	s.port = uint16(port)
 	switch v := get("BLOCK_ADS", "0"); v {
 	case "0", "false", "no":
 	case "1", "true", "yes":

@@ -51,10 +51,24 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 	}
 }
 
+func TestPort(t *testing.T) {
+	s, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "TS_PORT": "41641"}, noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.port != 41641 {
+		t.Fatalf("TS_PORT not applied: %+v", s)
+	}
+	if s, err := loadSettings(map[string]string{"SERVER": "http://:k@h"}, noEnv); err != nil || s.port != 0 {
+		t.Fatalf("default port: %v %+v", err, s)
+	}
+}
+
 func TestRejectsBadSettings(t *testing.T) {
 	for name, file := range map[string]map[string]string{
 		"no server": {},
 		"bad MTU":   {"SERVER": "http://:k@h", "MTU": "big"},
+		"bad port":  {"SERVER": "http://:k@h", "TS_PORT": "70000"},
 		"bad flag":  {"SERVER": "http://:k@h", "BLOCK_ADS": "maybe"},
 	} {
 		if _, err := loadSettings(file, noEnv); err == nil {
