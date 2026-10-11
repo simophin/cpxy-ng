@@ -19,6 +19,7 @@ mod connection_log;
 mod dns;
 mod ffi;
 mod filter;
+mod fin;
 #[cfg(target_os = "linux")]
 pub mod linux;
 mod routing;
@@ -431,7 +432,7 @@ fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
 }
 
 async fn handle_tcp<O: Outbound>(
-    mut flow: IpStackTcpStream,
+    flow: IpStackTcpStream,
     outbound: Arc<O>,
     dns: Option<DnsService>,
 ) {
@@ -455,6 +456,7 @@ async fn handle_tcp<O: Outbound>(
     let Ok(mut upstream) = outbound.send(request).await else {
         return;
     };
+    let mut flow = fin::FinRetry::new(flow);
     if let Err(e) = tokio::io::copy_bidirectional(&mut flow, &mut upstream).await {
         tracing::debug!("TCP flow to {dst} ended: {e}");
     }
