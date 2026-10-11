@@ -15,6 +15,8 @@
 //	CPXY_TSGW_BENCH_PPROF  a directory: also take a Go CPU profile of the gateway during one
 //	                       more download and one more upload, saved there
 //	CPXY_TSGW_BENCH_HOLD   seconds to keep running after the transfers, e.g. to attach a profiler
+//	CPXY_TSGW_BENCH_BY_LENGTH=1  downloads stop at the size rather than the end of the stream,
+//	                       for builds before the engine sent the FIN reliably
 //	CPXY_TSGW_BENCH_LOG    where to save the gateway's output
 //	CPXY_TSGW_BENCH_GW_<name>=<value>  sets <name> for the gateway only, e.g. GOMAXPROCS
 //
@@ -336,8 +338,13 @@ func transferWithin(ctx context.Context, t *testing.T, client *tsnet.Server, add
 	}
 	switch dir {
 	case 'D':
-		// To the end of the stream, so a FIN that never comes fails the transfer.
-		if n, err := io.Copy(io.Discard, c); err != nil || n != size {
+		// To the end of the stream, so a FIN that never comes fails the transfer, unless
+		// comparing with a build that has that bug.
+		read := io.Copy
+		if os.Getenv("CPXY_TSGW_BENCH_BY_LENGTH") == "1" {
+			read = func(w io.Writer, r io.Reader) (int64, error) { return io.CopyN(w, r, size) }
+		}
+		if n, err := read(io.Discard, c); err != nil || n != size {
 			t.Fatalf("downloaded %d of %d bytes: %v", n, size, err)
 		}
 	case 'U':
