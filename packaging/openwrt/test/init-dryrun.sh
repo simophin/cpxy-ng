@@ -1,5 +1,8 @@
 #!/bin/sh
-# Exercise multi-instance supervision and real UCI firewall generation in an OpenWrt rootfs.
+# Exercise the four init scripts with three instances, and real UCI firewall generation, in an
+# OpenWrt rootfs. procd, ip and the routing helpers are stubbed: commands are logged, not run.
+#
+# usage: init-dryrun.sh <ipk> [image]    (needs podman or docker)
 set -eu
 ipk="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 image="${2:-docker.io/openwrt/rootfs:x86-64-openwrt-24.10}"
@@ -13,7 +16,7 @@ for dep in ip-full kmod-tun; do
 done
 opkg install /pkg.ipk >/dev/null 2>&1
 uci -q delete firewall.@zone[0].network
-# Names intentionally differ from network names. One zone contains multiple networks.
+# Zone names intentionally differ from network names.
 uci set firewall.home=zone
 uci set firewall.home.name=trusted
 uci add_list firewall.home.network=lan
@@ -21,11 +24,21 @@ uci add_list firewall.home.network=extra
 uci set firewall.visitors=zone
 uci set firewall.visitors.name=visitors
 uci set firewall.visitors.network=guest
+uci set firewall.things=zone
+uci set firewall.things.name=things
+uci set firewall.things.network=iot
+# Zones commonly accept DNS explicitly; the IPv6 DNS refusal must come first
+uci set firewall.visitors_dns=rule
+uci set firewall.visitors_dns.name=Allow-DNS-visitors
+uci set firewall.visitors_dns.src=visitors
+uci set firewall.visitors_dns.dest_port=53
+uci set firewall.visitors_dns.target=ACCEPT
+uci reorder firewall.visitors_dns=0 || { echo "FAIL: reorder"; exit 1; }
 uci commit firewall
-uci set cpxy.main.enabled=1
-uci set cpxy.main.server='https://:test-key@proxy.example:443'
-uci add_list cpxy.main.dns_upstream=192.0.2.20
-uci commit cpxy
+uci set dhcp.@dnsmasq[0].domain=lan
+uci set dhcp.@dnsmasq[0].local=/lan/
+uci commit dhcp
+
 LOG=/tmp/calls.txt
 : >"$LOG"
 cat >/etc/init.d/firewall <<'FW'
@@ -34,156 +47,213 @@ echo "firewall $*" >>/tmp/calls.txt
 FW
 chmod +x /etc/init.d/firewall
 . /lib/functions.sh
-. /etc/init.d/cpxy
 procd_open_instance() { echo "instance $1" >>"$LOG"; }
 procd_close_instance() { :; }
 procd_set_param() { echo "set $*" >>"$LOG"; }
 procd_append_param() { echo "append $*" >>"$LOG"; }
 procd_kill() { echo "FAIL: procd_kill would destroy the current service update"; exit 1; }
 rc_procd() { "$@"; }
-network_get_device() { case "$2" in lan|extra) eval "$1=br-lan" ;; guest) eval "$1=br-guest" ;; esac; }
 logger() { :; }
 mkdir /tmp/tuns
 ip() {
 	case "$1 $2" in
 		'link show') [ -f "/tmp/tuns/$3" ] ;;
 		'tuntap show') echo "$4: tun" ;;
+		'-4 route') echo "route $*" >>"$LOG" ;;
 		*) command ip "$@" ;;
 	esac
 }
-cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
-cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
-_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
-cpxy_dnsmasq_down() { :; }
-cpxy_sinkhole_down() { :; }
 fail() { echo "FAIL: $*"; cat "$LOG"; cat /tmp/err 2>/dev/null; exit 1; }
 want() { grep -qF -- "$1" "$LOG" || fail "expected: $1"; }
 absent() { if grep -qF -- "$1" "$LOG"; then fail "unexpected: $1"; fi; }
-invalid() {
+# service <name> <function>: runs one init script's function in a shell of its own
+service() (
+	. "/etc/init.d/$1"
+	if [ "$1" = cpxy-router ]; then
+		# 'alias' is another network on the guest bridge
+		network_get_device() { case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
+		cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
+		cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
+		_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
+	fi
+	"$2"
+)
+everything() {
 	: >"$LOG"
-	if reload_service 2>/tmp/err; then fail "accepted invalid configuration"; fi
-	[ ! -s "$LOG" ] || fail "invalid reload changed running service"
-	grep -qF "$1" /tmp/err || fail "missing error: $1"
+	for s in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do service "$s" "$1" 2>>/tmp/err || fail "$s $1"; done
 }
-invalid "dns_alternative' is required"
-uci set cpxy.main.dns_split=0
-start_service
-want 'instance main_tun'
-want 'up cpxy0 100 9100 br-lan'
-absent 'instance dns'
-[ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'source zone lookup'
-[ "$(uci get firewall.cpxy_inst_main_zone.device)" = cpxy0 ] || fail 'TUN zone'
-[ "$(uci get firewall.cpxy_inst_main_udp.target)" = REJECT ] || fail 'UDP rejection'
+router() { service cpxy-router "$1" 2>>/tmp/err || fail "cpxy-router $1"; }
+# invalid <error>: every service refuses the configuration and changes nothing
+invalid() {
+	: >/tmp/err
+	for s in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do
+		: >"$LOG"
+		if service "$s" reload_service 2>>/tmp/err; then fail "$s accepted an invalid configuration"; fi
+		[ ! -s "$LOG" ] || fail "$s: invalid reload changed the running service"
+	done
+	grep -qF -- "$1" /tmp/err || fail "missing error: $1"
+}
+reload_service() { start_service; }
 
-uci set cpxy.guest=cpxy
-uci set cpxy.guest.enabled=1
-uci set cpxy.guest.server='https://:other-key@second.example:443'
-uci add_list cpxy.guest.lan_interface=guest
-uci set cpxy.guest.tun=cpxy1
-uci set cpxy.guest.routing_table=101
-uci set cpxy.guest.rule_priority=9110
-: >"$LOG"
-reload_service
-want 'instance main_tun'
-want 'instance guest_tun'
+# The default configuration waits for a server
+invalid "main: option 'server' is not set"
+
+uci set cpxy.defaults.server='https://:test-key@proxy.example:443'
+uci add_list cpxy.main.network=extra
+uci set cpxy.guest=instance
+uci set cpxy.guest.index=1
+uci add_list cpxy.guest.network=guest
+uci set cpxy.guest.server='https://:guest-key@second.example:443'
+uci set cpxy.iot=instance
+uci set cpxy.iot.index=2
+uci add_list cpxy.iot.network=iot
+uci set cpxy.iot.tsgw=0
+uci set cpxy.iot.block_ads=0
+uci set cpxy.iot.client_socks5=1
+uci commit cpxy
+
+everything start_service
+# cpxy-client
+want 'set command /usr/bin/cpxy-client'
+want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1'
+want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
+# procd restarts an instance when this file changes, not when only its environment does
+want 'set file /tmp/cpxy/client-guest.env'
+grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
+[ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
+# cpxy-smartdns: its own port, through its own instance's proxy
+want 'set command /usr/bin/cpxy-smartdns -f -c /tmp/cpxy/smartdns-guest.conf -p -'
+grep -qxF 'bind 127.0.0.1:5346' /tmp/cpxy/smartdns-guest.conf || fail 'guest smartdns port'
+grep -qxF 'proxy-server http://127.0.0.1:5001 -name cpxy' /tmp/cpxy/smartdns-guest.conf || fail 'guest smartdns proxy'
+grep -qxF 'server tcp://1.1.1.1 -proxy cpxy' /tmp/cpxy/smartdns-main.conf || fail 'smartdns server'
+grep -qxF 'speed-check-mode none' /tmp/cpxy/smartdns-main.conf || fail 'smartdns probes answers'
+if grep -q 'resolv\|conf-file\|:53$' /tmp/cpxy/smartdns-main.conf; then fail 'smartdns touches the system resolver'; fi
+# cpxy-router: a worker and a dns_split per instance
+want 'up cpxy0 100 9100 br-lan'
 want 'up cpxy1 101 9110 br-guest'
+want 'up cpxy2 102 9120 br-iot'
 want 'set command /usr/bin/cpxy-router --tun cpxy1'
-want 'set env SERVER=https://:other-key@second.example:443 NO_COLOR=1'
-[ "$(uci get firewall.cpxy_inst_guest_fwd1.src)" = visitors ] || fail 'guest zone lookup'
-[ "$(uci get firewall.cpxy_inst_guest_fwd1.dest)" = cx101 ] || fail 'guest forwarding'
-# Idempotent reload preserves resource ownership and avoids firewall reloads/worker kills.
+want 'set env SERVER=https://:guest-key@second.example:443 NO_COLOR=1'
+want 'instance guest_dns'
+want 'set command /usr/bin/cpxy-dns-split --listen 0.0.0.0:5345'
+want 'append command --alternative 127.0.0.1:5346'
+want 'append command --local-server 127.0.0.1:53'
+want 'append command --local-domain lan'
+want 'append command --cache-db /tmp/cpxy/dns-iot.sqlite'
+[ "$(grep -c -- '--local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
+[ "$(grep -c -- '--sinkhole 198.18.0.1' "$LOG")" = 2 ] || fail 'block_ads per instance'
+want 'route -4 route replace blackhole 198.18.0.0/24'
+[ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'source zone lookup'
+[ "$(uci get firewall.cpxy_inst_guest_zone.device)" = cpxy1 ] || fail 'TUN zone'
+[ "$(uci get firewall.cpxy_inst_guest_udp.target)" = REJECT ] || fail 'UDP rejection'
+[ "$(uci get firewall.cpxy_inst_guest_dns1.src)" = visitors ] || fail 'DNS redirect zone'
+[ "$(uci get firewall.cpxy_inst_guest_dns1.dest_port)" = 5345 ] || fail 'DNS redirect port'
+[ "$(uci get firewall.cpxy_inst_guest_dns1.target)" = DNAT ] || fail 'DNS redirect target'
+[ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = REJECT ] || fail 'IPv6 DNS refusal'
+position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewall\.$1=" | cut -d: -f1; }
+[ "$(position cpxy_inst_guest_dns6_1)" -lt "$(position visitors_dns)" ] || fail 'IPv6 DNS refusal after an accept rule'
+# cpxy-tsgw: main and guest only
+want 'set command /usr/bin/cpxy-tsgw'
+want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
+want 'DNS_UPSTREAM=223.5.5.5,119.29.29.29 DNS_ALTERNATIVE=127.0.0.1:5336 BLOCK_ADS=1'
+want 'NO_COLOR=1 HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
+want 'set file /tmp/cpxy/tsgw-guest.env'
+want 'set file /tmp/cpxy/router-guest.env'
+absent 'TS_HOSTNAME=cpxy-iot'
+[ -d /etc/cpxy/tsgw/guest ] || fail 'tsgw state directory'
+absent 'TS_AUTHKEY'
+
+# Idempotent reload preserves resource ownership and avoids firewall reloads.
 : >"$LOG"
-reload_service
+router reload_service
 absent 'firewall reload'
-absent 'kill '
 absent 'down '
 absent 'up '
 [ -z "$(uci -q changes firewall)" ] || fail 'idempotent reload staged firewall changes'
 
-uci set cpxy.guest.routing_table=100
-invalid 'duplicate routing_table'
-uci set cpxy.guest.routing_table=101
-uci set cpxy.guest.rule_priority=9102
-invalid 'overlapping rule priorities'
-uci set cpxy.guest.rule_priority=9110
+# Conflicts between instances
+uci set cpxy.guest.index=0
+invalid 'index 0 is already used'
+uci set cpxy.guest.index=1
+uci set cpxy.guest.client_http_listen='[::]:5000'
+invalid 'tcp 5000 is already used'
+uci delete cpxy.guest.client_http_listen
+uci set cpxy.guest.smartdns_listen=127.0.0.1:53
+invalid 'must not use port 53'
+uci delete cpxy.guest.smartdns_listen
+uci add_list cpxy.guest.smartdns_server=tls://dns.google
+invalid "smartdns_server 'tls://dns.google' must be an IP address"
+uci delete cpxy.guest.smartdns_server
+uci add_list cpxy.guest.smartdns_server=8.8.8.8
+invalid "smartdns_server '8.8.8.8' must be an IP address, over tcp://"
+uci delete cpxy.guest.smartdns_server
+uci set cpxy.guest.client=0
+invalid 'smartdns_proxy needs'
+uci set cpxy.guest.client=1
+uci set cpxy.guest.smartdns=0
+invalid "'dns_alternative' is required"
+uci set cpxy.guest.smartdns=1
 uci set cpxy.guest.tun=cpxy0
-invalid 'duplicate tun'
-uci set cpxy.guest.tun=cpxy1
-uci set cpxy.guest.tun=lo
-invalid 'invalid or missing tun'
-uci set cpxy.guest.tun=cpxy1
-uci delete cpxy.guest.lan_interface
-uci add_list cpxy.guest.lan_interface=lan
-invalid "network 'lan' is assigned more than once"
-uci delete cpxy.guest.lan_interface
-uci add_list cpxy.guest.lan_interface=extra
-invalid "device 'br-lan' is assigned more than once"
-uci delete cpxy.guest.lan_interface
-uci add_list cpxy.guest.lan_interface=unknown
-invalid 'exactly one enabled firewall zone'
-uci delete cpxy.guest.lan_interface
-uci add_list cpxy.guest.lan_interface=guest
-uci set firewall.duplicate=zone
-uci set firewall.duplicate.name=other
-uci add_list firewall.duplicate.network=guest
-invalid 'exactly one enabled firewall zone'
-uci delete firewall.duplicate
-uci set cpxy.main.dns_split=1
-uci add_list cpxy.main.dns_alternative=tls://192.0.2.30
-uci set cpxy.guest.dns_split=1
-uci add_list cpxy.guest.dns_upstream=192.0.2.20
-uci add_list cpxy.guest.dns_alternative=192.0.2.30
-invalid 'only one instance'
-uci set cpxy.guest.dns_split=0
-: >"$LOG"
-reload_service
-want 'instance dns'
-want 'append command --cache-db /tmp/cpxy/dns-cache.sqlite'
-want 'append command --sinkhole 198.18.0.1'
-uci set cpxy.main.block_ads=0
-: >"$LOG"
-reload_service
-absent '--sinkhole'
-uci delete cpxy.main.block_ads
-# Disable guest without tearing down main routing or its worker.
+: >/tmp/err
+if service cpxy-router reload_service 2>/tmp/err; then fail 'duplicate tun accepted'; fi
+grep -qF 'duplicate tun' /tmp/err || fail 'missing error: duplicate tun'
+uci delete cpxy.guest.tun
+uci delete cpxy.main.network
+uci add_list cpxy.main.network=lan
+: >/tmp/err
+if service cpxy-router reload_service 2>/tmp/err; then fail 'zone shared with an unmanaged network accepted'; fi
+grep -qF "also holds network 'extra'" /tmp/err || fail 'missing error: zone holds another network'
+uci set cpxy.main.router_dns=0
+router reload_service
+uci set cpxy.main.router_dns=1
+uci add_list cpxy.main.network=extra
+uci add_list cpxy.guest.network=extra
+: >/tmp/err
+if service cpxy-router reload_service 2>/tmp/err; then fail 'network in two instances accepted'; fi
+grep -qF "network 'extra' is assigned more than once" /tmp/err || fail 'missing error: network twice'
+uci delete cpxy.guest.network
+uci add_list cpxy.guest.network=guest
+uci set firewall.aliases=zone
+uci set firewall.aliases.name=aliases
+uci set firewall.aliases.network=alias
+uci add_list cpxy.iot.network=alias
+: >/tmp/err
+if service cpxy-router reload_service 2>/tmp/err; then fail 'device in two instances accepted'; fi
+grep -qF "device 'br-guest' is assigned more than once" /tmp/err || fail 'missing error: device twice'
+uci delete cpxy.iot.network
+uci add_list cpxy.iot.network=iot
+uci delete firewall.aliases
+router reload_service
+
+# Disable guest without touching the others
 uci set cpxy.guest.enabled=0
-: >"$LOG"
-reload_service
+everything reload_service
 want 'down cpxy1 101 9110'
 absent 'down cpxy0'
-absent 'kill cpxy main_tun'
-absent 'instance guest_tun'
+absent 'instance guest'
+want 'instance main'
 if uci -q get firewall.cpxy_inst_guest_zone; then fail 'disabled guest zone remains'; fi
+if uci -q get firewall.cpxy_inst_guest_dns1; then fail 'disabled guest DNS redirect remains'; fi
 [ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'main forwarding removed'
-# Re-enable and reassign guest resources; cleanup uses the saved old assignments.
-uci set cpxy.guest.enabled=1
-reload_service
-uci set cpxy.guest.tun=cpxy2
-uci set cpxy.guest.routing_table=102
-uci set cpxy.guest.rule_priority=9120
+# No instance blocks ads: no sinkhole route
+uci set cpxy.defaults.block_ads=0
 : >"$LOG"
-reload_service
-want 'down cpxy1 101 9110'
-want 'up cpxy2 102 9120 br-guest'
-absent 'down cpxy0'
-uci delete cpxy.guest
-: >"$LOG"
-reload_service
-want 'down cpxy2 102 9120'
-absent 'down cpxy0'
-# All configured interfaces get triggers, including a network with no device yet.
+router reload_service
+want 'route -4 route del blackhole 198.18.0.0/24'
+
+# Interface triggers for every routed network
 procd_add_reload_trigger() { :; }
 procd_add_interface_trigger() { echo "trigger $*" >>"$LOG"; }
-uci set cpxy.guest=cpxy
-uci set cpxy.guest.enabled=1
-uci add_list cpxy.guest.lan_interface=guest
 : >"$LOG"
-service_triggers
-want 'trigger interface.* guest /etc/init.d/cpxy reload'
-want 'trigger interface.* lan /etc/init.d/cpxy reload'
-stop_service
-[ ! -d /tmp/cpxy ] || fail 'runtime state remains'
-if uci -q get firewall.cpxy_inst_main_zone; then fail 'zone remains after stop'; fi
+router service_triggers
+want 'trigger interface.* lan /etc/init.d/cpxy-router reload'
+want 'trigger interface.* iot /etc/init.d/cpxy-router reload'
+absent 'trigger interface.* guest'
+
+router stop_service
+[ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
+if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

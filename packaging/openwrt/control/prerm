@@ -1,13 +1,11 @@
 #!/bin/sh
 [ -s "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
 . "${IPKG_INSTROOT}/lib/functions.sh"
+# Stops and disables the cpxy-* services; stopping cpxy-router removes its routing
 default_prerm "$0" "$@"
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
 	. /usr/libexec/cpxy/firewall.sh
 	cpxy_firewall_clear
 	uci commit firewall
-	if command -v iptables >/dev/null; then
-		while iptables -D FORWARD -o cpxy0 -p udp -j REJECT 2>/dev/null; do :; done
-	fi
 fi
 exit 0

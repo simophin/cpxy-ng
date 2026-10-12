@@ -6,8 +6,8 @@ node in the Tailscale app and get cpxy routing and split DNS, with no cpxy app o
 It runs entirely in user space: it is its own Tailscale node (built on
 [tsnet](https://tailscale.com/kb/1244/tsnet)), so it needs no `tailscaled`, no TUN device, no
 routing or firewall changes, no IP forwarding and no root. Inside it, the packets clients send to
-the internet go to the same packet engine and `dns_split` resolver as the mobile app and
-[cpxy-router](cpxy-router.md).
+the internet go to the same packet engine and `dns_split` resolver as the mobile app and the
+[OpenWrt package](openwrt.md), which also includes cpxy-tsgw.
 
 ```text
 phone ── Tailscale ──► cpxy-tsgw (tsnet: WireGuard, NAT traversal, DERP)

@@ -8,6 +8,8 @@ on:
     types: [synchronize, opened, reopened]
   release:
     types: [published]
+  # The full build (packages included) of any branch, on demand
+  workflow_dispatch:
 
 # PRs run tests, including the mobile TUN lab; APK and per-platform builds run on main and releases.
 # PR runs are cancelled when superseded. Everything else shares a single
@@ -287,11 +289,35 @@ jobs:
           name: executables-${{ matrix.target.rust }}
           path: artifacts
 
+  # A static smartdns for the OpenWrt package, built natively in Alpine for each architecture.
+  build_smartdns:
+    name: Build smartdns (${{ matrix.target.rust }})
+    if: github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        target:
+          - rust: x86_64-unknown-linux-musl
+            runs_on: ubuntu-latest
+          - rust: aarch64-unknown-linux-musl
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.target.runs_on }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.22 packaging/openwrt/build-smartdns.sh smartdns
+          file smartdns/cpxy-smartdns
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: smartdns-${{ matrix.target.rust }}
+          path: smartdns
+
   # Build the shared packet engine as a static native router client.
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
-    needs: build_executables
+    needs: [build_executables, build_tsgw, build_smartdns]
     strategy:
       matrix:
         target:
@@ -322,9 +348,21 @@ jobs:
           name: executables-${{ matrix.target.rust }}
           path: executables
 
+      - name: Download cpxy-tsgw
+        uses: actions/download-artifact@v8
+        with:
+          name: cpxy-tsgw-${{ matrix.target.rust }}
+          path: executables
+
+      - name: Download smartdns
+        uses: actions/download-artifact@v8
+        with:
+          name: smartdns-${{ matrix.target.rust }}
+          path: smartdns
+
       # Artifacts don't keep file modes
       - name: Make cpxy executables executable
-        run: chmod +x executables/*
+        run: chmod +x executables/* smartdns/cpxy-smartdns
 
       - name: Build native router client
         run: cross build --release --locked --target ${{ matrix.target.rust }} -p mobile-engine --bin cpxy-router
@@ -338,6 +376,9 @@ jobs:
           fi
           mkdir -p bins
           cp executables/dns_split-${{ matrix.target.rust }} bins/cpxy-dns-split
+          cp executables/client-${{ matrix.target.rust }} bins/cpxy-client
+          cp executables/cpxy-tsgw-${{ matrix.target.rust }} bins/cpxy-tsgw
+          cp smartdns/* bins/
           cp target/${{ matrix.target.rust }}/release/cpxy-router bins/cpxy-router
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "$version" bins openwrt-package
           ls -l openwrt-package bins
@@ -437,22 +478,20 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends shellcheck
           # OpenWrt's ash has `local`
-          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/test/*.sh \
-            packaging/common/net.sh packaging/openwrt/files/usr/libexec/cpxy/dnsmasq.sh \
-            packaging/openwrt/files/usr/libexec/cpxy/firewall.sh \
-            packaging/openwrt/files/usr/libexec/cpxy/dns-split.sh \
-            packaging/openwrt/files/usr/libexec/cpxy/fw3-include.sh packaging/openwrt/control/postinst \
-            packaging/openwrt/control/prerm packaging/openwrt/control/postrm \
-            packaging/openwrt/files/etc/uci-defaults/90-cpxy packaging/openwrt/files/etc/init.d/cpxy
+          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/build-smartdns.sh \
+            packaging/openwrt/test/*.sh packaging/common/net.sh packaging/openwrt/files/usr/libexec/cpxy/*.sh \
+            packaging/openwrt/files/usr/bin/cpxy-show packaging/openwrt/files/etc/init.d/* \
+            packaging/openwrt/control/postinst packaging/openwrt/control/prerm packaging/openwrt/control/postrm
       - name: Build package from stand-in binaries and test install and removal
         run: |
           mkdir bins
-          for b in cpxy-router cpxy-dns-split; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
+          for b in cpxy-router cpxy-dns-split cpxy-client cpxy-tsgw cpxy-smartdns; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
           chmod +x bins/*
+          echo test >bins/smartdns-LICENSE
+          echo test >bins/smartdns-SOURCE
           packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
           packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
           packaging/openwrt/test/init-dryrun.sh out/*.ipk
-          packaging/openwrt/test/dns-handover.sh out/*.ipk
 
   test:
     name: Run tests on main platform
@@ -484,6 +523,7 @@ jobs:
       - test_openwrt_packaging
       - test_tsgw
       - build_tsgw
+      - build_smartdns
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
@@ -491,6 +531,9 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: artifacts
+      # smartdns ships inside the OpenWrt package, not on its own
+      - name: Leave out smartdns
+        run: rm -rf artifacts/smartdns-*
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v3
         with:

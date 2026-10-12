@@ -3,8 +3,8 @@
 # check the configuration is back to how it started.
 #
 # usage: opkg-roundtrip.sh <ipk> [image]    (needs podman or docker)
-# Does not start the service: the container has no procd, netifd or fw4. See lab.sh for the
-# routing behaviour.
+# Does not run the services: the container has no procd, netifd or fw4. See init-dryrun.sh for
+# the init scripts and lab.sh for the routing behaviour.
 set -eu
 
 ipk="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
@@ -27,28 +27,31 @@ snapshot >/before.txt
 opkg install /pkg.ipk
 
 # What the install added
-for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split \
-	/etc/init.d/cpxy /etc/config/cpxy /usr/libexec/cpxy/net.sh /usr/libexec/cpxy/dnsmasq.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/dns-split.sh \
-	/usr/libexec/cpxy/fw3-include.sh \
-	/usr/share/nftables.d/chain-pre/forward/10-cpxy.nft; do
+for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split /usr/bin/cpxy-client /usr/bin/cpxy-tsgw \
+	/usr/bin/cpxy-smartdns /usr/bin/cpxy-show /etc/config/cpxy /lib/upgrade/keep.d/cpxy \
+	/usr/libexec/cpxy/net.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh \
+	/usr/share/doc/cpxy/smartdns-LICENSE /usr/share/doc/cpxy/smartdns-SOURCE; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }
 done
-# Disabled installations must not create fixed network forwarding.
-uci -q get firewall.cpxy_zone && { echo "FAIL: legacy zone added"; exit 1; }
-uci -q get firewall.cpxy_fwd && { echo "FAIL: legacy forwarding added"; exit 1; }
-# fw4 reads the nftables snippet; the iptables include is for fw3 only
-uci -q get firewall.cpxy_udp && { echo "FAIL: fw3 include added on fw4"; exit 1; }
-[ -e /etc/uci-defaults/90-cpxy ] && { echo "FAIL: uci-defaults script was not consumed"; exit 1; }
-ls /etc/rc.d | grep -q cpxy || { echo "FAIL: service not enabled"; exit 1; }
+for service in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do
+	[ -x /etc/init.d/$service ] || { echo "FAIL: missing /etc/init.d/$service"; exit 1; }
+	ls /etc/rc.d | grep -q "^S..$service\$" || { echo "FAIL: $service not enabled"; exit 1; }
+done
+# Without a server nothing is configured, so the network is untouched
+uci show firewall | grep -q cpxy_inst_ && { echo "FAIL: firewall changed before configuration"; exit 1; }
+cpxy-show 2>/dev/null && { echo "FAIL: the default configuration must ask for a server"; exit 1; }
+cpxy-show 2>&1 | grep -q "server" || { echo "FAIL: missing server not reported"; exit 1; }
+uci set cpxy.defaults.server=https://:key@proxy.example:443
+cpxy-show main | grep -q "HTTP \[::\]:5000" || { echo "FAIL: cpxy-show"; cpxy-show main; exit 1; }
+uci revert cpxy
 echo "install ok"
 
-opkg remove cpxy-router
-for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split /etc/init.d/cpxy \
-	/usr/libexec/cpxy /usr/share/nftables.d/chain-pre/forward/10-cpxy.nft /etc/uci-defaults/90-cpxy; do
+opkg remove cpxy
+for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split /usr/bin/cpxy-client /usr/bin/cpxy-tsgw \
+	/usr/bin/cpxy-smartdns /usr/bin/cpxy-show /etc/init.d/cpxy-client /etc/init.d/cpxy-smartdns \
+	/etc/init.d/cpxy-router /etc/init.d/cpxy-tsgw /usr/libexec/cpxy /usr/share/doc/cpxy; do
 	[ ! -e "$f" ] || { echo "FAIL: left behind $f"; exit 1; }
 done
-uci -q get firewall.cpxy_zone && { echo "FAIL: firewall zone left behind"; exit 1; }
-uci -q get firewall.cpxy_fwd && { echo "FAIL: forwarding left behind"; exit 1; }
 rm -f /etc/config/cpxy   # a modified conffile is kept by opkg on purpose; the default one is removed
 snapshot >/after.txt
 if [ "$(cat /before.txt)" = "$(cat /after.txt)" ]; then

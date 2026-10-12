@@ -1,10 +1,11 @@
 use super::cache::{DnsCache, unix_now};
 use super::policy::Racer;
+use super::upstream::DnsUpstream;
 use anyhow::Context;
 use blocklist_data::Blocklist;
 use hickory_proto::op::{Edns, Message, MessageType, OpCode, Query, ResponseCode};
 use hickory_proto::rr::rdata::A;
-use hickory_proto::rr::{RData, Record, RecordType};
+use hickory_proto::rr::{Name, RData, Record, RecordType};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +22,25 @@ pub struct DnsSplitHandler {
     racer: Racer,
     cache: Option<Arc<DnsCache>>,
     sinkhole: Option<Sinkhole>,
+    local: Option<LocalNames>,
+}
+
+/// Names only the local network knows, answered by its own resolver instead of the split.
+struct LocalNames {
+    server: Arc<dyn DnsUpstream>,
+    domains: Vec<Name>,
+}
+
+/// Reverse lookups of private (RFC 1918) addresses: only the local resolver knows these hosts.
+fn private_reverse_zones() -> impl Iterator<Item = Name> {
+    let zones = [
+        "10.in-addr.arpa.".to_string(),
+        "168.192.in-addr.arpa.".to_string(),
+    ];
+    zones
+        .into_iter()
+        .chain((16..=31).map(|octet| format!("{octet}.172.in-addr.arpa.")))
+        .map(|zone| Name::from_ascii(zone).expect("valid reverse zone"))
 }
 
 /// Answers blocked names with an address that leads nowhere.
@@ -35,7 +55,17 @@ impl DnsSplitHandler {
             racer,
             cache,
             sinkhole: None,
+            local: None,
         }
+    }
+
+    /// Sends queries for single-label names, names under `domains` and reverse lookups of
+    /// private addresses to `server` (the network's own resolver, such as dnsmasq), unsplit
+    /// and uncached.
+    pub fn with_local(mut self, server: Arc<dyn DnsUpstream>, mut domains: Vec<Name>) -> Self {
+        domains.extend(private_reverse_zones());
+        self.local = Some(LocalNames { server, domains });
+        self
     }
 
     /// Answers A queries for blocked names with `addr`, and other queries for them with no
@@ -59,6 +89,12 @@ impl DnsSplitHandler {
             return finalize(request, error(ResponseCode::NoError));
         }
 
+        if let Some(local) = &self.local
+            && local.matches(query.name())
+        {
+            return finalize(request, local.resolve(request, query).await);
+        }
+
         if let Some(sinkhole) = &self.sinkhole
             && sinkhole.blocklist.is_blocked(&query.name().to_ascii())
         {
@@ -77,17 +113,7 @@ impl DnsSplitHandler {
             }
         }
 
-        let mut upstream_request = Message::new();
-        upstream_request
-            .set_message_type(MessageType::Query)
-            .set_op_code(OpCode::Query)
-            .set_recursion_desired(true)
-            .set_checking_disabled(request.checking_disabled())
-            .add_query(query.clone());
-        let mut edns = Edns::new();
-        edns.set_max_payload(EDNS_PAYLOAD);
-        upstream_request.set_edns(edns);
-
+        let upstream_request = upstream_request(request, query);
         let Some(resolution) = self.racer.resolve(&upstream_request).await else {
             tracing::info!("No DNS server answered {query}");
             return finalize(request, error(ResponseCode::ServFail));
@@ -112,6 +138,28 @@ impl DnsSplitHandler {
     }
 }
 
+impl LocalNames {
+    fn matches(&self, name: &Name) -> bool {
+        name.num_labels() == 1 || self.domains.iter().any(|domain| domain.zone_of(name))
+    }
+
+    async fn resolve(&self, request: &Message, query: &Query) -> Message {
+        match self.server.query(upstream_request(request, query)).await {
+            Ok(message) => {
+                tracing::info!(
+                    "Answering {query} with {} from local server",
+                    message.response_code()
+                );
+                message
+            }
+            Err(e) => {
+                tracing::info!("Local server failed for {query}: {e:?}");
+                error(ResponseCode::ServFail)
+            }
+        }
+    }
+}
+
 impl Sinkhole {
     fn answer(&self, query: &Query) -> Message {
         let mut message = error(ResponseCode::NoError);
@@ -124,6 +172,21 @@ impl Sinkhole {
         }
         message
     }
+}
+
+/// The query sent on for a client's request.
+fn upstream_request(request: &Message, query: &Query) -> Message {
+    let mut upstream_request = Message::new();
+    upstream_request
+        .set_message_type(MessageType::Query)
+        .set_op_code(OpCode::Query)
+        .set_recursion_desired(true)
+        .set_checking_disabled(request.checking_disabled())
+        .add_query(query.clone());
+    let mut edns = Edns::new();
+    edns.set_max_payload(EDNS_PAYLOAD);
+    upstream_request.set_edns(edns);
+    upstream_request
 }
 
 fn error(code: ResponseCode) -> Message {
@@ -320,6 +383,57 @@ mod tests {
             .await;
         assert_eq!(response.answers().len(), 1);
         assert_eq!(upstream.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn local_names_go_to_the_local_server_only() {
+        let upstream = FakeUpstream::new("u", 0, Some(answer(&[Ipv4Addr::new(10, 0, 0, 1)])));
+        let local = FakeUpstream::new("l", 0, Some(answer(&[Ipv4Addr::new(192, 168, 7, 20)])));
+        let (handler, cache) = handler(&[(Group::Upstream, upstream.clone())]).await;
+        let handler = handler.with_local(local.clone(), vec![Name::from_ascii("lan.").unwrap()]);
+
+        let local_names = [
+            "printer.",
+            "printer.lan.",
+            "lan.",
+            "20.7.168.192.in-addr.arpa.",
+            "1.0.0.10.in-addr.arpa.",
+            "9.0.20.172.in-addr.arpa.",
+        ];
+        for name in local_names {
+            let req = request(name, RecordType::A);
+            let response = handler.handle(&req).await;
+            assert_eq!(response.id(), 4242, "{name}");
+            assert_eq!(response.answers().len(), 1, "{name}");
+            let cached = cache.get(&req.queries()[0], unix_now()).await.unwrap();
+            assert!(cached.is_none(), "{name} was cached");
+        }
+        assert_eq!(local.calls.load(Ordering::SeqCst), local_names.len());
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
+
+        // Everything else is split as usual
+        let public_names = [
+            "example.com.",
+            "lan.example.com.",
+            "1.0.0.8.in-addr.arpa.",
+            "9.0.32.172.in-addr.arpa.",
+        ];
+        for name in public_names {
+            handler.handle(&request(name, RecordType::A)).await;
+        }
+        assert_eq!(local.calls.load(Ordering::SeqCst), local_names.len());
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), public_names.len());
+    }
+
+    #[tokio::test]
+    async fn local_server_failure_is_servfail() {
+        let upstream = FakeUpstream::new("u", 0, Some(answer(&[Ipv4Addr::new(10, 0, 0, 1)])));
+        let (handler, _) = handler(&[(Group::Upstream, upstream.clone())]).await;
+        let handler = handler.with_local(FakeUpstream::new("l", 0, None), vec![]);
+
+        let response = handler.handle(&request("nas.", RecordType::A)).await;
+        assert_eq!(response.response_code(), ResponseCode::ServFail);
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
