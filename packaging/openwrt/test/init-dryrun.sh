@@ -70,7 +70,8 @@ absent() { if grep -qF -- "$1" "$LOG"; then fail "unexpected: $1"; fi; }
 service() (
 	. "/etc/init.d/$1"
 	if [ "$1" = cpxy-router ]; then
-		network_get_device() { case "$2" in lan|extra) eval "$1=br-lan" ;; guest) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
+		# 'alias' is another network on the guest bridge
+		network_get_device() { case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
 		cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
 		cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 		_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
@@ -213,6 +214,16 @@ if service cpxy-router reload_service 2>/tmp/err; then fail 'network in two inst
 grep -qF "network 'extra' is assigned more than once" /tmp/err || fail 'missing error: network twice'
 uci delete cpxy.guest.network
 uci add_list cpxy.guest.network=guest
+uci set firewall.aliases=zone
+uci set firewall.aliases.name=aliases
+uci set firewall.aliases.network=alias
+uci add_list cpxy.iot.network=alias
+: >/tmp/err
+if service cpxy-router reload_service 2>/tmp/err; then fail 'device in two instances accepted'; fi
+grep -qF "device 'br-guest' is assigned more than once" /tmp/err || fail 'missing error: device twice'
+uci delete cpxy.iot.network
+uci add_list cpxy.iot.network=iot
+uci delete firewall.aliases
 router reload_service
 
 # Disable guest without touching the others
