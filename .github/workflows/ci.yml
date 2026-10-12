@@ -498,6 +498,7 @@ jobs:
   test_docker_bundle:
     name: Test Docker bundle (${{ matrix.arch }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64

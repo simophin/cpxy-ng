@@ -63,7 +63,7 @@ pid_of() {
 	docker exec "$1" pidof "$2"
 }
 
-RUST_LOG=info KEY="$key" BIND_ADDR=0.0.0.0:3000 "$server_bin" >"$work/server.log" 2>&1 &
+NO_COLOR=1 RUST_LOG=info KEY="$key" BIND_ADDR=0.0.0.0:3000 "$server_bin" >"$work/server.log" 2>&1 &
 server_pid=$!
 eventually 10 "the cpxy server" grep -q "Server listening" "$work/server.log"
 
