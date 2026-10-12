@@ -10,14 +10,17 @@ _on() { [ "$1" = 1 ] && echo on || echo off; }
 _show() {
 	[ -z "$WANTED" ] || [ "$1" = "$WANTED" ] || return 0
 	FOUND=1
+	# cpxy-router runs an instance only when it has networks
+	local routed=0
+	[ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ] && routed=1
 	cat <<EOF
 instance $1 (index $CPXY_INDEX)
   server          $(echo "$CPXY_SERVER" | sed 's#//[^@]*@#//***@#')
   networks        ${CPXY_NETWORKS:-none}
   client          $(_on "$CPXY_CLIENT"): HTTP $CPXY_HTTP_LISTEN$([ "$CPXY_SOCKS5" = 1 ] && echo ", SOCKS5 $CPXY_SOCKS5_LISTEN")
   smartdns        $(_on "$CPXY_SMARTDNS"): $CPXY_SMARTDNS_LISTEN -> $CPXY_SMARTDNS_SERVERS$([ "$CPXY_SMARTDNS_PROXY" = 1 ] && echo " via $CPXY_PROXY")
-  router          $(_on "$CPXY_ROUTER"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$((CPXY_PRIORITY + 3))
-  router DNS      $(_on "$CPXY_ROUTER_DNS"): dns_split on $CPXY_DNS_LISTEN
+  router          $(_on "$routed"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$((CPXY_PRIORITY + 3))
+  router DNS      $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
   tsgw            $(_on "$CPXY_TSGW"): $CPXY_TSGW_HOSTNAME, UDP $CPXY_TSGW_PORT, state $CPXY_TSGW_STATE_DIR$([ "$CPXY_TSGW_PROXY" = 1 ] && echo ", via $CPXY_PROXY")
   dns upstream    $CPXY_DNS_UPSTREAM
   dns alternative $CPXY_DNS_ALTERNATIVE
