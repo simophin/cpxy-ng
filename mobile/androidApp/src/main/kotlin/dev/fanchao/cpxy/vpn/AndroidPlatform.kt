@@ -41,6 +41,9 @@ class AndroidPlatform(private val activity: Activity) : Platform {
         }
 
     override val apps: AppCatalog = AndroidAppCatalog(activity.applicationContext)
+
+    override val versionName: String =
+        activity.packageManager.getPackageInfo(activity.packageName, 0).versionName ?: "dev"
 }
 
 private class AndroidAppCatalog(private val context: Context) : AppCatalog {

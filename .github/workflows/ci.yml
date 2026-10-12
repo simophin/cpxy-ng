@@ -23,79 +23,6 @@ permissions:
   contents: write
 
 jobs:
-  build_android_app:
-    name: Build Android app
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Cache Gradle files
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      - name: Install all the required targets
-        run: >
-          rustup target add
-          aarch64-linux-android
-          armv7-linux-androideabi
-          x86_64-linux-android
-          i686-linux-android
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: android
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install cargo-ndk
-        run: cargo binstall cargo-ndk --version 4.1.2 --locked
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install pinned Android NDK
-        run: >
-          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          "ndk;28.2.13676358"
-
-      - name: Run shared tests
-        run: ./gradlew :shared:allTests
-        working-directory: client/android-app
-
-      - name: Build APK and Gradle-owned Rust libraries
-        run: ./gradlew :androidApp:assembleRelease
-        working-directory: client/android-app
-
-      - name: Inspect packaged native libraries
-        run: |
-          unzip -Z1 client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk \
-            | grep '^lib/.*/libclient\.so$' \
-            | sort \
-            | diff -u - <(printf '%s\n' \
-                lib/arm64-v8a/libclient.so \
-                lib/armeabi-v7a/libclient.so \
-                lib/x86/libclient.so \
-                lib/x86_64/libclient.so)
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: android-app-release.apk
-          path: client/android-app/androidApp/build/outputs/apk/release/androidApp-release.apk
-
   build_mobile_vpn:
     name: Build mobile VPN APK
     if: github.event_name != 'pull_request'
@@ -104,6 +31,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Tags and history for `git describe`
+          fetch-depth: 0
 
       - name: Set up Java 21
         uses: actions/setup-java@v6
@@ -145,9 +75,18 @@ jobs:
           "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           "ndk;28.2.13676358"
 
+      # The release tag on releases, `git describe` otherwise; a leading "v" is dropped.
+      - name: Work out the app version
+        id: version
+        run: |
+          version=$(git describe --tags --always)
+          echo "version=${version#v}" >>"$GITHUB_OUTPUT"
+
       - name: Build APK and Gradle-owned Rust libraries
         run: ./gradlew :androidApp:assembleRelease
         working-directory: mobile
+        env:
+          CPXY_VPN_VERSION: ${{ steps.version.outputs.version }}
 
       - name: Inspect packaged native libraries
         run: |
@@ -161,13 +100,17 @@ jobs:
                 lib/x86_64/libmobile_engine.so)
 
       - name: Name VPN APK for release upload
-        run: cp mobile/androidApp/build/outputs/apk/release/androidApp-release.apk mobile-vpn-release.apk
+        id: apk
+        run: |
+          name="mobile-vpn-${{ steps.version.outputs.version }}-release.apk"
+          cp mobile/androidApp/build/outputs/apk/release/androidApp-release.apk "$name"
+          echo "name=$name" >>"$GITHUB_OUTPUT"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: mobile-vpn-release.apk
-          path: mobile-vpn-release.apk
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}
           if-no-files-found: error
 
   test_mobile_engine:
@@ -262,24 +205,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The mobile TUN engine is Unix-only and has its own build/test jobs.
+      # The mobile TUN engine is Unix-only and has its own build/test jobs. client_cn is not
+      # built (its code stays), so the client is built bin by bin.
       - name: Build with cross
         if: matrix.target.build_with_cross == true
         run:
-          cross build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine &&
-          cross build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin dns_split
+          cross build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine --exclude client &&
+          cross build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin standalone --bin dns_split
 
       - name: Build
         if: matrix.target.build_with_cross != true
         run:
-          cargo build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine &&
-          cargo build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin dns_split
+          cargo build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine --exclude client &&
+          cargo build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin standalone --bin dns_split
 
       - name: Rename files
         run:
           mkdir artifacts &&
           mv -v target/${{ matrix.target.rust }}/release/standalone${{ matrix.target.binary_ext }} artifacts/client-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
-          mv -v target/${{ matrix.target.rust }}/release/client_cn${{ matrix.target.binary_ext }} artifacts/client_cn-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
           mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/server-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
           mv -v target/${{ matrix.target.rust }}/release/dns_split${{ matrix.target.binary_ext }} artifacts/dns_split-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
 
@@ -564,7 +507,6 @@ jobs:
     permissions:
       contents: write
     needs:
-      - build_android_app
       - build_mobile_vpn
       - test_mobile_engine
       - test_mobile_shared

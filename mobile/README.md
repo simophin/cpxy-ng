@@ -7,8 +7,7 @@ Run Gradle from this directory and Cargo commands from the repository root.
 
 - `shared/`: Compose Multiplatform UI, profile storage and the `VpnController` interface.
 - `androidApp/`: `CpxyVpnService` (the `VpnService` running the engine), `AndroidVpnController`
-  and the activity. Application ID `dev.fanchao.cpxy.vpn`, so it installs next to the existing
-  app in `client/android-app`.
+  and the activity. Application ID `dev.fanchao.cpxy.vpn`.
 
 ## Build and test
 
@@ -18,7 +17,7 @@ Run Gradle from this directory and Cargo commands from the repository root.
 ./gradlew :androidApp:assembleRelease
 ```
 
-The release variant uses the checked-in debug keystore, like the existing app.
+The release variant uses the checked-in debug keystore.
 
 The APK tasks build `libmobile_engine.so` for the four Android ABIs with cargo-ndk, and generate
 the UniFFI Kotlin bindings from a host debug build of the engine (release libraries are stripped
@@ -43,8 +42,10 @@ The repository CI runs the engine unit tests, the Linux namespace TUN lab and
 release APK with the pinned NDK and cargo-ndk, then checks that `libmobile_engine.so` is packaged
 for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`.
 
-Download the `mobile-vpn-release.apk` artifact from the CI run, or the asset with the same name
-from a GitHub release. The distinct filename keeps it separate from the existing Android app.
+Download the `mobile-vpn-<version>-release.apk` artifact from the CI run, or the asset with the
+same name from a GitHub release. CI sets the version (`CPXY_VPN_VERSION`) to the release tag, or
+to `git describe` between releases, such as `1.15.0-3-gabc1234`; local builds are `dev`. The
+Settings tab shows it.
 Release APKs currently use the checked-in debug signing key.
 
 ## Manual smoke check

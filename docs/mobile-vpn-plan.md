@@ -20,9 +20,9 @@ on the router (see [packaging/openwrt/README.md](../packaging/openwrt/README.md)
 Decisions already made:
 
 - UI in Kotlin Multiplatform (Compose Multiplatform); engine in Rust.
-- A **new** app. The existing `client/android-app` is left untouched.
-- Location `mobile/` at the repository root; application ID `dev.fanchao.cpxy.vpn`, so it installs
-  next to the existing app.
+- A **new** app. The old SOCKS5/HTTP proxy app in `client/android-app` was left untouched, and
+  has since been removed.
+- Location `mobile/` at the repository root; application ID `dev.fanchao.cpxy.vpn`.
 - Routing is **CN-direct / proxy-everything-else only**. No AI or Tailscale divert servers.
 - Packets are handled with the **`ipstack`** crate directly, not the tun2proxy library: no local
   SOCKS port that other apps on the device could use.
@@ -115,7 +115,7 @@ tunnel.
 
 ### KMP app: `mobile/`
 
-- Own Gradle build (separate from `client/android-app`): `shared` (Compose Multiplatform UI,
+- Own Gradle build: `shared` (Compose Multiplatform UI,
   profiles in a preferences DataStore, and a `VpnController` interface that each platform
   implements; an interface rather than `expect`, so the UI takes it as a parameter), `androidApp`,
   and `iosApp/` (Xcode project with the app target and a PacketTunnel extension target).
@@ -132,7 +132,7 @@ tunnel.
   `vpn`) with a notification and stop action; hands `ParcelFileDescriptor.detachFd()` to the
   engine. Engine calls run one at a time off the main thread. `AndroidVpnController` asks for the
   VPN consent through the activity and starts the service. Gradle builds `libmobile_engine.so` with
-  cargo-ndk (NDK `28.2.13676358`, cargo-ndk `4.1.2`, the same pins as the existing app) and
+  cargo-ndk (NDK `28.2.13676358`, cargo-ndk `4.1.2`) and
   generates the UniFFI Kotlin bindings, both as declared task inputs/outputs under `build/`.
   The service also starts without a profile in its intent, for the always-on VPN or a sticky
   restart, and then connects the selected profile. Per-app routing uses
@@ -203,8 +203,8 @@ Done: `.github/workflows/ci.yml` now has `test_mobile_engine` (unit tests and th
 namespace lab), `test_mobile_shared` (`:shared:allTests`) and `build_mobile_vpn` (release APK on
 main and releases, after both test jobs pass). The APK job installs the four Rust targets, pinned
 NDK and cargo-ndk, checks the packaged engine library for all four ABIs and uploads
-`mobile-vpn-release.apk`. The distinct asset filename keeps it separate from the existing app's
-`androidApp-release.apk`. `release-upload` depends on the new build and test jobs. Desktop
+`mobile-vpn-<version>-release.apk`, with the version from the release tag, or `git
+describe` between releases (`CPXY_VPN_VERSION`; `dev` when unset). `release-upload` depends on the new build and test jobs. Desktop
 executable builds use `--workspace --exclude mobile-engine`: the engine uses Unix TUN descriptors
 and must not be compiled by the Windows release jobs. It is built by its dedicated mobile jobs.
 

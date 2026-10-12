@@ -94,7 +94,7 @@ abstract class BuildEngineLibraries : DefaultTask() {
             )
         }
 
-        // cargo-ndk also copies the cdylibs of dependencies, such as libclient.so.
+        // cargo-ndk also copies the cdylibs of any dependencies.
         generatedDirectory.walk()
             .filter { it.isFile && it.name != "libmobile_engine.so" }
             .forEach { it.delete() }
@@ -176,7 +176,11 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = providers.gradleProperty("cpxy.vpn.version").get()
+        // CI passes the release tag, or `git describe` between releases.
+        versionName = providers.environmentVariable("CPXY_VPN_VERSION")
+            .filter { it.isNotBlank() }
+            .orElse("dev")
+            .get()
     }
 
     signingConfigs {

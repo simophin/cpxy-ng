@@ -12,6 +12,9 @@ interface Platform {
 
     /** The apps to choose from for the [AppFilter]. */
     val apps: AppCatalog?
+
+    /** The app's version name, such as `1.2.0` or `dev`. */
+    val versionName: String
 }
 
 data class InstalledApp(
