@@ -12,24 +12,26 @@ STOP=10
 . /usr/libexec/cpxy/instance.sh
 
 _start_instance() {
+	local name="$1"
 	[ "$CPXY_TSGW" = 1 ] || return 0
 	if [ -n "$CPXY_TSGW_CONTROL_URL" ] && [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
-		cpxy_log "$1: tsgw_control_url is set but ca-bundle is not installed; a server whose certificate is not from Let's Encrypt will fail"
+		cpxy_log "$name: tsgw_control_url is set but ca-bundle is not installed; a server whose certificate is not from Let's Encrypt will fail"
 	fi
 	mkdir -p "$CPXY_TSGW_STATE_DIR" && chmod 0700 "$CPXY_TSGW_STATE_DIR"
-	procd_open_instance "$1"
+	procd_open_instance "$name"
 	procd_set_param command "$CPXY_BIN/cpxy-tsgw"
 	[ "$CPXY_TSGW_VERBOSE" = 1 ] && procd_append_param command --verbose
 	# Settings, the server URL with its key among them, stay out of the process list
-	procd_set_param env SERVER="$CPXY_SERVER" STATE_DIR="$CPXY_TSGW_STATE_DIR" \
+	set -- SERVER="$CPXY_SERVER" STATE_DIR="$CPXY_TSGW_STATE_DIR" \
 		TS_HOSTNAME="$CPXY_TSGW_HOSTNAME" TS_PORT="$CPXY_TSGW_PORT" MTU="$CPXY_TSGW_MTU" \
 		DNS_UPSTREAM="$(echo $CPXY_DNS_UPSTREAM | tr ' ' ,)" \
 		DNS_ALTERNATIVE="$(echo $CPXY_DNS_ALTERNATIVE | tr ' ' ,)" \
 		BLOCK_ADS="$CPXY_BLOCK_ADS" NO_COLOR=1
-	[ -n "$CPXY_TSGW_AUTHKEY" ] && procd_append_param env TS_AUTHKEY="$CPXY_TSGW_AUTHKEY"
-	[ -n "$CPXY_TSGW_CONTROL_URL" ] && procd_append_param env CONTROL_URL="$CPXY_TSGW_CONTROL_URL"
-	[ "$CPXY_TSGW_NO_LOGS" = 1 ] && procd_append_param env TS_NO_LOGS_NO_SUPPORT=true
-	[ "$CPXY_TSGW_PROXY" = 1 ] && procd_append_param env HTTPS_PROXY="$CPXY_PROXY" HTTP_PROXY="$CPXY_PROXY"
+	[ -n "$CPXY_TSGW_AUTHKEY" ] && set -- "$@" TS_AUTHKEY="$CPXY_TSGW_AUTHKEY"
+	[ -n "$CPXY_TSGW_CONTROL_URL" ] && set -- "$@" CONTROL_URL="$CPXY_TSGW_CONTROL_URL"
+	[ "$CPXY_TSGW_NO_LOGS" = 1 ] && set -- "$@" TS_NO_LOGS_NO_SUPPORT=true
+	[ "$CPXY_TSGW_PROXY" = 1 ] && set -- "$@" HTTPS_PROXY="$CPXY_PROXY" HTTP_PROXY="$CPXY_PROXY"
+	cpxy_procd_env "tsgw-$name" "$@"
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1
 	procd_set_param stderr 1

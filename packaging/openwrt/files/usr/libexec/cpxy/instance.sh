@@ -116,7 +116,8 @@ cpxy_instance() {
 	_cpxy_own CPXY_DNS_LISTEN "$name" dns_listen "0.0.0.0:$((5335 + 10 * i))"
 
 	_cpxy_own CPXY_TSGW_HOSTNAME "$name" tsgw_hostname "cpxy-$(echo "$name" | tr 'A-Z_' 'a-z-')"
-	_cpxy_own CPXY_TSGW_PORT "$name" tsgw_port "$((41641 + i))"
+	# Not tailscaled's 41641: the router may run Tailscale too
+	_cpxy_own CPXY_TSGW_PORT "$name" tsgw_port "$((41700 + i))"
 	_cpxy_own CPXY_TSGW_STATE_DIR "$name" tsgw_state_dir "/etc/cpxy/tsgw/$name"
 	cpxy_get CPXY_TSGW_AUTHKEY "$name" tsgw_authkey
 	cpxy_get CPXY_TSGW_CONTROL_URL "$name" tsgw_control_url
@@ -124,6 +125,22 @@ cpxy_instance() {
 	cpxy_get_bool CPXY_TSGW_PROXY "$name" tsgw_proxy 1
 	cpxy_get_bool CPXY_TSGW_NO_LOGS "$name" tsgw_no_logs_no_support 0
 	cpxy_get_bool CPXY_TSGW_VERBOSE "$name" tsgw_verbose 0
+}
+
+# cpxy_procd_env <name> <VAR=value>...: the procd instance's environment, which restarts it when
+# a value changes. procd (OpenWrt 21.02 at least) stores a changed environment without restarting
+# the process, but does restart it when a file it watches changes. The file holds the server key:
+# only root may read it.
+cpxy_procd_env() {
+	local file="$CPXY_RUN/$1.env"
+	shift
+	mkdir -p "$CPXY_RUN"
+	(
+		umask 077
+		printf '%s\n' "$@" >"$file"
+	)
+	procd_set_param env "$@"
+	procd_set_param file "$file"
 }
 
 # Whether a smartdns server entry can be used: an IP (no lookup through the system resolver,

@@ -27,6 +27,13 @@ uci set firewall.visitors.network=guest
 uci set firewall.things=zone
 uci set firewall.things.name=things
 uci set firewall.things.network=iot
+# Zones commonly accept DNS explicitly; the IPv6 DNS refusal must come first
+uci set firewall.visitors_dns=rule
+uci set firewall.visitors_dns.name=Allow-DNS-visitors
+uci set firewall.visitors_dns.src=visitors
+uci set firewall.visitors_dns.dest_port=53
+uci set firewall.visitors_dns.target=ACCEPT
+uci reorder firewall.visitors_dns=0
 uci commit firewall
 uci set dhcp.@dnsmasq[0].domain=lan
 uci set dhcp.@dnsmasq[0].local=/lan/
@@ -46,7 +53,6 @@ procd_set_param() { echo "set $*" >>"$LOG"; }
 procd_append_param() { echo "append $*" >>"$LOG"; }
 procd_kill() { echo "FAIL: procd_kill would destroy the current service update"; exit 1; }
 rc_procd() { "$@"; }
-network_get_device() { case "$2" in lan|extra) eval "$1=br-lan" ;; guest) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
 logger() { :; }
 mkdir /tmp/tuns
 ip() {
@@ -64,6 +70,7 @@ absent() { if grep -qF -- "$1" "$LOG"; then fail "unexpected: $1"; fi; }
 service() (
 	. "/etc/init.d/$1"
 	if [ "$1" = cpxy-router ]; then
+		network_get_device() { case "$2" in lan|extra) eval "$1=br-lan" ;; guest) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
 		cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
 		cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 		_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
@@ -108,7 +115,11 @@ everything start_service
 want 'set command /usr/bin/cpxy-client'
 want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1'
 want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1'
-want 'append env SOCKS5_PROXY_LISTEN=[::]:1082'
+want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
+# procd restarts an instance when this file changes, not when only its environment does
+want 'set file /tmp/cpxy/client-guest.env'
+grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
+[ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
 # cpxy-smartdns: its own port, through its own instance's proxy
 want 'set command /usr/bin/cpxy-smartdns -f -c /tmp/cpxy/smartdns-guest.conf -p -'
 grep -qxF 'bind 127.0.0.1:5346' /tmp/cpxy/smartdns-guest.conf || fail 'guest smartdns port'
@@ -138,11 +149,15 @@ want 'route -4 route replace blackhole 198.18.0.0/24'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.dest_port)" = 5345 ] || fail 'DNS redirect port'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.target)" = DNAT ] || fail 'DNS redirect target'
 [ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = REJECT ] || fail 'IPv6 DNS refusal'
+position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewall\.$1=" | cut -d: -f1; }
+[ "$(position cpxy_inst_guest_dns6_1)" -lt "$(position visitors_dns)" ] || fail 'IPv6 DNS refusal after an accept rule'
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
-want 'TS_HOSTNAME=cpxy-guest TS_PORT=41642'
+want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
 want 'DNS_UPSTREAM=223.5.5.5,119.29.29.29 DNS_ALTERNATIVE=127.0.0.1:5336 BLOCK_ADS=1'
-want 'append env HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
+want 'NO_COLOR=1 HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
+want 'set file /tmp/cpxy/tsgw-guest.env'
+want 'set file /tmp/cpxy/router-guest.env'
 absent 'TS_HOSTNAME=cpxy-iot'
 [ -d /etc/cpxy/tsgw/guest ] || fail 'tsgw state directory'
 absent 'TS_AUTHKEY'

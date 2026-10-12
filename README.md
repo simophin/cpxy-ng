@@ -1,7 +1,7 @@
 # cpxy-ng
 
-- [cpxy-router user guide](docs/cpxy-router.md)
-- [cpxy-router packaging](packaging/openwrt/README.md)
+- [OpenWrt user guide](docs/openwrt.md): proxy, split DNS, LAN routing and a Tailscale exit node per network, in one package
+- [OpenWrt packaging](packaging/openwrt/README.md)
 - [cpxy-tsgw user guide](docs/cpxy-tsgw.md): a Tailscale exit node in one container or static binary, no tailscaled needed
 - [Android client development](client/android-app/README.md)
 - [GeoIP data source](geoip-data/SOURCE.md)

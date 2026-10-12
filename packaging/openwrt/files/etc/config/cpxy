@@ -69,7 +69,7 @@ config instance 'main'
 	#   tun 'cpxy<i>'                          routing_table '100+i'
 	#   rule_priority '9100+10i' (uses 4)      client_http_listen '[::]:5000+i'
 	#   client_socks5_listen '[::]:1080+i'     smartdns_listen '127.0.0.1:5336+10i'
-	#   dns_listen '0.0.0.0:5335+10i'          tsgw_port '41641+i'
+	#   dns_listen '0.0.0.0:5335+10i'          tsgw_port '41700+i'
 	#   tsgw_hostname 'cpxy-<name>'            tsgw_state_dir '/etc/cpxy/tsgw/<name>'
 
 # Another network on its own server, without a Tailscale exit node:

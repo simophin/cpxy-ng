@@ -93,7 +93,14 @@ set firewall.${base}_dns6_$n.proto='tcp udp'
 set firewall.${base}_dns6_$n.dest_port='53'
 set firewall.${base}_dns6_$n.target='REJECT'
 UCI
+		# Ahead of every other rule: zones often accept DNS explicitly (Allow-DNS-guest)
+		uci reorder "firewall.${base}_dns6_$n=$(_cpxy_firewall_first_rule)"
 	done
+}
+
+# The position of the first rule section in the firewall configuration
+_cpxy_firewall_first_rule() {
+	uci -q show firewall | grep -E '^firewall\.[^.]+=' | awk -F= '$2 == "rule" { print NR - 1; exit }'
 }
 
 # Stage the desired firewall in an isolated UCI directory. Identical reloads do not
