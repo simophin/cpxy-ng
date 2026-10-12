@@ -176,7 +176,11 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = providers.gradleProperty("cpxy.vpn.version").get()
+        // CI passes the release tag, or `git describe` between releases.
+        versionName = providers.environmentVariable("CPXY_VPN_VERSION")
+            .filter { it.isNotBlank() }
+            .orElse("dev")
+            .get()
     }
 
     signingConfigs {

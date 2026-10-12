@@ -43,7 +43,9 @@ release APK with the pinned NDK and cargo-ndk, then checks that `libmobile_engin
 for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`.
 
 Download the `mobile-vpn-<version>-release.apk` artifact from the CI run, or the asset with the
-same name from a GitHub release. The version is `cpxy.vpn.version` in `gradle.properties`.
+same name from a GitHub release. CI sets the version (`CPXY_VPN_VERSION`) to the release tag, or
+to `git describe` between releases, such as `1.15.0-3-gabc1234`; local builds are `dev`. The
+Settings tab shows it.
 Release APKs currently use the checked-in debug signing key.
 
 ## Manual smoke check

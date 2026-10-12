@@ -31,6 +31,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Tags and history for `git describe`
+          fetch-depth: 0
 
       - name: Set up Java 21
         uses: actions/setup-java@v6
@@ -72,9 +75,18 @@ jobs:
           "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           "ndk;28.2.13676358"
 
+      # The release tag on releases, `git describe` otherwise; a leading "v" is dropped.
+      - name: Work out the app version
+        id: version
+        run: |
+          version=$(git describe --tags --always)
+          echo "version=${version#v}" >>"$GITHUB_OUTPUT"
+
       - name: Build APK and Gradle-owned Rust libraries
         run: ./gradlew :androidApp:assembleRelease
         working-directory: mobile
+        env:
+          CPXY_VPN_VERSION: ${{ steps.version.outputs.version }}
 
       - name: Inspect packaged native libraries
         run: |
@@ -90,9 +102,7 @@ jobs:
       - name: Name VPN APK for release upload
         id: apk
         run: |
-          version=$(sed -n 's/^cpxy\.vpn\.version=//p' mobile/gradle.properties)
-          test -n "$version"
-          name="mobile-vpn-$version-release.apk"
+          name="mobile-vpn-${{ steps.version.outputs.version }}-release.apk"
           cp mobile/androidApp/build/outputs/apk/release/androidApp-release.apk "$name"
           echo "name=$name" >>"$GITHUB_OUTPUT"
 

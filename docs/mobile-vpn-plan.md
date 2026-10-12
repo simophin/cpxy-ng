@@ -203,8 +203,8 @@ Done: `.github/workflows/ci.yml` now has `test_mobile_engine` (unit tests and th
 namespace lab), `test_mobile_shared` (`:shared:allTests`) and `build_mobile_vpn` (release APK on
 main and releases, after both test jobs pass). The APK job installs the four Rust targets, pinned
 NDK and cargo-ndk, checks the packaged engine library for all four ABIs and uploads
-`mobile-vpn-<version>-release.apk`, with the version from `cpxy.vpn.version` in
-`mobile/gradle.properties`. `release-upload` depends on the new build and test jobs. Desktop
+`mobile-vpn-<version>-release.apk`, with the version from the release tag, or `git
+describe` between releases (`CPXY_VPN_VERSION`; `dev` when unset). `release-upload` depends on the new build and test jobs. Desktop
 executable builds use `--workspace --exclude mobile-engine`: the engine uses Unix TUN descriptors
 and must not be compiled by the Windows release jobs. It is built by its dedicated mobile jobs.
 

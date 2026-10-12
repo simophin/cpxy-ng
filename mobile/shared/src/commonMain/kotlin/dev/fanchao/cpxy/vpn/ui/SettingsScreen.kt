@@ -116,6 +116,14 @@ internal fun SettingsScreen(
                 }
             }
         }
+
+        item { SectionTitle("About") }
+        item {
+            ListItem(
+                headlineContent = { Text("Version") },
+                supportingContent = { Text(platform.versionName) },
+            )
+        }
     }
 }
 
