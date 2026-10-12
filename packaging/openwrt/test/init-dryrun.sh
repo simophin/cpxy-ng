@@ -33,7 +33,7 @@ uci set firewall.visitors_dns.name=Allow-DNS-visitors
 uci set firewall.visitors_dns.src=visitors
 uci set firewall.visitors_dns.dest_port=53
 uci set firewall.visitors_dns.target=ACCEPT
-uci reorder firewall.visitors_dns=0
+uci reorder firewall.visitors_dns=0 || { echo "FAIL: reorder"; exit 1; }
 uci commit firewall
 uci set dhcp.@dnsmasq[0].domain=lan
 uci set dhcp.@dnsmasq[0].local=/lan/
@@ -79,8 +79,9 @@ service() (
 )
 everything() {
 	: >"$LOG"
-	for s in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do service "$s" "$1" 2>>/tmp/err || return 1; done
+	for s in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do service "$s" "$1" 2>>/tmp/err || fail "$s $1"; done
 }
+router() { service cpxy-router "$1" 2>>/tmp/err || fail "cpxy-router $1"; }
 # invalid <error>: every service refuses the configuration and changes nothing
 invalid() {
 	: >/tmp/err
@@ -164,7 +165,7 @@ absent 'TS_AUTHKEY'
 
 # Idempotent reload preserves resource ownership and avoids firewall reloads.
 : >"$LOG"
-service cpxy-router reload_service
+router reload_service
 absent 'firewall reload'
 absent 'down '
 absent 'up '
@@ -203,7 +204,7 @@ uci add_list cpxy.main.network=lan
 if service cpxy-router reload_service 2>/tmp/err; then fail 'zone shared with an unmanaged network accepted'; fi
 grep -qF "also holds network 'extra'" /tmp/err || fail 'missing error: zone holds another network'
 uci set cpxy.main.router_dns=0
-service cpxy-router reload_service
+router reload_service
 uci set cpxy.main.router_dns=1
 uci add_list cpxy.main.network=extra
 uci add_list cpxy.guest.network=extra
@@ -212,7 +213,7 @@ if service cpxy-router reload_service 2>/tmp/err; then fail 'network in two inst
 grep -qF "network 'extra' is assigned more than once" /tmp/err || fail 'missing error: network twice'
 uci delete cpxy.guest.network
 uci add_list cpxy.guest.network=guest
-service cpxy-router reload_service
+router reload_service
 
 # Disable guest without touching the others
 uci set cpxy.guest.enabled=0
@@ -227,19 +228,19 @@ if uci -q get firewall.cpxy_inst_guest_dns1; then fail 'disabled guest DNS redir
 # No instance blocks ads: no sinkhole route
 uci set cpxy.defaults.block_ads=0
 : >"$LOG"
-service cpxy-router reload_service
+router reload_service
 want 'route -4 route del blackhole 198.18.0.0/24'
 
 # Interface triggers for every routed network
 procd_add_reload_trigger() { :; }
 procd_add_interface_trigger() { echo "trigger $*" >>"$LOG"; }
 : >"$LOG"
-service cpxy-router service_triggers
+router service_triggers
 want 'trigger interface.* lan /etc/init.d/cpxy-router reload'
 want 'trigger interface.* iot /etc/init.d/cpxy-router reload'
 absent 'trigger interface.* guest'
 
-service cpxy-router stop_service
+router stop_service
 [ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
 if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
 echo 'multi-instance init and firewall checks passed'
