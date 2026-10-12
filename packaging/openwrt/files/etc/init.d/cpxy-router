@@ -1,0 +1,226 @@
+#!/bin/sh /etc/rc.common
+# Per cpxy instance: a native packet worker for its networks' TCP, and a dns_split that answers
+# their DNS. The system's own resolver (dnsmasq) is left alone.
+# rc.common consumes these service metadata variables.
+# shellcheck disable=SC2034
+USE_PROCD=1
+# shellcheck disable=SC2034
+START=95
+# shellcheck disable=SC2034
+STOP=10
+
+. /lib/functions/network.sh
+. /usr/libexec/cpxy/instance.sh
+. /usr/libexec/cpxy/net.sh
+. /usr/libexec/cpxy/firewall.sh
+
+CPXY_STATE="$CPXY_RUN/instances"
+
+_invalid() { cpxy_log "$*"; VALID=0; }
+
+_validate_network() {
+	local iface="$1" zone dev network
+	case "$iface" in '' | *[!A-Za-z0-9_]*) _invalid "$SECTION: invalid network name"; return ;; esac
+	case " $NETWORKS " in *" $iface "*) _invalid "$SECTION: network '$iface' is assigned more than once" ;; esac
+	NETWORKS="$NETWORKS $iface"
+	zone="$(cpxy_firewall_zone "$iface")" || { _invalid "$SECTION: network '$iface' must belong to exactly one enabled firewall zone"; return; }
+	case "$zone" in '' | *[!A-Za-z0-9_]*) _invalid "$SECTION: unsupported firewall zone name"; return ;; esac
+	case " $ZONES " in *" $zone "*) ;; *) ZONES="$ZONES $zone" ;; esac
+	# DNS is redirected per zone, so a zone must not also hold another instance's networks
+	if [ "$CPXY_ROUTER_DNS" = 1 ]; then
+		for network in $(cpxy_firewall_zone_networks "$zone"); do
+			case " $CPXY_NETWORKS " in
+			*" $network "*) ;;
+			*) _invalid "$SECTION: firewall zone '$zone' also holds network '$network'; with router_dns, add it to this instance or move it to another zone" ;;
+			esac
+		done
+	fi
+	if network_get_device dev "$iface" && [ -n "$dev" ]; then
+		case " $DEVICES " in *" $dev "*) _invalid "$SECTION: device '$dev' is assigned more than once" ;; esac
+		DEVICES="$DEVICES $dev"
+		LAN_DEVS="$LAN_DEVS $dev"
+	else
+		cpxy_log "$SECTION: interface '$iface' has no device yet; awaiting network event"
+	fi
+}
+
+_validate_instance() {
+	local tun="$CPXY_TUN" table="$CPXY_TABLE" priority="$CPXY_PRIORITY" old iface dns_port=-
+	SECTION="$1"
+	[ "$CPXY_ROUTER" = 1 ] || return 0
+	[ -n "$CPXY_NETWORKS" ] || return 0
+	case "$tun" in '' | *[!A-Za-z0-9_-]* | lo) _invalid "$SECTION: invalid tun"; return ;; esac
+	[ "${#tun}" -le 15 ] || { _invalid "$SECTION: tun exceeds 15 characters"; return; }
+	if ip link show "$tun" >/dev/null 2>&1 && ! ip tuntap show dev "$tun" | grep -q "^$tun: tun"; then
+		_invalid "$SECTION: existing device '$tun' is not a TUN"
+		return
+	fi
+	_cpxy_uint "$table" 1 65535 && [ "$table" -ne 253 ] && [ "$table" -ne 254 ] && [ "$table" -ne 255 ] || {
+		_invalid "$SECTION: routing_table must be 1..65535, excluding 253..255"
+		return
+	}
+	_cpxy_uint "$priority" 1 32762 || { _invalid "$SECTION: rule_priority must be 1..32762"; return; }
+	case " $TUNS " in *" $tun "*) _invalid "$SECTION: duplicate tun '$tun'" ;; esac
+	case " $TABLES " in *" $table "*) _invalid "$SECTION: duplicate routing_table '$table'" ;; esac
+	for old in $PRIORITIES; do
+		[ "$priority" -gt "$((old + 3))" ] || [ "$((priority + 3))" -lt "$old" ] || _invalid "$SECTION: overlapping rule priorities"
+	done
+	TUNS="$TUNS $tun"
+	TABLES="$TABLES $table"
+	PRIORITIES="$PRIORITIES $priority"
+	LAN_DEVS=""
+	ZONES=""
+	for iface in $CPXY_NETWORKS; do
+		_validate_network "$iface"
+	done
+	[ "$CPXY_ROUTER_DNS" = 1 ] && dns_port="$(_cpxy_port "$CPXY_DNS_LISTEN")"
+	printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" >"$PLAN/$SECTION"
+}
+
+_prepare_plan() {
+	cpxy_validate || return 1
+	PLAN="$(mktemp -d /tmp/cpxy-plan.XXXXXX)" || return 1
+	VALID=1 NETWORKS="" DEVICES="" TUNS="" TABLES="" PRIORITIES=""
+	cpxy_foreach _validate_instance
+	# Never assign a protected bridge as a TUN, even across different instances.
+	local tun
+	for tun in $TUNS; do
+		case " $DEVICES " in *" $tun "*) _invalid "tun '$tun' is also a protected network device" ;; esac
+	done
+	if [ "$VALID" != 1 ]; then
+		rm -rf "$PLAN"
+		return 1
+	fi
+}
+
+_read_state() {
+	{
+		read -r TUN
+		read -r TABLE
+		read -r PRIORITY
+		read -r LAN_DEVS
+		read -r ZONES
+		read -r DNS_PORT
+	} <"$1"
+	cpxy_net_select "$TUN" "$TABLE" "$PRIORITY"
+}
+
+_start_worker() {
+	procd_open_instance "${1}_tun"
+	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN"
+	# The server URL holds the key: in the environment, out of the process list
+	procd_set_param env SERVER="$CPXY_SERVER" NO_COLOR=1
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+_start_dns() {
+	local entry
+	[ "$DNS_PORT" != - ] || return 0
+	procd_open_instance "${1}_dns"
+	procd_set_param command "$CPXY_BIN/cpxy-dns-split" --listen "$CPXY_DNS_LISTEN"
+	for entry in $CPXY_DNS_UPSTREAM; do procd_append_param command --upstream "$entry"; done
+	for entry in $CPXY_DNS_ALTERNATIVE; do procd_append_param command --alternative "$entry"; done
+	procd_append_param command --local-server "$CPXY_DNS_LOCAL_SERVER"
+	for entry in $CPXY_DNS_LOCAL_DOMAINS; do procd_append_param command --local-domain "$entry"; done
+	if [ "$CPXY_DNS_CACHE" = 1 ]; then
+		procd_append_param command --cache-db "$CPXY_RUN/dns-$1.sqlite"
+	else
+		procd_append_param command --no-cache
+	fi
+	if [ "$CPXY_BLOCK_ADS" = 1 ]; then
+		procd_append_param command --sinkhole "$CPXY_SINKHOLE_ADDR"
+		SINKHOLE=1
+	fi
+	procd_set_param env NO_COLOR=1
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+_start_instance() {
+	local state="$PLAN/$1"
+	[ -f "$state" ] || return 0
+	_read_state "$state"
+	if [ ! -f "$CPXY_STATE/$1" ] || ! cmp -s "$state" "$CPXY_STATE/$1" || ! ip link show "$TUN" >/dev/null 2>&1; then
+		# Record before setup so partial failures remain removable.
+		cp "$state" "$CPXY_STATE/$1"
+		cpxy_net_up $LAN_DEVS || { cpxy_log "$1: could not set up policy routing"; return 1; }
+	fi
+	_start_worker "$1"
+	_start_dns "$1"
+}
+
+_apply_plan() {
+	local state section
+	mkdir -p "$CPXY_STATE"
+	# procd replaces/removes workers when this service update is published.
+	# Calling procd_kill here would overwrite the in-progress procd JSON message.
+	# Reconcile old resource assignments, including deleted and disabled instances.
+	for state in "$CPXY_STATE"/*; do
+		[ -f "$state" ] || continue
+		section="${state##*/}"
+		if [ ! -f "$PLAN/$section" ] || ! cmp -s "$state" "$PLAN/$section"; then
+			_read_state "$state"
+			# A device change needs a new worker, but a bridge-only change does not.
+			if [ ! -f "$PLAN/$section" ] || [ "$TUN" != "$(head -n 1 "$PLAN/$section")" ]; then
+				cpxy_net_down_routing
+			else
+				_cpxy_net_down_rules
+			fi
+			rm -f "$state"
+		fi
+	done
+	cpxy_firewall_sync "$PLAN" || { cpxy_log "firewall update failed"; rm -rf "$PLAN"; return 1; }
+	SINKHOLE=0
+	cpxy_foreach _start_instance
+	if [ "$SINKHOLE" = 1 ]; then
+		ip -4 route replace blackhole "$CPXY_SINKHOLE_NET"
+	else
+		ip -4 route del blackhole "$CPXY_SINKHOLE_NET" 2>/dev/null
+	fi
+	rm -rf "$PLAN"
+	if [ "$(uci -q get firewall.@defaults[0].flow_offloading_hw)" = 1 ]; then
+		cpxy_log "warning: hardware flow offloading may bypass the proxy"
+	fi
+}
+
+start_service() {
+	_prepare_plan || return 1
+	_apply_plan
+}
+
+# Validate before opening a procd service update: invalid reloads preserve running workers.
+reload_service() {
+	_prepare_plan || return 1
+	rc_procd _apply_plan
+}
+
+stop_service() {
+	local state
+	for state in "$CPXY_STATE"/*; do
+		[ -f "$state" ] || continue
+		_read_state "$state"
+		cpxy_net_down_routing
+	done
+	ip -4 route del blackhole "$CPXY_SINKHOLE_NET" 2>/dev/null
+	cpxy_firewall_sync "" || cpxy_log "could not remove instance firewall configuration"
+	rm -rf "$CPXY_STATE" "$CPXY_RUN"/dns-*.sqlite*
+}
+
+_trigger_instance() {
+	local iface
+	[ "$CPXY_ROUTER" = 1 ] || return 0
+	for iface in $CPXY_NETWORKS; do
+		procd_add_interface_trigger "interface.*" "$iface" /etc/init.d/cpxy-router reload
+	done
+}
+
+service_triggers() {
+	procd_add_reload_trigger cpxy firewall
+	config_load cpxy
+	cpxy_foreach _trigger_instance
+}

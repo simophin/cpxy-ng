@@ -6,6 +6,7 @@ use client::dns_split::policy::Racer;
 use client::dns_split::server::{DnsSplitHandler, serve_tcp, serve_udp};
 use client::dns_split::spec::ServerSpec;
 use client::dns_split::upstream::{DnsUpstream, Group, HickoryUpstream, tls_client_config};
+use hickory_proto::rr::Name;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -58,6 +59,16 @@ struct CliOptions {
     /// drop silently. Without it, nothing is blocked.
     #[clap(long, env)]
     sinkhole: Option<Ipv4Addr>,
+
+    /// The local network's own resolver (e.g. dnsmasq), in the same format as --upstream. It
+    /// answers single-label names, names under --local-domain and reverse lookups of private
+    /// addresses, which are not split or cached.
+    #[clap(long, env)]
+    local_server: Option<ServerSpec>,
+
+    /// A domain only the local resolver knows, e.g. `lan`. Repeatable; needs --local-server.
+    #[clap(long, env, value_delimiter = ',', requires = "local_server")]
+    local_domain: Vec<Name>,
 }
 
 #[tokio::main]
@@ -107,6 +118,18 @@ async fn main() -> anyhow::Result<()> {
         let blocklist = &blocklist_data::BASELINE;
         tracing::info!("Blocking {} domains with {sinkhole}", blocklist.len());
         handler = handler.with_sinkhole(blocklist, sinkhole);
+    }
+    if let Some(spec) = &options.local_server {
+        let server = HickoryUpstream::new(spec, tls_config.clone(), timeout)
+            .await
+            .with_context(|| format!("Error setting up local server {spec}"))?;
+        tracing::info!("Using local server {} for local names", server.name());
+        let domains = options.local_domain.iter().map(|domain| {
+            let mut domain = domain.clone();
+            domain.set_fqdn(true);
+            domain
+        });
+        handler = handler.with_local(Arc::new(server), domains.collect());
     }
     let handler = Arc::new(handler);
 

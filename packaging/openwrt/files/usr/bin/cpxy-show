@@ -1,0 +1,38 @@
+#!/bin/sh
+# Print the settings each cpxy instance runs with: its own, the defaults' and the derived ones.
+#
+# usage: cpxy-show [<instance>]
+. /lib/functions.sh
+. /usr/libexec/cpxy/instance.sh
+
+_on() { [ "$1" = 1 ] && echo on || echo off; }
+
+_show() {
+	[ -z "$WANTED" ] || [ "$1" = "$WANTED" ] || return 0
+	FOUND=1
+	cat <<EOF
+instance $1 (index $CPXY_INDEX)
+  server          $(echo "$CPXY_SERVER" | sed 's#//[^@]*@#//***@#')
+  networks        ${CPXY_NETWORKS:-none}
+  client          $(_on "$CPXY_CLIENT"): HTTP $CPXY_HTTP_LISTEN$([ "$CPXY_SOCKS5" = 1 ] && echo ", SOCKS5 $CPXY_SOCKS5_LISTEN")
+  smartdns        $(_on "$CPXY_SMARTDNS"): $CPXY_SMARTDNS_LISTEN -> $CPXY_SMARTDNS_SERVERS$([ "$CPXY_SMARTDNS_PROXY" = 1 ] && echo " via $CPXY_PROXY")
+  router          $(_on "$CPXY_ROUTER"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$((CPXY_PRIORITY + 3))
+  router DNS      $(_on "$CPXY_ROUTER_DNS"): dns_split on $CPXY_DNS_LISTEN
+  tsgw            $(_on "$CPXY_TSGW"): $CPXY_TSGW_HOSTNAME, UDP $CPXY_TSGW_PORT, state $CPXY_TSGW_STATE_DIR$([ "$CPXY_TSGW_PROXY" = 1 ] && echo ", via $CPXY_PROXY")
+  dns upstream    $CPXY_DNS_UPSTREAM
+  dns alternative $CPXY_DNS_ALTERNATIVE
+  local names     $CPXY_DNS_LOCAL_SERVER: single labels, private reverse, $CPXY_DNS_LOCAL_DOMAINS
+  block ads       $(_on "$CPXY_BLOCK_ADS"), dns cache $(_on "$CPXY_DNS_CACHE")
+EOF
+}
+
+WANTED="${1:-}"
+FOUND=0
+status=0
+if ! cpxy_validate; then
+	echo "cpxy: the services do not apply /etc/config/cpxy until the above is fixed" >&2
+	status=1
+fi
+cpxy_foreach _show
+[ "$FOUND" = 1 ] || { echo "no enabled instance${WANTED:+ named $WANTED}" >&2; exit 1; }
+exit "$status"

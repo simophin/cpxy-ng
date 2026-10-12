@@ -1,46 +1,81 @@
-config cpxy 'main'
-	# The service starts only once every required option below is filled in and enabled is 1:
-	#   /etc/init.d/cpxy enable; uci set cpxy.main.enabled=1; uci commit cpxy; /etc/init.d/cpxy restart
-	option enabled '0'
+# cpxy: one instance per set of networks. Each instance runs, for its own cpxy server:
+#   cpxy-client    an HTTP proxy, which smartdns and tsgw also use
+#   cpxy-smartdns  a resolver that asks overseas servers through that proxy
+#   cpxy-router    the networks' TCP through the server, and their DNS through dns_split
+#   cpxy-tsgw      a Tailscale exit node with the same routing and DNS
+# Every option in 'defaults' can also be set in an instance, which then wins.
+# After editing: uci commit cpxy, then each service reloads by itself.
 
-	# REQUIRED. The cpxy server, as https://:<key>@<host>:<port> (or http://). Contains the secret key.
+config defaults 'defaults'
+	# REQUIRED, here or in each instance: https://:<key>@<host>:<port> (or http://)
 	option server ''
 
-	# UCI network interfaces whose devices are proxied (more than one allowed)
-	list lan_interface 'lan'
+	# The components every instance runs (1) or not (0)
+	option client '1'
+	option smartdns '1'
+	option router '1'
+	option tsgw '1'
 
-	# main defaults; every additional instance must specify its own resources.
-	option tun 'cpxy0'
-	option routing_table '100'
-	# Reserves this priority and the next three.
-	option rule_priority '9100'
+	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index.
+	option client_socks5 '0'
 
-	# LAN DNS: dnsmasq forwards public queries to dns_split. Set dns_split to 0 to leave dnsmasq alone.
-	option dns_split '1'
-	# Not 5353: that is the mDNS port, already taken where avahi or umdns runs
-	option dns_listen '127.0.0.1:5335'
+	# cpxy-smartdns: the overseas servers, asked through the instance's HTTP proxy (smartdns_proxy).
+	# tcp://, tls:// or https:// with an IP address; plain UDP only with smartdns_proxy 0.
+	list smartdns_server 'tcp://1.1.1.1'
+	list smartdns_server 'tcp://8.8.8.8'
+	option smartdns_proxy '1'
+	option smartdns_cache_size '4096'
+	option smartdns_prefetch '1'
+	option smartdns_serve_expired '1'
 
-	# REQUIRED when dns_split is 1. An answer from the upstream servers wins when all its addresses
-	# are in the CN region; otherwise the alternative servers' answer is used.
-	# Each entry is an IP, or a udp://, tcp://, tls:// or https:// URL (tls:// and https:// accept ?ip=<addr>).
-	# Add with: uci add_list cpxy.main.dns_upstream='<server>'
-	#           uci add_list cpxy.main.dns_alternative='<server>'
-
-	# 1 keeps dns_split's SQLite answer cache in /tmp (RAM), 0 disables it
+	# Split DNS, for the networks (dns_split, in cpxy-router) and for cpxy-tsgw's clients.
+	# The dns_upstream answer is used when all its addresses are in the local region, the
+	# dns_alternative answer otherwise. Each entry is an IP, or a udp://, tcp://, tls:// or
+	# https:// URL (tls:// and https:// accept ?ip=<addr>).
+	list dns_upstream '223.5.5.5'
+	list dns_upstream '119.29.29.29'
+	# Unset: the instance's own smartdns
+	# list dns_alternative 'tls://1.1.1.1'
 	option dns_cache '1'
-
-	# 1 answers names on the built-in ad blocklist with an address the router silently drops
+	# Answer names on the built-in ad blocklist with an address that goes nowhere
 	option block_ads '1'
+	# Names the router itself answers, sent to dns_local_server: single-label names, reverse
+	# lookups of private addresses and these domains. Unset: dnsmasq's 'domain' and 'local'.
+	# list dns_local_domain 'lan'
+	option dns_local_server '127.0.0.1:53'
 
-	# Legacy socks5_listen, api_listen and dns_server options are ignored.
+	# cpxy-router: 1 answers all IPv4 DNS from the instance's networks with its dns_split
+	option router_dns '1'
 
-# Example second upstream (uncomment and fill in server to enable):
-# config cpxy 'guest'
+	# cpxy-tsgw: log in with the link in `logread -e cpxy-tsgw`, or once with an auth key
+	option tsgw_authkey ''
+	# A different coordination server, e.g. Headscale. One whose certificate is not from
+	# Let's Encrypt also needs: opkg install ca-bundle
+	option tsgw_control_url ''
+	option tsgw_mtu '1280'
+	# 1 reaches Tailscale's coordination and relay (DERP) servers through the instance's proxy
+	option tsgw_proxy '1'
+	option tsgw_no_logs_no_support '0'
+	option tsgw_verbose '0'
+
+config instance 'main'
+	option enabled '1'
+	# 0..9, unique. Everything below defaults to a value derived from it; set one only if it
+	# clashes with something else on the router.
+	option index '0'
+	# The OpenWrt networks whose devices use this instance (none: client, smartdns and tsgw only)
+	list network 'lan'
+	# Derived from index (i):
+	#   tun 'cpxy<i>'                          routing_table '100+i'
+	#   rule_priority '9100+10i' (uses 4)      client_http_listen '[::]:5000+i'
+	#   client_socks5_listen '[::]:1080+i'     smartdns_listen '127.0.0.1:5336+10i'
+	#   dns_listen '0.0.0.0:5335+10i'          tsgw_port '41641+i'
+	#   tsgw_hostname 'cpxy-<name>'            tsgw_state_dir '/etc/cpxy/tsgw/<name>'
+
+# Another network on its own server, without a Tailscale exit node:
+# config instance 'guest'
 #	option enabled '1'
+#	option index '1'
+#	list network 'guest'
 #	option server 'https://:<key>@<host>:443'
-#	list lan_interface 'guest'
-#	option tun 'cpxy1'
-#	option routing_table '101'
-#	option rule_priority '9110'
-#	# DNS is shared with main; only one instance may enable dns_split.
-#	option dns_split '0'
+#	option tsgw '0'

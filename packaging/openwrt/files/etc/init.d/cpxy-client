@@ -1,0 +1,33 @@
+#!/bin/sh /etc/rc.common
+# One HTTP (and optional SOCKS5) proxy per cpxy instance, through the instance's server.
+# rc.common consumes these service metadata variables.
+# shellcheck disable=SC2034
+USE_PROCD=1
+# shellcheck disable=SC2034
+START=90
+# shellcheck disable=SC2034
+STOP=10
+
+. /usr/libexec/cpxy/instance.sh
+
+_start_instance() {
+	[ "$CPXY_CLIENT" = 1 ] || return 0
+	procd_open_instance "$1"
+	procd_set_param command "$CPXY_BIN/cpxy-client"
+	# The server URL holds the key: in the environment, out of the process list
+	procd_set_param env CONFIG="$CPXY_SERVER" HTTP_PROXY_LISTEN="$CPXY_HTTP_LISTEN" NO_COLOR=1
+	[ "$CPXY_SOCKS5" = 1 ] && procd_append_param env SOCKS5_PROXY_LISTEN="$CPXY_SOCKS5_LISTEN"
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+start_service() {
+	cpxy_validate || return 1
+	cpxy_foreach _start_instance
+}
+
+service_triggers() {
+	procd_add_reload_trigger cpxy
+}
