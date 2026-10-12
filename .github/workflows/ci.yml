@@ -454,9 +454,19 @@ jobs:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
       # zig cc compiles the engine's C dependencies and links the static binary.
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.2
+      # Fetched directly: mlugg/setup-zig still runs on the deprecated Node.js 20.
+      - name: Install Zig
+        env:
+          ZIG_VERSION: 0.15.2
+          ZIG_SHA256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
+        run: |
+          curl -fsSL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TOOL_CACHE/zig"
+          tar -C "$RUNNER_TOOL_CACHE/zig" --strip-components=1 -xJf zig.tar.xz
+          rm zig.tar.xz
+          echo "$RUNNER_TOOL_CACHE/zig" >>"$GITHUB_PATH"
+          "$RUNNER_TOOL_CACHE/zig/zig" version
 
       - name: Build static binary
         run: |

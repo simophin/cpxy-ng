@@ -22,7 +22,7 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/r
 FROM debian:bookworm-slim
 COPY --from=builder /out/server /usr/local/bin/server
 
-ENV KEY=
+# The pre-shared key is required: pass it at run time (-e KEY=... or a secret), never in the image.
 ENV BIND_ADDR=0.0.0.0:3000
 EXPOSE 3000
 
