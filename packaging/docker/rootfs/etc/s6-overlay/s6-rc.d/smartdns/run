@@ -1,0 +1,5 @@
+#!/command/execlineb -P
+# Split DNS's alternative server, on loopback only, asking its servers through the proxy.
+pipeline -dw { /etc/cpxy/log-prefix smartdns }
+fdmove -c 2 1
+/usr/bin/cpxy-smartdns -f -c /run/cpxy/smartdns.conf -p -
