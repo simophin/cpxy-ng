@@ -3,9 +3,6 @@ name = "client"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 cpxy-ng = { path = "../cpxy-ng" }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "time", "signal"] }

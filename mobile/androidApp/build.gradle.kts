@@ -94,7 +94,7 @@ abstract class BuildEngineLibraries : DefaultTask() {
             )
         }
 
-        // cargo-ndk also copies the cdylibs of dependencies, such as libclient.so.
+        // cargo-ndk also copies the cdylibs of any dependencies.
         generatedDirectory.walk()
             .filter { it.isFile && it.name != "libmobile_engine.so" }
             .forEach { it.delete() }
