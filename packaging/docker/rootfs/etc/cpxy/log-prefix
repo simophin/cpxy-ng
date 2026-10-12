@@ -1,0 +1,4 @@
+#!/bin/sh
+# log-prefix <service>: copies stdin to stdout, each line prefixed with [<service>], so the
+# three services can be told apart in `docker logs`.
+exec awk -v prefix="[$1] " '{ print prefix $0; fflush() }'

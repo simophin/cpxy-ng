@@ -1,0 +1,111 @@
+# syntax=docker/dockerfile:1
+
+# One container per bundle: the cpxy client's HTTP proxy, a smartdns asking overseas servers through
+# it, and cpxy-tsgw (a Tailscale exit node) using both. s6-overlay starts and supervises the three;
+# docs/docker-bundle.md explains the settings.
+
+# Run Cargo, rustc and Go on the BuildKit host instead of emulating the target CPU, as
+# Dockerfile.tsgw does.
+FROM --platform=$BUILDPLATFORM ghcr.io/rust-cross/cargo-zigbuild:0.23.3 AS builder
+
+ARG BUILDARCH
+ARG TARGETARCH
+# The version gateway/go.mod asks for.
+ARG GO_VERSION=1.27.1
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${BUILDARCH}.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:$PATH
+
+WORKDIR /usr/src/app
+COPY . .
+
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
+    --mount=type=cache,id=bundle-target-${TARGETARCH},target=/usr/src/app/target \
+    --mount=type=cache,id=go-mod,target=/root/go/pkg/mod \
+    --mount=type=cache,id=go-build-${TARGETARCH},target=/root/.cache/go-build \
+    case "$TARGETARCH" in \
+        amd64) rust_target=x86_64-unknown-linux-musl ;; \
+        arm64) rust_target=aarch64-unknown-linux-musl ;; \
+        *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    mkdir -p /out/state && \
+    gateway/build.sh "$rust_target" /out/cpxy-tsgw && \
+    cargo zigbuild --release --locked --target "$rust_target" -p client --bin standalone && \
+    cp "target/$rust_target/release/standalone" /out/cpxy-client
+
+# smartdns is C with static OpenSSL from Alpine's packages, so it builds on the target
+# architecture, from the same pinned release as the OpenWrt package. CI builds each architecture on
+# a runner of that architecture; elsewhere a foreign one needs QEMU.
+FROM alpine:3.22 AS smartdns
+COPY packaging/openwrt/build-smartdns.sh /build-smartdns.sh
+RUN /build-smartdns.sh /out
+
+# s6-overlay's release archives, pinned by checksum, unpacked on the build host.
+FROM --platform=$BUILDPLATFORM alpine:3.22 AS s6
+ARG TARGETARCH
+ARG S6_OVERLAY_VERSION=3.2.3.2
+ADD --checksum=sha256:5379750ed30a84bbd2e2dd74847ba6b5bd29cd0b2e3ea2ec58049b57eb2eda12 \
+    https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/noarch.tar.xz
+ADD --checksum=sha256:e6befcc96a437a3831386ecfc51808c5d3e939dc5fe3c02ae9284599e8aa2408 \
+    https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/amd64.tar.xz
+ADD --checksum=sha256:b17f17a82e7a515c682a91edaf2ffdabb73f891981b6c1fd712115693a2f8b4c \
+    https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-aarch64.tar.xz /tmp/arm64.tar.xz
+RUN apk add --no-cache xz >/dev/null && \
+    mkdir /out && \
+    tar -C /out -Jxpf /tmp/noarch.tar.xz && \
+    tar -C /out -Jxpf "/tmp/$TARGETARCH.tar.xz"
+
+# Alpine, for the shell the setup script and s6-overlay need, and its CA roots for Tailscale's
+# control plane and DERP servers.
+FROM alpine:3.22
+COPY --from=s6 /out/ /
+COPY --from=builder /out/cpxy-client /out/cpxy-tsgw /usr/bin/
+COPY --from=smartdns /out/cpxy-smartdns /usr/bin/
+COPY --from=smartdns /out/smartdns-LICENSE /out/smartdns-SOURCE /usr/share/doc/cpxy/
+COPY packaging/docker/rootfs/ /
+
+# Every setting, with the image's defaults; override any with `-e`. Each is explained in
+# docs/docker-bundle.md. Only SERVER has no default: the container stops at once without it.
+#
+# The cpxy server URL with its key, e.g. https://:<key>@<host>:<port>; the client and tsgw share it
+ENV SERVER=
+# The client's proxies. smartdns and tsgw reach the HTTP proxy on loopback at its port. SOCKS5 is
+# off unless set, e.g. [::]:1080.
+ENV HTTP_PROXY_LISTEN=[::]:5000
+ENV SOCKS5_PROXY_LISTEN=
+# smartdns, on loopback only. On host network give each container its own port.
+ENV SMARTDNS_LISTEN=127.0.0.1:5336
+# The servers smartdns asks through the proxy: tcp://, tls:// or https:// to IP addresses,
+# separated by commas
+ENV SMARTDNS_SERVERS=tcp://1.1.1.1,tcp://8.8.8.8
+ENV SMARTDNS_CACHE_SIZE=4096
+# Refresh popular names before they expire, and answer from an expired entry while refreshing it
+ENV SMARTDNS_PREFETCH=1
+ENV SMARTDNS_SERVE_EXPIRED=1
+# DNS servers whose answer is used when every address in it is in the local region; otherwise
+# smartdns's answer is used
+ENV DNS_UPSTREAM=223.5.5.5,tcp://119.29.29.29
+# Answer names on the built-in ad blocklist with an address that goes nowhere; 0 turns it off
+ENV BLOCK_ADS=1
+# The node's name on the tailnet, and an auth key to log in without opening the link in the log
+ENV TS_HOSTNAME=cpxy-tsgw
+ENV TS_AUTHKEY=
+# The UDP port WireGuard listens on; empty lets Tailscale pick one. Only worth setting to forward
+# it, for direct connections behind a NAT that hole punching cannot get through.
+ENV TS_PORT=
+# A different coordination server, e.g. Headscale; empty means Tailscale's
+ENV CONTROL_URL=
+# Set to true to stop uploading Tailscale's own logs to Tailscale
+ENV TS_NO_LOGS_NO_SUPPORT=
+# The largest packet sent back to clients; Tailscale's MTU is 1280
+ENV MTU=1280
+
+ENV NO_COLOR=1
+# Stop the container when the setup script refuses the settings, rather than run without them
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+# The node's Tailscale identity. Keep it across upgrades, or the machine is new each time.
+ENV STATE_DIR=/var/lib/cpxy-tsgw
+VOLUME /var/lib/cpxy-tsgw
+
+EXPOSE 5000/tcp
+HEALTHCHECK --interval=30s --start-period=20s CMD ["/etc/cpxy/healthcheck"]
+ENTRYPOINT ["/init"]

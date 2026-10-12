@@ -454,9 +454,19 @@ jobs:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
       # zig cc compiles the engine's C dependencies and links the static binary.
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.2
+      # Fetched directly: mlugg/setup-zig still runs on the deprecated Node.js 20.
+      - name: Install Zig
+        env:
+          ZIG_VERSION: 0.15.2
+          ZIG_SHA256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
+        run: |
+          curl -fsSL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TOOL_CACHE/zig"
+          tar -C "$RUNNER_TOOL_CACHE/zig" --strip-components=1 -xJf zig.tar.xz
+          rm zig.tar.xz
+          echo "$RUNNER_TOOL_CACHE/zig" >>"$GITHUB_PATH"
+          "$RUNNER_TOOL_CACHE/zig/zig" version
 
       - name: Build static binary
         run: |
@@ -492,6 +502,47 @@ jobs:
           packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
           packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
           packaging/openwrt/test/init-dryrun.sh out/*.ipk
+
+  # The bundle image (Dockerfile.bundle), built for this runner and tested against a real cpxy
+  # server; docker-publish-bundle.yml publishes it.
+  test_docker_bundle:
+    name: Test Docker bundle (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runs_on: ubuntu-latest
+          - arch: arm64
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint and test the setup script
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck dnsutils
+          # busybox's ash has `local`
+          shellcheck -s sh -S warning -e SC3043 packaging/docker/rootfs/etc/cpxy/* packaging/docker/test/*.sh
+          packaging/docker/test/setup.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bundle-test-server-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the cpxy server
+        run: cargo build --release --locked -p server
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile.bundle
+          load: true
+          tags: cpxy-bundle:test
+          cache-from: type=gha,scope=bundle-${{ matrix.arch }}
+          cache-to: type=gha,scope=bundle-${{ matrix.arch }},mode=max
+      - name: Test the image
+        run: packaging/docker/test/bundle.sh cpxy-bundle:test target/release/server
 
   test:
     name: Run tests on main platform

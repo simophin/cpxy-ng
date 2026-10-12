@@ -1,0 +1,129 @@
+#!/bin/sh
+# Runs once before the services start: checks the container's settings and writes what the
+# services need under /run/cpxy. Any bad setting stops the container, with a message naming it.
+#
+# Inside the container the three services talk over loopback:
+#   smartdns  → the client's HTTP proxy  (its overseas queries)
+#   tsgw      → the client's HTTP proxy  (Tailscale's control and DERP traffic)
+#   tsgw      → smartdns                 (split DNS's alternative server)
+set -eu
+
+# CPXY_RUN is for the tests
+RUN="${CPXY_RUN:-/run/cpxy}"
+
+fail() {
+	echo "cpxy: $*" >&2
+	exit 1
+}
+
+# uint <value> <min> <max>
+uint() {
+	case "$1" in '' | *[!0-9]*) return 1 ;; esac
+	[ "${#1}" -le 7 ] && [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+
+bool() {
+	case "$2" in
+	0) eval "$1=no" ;;
+	1) eval "$1=yes" ;;
+	*) fail "$1 must be 0 or 1, not '$2'" ;;
+	esac
+}
+
+# split <var> <host:port>: sets <var>_HOST and <var>_PORT; an IPv6 host keeps its brackets
+split() {
+	local host="${2%:*}" port="${2##*:}"
+	case "$2" in *:*) ;; *) host= ;; esac
+	case "$host" in
+	\[*\]) ;;
+	*:* | '') fail "$1 must be host:port, e.g. 127.0.0.1:5336 or [::1]:5336, not '$2'" ;;
+	esac
+	uint "$port" 1 65535 || fail "$1 has no valid port: '$2'"
+	eval "${1}_HOST=\$host ${1}_PORT=\$port"
+}
+
+# Where the other services reach a listener: a wildcard address means loopback
+connect_addr() {
+	case "$1" in
+	0.0.0.0 | \[::\]) echo "127.0.0.1:$2" ;;
+	*) echo "$1:$2" ;;
+	esac
+}
+
+# smartdns asks through the HTTP proxy, which carries TCP only, and must not ask the system
+# resolver for a server's address: so tcp://, tls:// or https:// to an IP address.
+smartdns_server_ok() {
+	local scheme rest host
+	case "$1" in
+	*://*) scheme="${1%%://*}" rest="${1#*://}" ;;
+	*) return 1 ;;
+	esac
+	case "$scheme" in tcp | tls | https) ;; *) return 1 ;; esac
+	host="${rest%%[/?]*}"
+	case "$host" in \[*\]*) return 0 ;; esac
+	host="${host%:*}"
+	case "$host" in '' | *[!0-9.]*) return 1 ;; esac
+}
+
+[ -n "${SERVER:-}" ] || fail "SERVER is required: the cpxy server URL with its key, e.g. https://:<key>@<host>"
+
+split HTTP_PROXY_LISTEN "${HTTP_PROXY_LISTEN:-}"
+[ -z "${SOCKS5_PROXY_LISTEN:-}" ] || split SOCKS5_PROXY_LISTEN "$SOCKS5_PROXY_LISTEN"
+split SMARTDNS_LISTEN "${SMARTDNS_LISTEN:-}"
+case "$SMARTDNS_LISTEN_HOST" in
+127.*.*.* | \[::1\]) ;;
+*) fail "SMARTDNS_LISTEN must be on loopback (127.x.x.x or [::1]), not '$SMARTDNS_LISTEN'" ;;
+esac
+[ "$SMARTDNS_LISTEN_PORT" != 53 ] || fail "SMARTDNS_LISTEN must not use port 53, which is the host's DNS on host network"
+[ "$SMARTDNS_LISTEN_PORT" != "$HTTP_PROXY_LISTEN_PORT" ] ||
+	fail "SMARTDNS_LISTEN and HTTP_PROXY_LISTEN must use different ports"
+[ "$SMARTDNS_LISTEN_PORT" != "${SOCKS5_PROXY_LISTEN_PORT:-}" ] ||
+	fail "SMARTDNS_LISTEN and SOCKS5_PROXY_LISTEN must use different ports"
+
+servers=$(echo "${SMARTDNS_SERVERS:-}" | tr ',' ' ')
+[ -n "$servers" ] || fail "SMARTDNS_SERVERS is empty"
+for server in $servers; do
+	smartdns_server_ok "$server" ||
+		fail "SMARTDNS_SERVERS: '$server' must be tcp://, tls:// or https:// to an IP address"
+done
+uint "${SMARTDNS_CACHE_SIZE:-}" 0 1048576 || fail "SMARTDNS_CACHE_SIZE must be a number, not '${SMARTDNS_CACHE_SIZE:-}'"
+bool SMARTDNS_PREFETCH "${SMARTDNS_PREFETCH:-}"
+bool SMARTDNS_SERVE_EXPIRED "${SMARTDNS_SERVE_EXPIRED:-}"
+
+proxy="http://$(connect_addr "$HTTP_PROXY_LISTEN_HOST" "$HTTP_PROXY_LISTEN_PORT")"
+
+umask 077
+rm -rf "$RUN"
+mkdir -p "$RUN/env/client" "$RUN/env/tsgw"
+
+{
+	echo "# Written by /etc/cpxy/setup from the container's environment at start."
+	echo "bind $SMARTDNS_LISTEN"
+	echo "bind-tcp $SMARTDNS_LISTEN"
+	echo "proxy-server $proxy -name cpxy"
+	for server in $servers; do
+		echo "server $server -proxy cpxy"
+	done
+	echo "cache-size $SMARTDNS_CACHE_SIZE"
+	echo "cache-persist no"
+	echo "prefetch-domain $SMARTDNS_PREFETCH"
+	echo "serve-expired $SMARTDNS_SERVE_EXPIRED"
+	# Testing which answer is fastest would probe the answers directly, not through the proxy
+	echo "speed-check-mode none"
+	echo "log-console yes"
+	echo "log-level warn"
+} >"$RUN/smartdns.conf"
+
+# Read by s6-envdir in each service's run script, over the container's environment. An empty
+# file unsets the variable: the client refuses an empty SOCKS5_PROXY_LISTEN rather than skip it.
+printf '%s\n' "$SERVER" >"$RUN/env/client/CONFIG"
+if [ -n "${SOCKS5_PROXY_LISTEN:-}" ]; then
+	printf '%s\n' "$SOCKS5_PROXY_LISTEN" >"$RUN/env/client/SOCKS5_PROXY_LISTEN"
+else
+	: >"$RUN/env/client/SOCKS5_PROXY_LISTEN"
+fi
+printf '%s\n' "$proxy" >"$RUN/env/tsgw/HTTPS_PROXY"
+printf '%s\n' "$proxy" >"$RUN/env/tsgw/HTTP_PROXY"
+printf '%s\n' "$SMARTDNS_LISTEN" >"$RUN/env/tsgw/DNS_ALTERNATIVE"
+
+echo "cpxy: proxy on $HTTP_PROXY_LISTEN, smartdns on $SMARTDNS_LISTEN (${servers% }), tailnet name ${TS_HOSTNAME:-cpxy-tsgw}"
