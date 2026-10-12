@@ -196,8 +196,8 @@ the details.
 - **Only TCP goes through the server, over IPv4.** QUIC is refused so browsers fall back to TCP.
   Other UDP (calls, games) goes out directly. IPv6 from the networks is refused.
 - **Only the networks' devices are proxied**, not the router itself.
-- **Hardware flow offloading** (a GL.iNet option) may bypass the tunnel; the service warns when
-  it is on.
+- **Hardware flow offloading** (a GL.iNet option) may bypass the tunnel; cpxy-router warns when
+  it is on and an instance routes networks.
 
 ## Troubleshooting
 
