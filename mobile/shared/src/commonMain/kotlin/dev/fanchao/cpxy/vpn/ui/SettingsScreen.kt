@@ -6,19 +6,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.AppFilter
 import dev.fanchao.cpxy.vpn.AppSettings
@@ -117,6 +126,38 @@ internal fun SettingsScreen(
             }
         }
 
+        item { SectionTitle("Share connection") }
+        item {
+            Text(
+                "Use this device's Wi-Fi IP address as the proxy host on other devices. " +
+                    "Proxies listen on all IPv4 interfaces while the VPN is connected, without authentication. " +
+                    "Changes apply the next time the VPN connects.",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item {
+            ProxySetting(
+                name = "HTTP proxy",
+                enabled = settings.httpProxyEnabled,
+                port = settings.httpProxyPort,
+                otherPort = settings.socksProxyPort.takeIf { settings.socksProxyEnabled },
+                onEnabled = { enabled -> scope.launch { settingsRepository.update { it.copy(httpProxyEnabled = enabled) } } },
+                onPort = { port -> scope.launch { settingsRepository.update { it.copy(httpProxyPort = port) } } },
+            )
+        }
+        item {
+            ProxySetting(
+                name = "SOCKS5 proxy",
+                enabled = settings.socksProxyEnabled,
+                port = settings.socksProxyPort,
+                otherPort = settings.httpProxyPort.takeIf { settings.httpProxyEnabled },
+                onEnabled = { enabled -> scope.launch { settingsRepository.update { it.copy(socksProxyEnabled = enabled) } } },
+                onPort = { port -> scope.launch { settingsRepository.update { it.copy(socksProxyPort = port) } } },
+            )
+        }
+
         item { SectionTitle("About") }
         item {
             ListItem(
@@ -148,4 +189,58 @@ private fun AppFilter.description(count: Int): String? = when (this) {
             1 -> "1 app bypasses the VPN"
             else -> "$count apps bypass the VPN"
         }
+}
+
+@Composable
+private fun ProxySetting(
+    name: String,
+    enabled: Boolean,
+    port: Int,
+    otherPort: Int?,
+    onEnabled: (Boolean) -> Unit,
+    onPort: (Int) -> Unit,
+) {
+    var editing by remember { mutableStateOf(false) }
+    var text by remember(port) { mutableStateOf(port.toString()) }
+    val conflicting = otherPort == port
+    ListItem(
+        headlineContent = { Text(name) },
+        supportingContent = { Text(if (!enabled && conflicting) "Choose a different port before enabling" else "Listen on port $port") },
+        trailingContent = {
+            Switch(checked = enabled, onCheckedChange = onEnabled, enabled = enabled || !conflicting)
+        },
+    )
+    ListItem(
+        modifier = Modifier.clickable { text = port.toString(); editing = true },
+        headlineContent = { Text("$name port") },
+        supportingContent = { Text(port.toString()) },
+        trailingContent = { Icon(Icons.AutoMirrored.Default.KeyboardArrowRight, contentDescription = null) },
+    )
+    if (editing) {
+        val parsed = text.toIntOrNull()
+        val error = when {
+            parsed == null || parsed !in 1..65535 -> "Enter a port between 1 and 65535"
+            enabled && parsed == otherPort -> "HTTP and SOCKS ports must be different"
+            else -> null
+        }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("$name port") },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Port") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    isError = error != null,
+                    supportingText = error?.let { { Text(it) } },
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = error == null, onClick = { onPort(parsed!!); editing = false }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
+        )
+    }
 }

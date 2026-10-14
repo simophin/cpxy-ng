@@ -36,6 +36,11 @@ pub struct Config {
     /// Resolves names on the built-in ad blocklist to [`SINKHOLE_ADDR`].
     #[serde(default)]
     pub block_ads: bool,
+    /// Optional unauthenticated LAN proxy listeners, bound on all IPv4 interfaces.
+    #[serde(default)]
+    pub http_proxy_port: Option<u16>,
+    #[serde(default)]
+    pub socks_proxy_port: Option<u16>,
 }
 
 /// A config that has been checked and parsed.
@@ -45,6 +50,8 @@ pub struct Settings {
     pub dns_alternative: Vec<ServerSpec>,
     pub mtu: u16,
     pub block_ads: bool,
+    pub http_proxy_port: Option<u16>,
+    pub socks_proxy_port: Option<u16>,
 }
 
 impl Config {
@@ -64,12 +71,23 @@ impl Config {
         let mtu = self.mtu.unwrap_or(DEFAULT_MTU);
         ensure!((1280..=9000).contains(&mtu), "MTU {mtu} is out of range");
 
+        ensure!(
+            self.http_proxy_port != Some(0) && self.socks_proxy_port != Some(0),
+            "Proxy ports must be between 1 and 65535"
+        );
+        ensure!(
+            self.http_proxy_port.is_none() || self.http_proxy_port != self.socks_proxy_port,
+            "HTTP and SOCKS proxy ports must be different"
+        );
+
         Ok(Settings {
             server,
             dns_upstream: parse_specs("upstream", &self.dns_upstream)?,
             dns_alternative: parse_specs("alternative", &self.dns_alternative)?,
             mtu,
             block_ads: self.block_ads,
+            http_proxy_port: self.http_proxy_port,
+            socks_proxy_port: self.socks_proxy_port,
         })
     }
 }
@@ -111,6 +129,29 @@ mod tests {
         let settings = config.settings().unwrap();
         assert_eq!(settings.mtu, 1500);
         assert!(!settings.block_ads);
+        assert_eq!(settings.http_proxy_port, None);
+        assert_eq!(settings.socks_proxy_port, None);
+    }
+
+    #[test]
+    fn proxy_ports_are_optional_and_validated() {
+        let check = |http: &str, socks: &str| {
+            Config::from_json(&format!(r#"{{"server":"http://:k@1.2.3.4", "dns_upstream":["1.1.1.1"], "dns_alternative":["8.8.8.8"], "http_proxy_port":{http}, "socks_proxy_port":{socks}}}"#)).and_then(|c| c.settings())
+        };
+        let settings = check("8080", "1080").unwrap();
+        assert_eq!(settings.http_proxy_port, Some(8080));
+        assert_eq!(settings.socks_proxy_port, Some(1080));
+        assert!(check("1", "65535").is_ok());
+        assert!(check("null", "1080").is_ok());
+        for (http, socks) in [
+            ("0", "null"),
+            ("null", "0"),
+            ("8080", "8080"),
+            ("65536", "null"),
+            ("-1", "null"),
+        ] {
+            assert!(check(http, socks).is_err());
+        }
     }
 
     #[test]

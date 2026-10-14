@@ -32,7 +32,16 @@ data class AppSettings(
     val onlyApps: Set<String> = emptySet(),
     /** Package names, for [AppFilter.ExceptSelected]. */
     val exceptApps: Set<String> = emptySet(),
+    val httpProxyEnabled: Boolean = false,
+    val httpProxyPort: Int = 8080,
+    val socksProxyEnabled: Boolean = false,
+    val socksProxyPort: Int = 1080,
 ) {
+    init {
+        require(httpProxyPort in 1..65535 && socksProxyPort in 1..65535) { "Ports must be between 1 and 65535" }
+        require(!httpProxyEnabled || !socksProxyEnabled || httpProxyPort != socksProxyPort) { "HTTP and SOCKS ports must be different" }
+    }
+
     /** The apps [filter] applies to. */
     fun appsFor(filter: AppFilter): Set<String> = when (filter) {
         AppFilter.AllApps -> emptySet()
