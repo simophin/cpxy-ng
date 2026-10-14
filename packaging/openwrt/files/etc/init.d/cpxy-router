@@ -134,7 +134,9 @@ _start_dns() {
 		procd_append_param command --sinkhole "$CPXY_SINKHOLE_ADDR"
 		SINKHOLE=1
 	fi
-	procd_set_param env NO_COLOR=1
+	# The server URL holds the key: in the environment, out of the process list. dns_split asks
+	# the servers given with ?via=cpxy through it.
+	cpxy_procd_env "dns-$1" SERVER="$CPXY_SERVER" NO_COLOR=1
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1
 	procd_set_param stderr 1

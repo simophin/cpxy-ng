@@ -74,7 +74,6 @@ cpxy_instance() {
 	cpxy_get CPXY_SERVER "$name" server
 	cpxy_get CPXY_NETWORKS "$name" network
 	cpxy_get_bool CPXY_CLIENT "$name" client 1
-	cpxy_get_bool CPXY_SMARTDNS "$name" smartdns 1
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
 	cpxy_get_bool CPXY_TSGW "$name" tsgw 1
 
@@ -83,18 +82,9 @@ cpxy_instance() {
 	_cpxy_own CPXY_SOCKS5_LISTEN "$name" client_socks5_listen "[::]:$((1080 + i))"
 	CPXY_PROXY="http://$(_cpxy_connect_addr "$CPXY_HTTP_LISTEN")"
 
-	_cpxy_own CPXY_SMARTDNS_LISTEN "$name" smartdns_listen "127.0.0.1:$((5336 + 10 * i))"
-	cpxy_get CPXY_SMARTDNS_SERVERS "$name" smartdns_server
-	cpxy_get_bool CPXY_SMARTDNS_PROXY "$name" smartdns_proxy 1
-	cpxy_get CPXY_SMARTDNS_CACHE_SIZE "$name" smartdns_cache_size 4096
-	cpxy_get_bool CPXY_SMARTDNS_PREFETCH "$name" smartdns_prefetch 1
-	cpxy_get_bool CPXY_SMARTDNS_SERVE_EXPIRED "$name" smartdns_serve_expired 1
-
 	cpxy_get CPXY_DNS_UPSTREAM "$name" dns_upstream
-	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative
-	if [ -z "$CPXY_DNS_ALTERNATIVE" ] && [ "$CPXY_SMARTDNS" = 1 ]; then
-		CPXY_DNS_ALTERNATIVE="$(_cpxy_connect_addr "$CPXY_SMARTDNS_LISTEN")"
-	fi
+	# Overseas servers, asked through the instance's cpxy server
+	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative "tcp://1.1.1.1?via=cpxy tcp://8.8.8.8?via=cpxy"
 	cpxy_get_bool CPXY_DNS_CACHE "$name" dns_cache 1
 	cpxy_get_bool CPXY_BLOCK_ADS "$name" block_ads 1
 	cpxy_get CPXY_DNS_LOCAL_DOMAINS "$name" dns_local_domain
@@ -143,25 +133,9 @@ cpxy_procd_env() {
 	procd_set_param file "$file"
 }
 
-# Whether a smartdns server entry can be used: an IP (no lookup through the system resolver,
-# which may lead back here), and over TCP when it goes through the HTTP proxy.
-_cpxy_smartdns_server_ok() {
-	local entry="$1" proxy="$2" scheme rest host
-	case "$entry" in
-	*://*) scheme="${entry%%://*}" rest="${entry#*://}" ;;
-	*) scheme=udp rest="$entry" ;;
-	esac
-	case "$scheme" in
-	tcp | tls | https) ;;
-	udp) [ "$proxy" = 0 ] || return 1 ;;
-	*) return 1 ;;
-	esac
-	host="${rest%%[/?]*}"
-	case "$host" in
-	\[*\]* ) return 0 ;;
-	esac
-	host="${host%:*}"
-	case "$host" in '' | *[!0-9.]*) return 1 ;; esac
+# Whether a DNS server given with ?via=cpxy can go through the cpxy server, which carries TCP only
+_cpxy_dns_via_cpxy_ok() {
+	case "$1" in tcp://* | tls://* | https://*) ;; *) return 1 ;; esac
 }
 
 _cpxy_claim() {
@@ -202,24 +176,14 @@ _cpxy_validate_instance() {
 		_cpxy_claim tcp "$(_cpxy_port "$CPXY_HTTP_LISTEN")" "$1 client_http_listen"
 		[ "$CPXY_SOCKS5" = 1 ] && _cpxy_claim tcp "$(_cpxy_port "$CPXY_SOCKS5_LISTEN")" "$1 client_socks5_listen"
 	fi
-	if [ "$CPXY_SMARTDNS" = 1 ]; then
-		case "$(_cpxy_port "$CPXY_SMARTDNS_LISTEN")" in
-		53 | 6053) _cpxy_invalid "$1: smartdns_listen must not use port 53 or 6053, the system resolvers' ports" ;;
-		esac
-		_cpxy_claim tcp "$(_cpxy_port "$CPXY_SMARTDNS_LISTEN")" "$1 smartdns_listen"
-		[ -n "$CPXY_SMARTDNS_SERVERS" ] || _cpxy_invalid "$1: option 'smartdns_server' is required"
-		for entry in $CPXY_SMARTDNS_SERVERS; do
-			_cpxy_smartdns_server_ok "$entry" "$CPXY_SMARTDNS_PROXY" ||
-				_cpxy_invalid "$1: smartdns_server '$entry' must be an IP address, over tcp://, tls:// or https:// through the proxy"
-		done
-		[ "$CPXY_SMARTDNS_PROXY" = 0 ] || [ "$CPXY_CLIENT" = 1 ] ||
-			_cpxy_invalid "$1: smartdns_proxy needs this instance's client"
-		_cpxy_uint "$CPXY_SMARTDNS_CACHE_SIZE" 0 1048576 || _cpxy_invalid "$1: smartdns_cache_size must be a number"
-	fi
 	if [ "$CPXY_ROUTER" = 1 ] || [ "$CPXY_TSGW" = 1 ]; then
 		[ -n "$CPXY_DNS_UPSTREAM" ] || _cpxy_invalid "$1: option 'dns_upstream' is required"
-		[ -n "$CPXY_DNS_ALTERNATIVE" ] ||
-			_cpxy_invalid "$1: option 'dns_alternative' is required when the instance's smartdns is off"
+		for entry in $CPXY_DNS_UPSTREAM $CPXY_DNS_ALTERNATIVE; do
+			case "$entry" in
+			*via=cpxy*) _cpxy_dns_via_cpxy_ok "$entry" ||
+				_cpxy_invalid "$1: DNS server '$entry' goes through the cpxy server, which carries tcp://, tls:// and https:// only" ;;
+			esac
+		done
 	fi
 	if [ "$CPXY_ROUTER" = 1 ] && [ "$CPXY_ROUTER_DNS" = 1 ]; then
 		case "$(_cpxy_port "$CPXY_DNS_LISTEN")" in
