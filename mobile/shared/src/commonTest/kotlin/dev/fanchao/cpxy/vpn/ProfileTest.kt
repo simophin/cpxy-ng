@@ -48,6 +48,13 @@ class ProfileTest {
     }
 
     @Test
+    fun engineConfigIncludesProxyRoutes() {
+        val routes = listOf("223.5.5.5/32", "10.0.0.0/8")
+        val config = Json.decodeFromString<EngineConfig>(profile.engineConfigJson(AppSettings(proxyRoutes = routes)))
+        assertEquals(routes, config.proxyRoutes)
+    }
+
+    @Test
     fun validProfileHasNoErrors() {
         assertTrue(profile.validationErrors().isEmpty())
     }

@@ -20,6 +20,10 @@ use tracing::{Instrument, info_span};
 
 #[derive(clap::Parser)]
 struct CliOptions {
+    /// IPv4 CIDRs forced through the main proxy (repeatable or comma-separated).
+    #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
+    proxy_route: Vec<ipnet::Ipv4Net>,
+
     /// The cpxy sever host to connect to
     #[clap(env, required = true)]
     server: Config,
@@ -60,6 +64,7 @@ async fn main() {
         tailscale_server,
         api_listen,
         dns_server,
+        proxy_route,
     } = CliOptions::parse();
 
     let (events_tx, events_rx) = broadcast::channel(1024);
@@ -72,6 +77,7 @@ async fn main() {
         server.clone(),
         ai_server.clone(),
         tailscale_server.clone(),
+        client::outbound::ProxyRoutes(proxy_route),
         events_tx,
     ));
 

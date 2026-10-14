@@ -27,6 +27,9 @@ pub fn is_sinkhole(ip: Ipv4Addr) -> bool {
 pub struct Config {
     /// The cpxy server URL with its key, e.g. `https://:key@example.com`.
     pub server: String,
+    /// IPv4 CIDRs forced through the proxy before automatic direct routing.
+    #[serde(default)]
+    pub proxy_routes: Vec<String>,
     /// DNS servers whose answer is used when all its addresses are in CN.
     pub dns_upstream: Vec<String>,
     /// DNS servers whose answer is used otherwise.
@@ -46,6 +49,7 @@ pub struct Config {
 /// A config that has been checked and parsed.
 pub struct Settings {
     pub server: ServerConfig,
+    pub proxy_routes: client::outbound::ProxyRoutes,
     pub dns_upstream: Vec<ServerSpec>,
     pub dns_alternative: Vec<ServerSpec>,
     pub mtu: u16,
@@ -82,6 +86,7 @@ impl Config {
 
         Ok(Settings {
             server,
+            proxy_routes: client::outbound::ProxyRoutes::parse(&self.proxy_routes)?,
             dns_upstream: parse_specs("upstream", &self.dns_upstream)?,
             dns_alternative: parse_specs("alternative", &self.dns_alternative)?,
             mtu,
@@ -118,6 +123,28 @@ mod tests {
             Endpoint::Https { .. }
         ));
         assert_eq!(settings.mtu, 1400);
+    }
+
+    #[test]
+    fn validates_proxy_routes_and_defaults_to_empty() {
+        let base = r#"{"server":"http://:k@1.2.3.4", "dns_upstream":["1.1.1.1"], "dns_alternative":["8.8.8.8"]}"#;
+        let mut config = Config::from_json(base).unwrap();
+        assert_eq!(
+            config.settings().unwrap().proxy_routes,
+            client::outbound::ProxyRoutes::default()
+        );
+        config.proxy_routes = vec!["223.5.5.5/32".into()];
+        assert!(
+            config
+                .settings()
+                .unwrap()
+                .proxy_routes
+                .contains(Some("223.5.5.5".parse().unwrap()))
+        );
+        config.proxy_routes = vec!["::/0".into()];
+        assert!(config.settings().is_err());
+        config.proxy_routes = vec!["10.0.0.0/33".into()];
+        assert!(config.settings().is_err());
     }
 
     #[test]

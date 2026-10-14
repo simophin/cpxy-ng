@@ -26,6 +26,7 @@ data class EngineConfig(
     val server: String,
     @SerialName("dns_upstream") val dnsUpstream: List<String>,
     @SerialName("dns_alternative") val dnsAlternative: List<String>,
+    @SerialName("proxy_routes") val proxyRoutes: List<String> = emptyList(),
     val mtu: Int? = null,
     /** Resolves names on the engine's built-in ad blocklist to an address it drops. */
     @SerialName("block_ads") val blockAds: Boolean = false,
@@ -48,6 +49,7 @@ private val engineJson = Json { explicitNulls = false }
 fun Profile.engineConfigJson(settings: AppSettings = AppSettings()): String = engineJson.encodeToString(
     EngineConfig(
         server = server.trim(),
+        proxyRoutes = settings.proxyRoutes,
         dnsUpstream = dnsUpstream,
         dnsAlternative = dnsAlternative,
         mtu = TunParameters.MTU,

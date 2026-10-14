@@ -21,6 +21,7 @@ import (
 
 // Config is the engine's JSON config (mobile-engine/src/config.rs).
 type Config struct {
+	ProxyRoutes []string `json:"proxy_routes,omitempty"`
 	// Server is the cpxy server URL with its key.
 	Server         string   `json:"server"`
 	DNSUpstream    []string `json:"dns_upstream"`

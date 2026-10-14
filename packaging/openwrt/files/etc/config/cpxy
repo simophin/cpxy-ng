@@ -8,6 +8,8 @@
 config defaults 'defaults'
 	# REQUIRED, here or in each instance: https://:<key>@<host>:<port> (or http://)
 	option server ''
+	# Force matching IPv4 TCP destinations through the proxy (repeatable).
+	# list proxy_route '223.5.5.5/32'
 
 	# The components every instance runs (1) or not (0)
 	option client '1'

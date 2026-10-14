@@ -13,6 +13,10 @@ use tokio::try_join;
 
 #[derive(clap::Parser)]
 struct CliOptions {
+    /// IPv4 CIDRs forced through the main proxy (repeatable or comma-separated).
+    #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
+    proxy_route: Vec<ipnet::Ipv4Net>,
+
     /// The address to listen on for the http proxy
     #[clap(long, env)]
     http_proxy_listen: Option<SocketAddr>,
@@ -35,8 +39,12 @@ async fn main() {
         config,
         http_proxy_listen,
         socks5_proxy_listen,
+        proxy_route,
     } = CliOptions::parse();
 
+    // This binary already sends every destination through the proxy. Parse the same route
+    // option for configuration compatibility with the split-routing binaries.
+    let _proxy_routes = client::outbound::ProxyRoutes(proxy_route);
     let outbound = Arc::new(ProtocolOutbound(config));
 
     let run_http_proxy = async {

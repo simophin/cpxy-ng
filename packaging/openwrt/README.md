@@ -75,3 +75,11 @@ with stand-in binaries.
 `lab.sh` needs `cpxy-router` and `cpxy-server` for the host, plus `iproute2`, `nft`, `curl` and
 `python3`; the container tests need podman or docker. None of them runs the real fw3/fw4, procd or
 dnsmasq, so the redirect, the services and local names are verified on a router.
+
+## Fixed proxy routes
+
+Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 CIDR) to an instance
+or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and
+`cpxy-tsgw` to apply. Matching TCP destination IPs always use the main proxy,
+overriding automatic direct/CN routing. An empty list preserves automatic
+routing. The HTTP/SOCKS client already proxies every destination.

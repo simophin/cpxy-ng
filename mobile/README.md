@@ -90,3 +90,12 @@ curl --proxy socks5h://PHONE_IP:1080 https://ifconfig.me
 
 Disconnect and confirm both proxies stop accepting connections. Then disable one proxy,
 reconnect, and confirm only the enabled proxy accepts connections.
+
+## Fixed proxy routes
+
+Settings → Routing → Proxy routes edits IPv4 CIDRs, one per line. Matching TCP
+destination IPs use the main proxy even when automatic routing would send them
+direct. Hostname requests from shared HTTP/SOCKS listeners are matched after
+resolution. The list applies to every profile; save and reconnect to apply it.
+Clear the editor and save to remove all fixed routes. Invalid entries cannot be
+saved. IPv6 routes are not supported by the current engine.

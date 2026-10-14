@@ -148,6 +148,7 @@ fn start_with_dns(
     start_inner(
         tun,
         settings.server,
+        settings.proxy_routes,
         settings.mtu,
         tcp_window,
         listener,
@@ -170,12 +171,14 @@ fn start_with_dns(
 pub fn start_router(
     tun: OwnedFd,
     server: client::protocol_config::Config,
+    proxy_routes: client::outbound::ProxyRoutes,
     mtu: u16,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
     start_inner(
         tun,
         server,
+        proxy_routes,
         mtu,
         LOCAL_TCP_WINDOW,
         listener,
@@ -228,6 +231,7 @@ impl DnsService {
 fn start_inner(
     tun: OwnedFd,
     server: client::protocol_config::Config,
+    proxy_routes: client::outbound::ProxyRoutes,
     mtu: u16,
     tcp_window: u32,
     listener: Arc<dyn EventListener>,
@@ -271,7 +275,7 @@ fn start_inner(
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
-    let outbound = Arc::new(routing::outbound(server, events_tx));
+    let outbound = Arc::new(routing::outbound(server, proxy_routes, events_tx));
     let (shutdown, shutdown_rx) = oneshot::channel();
     runtime.spawn(forward_events(events_rx, listener));
     let resolver = dns.as_ref().map(|dns| dns.handler.clone());

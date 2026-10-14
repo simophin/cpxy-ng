@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 /// Tailscale branches, and flows always arrive as IPs, so nothing is resolved.
 pub fn outbound(
     server: ServerConfig,
+    proxy_routes: client::outbound::ProxyRoutes,
     events_tx: broadcast::Sender<OutboundEvent>,
 ) -> impl Outbound + Send + Sync + 'static {
     IPDivertOutbound {
@@ -26,7 +27,9 @@ pub fn outbound(
             inner: ProtocolOutbound(server),
             events_tx,
         },
-        should_use_a: |ip: Option<Ipv4Addr>| ip.is_some_and(should_route_direct),
+        should_use_a: move |ip: Option<Ipv4Addr>| {
+            !proxy_routes.contains(ip) && ip.is_some_and(should_route_direct)
+        },
     }
 }
 
@@ -40,6 +43,39 @@ pub fn should_route_direct(ip: Ipv4Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn fixed_routes_override_direct_addresses() {
+        use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = format!("http://:key@{}", closed.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        drop(closed);
+        let (tx, mut rx) = broadcast::channel(4);
+        let outbound = outbound(
+            server,
+            client::outbound::ProxyRoutes::parse(&["223.5.5.5/32".into(), "10.0.0.0/8".into()])
+                .unwrap(),
+            tx,
+        );
+        for ip in ["223.5.5.5", "10.1.2.3"] {
+            let _ = outbound
+                .send(OutboundRequest {
+                    host: OutboundHost::Resolved {
+                        domain: ip.into(),
+                        ip: Some(ip.parse().unwrap()),
+                    },
+                    port: 80,
+                    tls: false,
+                    initial_plaintext: vec![],
+                })
+                .await;
+            assert!(
+                matches!(rx.recv().await.unwrap(), OutboundEvent::Error { outbound, .. } if outbound == "proxy")
+            );
+        }
+    }
 
     #[test]
     fn local_addresses_go_direct() {

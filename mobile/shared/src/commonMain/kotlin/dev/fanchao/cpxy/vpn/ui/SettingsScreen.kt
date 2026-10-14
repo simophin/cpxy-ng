@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.fanchao.cpxy.vpn.isIpv4Cidr
+import dev.fanchao.cpxy.vpn.parseProxyRoutes
 import dev.fanchao.cpxy.vpn.AppFilter
 import dev.fanchao.cpxy.vpn.AppSettings
 import dev.fanchao.cpxy.vpn.Platform
@@ -123,6 +125,13 @@ internal fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+
+        item { SectionTitle("Routing") }
+        item {
+            ProxyRoutesSetting(settings.proxyRoutes) { routes ->
+                scope.launch { settingsRepository.update { it.copy(proxyRoutes = routes) } }
             }
         }
 
@@ -239,6 +248,48 @@ private fun ProxySetting(
             },
             confirmButton = {
                 TextButton(enabled = error == null, onClick = { onPort(parsed!!); editing = false }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun ProxyRoutesSetting(routes: List<String>, onSave: (List<String>) -> Unit) {
+    var editing by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    ListItem(
+        modifier = Modifier.clickable { text = routes.joinToString("\n"); editing = true },
+        headlineContent = { Text("Proxy routes") },
+        supportingContent = {
+            Text(if (routes.isEmpty()) "No fixed routes" else "${routes.size} fixed routes")
+        },
+        trailingContent = { Icon(Icons.AutoMirrored.Default.KeyboardArrowRight, contentDescription = null) },
+    )
+    if (editing) {
+        val parsed = parseProxyRoutes(text)
+        val invalid = parsed.firstOrNull { !isIpv4Cidr(it) }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("Proxy routes") },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("IPv4 CIDRs, one per line") },
+                    placeholder = { Text("203.0.113.0/24\n223.5.5.5/32") },
+                    minLines = 5,
+                    maxLines = 10,
+                    isError = invalid != null,
+                    supportingText = {
+                        Text(if (invalid != null) "Invalid IPv4 CIDR: $invalid" else
+                            "Matching destination IPs, including resolved names, always use the main proxy. " +
+                            "Changes apply the next time the VPN connects. Clear the list to remove fixed routes.")
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = invalid == null, onClick = { onSave(parsed); editing = false }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
         )
