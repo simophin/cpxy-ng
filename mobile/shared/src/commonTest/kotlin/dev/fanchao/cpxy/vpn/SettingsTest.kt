@@ -90,6 +90,24 @@ class SettingsTest {
         AppSettings(httpProxyEnabled = true, socksProxyPort = 8080)
     }
 
+    @Test
+    fun routeListPersistsAndCanBeCleared() = runTest {
+        val routes = parseProxyRoutes(" 223.5.5.5/32\n\n10.0.0.0/8\n223.5.5.5/32 ")
+        assertEquals(listOf("223.5.5.5/32", "10.0.0.0/8"), routes)
+        repository.update { it.copy(proxyRoutes = routes) }
+        assertEquals(routes, repository.settings.first().proxyRoutes)
+        repository.update { it.copy(proxyRoutes = emptyList()) }
+        assertEquals(emptyList(), repository.settings.first().proxyRoutes)
+    }
+
+    @Test
+    fun routeListRejectsInvalidCidrs() {
+        for (route in listOf("::/0", "1.2.3.4", "256.0.0.0/8", "1.2.3.4/33", "01.2.3.4/24", "name/8")) {
+            assertFailsWith<IllegalArgumentException> { AppSettings(proxyRoutes = listOf(route)) }
+        }
+        AppSettings(proxyRoutes = listOf("0.0.0.0/0", "255.255.255.255/32", "10.0.0.1/24"))
+    }
+
     private companion object {
         const val OWN = "dev.fanchao.cpxy.vpn"
     }

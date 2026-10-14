@@ -115,9 +115,9 @@ uci commit cpxy
 everything start_service
 # cpxy-client
 want 'set command /usr/bin/cpxy-client'
-want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1'
-want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1'
-want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
+want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 PROXY_ROUTES= NO_COLOR=1'
+want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 PROXY_ROUTES= NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5002 PROXY_ROUTES= NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
 # procd restarts an instance when this file changes, not when only its environment does
 want 'set file /tmp/cpxy/client-guest.env'
 grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
@@ -161,6 +161,43 @@ want 'set file /tmp/cpxy/router-guest.env'
 absent 'TS_HOSTNAME=cpxy-iot'
 [ -d /etc/cpxy/tsgw/guest ] || fail 'tsgw state directory'
 absent 'TS_AUTHKEY'
+
+# Fixed routes inherit defaults, while an instance's list replaces them.
+uci add_list cpxy.defaults.proxy_route=223.5.5.5/32
+uci add_list cpxy.defaults.proxy_route=10.20.0.0/16
+uci add_list cpxy.guest.proxy_route=192.0.2.0/24
+uci add_list cpxy.guest.proxy_route=198.51.100.0/24
+everything reload_service
+want 'HTTP_PROXY_LISTEN=[::]:5000 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16 NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5001 PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24 NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5002 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16 NO_COLOR=1'
+for route in 223.5.5.5/32 10.20.0.0/16; do
+	[ "$(grep -cF -- "append command --proxy-route $route" "$LOG")" = 2 ] || fail 'default routes not inherited by main and iot'
+done
+for route in 192.0.2.0/24 198.51.100.0/24; do
+	[ "$(grep -cF -- "append command --proxy-route $route" "$LOG")" = 1 ] || fail 'guest routes not isolated to guest'
+done
+grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/client-main.env || fail 'client default routes'
+grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24' /tmp/cpxy/client-guest.env || fail 'client instance routes'
+grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/tsgw-main.env || fail 'tsgw default routes'
+grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24' /tmp/cpxy/tsgw-guest.env || fail 'tsgw instance routes'
+absent 'firewall reload'
+absent 'down '
+absent 'up '
+
+# Invalid route reloads preserve the running services and kernel configuration.
+for route in 10.0.0.0/33 256.0.0.0/8 ::/0 1.2.3.4 example.com/24; do
+	uci set cpxy.guest.proxy_route="$route"
+	invalid "invalid IPv4 proxy_route '$route'"
+done
+
+# Removing both lists clears the worker arguments and persisted proxy environments.
+uci delete cpxy.defaults.proxy_route
+uci delete cpxy.guest.proxy_route
+everything reload_service
+absent 'append command --proxy-route'
+grep -qxF 'PROXY_ROUTES=' /tmp/cpxy/client-main.env || fail 'client routes not cleared'
+grep -qxF 'PROXY_ROUTES=' /tmp/cpxy/tsgw-guest.env || fail 'tsgw routes not cleared'
 
 # Idempotent reload preserves resource ownership and avoids firewall reloads.
 : >"$LOG"

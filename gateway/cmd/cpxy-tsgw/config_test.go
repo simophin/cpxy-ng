@@ -79,3 +79,15 @@ func TestRejectsBadSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestProxyRoutes(t *testing.T) {
+	s, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "PROXY_ROUTES": "223.5.5.5/32, 10.0.0.0/8"}, noEnv)
+	if err != nil || !reflect.DeepEqual(s.engine.ProxyRoutes, []string{"223.5.5.5/32", "10.0.0.0/8"}) {
+		t.Fatalf("proxy routes: %v %+v", err, s.engine.ProxyRoutes)
+	}
+	for _, route := range []string{"::/0", "10.0.0.0/33", "example.com/24", "1.2.3.4"} {
+		if _, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "PROXY_ROUTES": route}, noEnv); err == nil {
+			t.Errorf("accepted invalid route %q", route)
+		}
+	}
+}

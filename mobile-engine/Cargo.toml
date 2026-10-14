@@ -17,6 +17,7 @@ required-features = ["bindgen"]
 [dependencies]
 client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
+ipnet = "2"
 geoip-data = { path = "../geoip-data" }
 blocklist-data = { path = "../blocklist-data" }
 ipstack = { git = "https://github.com/simophin/ipstack", rev = "4e6ecc876409d66cbd92a09c26aa90638a692771" } # narrowlink/ipstack 1.0.2-dev (window scaling), plus ACKs for duplicate segments

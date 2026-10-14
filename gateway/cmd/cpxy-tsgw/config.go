@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -73,6 +74,7 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 	s := settings{
 		engine: engine.Config{
 			Server:         get("SERVER", ""),
+			ProxyRoutes:    splitList(get("PROXY_ROUTES", "")),
 			DNSUpstream:    splitList(get("DNS_UPSTREAM", defaultDNSUpstream)),
 			DNSAlternative: splitList(get("DNS_ALTERNATIVE", defaultDNSAlternative)),
 		},
@@ -84,6 +86,12 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 	}
 	if s.engine.Server == "" {
 		return s, errors.New("SERVER is required: the cpxy server URL with its key")
+	}
+	for _, route := range s.engine.ProxyRoutes {
+		prefix, err := netip.ParsePrefix(route)
+		if err != nil || !prefix.Addr().Is4() {
+			return s, fmt.Errorf("invalid IPv4 proxy route CIDR: %s", route)
+		}
 	}
 	mtu, err := strconv.Atoi(get("MTU", strconv.Itoa(defaultMTU)))
 	if err != nil {

@@ -7,6 +7,9 @@ fn main() -> anyhow::Result<()> {
 
     #[derive(Parser)]
     struct Options {
+        /// IPv4 CIDRs forced through the proxy (repeatable or comma-separated).
+        #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
+        proxy_route: Vec<ipnet::Ipv4Net>,
         #[arg(long, default_value = "cpxy0")]
         tun: String,
         /// The engine sizes TCP segments to this and ignores the peer's MSS, so it must not
@@ -26,7 +29,13 @@ fn main() -> anyhow::Result<()> {
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid SERVER URL"))?;
     let tun = mobile_engine::linux::create_tun(&options.tun)?;
-    let engine = mobile_engine::start_router(tun, server, options.mtu, Arc::new(Listener))?;
+    let engine = mobile_engine::start_router(
+        tun,
+        server,
+        client::outbound::ProxyRoutes(options.proxy_route),
+        options.mtu,
+        Arc::new(Listener),
+    )?;
     let result = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?

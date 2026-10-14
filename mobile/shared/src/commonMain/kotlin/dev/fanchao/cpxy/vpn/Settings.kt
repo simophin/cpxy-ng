@@ -36,8 +36,11 @@ data class AppSettings(
     val httpProxyPort: Int = 8080,
     val socksProxyEnabled: Boolean = false,
     val socksProxyPort: Int = 1080,
+    /** IPv4 CIDRs forced through the main proxy for every profile. */
+    val proxyRoutes: List<String> = emptyList(),
 ) {
     init {
+        require(proxyRoutes.all(::isIpv4Cidr)) { "Routes must be IPv4 CIDRs, such as 203.0.113.0/24" }
         require(httpProxyPort in 1..65535 && socksProxyPort in 1..65535) { "Ports must be between 1 and 65535" }
         require(!httpProxyEnabled || !socksProxyEnabled || httpProxyPort != socksProxyPort) { "HTTP and SOCKS ports must be different" }
     }
@@ -103,3 +106,20 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         }
     }
 }
+
+/** Validate literal IPv4 CIDRs without performing DNS lookups. */
+fun isIpv4Cidr(value: String): Boolean {
+    val parts = value.split('/')
+    if (parts.size != 2) return false
+    val prefix = parts[1]
+    if (prefix.isEmpty() || prefix.any { it !in '0'..'9' } || prefix.toIntOrNull() !in 0..32) return false
+    val octets = parts[0].split('.')
+    return octets.size == 4 && octets.all {
+        it.isNotEmpty() && it.length <= 3 && it.all { char -> char in '0'..'9' } &&
+            (it.length == 1 || it[0] != '0') && it.toIntOrNull() in 0..255
+    }
+}
+
+/** One CIDR per line; blank lines are ignored and duplicates are removed. */
+fun parseProxyRoutes(text: String): List<String> =
+    text.lines().map(String::trim).filter(String::isNotEmpty).distinct()

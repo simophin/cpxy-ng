@@ -1660,6 +1660,7 @@ dependencies = [
  "futures",
  "geoip-data",
  "hickory-proto",
+ "ipnet",
  "ipstack",
  "libc",
  "paranoid-android",

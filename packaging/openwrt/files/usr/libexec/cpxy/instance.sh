@@ -64,6 +64,19 @@ _cpxy_uint() {
 	[ "$1" -ge "$2" ] 2>/dev/null && [ "$1" -le "$3" ] 2>/dev/null
 }
 
+# Validate before a reload changes running workers or kernel routing.
+_cpxy_ipv4_cidr() {
+	printf '%s\n' "$1" | awk -F '[./]' '
+		$0 !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/ { exit 1 }
+		{
+			for (i = 1; i <= 4; i++) {
+				if ($i !~ /^[0-9]+$/ || length($i) > 3 || $i > 255 ||
+				    (length($i) > 1 && substr($i, 1, 1) == "0")) exit 1
+			}
+			if ($5 !~ /^[0-9]+$/ || $5 > 32) exit 1
+		}'
+}
+
 # cpxy_instance <name>: loads one instance's settings into CPXY_* variables.
 cpxy_instance() {
 	local i name="$1" domain
@@ -72,6 +85,7 @@ cpxy_instance() {
 	_cpxy_uint "$i" 0 9 || i=0
 
 	cpxy_get CPXY_SERVER "$name" server
+	cpxy_get CPXY_PROXY_ROUTES "$name" proxy_route
 	cpxy_get CPXY_NETWORKS "$name" network
 	cpxy_get_bool CPXY_CLIENT "$name" client 1
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
@@ -168,6 +182,9 @@ _cpxy_validate_instance() {
 	_cpxy_uint "$CPXY_INDEX" 0 9 || { _cpxy_invalid "$1: option 'index' must be 0..9"; return; }
 	_cpxy_claim index "$CPXY_INDEX" "$1"
 	cpxy_instance "$1"
+	for entry in $CPXY_PROXY_ROUTES; do
+		_cpxy_ipv4_cidr "$entry" || _cpxy_invalid "$1: invalid IPv4 proxy_route '$entry'"
+	done
 
 	if [ "$CPXY_CLIENT$CPXY_ROUTER$CPXY_TSGW" != 000 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"
