@@ -167,8 +167,17 @@ func TestAnswersDNSThroughTheDevice(t *testing.T) {
 	if _, addr := answerOf(t, response); addr != answer {
 		t.Fatalf("resolved %v", addr)
 	}
-	if sent, received := eng.Traffic(); sent != uint64(len(packet)) || received == 0 {
-		t.Fatalf("traffic %d, %d", sent, received)
+	// The engine counts a reply once its write returns, which may be after the read above
+	deadline := time.Now().Add(time.Second)
+	for {
+		sent, received := eng.Traffic()
+		if sent == uint64(len(packet)) && received != 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("traffic %d, %d", sent, received)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	if !eng.Running() {
