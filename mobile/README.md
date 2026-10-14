@@ -105,8 +105,10 @@ saved. IPv6 routes are not supported by the current engine.
 The same APK appears in both phone and Android TV launchers. TV devices do not need a
 touchscreen; the TV launcher uses the CPXY VPN banner.
 
-- On TV, select Settings with the D-pad, then press Up to enter its controls. Navigate
-  through the app filters, Choose actions, proxy routes, proxy switches and port dialogs.
+- On TV, press Up from the tab bar or the Home + button to enter the current screen.
+  On Home, use Left/Right between a profile and its hamburger menu. In Settings, use
+  Left/Right between an app filter and its Choose button; Center activates the focused
+  control. Navigate through proxy routes, proxy switches and port dialogs with Up/Down.
 - Open a profile's hamburger menu and choose Edit or Duplicate. Duplicate opens a new
   profile prefilled with the server and DNS lists; Save creates and selects the copy.
   Back discards the draft without changing the original.
