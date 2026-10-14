@@ -325,7 +325,7 @@ jobs:
         with:
           key: tsgw-native
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
@@ -361,7 +361,7 @@ jobs:
         with:
           key: tsgw-${{ matrix.target.rust }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
