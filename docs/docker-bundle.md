@@ -6,20 +6,18 @@ One container runs a whole cpxy bundle for a Linux server, the same set the
 | Service | What it does |
 |---|---|
 | client | The cpxy HTTP proxy (and optionally SOCKS5) for anything on your network to use |
-| smartdns | A DNS server on loopback only, asking 1.1.1.1 and 8.8.8.8 over TCP **through the proxy**, so its answers are neither poisoned nor blocked |
-| tsgw | A [Tailscale exit node](cpxy-tsgw.md) with cpxy routing and split DNS. Its alternative DNS server is the smartdns, and Tailscale's own traffic goes through the proxy. |
+| tsgw | A [Tailscale exit node](cpxy-tsgw.md) with cpxy routing and split DNS. Its alternative DNS servers, 1.1.1.1 and 8.8.8.8 over TCP, are asked **through the cpxy server**, so their answers are neither poisoned nor blocked. Tailscale's own traffic goes through the proxy. |
 
 ```text
-apps ──► client :5000 ──────────────────────────► cpxy server
-          ▲        ▲
-          │        └── smartdns 127.0.0.1:5336 (1.1.1.1, 8.8.8.8 over TCP)
-          │                ▲
-          └── tsgw (control, DERP) ── split DNS alternative
-phone ── Tailscale ──► tsgw ── packet engine ──► cpxy server
+apps ──► client :5000 ─────────────────────────────► cpxy server
+          ▲
+          └── tsgw (control, DERP)
+phone ── Tailscale ──► tsgw ── packet engine ──────► cpxy server
+                         └── split DNS alternative ► cpxy server ► 1.1.1.1, 8.8.8.8
 ```
 
-All three share one server URL. [s6-overlay](https://github.com/just-containers/s6-overlay)
-supervises them: a service that dies is restarted on its own, without the other two.
+Both share one server URL. [s6-overlay](https://github.com/just-containers/s6-overlay)
+supervises them: a service that dies is restarted on its own, without the other.
 
 ## Run it
 
@@ -61,15 +59,15 @@ docker run -d --name cpxy-hk --restart unless-stopped \
   ghcr.io/simophin/cpxy-ng-bundle
 ```
 
-**On host network** (`--network host`) the containers share the host's ports, loopback included,
-so each needs its own `HTTP_PROXY_LISTEN` and `SMARTDNS_LISTEN` (and `SOCKS5_PROXY_LISTEN`, if on).
-Tailscale's port is random unless set, so it never clashes:
+**On host network** (`--network host`) the containers share the host's ports, so each needs its own
+`HTTP_PROXY_LISTEN` (and `SOCKS5_PROXY_LISTEN`, if on). Tailscale's port is random unless set, so it
+never clashes:
 
 ```sh
 docker run -d --name cpxy-hk --restart unless-stopped --network host \
   -v cpxy-hk:/var/lib/cpxy-tsgw \
   -e SERVER='https://:<key>@hk.example.com' -e TS_HOSTNAME=server-hk \
-  -e HTTP_PROXY_LISTEN='[::]:5001' -e SMARTDNS_LISTEN=127.0.0.1:5346 \
+  -e HTTP_PROXY_LISTEN='[::]:5001' \
   ghcr.io/simophin/cpxy-ng-bundle
 ```
 
@@ -79,19 +77,15 @@ NAT-PMP), so devices connect directly more often.
 ## Settings
 
 Environment variables, each declared in the image with its default (`docker image inspect` lists
-them). A change applies when the container is recreated, which restarts all three services.
+them). A change applies when the container is recreated, which restarts both services.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `SERVER` | none, **required** | The cpxy server URL with its key, `https://:<key>@<host>:<port>` (or `http://`). The client and tsgw both use it. |
-| `HTTP_PROXY_LISTEN` | `[::]:5000` | The HTTP proxy. smartdns and tsgw reach it on loopback at this port. |
+| `HTTP_PROXY_LISTEN` | `[::]:5000` | The HTTP proxy. tsgw reaches it on loopback at this port. |
 | `SOCKS5_PROXY_LISTEN` | empty, off | A SOCKS5 proxy as well, e.g. `[::]:1080`. |
-| `SMARTDNS_LISTEN` | `127.0.0.1:5336` | Where smartdns answers. Loopback only (`127.x.x.x` or `[::1]`) and never port 53, so it is never reachable from outside and never takes the host's DNS. Change it per container on host network. |
-| `SMARTDNS_SERVERS` | `tcp://1.1.1.1,tcp://8.8.8.8` | The servers smartdns asks, through the proxy: `tcp://`, `tls://` or `https://` to IP addresses, separated by commas. (The proxy carries TCP only, and a name would need a DNS lookup first.) |
-| `SMARTDNS_CACHE_SIZE` | `4096` | Names smartdns keeps. |
-| `SMARTDNS_PREFETCH` | `1` | Refresh popular names before they expire. |
-| `SMARTDNS_SERVE_EXPIRED` | `1` | Answer from an expired entry while refreshing it. |
-| `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | tsgw's split DNS: servers whose answer is used when every address in it is in the local region. Otherwise smartdns's answer is used. See [choosing the servers](cpxy-tsgw.md#choosing-the-servers). |
+| `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | tsgw's split DNS: servers whose answer is used when every address in it is in the local region. See [choosing the servers](cpxy-tsgw.md#choosing-the-servers). |
+| `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy` | Servers whose answer is used otherwise. `?via=cpxy` asks a `tcp://`, `tls://` or `https://` server through the cpxy server. |
 | `BLOCK_ADS` | `1` | tsgw answers names on the built-in ad blocklist with an address that goes nowhere; `0` turns it off. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The exit node's name on the tailnet. |
 | `TS_AUTHKEY` | empty | An auth key for the first login instead of the link in the log. |
@@ -100,31 +94,27 @@ them). A change applies when the container is recreated, which restarts all thre
 | `TS_NO_LOGS_NO_SUPPORT` | empty | `true` stops uploading Tailscale's own logs to Tailscale. |
 | `MTU` | `1280` | The largest packet tsgw sends back to clients; Tailscale's MTU is 1280. |
 
-The wiring between the services is not a setting: smartdns and tsgw always use this container's
-proxy, and tsgw's alternative DNS server is always this container's smartdns. Bad settings stop the
-container at once, with a line saying which (`docker logs`).
+The wiring between the services is not a setting: tsgw always uses this container's proxy. Bad
+settings stop the container at once, with a line saying which (`docker logs`).
 
 **From the cpxy-tsgw image.** Every setting above that the `cpxy-ng-tsgw` image also has means the
-same here, and the volume is the same, so switching is a change of image name. Only
-`DNS_ALTERNATIVE` is gone: the bundle's smartdns takes its place.
+same here, with the same defaults, and the volume is the same, so switching is a change of image
+name.
+
+**From an image with smartdns.** Earlier images ran a smartdns for tsgw's alternative DNS. Its
+`SMARTDNS_*` settings are now ignored; the default `DNS_ALTERNATIVE` asks the same servers through
+the cpxy server instead.
 
 ## Check it
 
 ```sh
-docker ps                                   # STATUS shows (healthy) once all three run steadily
+docker ps                                   # STATUS shows (healthy) once both run steadily
 curl -x http://<host>:5000 https://ifconfig.co   # the cpxy server's address
-docker exec cpxy cat /run/cpxy/smartdns.conf       # smartdns's generated config
 ```
 
-Each log line is tagged `[client]`, `[smartdns]` or `[tsgw]`; `docker logs cpxy | grep '^\[tsgw\]'`
-shows one service. smartdns logs only warnings.
+Each log line is tagged `[client]` or `[tsgw]`; `docker logs cpxy | grep '^\[tsgw\]'` shows one
+service.
 
 The container is **unhealthy** when a service is down or keeps restarting: its log lines show why.
-The usual causes are a wrong `SERVER` (the client logs connection errors, and smartdns fails its
-queries) or, on host network, a port another container or program already uses.
-
-## About smartdns
-
-smartdns is [pymumu/smartdns](https://github.com/pymumu/smartdns), GPL-3.0, built unmodified from a
-pinned release by `packaging/openwrt/build-smartdns.sh`, the same build as the OpenWrt package's.
-Its license and source note are in the image at `/usr/share/doc/cpxy/`.
+The usual causes are a wrong `SERVER` (the client and tsgw log connection errors) or, on host
+network, a port another container or program already uses.

@@ -1,5 +1,5 @@
 #!/command/execlineb -P
-# The HTTP (and optional SOCKS5) proxy; the other two services use it over loopback.
+# The HTTP (and optional SOCKS5) proxy; tsgw uses it over loopback.
 with-contenv
 s6-envdir /run/cpxy/env/client
 pipeline -dw { /etc/cpxy/log-prefix client }
