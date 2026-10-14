@@ -43,6 +43,9 @@ import kotlin.uuid.Uuid
 /** A new profile starts with public CN resolvers as its upstream DNS. */
 private val DefaultDnsUpstream = listOf("223.5.5.5", "119.29.29.29")
 
+/** And with overseas resolvers asked through the cpxy server as its alternative DNS. */
+private val DefaultDnsAlternative = listOf("tcp://1.1.1.1?via=cpxy", "tcp://8.8.8.8?via=cpxy")
+
 @OptIn(ExperimentalUuidApi::class)
 @Composable
 fun EditProfileScreen(
@@ -58,7 +61,7 @@ fun EditProfileScreen(
                 name = "",
                 server = "",
                 dnsUpstream = DefaultDnsUpstream,
-                dnsAlternative = emptyList(),
+                dnsAlternative = DefaultDnsAlternative,
             )
     }
     initial?.let { profile ->
@@ -149,7 +152,7 @@ private fun EditProfileForm(
                 value = dnsAlternative,
                 onValueChange = { dnsAlternative = it },
                 error = errors[ProfileField.DnsAlternative],
-                hint = "One per line, e.g. https://dns.google/dns-query?ip=8.8.8.8. Used otherwise.",
+                hint = "One per line. Used otherwise. ?via=cpxy asks through the server (TCP, TLS or HTTPS).",
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
             )
