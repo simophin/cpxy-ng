@@ -231,6 +231,7 @@ fn start_inner(
                 .block_on(dns::handler(
                     specs.upstream,
                     specs.alternative,
+                    &server,
                     specs.blocklist,
                 ))
                 .map(|handler| DnsService {
