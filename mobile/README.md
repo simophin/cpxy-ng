@@ -99,3 +99,25 @@ direct. Hostname requests from shared HTTP/SOCKS listeners are matched after
 resolution. The list applies to every profile; save and reconnect to apply it.
 Clear the editor and save to remove all fixed routes. Invalid entries cannot be
 saved. IPv6 routes are not supported by the current engine.
+
+## Android TV and keyboard smoke check
+
+The same APK appears in both phone and Android TV launchers. TV devices do not need a
+touchscreen; the TV launcher uses the CPXY VPN banner.
+
+- On TV, select Settings with the D-pad, then press Up to enter its controls. Navigate
+  through the app filters, Choose actions, proxy routes, proxy switches and port dialogs.
+- Open a profile's hamburger menu and choose Edit or Duplicate. Duplicate opens a new
+  profile prefilled with the server and DNS lists; Save creates and selects the copy.
+  Back discards the draft without changing the original.
+- On a phone, use the keyboard's Next action through Name, Server and Upstream DNS.
+  Done on Alternative DNS validates and saves, just like Save. DNS fields still allow
+  pasted lists with one server per line; long lists scroll inside the field.
+- With the keyboard open, type at the bottom of a long DNS list. The form should stay
+  above the keyboard without jumping, and Save should remain reachable by scrolling.
+
+UI regression tests run on a connected phone or TV emulator:
+
+```bash
+./gradlew :androidApp:connectedDebugAndroidTest
+```
