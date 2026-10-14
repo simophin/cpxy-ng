@@ -130,6 +130,31 @@ clear it and save to disable it. Android receives the list for its VPN resolver,
 also expands single-label queries from VPN traffic and shared HTTP/SOCKS proxy clients.
 
 For `printer`, the engine tries `printer.home.arpa`, then `printer.corp.example`, then the bare
-name, stopping at the first successful answer with records. Names containing dots are queried
-unchanged. Expanded names use the usual DNS split, cache and ad blocking. AAAA queries still
-return no records because the engine only supports IPv4.
+name, stopping at the first successful answer with records. The engine queries names containing
+dots unchanged; Android also applies its own resolver search rules. Expanded names use the
+usual DNS split, cache and ad blocking. AAAA queries still return no records because the
+engine only supports IPv4.
+
+### Search-domain emulator smoke check
+
+Use a reachable DNS server with test A records such as `printer.home.arpa` and
+`second.corp.example`, both pointing to a reachable HTTP test endpoint. Configure that DNS
+server as the profile's upstream and alternative resolver.
+
+1. In Settings → DNS → DNS search domains, enter `home.arpa` and `corp.example`, one per line.
+   An invalid suffix such as `a..` must show an error and disable Save. Save the valid list,
+   restart the app, and confirm the list remains in the same order.
+2. Connect the VPN. In an Android app, open `http://printer:PORT/` and
+   `http://second:PORT/`. Both should reach the test endpoint. With A records for the same
+   short name in both domains, the first domain should win.
+3. Check an existing fully qualified hostname, a bare name known by the DNS server, and an
+   unknown name. They should resolve unchanged, fall back to the bare name, and fail,
+   respectively. Direct UDP and TCP queries to the VPN DNS server (`10.233.0.2:53`) should
+   preserve the original question and link successful expanded names with a CNAME.
+4. Enable the shared HTTP/SOCKS proxies, reconnect, and check the same names from a second
+   device using the proxies. Hostnames must be resolved by the proxy device.
+5. Clear the search-domain list and save. The active VPN keeps its previous configuration
+   until reconnection. After reconnecting, short names that require a suffix must fail;
+   fully qualified names and names the DNS server knows without a suffix must still work.
+   Android's resolver can cache earlier results, so use a fresh test name when checking
+   changes, or send a direct DNS query to the VPN DNS server.
