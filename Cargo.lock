@@ -782,7 +782,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -801,6 +801,15 @@ name = "etherparse"
 version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aeebdb565da33451794551a771bd0b4e6f416d3182adc3ed2837f614d6168f9a"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
+name = "etherparse"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17304d06addb3283cdc4bd528e42dd95e73c8ee2d6492ffce415e93660885449"
 dependencies = [
  "arrayvec",
 ]
@@ -1444,7 +1453,7 @@ version = "1.0.2-dev"
 source = "git+https://github.com/simophin/ipstack?rev=4e6ecc876409d66cbd92a09c26aa90638a692771#4e6ecc876409d66cbd92a09c26aa90638a692771"
 dependencies = [
  "ahash",
- "etherparse",
+ "etherparse 0.20.3",
  "log",
  "rand 0.10.3",
  "serde_json",
@@ -1647,7 +1656,7 @@ dependencies = [
  "clap",
  "client",
  "cpxy-ng",
- "etherparse",
+ "etherparse 0.21.0",
  "futures",
  "geoip-data",
  "hickory-proto",
@@ -2365,7 +2374,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2959,10 +2968,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
