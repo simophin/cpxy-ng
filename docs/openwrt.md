@@ -121,6 +121,7 @@ never taken from `defaults`.
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy. |
 | `dns_upstream` (list) | `223.5.5.5`, `119.29.29.29` | DNS servers whose answer is used when all its addresses are in the local region. The fastest ones are usually your ISP's. |
 | `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy`, `tcp://8.8.8.8?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
+| `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
 | `block_ads` | `1` | Answer names on the built-in ad blocklist with an address that goes nowhere (dns_split and tsgw). |
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |

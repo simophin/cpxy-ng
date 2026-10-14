@@ -34,6 +34,9 @@ pub struct Config {
     pub dns_upstream: Vec<String>,
     /// DNS servers whose answer is used otherwise.
     pub dns_alternative: Vec<String>,
+    /// Ordered suffixes for single-label DNS queries; empty leaves names unchanged.
+    #[serde(default)]
+    pub dns_search_domains: Vec<String>,
     #[serde(default)]
     pub mtu: Option<u16>,
     /// Resolves names on the built-in ad blocklist to [`SINKHOLE_ADDR`].
@@ -52,6 +55,7 @@ pub struct Settings {
     pub proxy_routes: client::outbound::ProxyRoutes,
     pub dns_upstream: Vec<ServerSpec>,
     pub dns_alternative: Vec<ServerSpec>,
+    pub dns_search_domains: Vec<hickory_proto::rr::Name>,
     pub mtu: u16,
     pub block_ads: bool,
     pub http_proxy_port: Option<u16>,
@@ -89,6 +93,11 @@ impl Config {
             proxy_routes: client::outbound::ProxyRoutes::parse(&self.proxy_routes)?,
             dns_upstream: parse_specs("upstream", &self.dns_upstream)?,
             dns_alternative: parse_specs("alternative", &self.dns_alternative)?,
+            dns_search_domains: self
+                .dns_search_domains
+                .iter()
+                .map(|value| client::dns_split::search::parse_search_domain(value))
+                .collect::<anyhow::Result<_>>()?,
             mtu,
             block_ads: self.block_ads,
             http_proxy_port: self.http_proxy_port,
@@ -101,6 +110,26 @@ impl Config {
 mod tests {
     use super::*;
     use client::dns_split::spec::{Endpoint, Via};
+
+    #[test]
+    fn validates_search_domains_and_defaults_to_empty() {
+        let base = r#"{"server":"http://:k@1.2.3.4", "dns_upstream":["1.1.1.1"], "dns_alternative":["8.8.8.8"]}"#;
+        let mut config = Config::from_json(base).unwrap();
+        assert!(config.settings().unwrap().dns_search_domains.is_empty());
+        config.dns_search_domains = vec!["home.arpa".into(), "corp.example.".into()];
+        assert_eq!(
+            config
+                .settings()
+                .unwrap()
+                .dns_search_domains
+                .iter()
+                .map(|n| n.to_ascii())
+                .collect::<Vec<_>>(),
+            ["home.arpa.", "corp.example."]
+        );
+        config.dns_search_domains = vec!["a..b".into()];
+        assert!(config.settings().is_err());
+    }
 
     #[test]
     fn parses_a_full_config() {

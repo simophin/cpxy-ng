@@ -102,6 +102,8 @@ uci set cpxy.defaults.server='https://:test-key@proxy.example:443'
 uci add_list cpxy.main.network=extra
 uci set cpxy.guest=instance
 uci set cpxy.guest.index=1
+uci add_list cpxy.guest.dns_search_domain=home.arpa
+uci add_list cpxy.guest.dns_search_domain=corp.example
 uci add_list cpxy.guest.network=guest
 uci set cpxy.guest.server='https://:guest-key@second.example:443'
 uci set cpxy.iot=instance
@@ -138,6 +140,9 @@ grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/dns-guest.env
 absent 'append command --server'
 want 'append command --local-server 127.0.0.1:53'
 want 'append command --local-domain lan'
+want 'append command --search-domain home.arpa'
+want 'append command --search-domain corp.example'
+grep -qxF 'DNS_SEARCH_DOMAINS=home.arpa,corp.example' /tmp/cpxy/tsgw-guest.env || fail 'tsgw search domains'
 want 'append command --cache-db /tmp/cpxy/dns-iot.sqlite'
 [ "$(grep -c -- '--local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
 [ "$(grep -c -- '--sinkhole 198.18.0.1' "$LOG")" = 2 ] || fail 'block_ads per instance'
@@ -155,7 +160,7 @@ position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewal
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
 want 'DNS_UPSTREAM=223.5.5.5,119.29.29.29 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy BLOCK_ADS=1'
-want 'NO_COLOR=1 HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
+want 'DNS_SEARCH_DOMAINS=home.arpa,corp.example HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
 want 'set file /tmp/cpxy/tsgw-guest.env'
 want 'set file /tmp/cpxy/router-guest.env'
 absent 'TS_HOSTNAME=cpxy-iot'
@@ -211,6 +216,8 @@ absent 'up '
 uci set cpxy.guest.index=0
 invalid 'index 0 is already used'
 uci set cpxy.guest.index=1
+uci add_list cpxy.guest.dns_search_domain=home.arpa
+uci add_list cpxy.guest.dns_search_domain=corp.example
 uci set cpxy.guest.client_http_listen='[::]:5000'
 invalid 'tcp 5000 is already used'
 uci delete cpxy.guest.client_http_listen

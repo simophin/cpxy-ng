@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.fanchao.cpxy.vpn.isDnsSearchDomain
+import dev.fanchao.cpxy.vpn.parseDnsSearchDomains
 import dev.fanchao.cpxy.vpn.isIpv4Cidr
 import dev.fanchao.cpxy.vpn.parseProxyRoutes
 import dev.fanchao.cpxy.vpn.AppFilter
@@ -125,6 +127,13 @@ internal fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+
+        item { SectionTitle("DNS") }
+        item {
+            DnsSearchDomainsSetting(settings.dnsSearchDomains) { domains ->
+                scope.launch { settingsRepository.update { it.copy(dnsSearchDomains = domains) } }
             }
         }
 
@@ -285,6 +294,48 @@ private fun ProxyRoutesSetting(routes: List<String>, onSave: (List<String>) -> U
                         Text(if (invalid != null) "Invalid IPv4 CIDR: $invalid" else
                             "Matching destination IPs, including resolved names, always use the main proxy. " +
                             "Changes apply the next time the VPN connects. Clear the list to remove fixed routes.")
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = invalid == null, onClick = { onSave(parsed); editing = false }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun DnsSearchDomainsSetting(domains: List<String>, onSave: (List<String>) -> Unit) {
+    var editing by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    ListItem(
+        modifier = Modifier.clickable { text = domains.joinToString("\n"); editing = true },
+        headlineContent = { Text("DNS search domains") },
+        supportingContent = {
+            Text(if (domains.isEmpty()) "No search domains" else domains.joinToString(", "))
+        },
+        trailingContent = { Icon(Icons.AutoMirrored.Default.KeyboardArrowRight, contentDescription = null) },
+    )
+    if (editing) {
+        val parsed = parseDnsSearchDomains(text)
+        val invalid = parsed.firstOrNull { !isDnsSearchDomain(it) }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("DNS search domains") },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Domains, one per line") },
+                    placeholder = { Text("home.arpa\ncorp.example") },
+                    minLines = 5,
+                    maxLines = 10,
+                    isError = invalid != null,
+                    supportingText = {
+                        Text(if (invalid != null) "Invalid search domain: $invalid" else
+                            "Try these suffixes in order for short names such as printer, then try the bare name. " +
+                            "Applies to all profiles after reconnecting. Clear the list to disable search domains.")
                     },
                 )
             },

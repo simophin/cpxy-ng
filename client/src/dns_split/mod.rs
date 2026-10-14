@@ -3,6 +3,7 @@
 
 pub mod cache;
 pub mod policy;
+pub mod search;
 pub mod server;
 pub mod spec;
 pub mod upstream;

@@ -96,6 +96,7 @@ cpxy_instance() {
 	_cpxy_own CPXY_SOCKS5_LISTEN "$name" client_socks5_listen "[::]:$((1080 + i))"
 	CPXY_PROXY="http://$(_cpxy_connect_addr "$CPXY_HTTP_LISTEN")"
 
+	cpxy_get CPXY_DNS_SEARCH_DOMAINS "$name" dns_search_domain
 	cpxy_get CPXY_DNS_UPSTREAM "$name" dns_upstream
 	# Overseas servers, asked through the instance's cpxy server
 	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative "tcp://1.1.1.1?via=cpxy tcp://8.8.8.8?via=cpxy"

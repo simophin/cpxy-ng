@@ -38,8 +38,11 @@ data class AppSettings(
     val socksProxyPort: Int = 1080,
     /** IPv4 CIDRs forced through the main proxy for every profile. */
     val proxyRoutes: List<String> = emptyList(),
+    /** Ordered search suffixes for all profiles. */
+    val dnsSearchDomains: List<String> = emptyList(),
 ) {
     init {
+        require(dnsSearchDomains.all(::isDnsSearchDomain)) { "Search domains must be DNS hostname suffixes" }
         require(proxyRoutes.all(::isIpv4Cidr)) { "Routes must be IPv4 CIDRs, such as 203.0.113.0/24" }
         require(httpProxyPort in 1..65535 && socksProxyPort in 1..65535) { "Ports must be between 1 and 65535" }
         require(!httpProxyEnabled || !socksProxyEnabled || httpProxyPort != socksProxyPort) { "HTTP and SOCKS ports must be different" }
@@ -123,3 +126,20 @@ fun isIpv4Cidr(value: String): Boolean {
 /** One CIDR per line; blank lines are ignored and duplicates are removed. */
 fun parseProxyRoutes(text: String): List<String> =
     text.lines().map(String::trim).filter(String::isNotEmpty).distinct()
+
+/** ASCII DNS hostname suffix, optionally ending in a dot; no root, IPs or wildcards. */
+fun isDnsSearchDomain(value: String): Boolean {
+    val domain = value.removeSuffix(".")
+    if (domain.isEmpty() || domain.length > 253) return false
+    val labels = domain.split('.')
+    if (labels.size == 4 && labels.all { it.toIntOrNull() in 0..255 }) return false
+    return labels.all { label ->
+        label.isNotEmpty() && label.length <= 63 && !label.startsWith('-') && !label.endsWith('-') &&
+            label.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
+    }
+}
+
+/** One suffix per line, preserving priority and removing duplicate spellings. */
+fun parseDnsSearchDomains(text: String): List<String> =
+    text.lines().map(String::trim).filter(String::isNotEmpty)
+        .map { if (isDnsSearchDomain(it)) it.removeSuffix(".").lowercase() else it }.distinct()

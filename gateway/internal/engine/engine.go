@@ -23,11 +23,12 @@ import (
 type Config struct {
 	ProxyRoutes []string `json:"proxy_routes,omitempty"`
 	// Server is the cpxy server URL with its key.
-	Server         string   `json:"server"`
-	DNSUpstream    []string `json:"dns_upstream"`
-	DNSAlternative []string `json:"dns_alternative"`
-	MTU            int      `json:"mtu"`
-	BlockAds       bool     `json:"block_ads"`
+	Server           string   `json:"server"`
+	DNSUpstream      []string `json:"dns_upstream"`
+	DNSAlternative   []string `json:"dns_alternative"`
+	DNSSearchDomains []string `json:"dns_search_domains,omitempty"`
+	MTU              int      `json:"mtu"`
+	BlockAds         bool     `json:"block_ads"`
 }
 
 // maxDNSMessage fits any DNS message.

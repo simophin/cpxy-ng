@@ -159,6 +159,7 @@ fn start_with_dns(
         Some(DnsSpecs {
             upstream: &settings.dns_upstream,
             alternative: &settings.dns_alternative,
+            search_domains: &settings.dns_search_domains,
             // Only referenced here, so cpxy-router does not embed the list.
             blocklist: settings.block_ads.then_some(&blocklist_data::BASELINE),
             intercept,
@@ -209,6 +210,7 @@ impl DnsIntercept {
 struct DnsSpecs<'a> {
     upstream: &'a [client::dns_split::spec::ServerSpec],
     alternative: &'a [client::dns_split::spec::ServerSpec],
+    search_domains: &'a [hickory_proto::rr::Name],
     blocklist: Option<&'static blocklist_data::Blocklist>,
     intercept: DnsIntercept,
 }
@@ -249,6 +251,7 @@ fn start_inner(
                 .block_on(dns::handler(
                     specs.upstream,
                     specs.alternative,
+                    specs.search_domains,
                     &server,
                     specs.blocklist,
                 ))

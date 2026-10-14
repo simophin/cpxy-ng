@@ -27,6 +27,7 @@ _start_instance() {
 		DNS_UPSTREAM="$(echo $CPXY_DNS_UPSTREAM | tr ' ' ,)" \
 		DNS_ALTERNATIVE="$(echo $CPXY_DNS_ALTERNATIVE | tr ' ' ,)" \
 		BLOCK_ADS="$CPXY_BLOCK_ADS" PROXY_ROUTES="$(echo $CPXY_PROXY_ROUTES | tr ' ' ,)" NO_COLOR=1
+	[ -n "$CPXY_DNS_SEARCH_DOMAINS" ] && set -- "$@" DNS_SEARCH_DOMAINS="$(echo $CPXY_DNS_SEARCH_DOMAINS | tr ' ' ,)"
 	[ -n "$CPXY_TSGW_AUTHKEY" ] && set -- "$@" TS_AUTHKEY="$CPXY_TSGW_AUTHKEY"
 	[ -n "$CPXY_TSGW_CONTROL_URL" ] && set -- "$@" CONTROL_URL="$CPXY_TSGW_CONTROL_URL"
 	[ "$CPXY_TSGW_NO_LOGS" = 1 ] && set -- "$@" TS_NO_LOGS_NO_SUPPORT=true

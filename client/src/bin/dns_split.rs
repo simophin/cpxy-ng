@@ -78,6 +78,10 @@ struct CliOptions {
     /// A domain only the local resolver knows, e.g. `lan`. Repeatable; needs --local-server.
     #[clap(long, env, value_delimiter = ',', requires = "local_server")]
     local_domain: Vec<Name>,
+
+    /// Suffix to try for single-label names, in order, before the bare name. Repeatable.
+    #[clap(long, env = "DNS_SEARCH_DOMAINS", value_delimiter = ',', value_parser = client::dns_split::search::parse_search_domain)]
+    search_domain: Vec<Name>,
 }
 
 #[tokio::main]
@@ -126,7 +130,8 @@ async fn main() -> anyhow::Result<()> {
         Some(cache)
     };
 
-    let mut handler = DnsSplitHandler::new(Racer::new(servers, timeout, is_local_region_ip), cache);
+    let mut handler = DnsSplitHandler::new(Racer::new(servers, timeout, is_local_region_ip), cache)
+        .with_search_domains(options.search_domain);
     if let Some(sinkhole) = options.sinkhole {
         let blocklist = &blocklist_data::BASELINE;
         tracing::info!("Blocking {} domains with {sinkhole}", blocklist.len());
