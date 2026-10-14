@@ -1,5 +1,6 @@
 package dev.fanchao.cpxy.vpn
 
+import android.view.KeyEvent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
@@ -73,6 +74,94 @@ class NavigationTest {
         compose.onNodeWithText("All apps").assertIsFocused()
         compose.onNodeWithText("All apps").performKeyInput { pressKey(Key.DirectionDown); pressKey(Key.DirectionCenter) }
         compose.waitUntil { runBlocking { settings.settings.first().appFilter == AppFilter.OnlySelected } }
+    }
+
+    private fun press(key: Key) {
+        compose.onRoot().performKeyInput { pressKey(key) }
+    }
+
+    private fun back() {
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitForIdle()
+    }
+
+    private fun focusTab(label: String) {
+        compose.onNode(hasText(label) and hasClickAction())
+            .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+    }
+
+    private fun moveUpTo(label: String) {
+        repeat(20) {
+            if (compose.onAllNodes(hasText(label) and isFocused()).fetchSemanticsNodes().isEmpty()) {
+                press(Key.DirectionUp)
+            }
+        }
+        compose.onNodeWithText(label).assertIsFocused()
+    }
+
+    @Test fun dpadEntersVpnFromEveryTabAndTheAddButton() {
+        runBlocking { repository.save(original) }
+        showApp()
+        compose.waitUntil { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() }
+        for (label in listOf("VPN", "Traffic", "Settings")) {
+            focusTab(label)
+            press(Key.DirectionUp)
+            compose.onNode(hasText(label) and hasClickAction()).assertIsNotFocused()
+            compose.onNode(isFocused() and (hasText("Home") or hasText("Connect to Home") or hasContentDescription("Actions for Home"))).assertExists()
+        }
+        val add = compose.onNodeWithContentDescription("Add profile")
+        add.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(Key.DirectionUp)
+        add.assertIsNotFocused()
+        compose.onNode(isFocused() and (hasText("Home") or hasText("Connect to Home") or hasContentDescription("Actions for Home"))).assertExists()
+    }
+
+    @Test fun dpadOpensProfileMenuAndReturnsToSelectionAndTabs() {
+        runBlocking { repository.save(original) }
+        showApp()
+        compose.waitUntil { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() }
+        focusTab("VPN")
+        press(Key.DirectionUp)
+        press(Key.DirectionLeft)
+        moveUpTo("Home")
+        press(Key.DirectionRight)
+        val menu = compose.onNodeWithContentDescription("Actions for Home")
+        menu.assertIsFocused()
+        press(Key.DirectionLeft)
+        compose.onNodeWithText("Home").assertIsFocused()
+        press(Key.DirectionRight)
+        press(Key.DirectionCenter)
+        compose.onNodeWithText("Edit").assertIsDisplayed()
+        compose.onNodeWithText("Duplicate").assertIsDisplayed()
+        back()
+        compose.waitUntil { compose.onAllNodesWithText("Edit").fetchSemanticsNodes().isEmpty() }
+        menu.assertIsFocused()
+        press(Key.DirectionLeft)
+        compose.onNodeWithText("Home").assertIsFocused()
+        repeat(5) { press(Key.DirectionDown) }
+        compose.onNode(isFocused() and (hasText("VPN") or hasText("Traffic") or hasText("Settings"))).assertExists()
+    }
+
+    @Test fun dpadActivatesBothAppPickerButtons() {
+        showApp()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        for (label in listOf("Only selected apps", "All apps except selected")) {
+            focusTab("Settings")
+            press(Key.DirectionUp)
+            press(Key.DirectionLeft)
+            moveUpTo(label)
+            press(Key.DirectionRight)
+            compose.onNode(isFocused() and hasText("Choose")).assertExists()
+            press(Key.DirectionLeft)
+            compose.onNodeWithText(label).assertIsFocused()
+            press(Key.DirectionRight)
+            press(Key.DirectionCenter)
+            compose.onNodeWithText(if (label == "Only selected apps") "Apps using the VPN" else "Apps bypassing the VPN").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Back").assertIsDisplayed()
+            back()
+            compose.waitUntil { compose.onAllNodesWithText(label).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText(label).assertExists()
+        }
     }
 
     @Test fun duplicateIsPrefilledAndSavedSeparately() {

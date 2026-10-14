@@ -2,6 +2,7 @@ package dev.fanchao.cpxy.vpn.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -94,28 +96,21 @@ internal fun SettingsScreen(
             for (filter in AppFilter.entries) {
                 item(key = filter) {
                     val count = settings.appsFor(filter).size
-                    ListItem(
-                        modifier = Modifier.selectable(
-                            selected = settings.appFilter == filter,
-                            role = Role.RadioButton,
-                            onClick = { scope.launch { settingsRepository.update { it.copy(appFilter = filter) } } },
-                        ),
-                        leadingContent = { RadioButton(selected = settings.appFilter == filter, onClick = null) },
-                        headlineContent = { Text(filter.title) },
-                        supportingContent = filter.description(count)?.let { { Text(it) } },
-                        trailingContent = if (filter == AppFilter.AllApps) {
-                            null
-                        } else {
-                            {
-                                Text(
-                                    "Choose",
-                                    modifier = Modifier.clickable { onChooseApps(filter) }.padding(8.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.labelLarge,
-                                )
-                            }
-                        },
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ListItem(
+                            modifier = Modifier.weight(1f).selectable(
+                                selected = settings.appFilter == filter,
+                                role = Role.RadioButton,
+                                onClick = { scope.launch { settingsRepository.update { it.copy(appFilter = filter) } } },
+                            ),
+                            leadingContent = { RadioButton(selected = settings.appFilter == filter, onClick = null) },
+                            headlineContent = { Text(filter.title) },
+                            supportingContent = filter.description(count)?.let { { Text(it) } },
+                        )
+                        if (filter != AppFilter.AllApps) {
+                            TextButton(onClick = { onChooseApps(filter) }) { Text("Choose") }
+                        }
+                    }
                 }
             }
             if (state is VpnState.Connecting || state is VpnState.Connected) {

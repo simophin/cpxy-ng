@@ -1,6 +1,5 @@
 package dev.fanchao.cpxy.vpn.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
@@ -49,6 +49,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.AppFilter
 import dev.fanchao.cpxy.vpn.Platform
@@ -79,7 +80,7 @@ fun HomeScreen(
     onChooseApps: (AppFilter) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.Vpn) }
-    val settingsFocus = remember { FocusRequester() }
+    val contentFocus = remember { FocusRequester() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(tab.title) }) },
@@ -88,7 +89,7 @@ fun HomeScreen(
                 for (item in Tab.entries) {
                     NavigationBarItem(
                         modifier = Modifier.focusProperties {
-                            if (tab == Tab.Settings) up = settingsFocus
+                            if (tab != Tab.Traffic) up = contentFocus
                         },
                         selected = tab == item,
                         onClick = { tab = item },
@@ -100,22 +101,26 @@ fun HomeScreen(
         },
         floatingActionButton = {
             if (tab == Tab.Vpn) {
-                FloatingActionButton(onClick = { onEditProfile(null) }) {
+                FloatingActionButton(
+                    onClick = { onEditProfile(null) },
+                    modifier = Modifier.focusProperties { up = contentFocus },
+                ) {
                     Icon(Icons.Default.Add, contentDescription = "Add profile")
                 }
             }
         },
     ) { padding ->
-        when (tab) {
-            Tab.Vpn -> VpnTab(repository, controller, onEditProfile, onDuplicateProfile, padding)
-            Tab.Traffic -> TrafficScreen(controller, padding)
-            Tab.Settings -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding)
-                    .focusRequester(settingsFocus).focusGroup(),
-            ) {
-                // Keep the focus group's bounds above the bottom navigation. D-pad Up
-                // enters the settings even when the last visible row has no focus target.
-                SettingsScreen(settingsRepository, controller, platform, onChooseApps, PaddingValues())
+        // Restrict the focus group's bounds to the content area. A full-screen lazy
+        // list with content padding overlaps the navigation bar during focus search.
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when (tab) {
+                Tab.Vpn -> Box(Modifier.fillMaxSize().focusRequester(contentFocus).focusGroup()) {
+                    VpnTab(repository, controller, onEditProfile, onDuplicateProfile, PaddingValues())
+                }
+                Tab.Traffic -> TrafficScreen(controller, PaddingValues())
+                Tab.Settings -> Box(Modifier.fillMaxSize().focusRequester(contentFocus).focusGroup()) {
+                    SettingsScreen(settingsRepository, controller, platform, onChooseApps, PaddingValues())
+                }
             }
         }
     }
@@ -162,34 +167,37 @@ private fun VpnTab(
             }
         }
         items(stored.profiles, key = { it.id }) { profile ->
-            ListItem(
-                modifier = Modifier.clickable { scope.launch { repository.select(profile.id) } },
-                leadingContent = {
-                    RadioButton(
+            // Selection and actions are sibling focus targets: directional focus
+            // search cannot enter an action nested inside a focusable row.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ListItem(
+                    modifier = Modifier.weight(1f).selectable(
                         selected = profile.id == stored.selectedId,
+                        role = Role.RadioButton,
                         onClick = { scope.launch { repository.select(profile.id) } },
-                    )
-                },
-                headlineContent = { Text(profile.name) },
-                trailingContent = {
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Actions for ${profile.name}")
-                        }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                            DropdownMenuItem(text = { Text("Edit") }, onClick = {
-                                menuExpanded = false
-                                onEditProfile(profile.id)
-                            })
-                            DropdownMenuItem(text = { Text("Duplicate") }, onClick = {
-                                menuExpanded = false
-                                onDuplicateProfile(profile.id)
-                            })
-                        }
+                    ),
+                    leadingContent = {
+                        RadioButton(selected = profile.id == stored.selectedId, onClick = null)
+                    },
+                    headlineContent = { Text(profile.name) },
+                )
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.Menu, contentDescription = "Actions for ${profile.name}")
                     }
-                },
-            )
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(text = { Text("Edit") }, onClick = {
+                            menuExpanded = false
+                            onEditProfile(profile.id)
+                        })
+                        DropdownMenuItem(text = { Text("Duplicate") }, onClick = {
+                            menuExpanded = false
+                            onDuplicateProfile(profile.id)
+                        })
+                    }
+                }
+            }
         }
     }
 }
