@@ -31,3 +31,16 @@ routing behavior. IPv6 is not supported by the current routing engine.
 
 Empty lists preserve existing behavior. Invalid CIDRs are rejected. The DNS-only
 `dns_split` and the proxy server do not make destination routing decisions.
+
+### DNS search domains
+
+`dns_split --search-domain home.arpa --search-domain corp.example` tries suffixes in order
+for single-label queries before falling back to the bare name. The equivalent environment
+setting is `DNS_SEARCH_DOMAINS=home.arpa,corp.example`. An empty list preserves existing
+behavior. Multi-label queries are unchanged; expanded queries follow the usual split DNS,
+local-server routing, caching and blocking policy. Successful expanded replies include a CNAME
+from the original short name to the expanded name.
+
+The shared VPN/gateway engine accepts the same ordered list as `dns_search_domains` in its
+JSON configuration. See [mobile settings](mobile/README.md#dns-search-domains),
+[Tailscale gateway settings](docs/cpxy-tsgw.md) and [OpenWrt settings](docs/openwrt.md).

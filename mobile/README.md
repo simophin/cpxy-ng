@@ -121,3 +121,15 @@ UI regression tests run on a connected phone or TV emulator:
 ```bash
 ./gradlew :androidApp:connectedDebugAndroidTest
 ```
+
+## DNS search domains
+
+Settings → DNS → DNS search domains accepts one ASCII hostname suffix per line, such as
+`home.arpa` and `corp.example`. The ordered list applies to every profile after reconnecting;
+clear it and save to disable it. Android receives the list for its VPN resolver, and the engine
+also expands single-label queries from VPN traffic and shared HTTP/SOCKS proxy clients.
+
+For `printer`, the engine tries `printer.home.arpa`, then `printer.corp.example`, then the bare
+name, stopping at the first successful answer with records. Names containing dots are queried
+unchanged. Expanded names use the usual DNS split, cache and ad blocking. AAAA queries still
+return no records because the engine only supports IPv4.

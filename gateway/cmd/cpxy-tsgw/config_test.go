@@ -14,6 +14,7 @@ func TestReadsTheConfigFile(t *testing.T) {
 	os.WriteFile(path, []byte(`# comment
 SERVER=https://:key@example.com
 DNS_UPSTREAM="223.5.5.5, tcp://119.29.29.29"
+DNS_SEARCH_DOMAINS="home.arpa, corp.example"
 
 MTU=1400
 BLOCK_ADS=1
@@ -31,6 +32,9 @@ BLOCK_ADS=1
 	}
 	if want := []string{"223.5.5.5", "tcp://119.29.29.29"}; !reflect.DeepEqual(s.engine.DNSUpstream, want) {
 		t.Fatalf("DNS_UPSTREAM %q", s.engine.DNSUpstream)
+	}
+	if want := []string{"home.arpa", "corp.example"}; !reflect.DeepEqual(s.engine.DNSSearchDomains, want) {
+		t.Fatalf("DNS_SEARCH_DOMAINS %q", s.engine.DNSSearchDomains)
 	}
 	if s.hostname != defaultHostname {
 		t.Fatalf("defaults not applied: %+v", s)

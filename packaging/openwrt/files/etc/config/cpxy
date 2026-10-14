@@ -19,6 +19,10 @@ config defaults 'defaults'
 	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index.
 	option client_socks5 '0'
 
+	# Optional ordered suffixes for short DNS names, for router and Tailscale clients.
+	# list dns_search_domain 'home.arpa'
+	# list dns_search_domain 'corp.example'
+
 	# Split DNS, for the networks (dns_split, in cpxy-router) and for cpxy-tsgw's clients.
 	# The dns_upstream answer is used when all its addresses are in the local region, the
 	# dns_alternative answer otherwise. Each entry is an IP, or a udp://, tcp://, tls:// or

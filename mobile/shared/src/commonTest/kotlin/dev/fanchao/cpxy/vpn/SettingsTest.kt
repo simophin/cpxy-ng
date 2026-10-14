@@ -108,6 +108,26 @@ class SettingsTest {
         AppSettings(proxyRoutes = listOf("0.0.0.0/0", "255.255.255.255/32", "10.0.0.1/24"))
     }
 
+    @Test
+    fun searchDomainsPersistInOrderAndCanBeCleared() = runTest {
+        assertEquals(emptyList(), Json.decodeFromString<AppSettings>("{}").dnsSearchDomains)
+        val domains = parseDnsSearchDomains(" Home.ARPA.\n\ncorp.example\nhome.arpa ")
+        assertEquals(listOf("home.arpa", "corp.example"), domains)
+        repository.update { it.copy(dnsSearchDomains = domains) }
+        assertEquals(domains, repository.settings.first().dnsSearchDomains)
+        repository.update { it.copy(dnsSearchDomains = emptyList()) }
+        assertEquals(emptyList(), repository.settings.first().dnsSearchDomains)
+    }
+
+    @Test
+    fun searchDomainsRejectMalformedSuffixes() {
+        for (domain in listOf(".", "a..", "a..b", "-lan", "lan-", "*.example", "a_b", "1.2.3.4", "a b", "é.example", "a".repeat(64))) {
+            assertFailsWith<IllegalArgumentException> { AppSettings(dnsSearchDomains = listOf(domain)) }
+        }
+        assertEquals(listOf(".", "a.."), parseDnsSearchDomains(".\na.."))
+        AppSettings(dnsSearchDomains = listOf("lan", "my-domain.example."))
+    }
+
     private companion object {
         const val OWN = "dev.fanchao.cpxy.vpn"
     }

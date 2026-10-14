@@ -55,6 +55,13 @@ class ProfileTest {
     }
 
     @Test
+    fun engineConfigIncludesSearchDomainsInOrder() {
+        val domains = listOf("home.arpa", "corp.example")
+        val config = Json.decodeFromString<EngineConfig>(profile.engineConfigJson(AppSettings(dnsSearchDomains = domains)))
+        assertEquals(domains, config.dnsSearchDomains)
+    }
+
+    @Test
     fun validProfileHasNoErrors() {
         assertTrue(profile.validationErrors().isEmpty())
     }

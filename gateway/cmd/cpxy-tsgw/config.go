@@ -73,10 +73,11 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 
 	s := settings{
 		engine: engine.Config{
-			Server:         get("SERVER", ""),
-			ProxyRoutes:    splitList(get("PROXY_ROUTES", "")),
-			DNSUpstream:    splitList(get("DNS_UPSTREAM", defaultDNSUpstream)),
-			DNSAlternative: splitList(get("DNS_ALTERNATIVE", defaultDNSAlternative)),
+			Server:           get("SERVER", ""),
+			ProxyRoutes:      splitList(get("PROXY_ROUTES", "")),
+			DNSUpstream:      splitList(get("DNS_UPSTREAM", defaultDNSUpstream)),
+			DNSAlternative:   splitList(get("DNS_ALTERNATIVE", defaultDNSAlternative)),
+			DNSSearchDomains: splitList(get("DNS_SEARCH_DOMAINS", "")),
 		},
 		// Not HOSTNAME, which shells and containers set to the machine's name.
 		hostname: get("TS_HOSTNAME", defaultHostname),

@@ -282,6 +282,42 @@ mod tests {
     }
 
     #[test]
+    fn search_domains_reach_the_gateway_resolver() {
+        let port = fake_upstream();
+        let config = format!(
+            r#"{{"server":"http://:k@127.0.0.1:1", "dns_upstream":["127.0.0.1:{port}"], "dns_alternative":["127.0.0.1:{port}"], "dns_search_domains":["home.arpa"]}}"#
+        );
+        let (_ours, theirs) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        let engine = start_engine(theirs.into_raw_fd(), &config).unwrap();
+        let mut request = query(73);
+        request.queries_mut()[0].set_name(Name::from_ascii("printer.").unwrap());
+        let bytes = request.to_vec().unwrap();
+        let mut out = [0u8; 4096];
+        let n = unsafe {
+            cpxy_engine_dns_resolve(
+                engine,
+                bytes.as_ptr(),
+                bytes.len(),
+                out.as_mut_ptr(),
+                out.len(),
+            )
+        };
+        unsafe {
+            cpxy_engine_stop(engine);
+            cpxy_engine_free(engine);
+        }
+        assert!(n > 0);
+        let response = Message::from_vec(&out[..n as usize]).unwrap();
+        assert_eq!(response.queries(), request.queries());
+        assert_eq!(response.answers()[0].record_type(), RecordType::CNAME);
+        assert_eq!(
+            response.answers()[1].name().to_ascii(),
+            "printer.home.arpa."
+        );
+        assert_eq!(answers(&response), [ANSWER]);
+    }
+
+    #[test]
     fn answers_dns_to_any_address_and_over_the_c_abi() {
         let port = fake_upstream();
         let config = format!(

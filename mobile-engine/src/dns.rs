@@ -34,6 +34,7 @@ const CACHE_OPTIONS: CacheOptions = CacheOptions {
 pub async fn handler(
     upstream: &[ServerSpec],
     alternative: &[ServerSpec],
+    search_domains: &[hickory_proto::rr::Name],
     server: &ServerConfig,
     blocklist: Option<&'static Blocklist>,
 ) -> anyhow::Result<DnsSplitHandler> {
@@ -61,7 +62,8 @@ pub async fn handler(
     let handler = DnsSplitHandler::new(
         Racer::new(servers, QUERY_TIMEOUT, is_local_region_ip),
         Some(Arc::new(cache)),
-    );
+    )
+    .with_search_domains(search_domains.to_vec());
     let Some(blocklist) = blocklist else {
         return Ok(handler);
     };

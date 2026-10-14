@@ -4,7 +4,7 @@ use super::upstream::DnsUpstream;
 use anyhow::Context;
 use blocklist_data::Blocklist;
 use hickory_proto::op::{Edns, Message, MessageType, OpCode, Query, ResponseCode};
-use hickory_proto::rr::rdata::A;
+use hickory_proto::rr::rdata::{A, CNAME};
 use hickory_proto::rr::{Name, RData, Record, RecordType};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -23,6 +23,7 @@ pub struct DnsSplitHandler {
     cache: Option<Arc<DnsCache>>,
     sinkhole: Option<Sinkhole>,
     local: Option<LocalNames>,
+    search_domains: Vec<Name>,
 }
 
 /// Names only the local network knows, answered by its own resolver instead of the split.
@@ -56,7 +57,14 @@ impl DnsSplitHandler {
             cache,
             sinkhole: None,
             local: None,
+            search_domains: Vec::new(),
         }
+    }
+
+    /// Ordered suffixes to try for single-label queries before the original name.
+    pub fn with_search_domains(mut self, domains: Vec<Name>) -> Self {
+        self.search_domains = domains;
+        self
     }
 
     /// Sends queries for single-label names, names under `domains` and reverse lookups of
@@ -89,24 +97,72 @@ impl DnsSplitHandler {
             return finalize(request, error(ResponseCode::NoError));
         }
 
+        if query.name().num_labels() == 1 {
+            for domain in &self.search_domains {
+                // Wire-format names are always absolute; only expand single-label names.
+                let Ok(name) = query.name().clone().append_domain(domain) else {
+                    continue;
+                };
+                let mut candidate = query.clone();
+                candidate.set_name(name.clone());
+                let response = self.resolve(request, &candidate).await;
+                // A blocked non-A query is deliberately empty; do not search past it.
+                if response.response_code() == ResponseCode::NoError
+                    && response.answers().is_empty()
+                    && self
+                        .sinkhole
+                        .as_ref()
+                        .is_some_and(|s| s.blocklist.is_blocked(&name.to_ascii()))
+                    && !self
+                        .local
+                        .as_ref()
+                        .is_some_and(|local| local.matches(&name))
+                {
+                    return finalize(request, response);
+                }
+                if response.response_code() == ResponseCode::NoError
+                    && !response.answers().is_empty()
+                {
+                    // Preserve the question and connect its name to the expanded answer.
+                    let ttl = response
+                        .answers()
+                        .iter()
+                        .map(Record::ttl)
+                        .min()
+                        .unwrap_or(0);
+                    let mut response = response;
+                    response.answers_mut().insert(
+                        0,
+                        Record::from_rdata(query.name().clone(), ttl, RData::CNAME(CNAME(name))),
+                    );
+                    response.set_authentic_data(false);
+                    return finalize(request, response);
+                }
+            }
+        }
+        finalize(request, self.resolve(request, query).await)
+    }
+
+    /// Resolve one exact name, so expanded names share routing, blocking and cache policy.
+    async fn resolve(&self, request: &Message, query: &Query) -> Message {
         if let Some(local) = &self.local
             && local.matches(query.name())
         {
-            return finalize(request, local.resolve(request, query).await);
+            return local.resolve(request, query).await;
         }
 
         if let Some(sinkhole) = &self.sinkhole
             && sinkhole.blocklist.is_blocked(&query.name().to_ascii())
         {
             tracing::info!("Blocked {query}");
-            return finalize(request, sinkhole.answer(query));
+            return sinkhole.answer(query);
         }
 
         if let Some(cache) = &self.cache {
             match cache.get(query, unix_now()).await {
                 Ok(Some(cached)) => {
                     tracing::debug!("Cache hit for {query}");
-                    return finalize(request, cached);
+                    return cached;
                 }
                 Ok(None) => {}
                 Err(e) => tracing::warn!("Error reading DNS cache: {e:?}"),
@@ -116,7 +172,7 @@ impl DnsSplitHandler {
         let upstream_request = upstream_request(request, query);
         let Some(resolution) = self.racer.resolve(&upstream_request).await else {
             tracing::info!("No DNS server answered {query}");
-            return finalize(request, error(ResponseCode::ServFail));
+            return error(ResponseCode::ServFail);
         };
 
         tracing::info!(
@@ -134,7 +190,7 @@ impl DnsSplitHandler {
             tracing::warn!("Error writing DNS cache: {e:?}");
         }
 
-        finalize(request, resolution.message)
+        resolution.message
     }
 }
 
@@ -334,6 +390,170 @@ mod tests {
         let mut request = query(name, record_type);
         request.set_id(4242);
         request
+    }
+
+    /// Records exact names and gives each one its configured response.
+    struct SearchUpstream {
+        calls: std::sync::Mutex<Vec<String>>,
+        answers: std::collections::HashMap<String, Message>,
+    }
+
+    impl DnsUpstream for SearchUpstream {
+        fn name(&self) -> &str {
+            "search-test"
+        }
+        fn query(
+            &self,
+            request: Message,
+        ) -> futures::future::BoxFuture<'_, anyhow::Result<Message>> {
+            Box::pin(async move {
+                let name = request.queries()[0].name().to_ascii();
+                self.calls.lock().unwrap().push(name.clone());
+                Ok(self
+                    .answers
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_else(|| error(ResponseCode::NXDomain)))
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn search_is_ordered_cached_and_preserves_the_question() {
+        let name = Name::from_ascii("printer.second.example.").unwrap();
+        let mut positive = error(ResponseCode::NoError);
+        positive.add_answer(Record::from_rdata(
+            name.clone(),
+            90,
+            RData::A(A(Ipv4Addr::new(10, 0, 0, 1))),
+        ));
+        let upstream = Arc::new(SearchUpstream {
+            calls: Default::default(),
+            answers: [(name.to_ascii(), positive)].into(),
+        });
+        let cache = Arc::new(DnsCache::open_in_memory(OPTIONS).await.unwrap());
+        let handler = DnsSplitHandler::new(
+            Racer::new(
+                vec![(Group::Alternative, upstream.clone())],
+                Duration::from_secs(1),
+                local_ip,
+            ),
+            Some(cache.clone()),
+        )
+        .with_search_domains(
+            ["first.example.", "second.example.", "third.example."]
+                .into_iter()
+                .map(|s| Name::from_ascii(s).unwrap())
+                .collect(),
+        );
+        let req = request("printer.", RecordType::A);
+        for _ in 0..2 {
+            let response = handler.handle(&req).await;
+            assert_eq!(response.queries(), req.queries());
+            assert_eq!(response.id(), req.id());
+            assert!(!response.authentic_data());
+            assert_eq!(response.answers()[0].name(), req.queries()[0].name());
+            assert_eq!(
+                response.answers()[0].data(),
+                &RData::CNAME(CNAME(name.clone()))
+            );
+            assert_eq!(response.answers()[1].name(), &name);
+            assert!(Message::from_vec(&encode_udp(&req, &response).unwrap()).is_ok());
+        }
+        assert_eq!(
+            *upstream.calls.lock().unwrap(),
+            ["printer.first.example.", "printer.second.example."]
+        );
+        assert!(
+            cache
+                .get(&req.queries()[0], unix_now())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let response = handler
+            .handle(&request("www.example.com.", RecordType::A))
+            .await;
+        assert_eq!(response.response_code(), ResponseCode::NXDomain);
+        assert_eq!(
+            upstream.calls.lock().unwrap().last().unwrap(),
+            "www.example.com."
+        );
+    }
+
+    #[tokio::test]
+    async fn search_falls_back_after_negative_empty_and_failed_answers() {
+        let upstream = Arc::new(SearchUpstream {
+            calls: Default::default(),
+            answers: [
+                ("host.empty.example.".into(), error(ResponseCode::NoError)),
+                ("host.failed.example.".into(), error(ResponseCode::ServFail)),
+            ]
+            .into(),
+        });
+        let handler = DnsSplitHandler::new(
+            Racer::new(
+                vec![(Group::Alternative, upstream.clone())],
+                Duration::from_secs(1),
+                local_ip,
+            ),
+            None,
+        )
+        .with_search_domains(
+            ["missing.example.", "empty.example.", "failed.example."]
+                .into_iter()
+                .map(|s| Name::from_ascii(s).unwrap())
+                .collect(),
+        );
+        let response = handler.handle(&request("host.", RecordType::A)).await;
+        assert_eq!(response.response_code(), ResponseCode::NXDomain);
+        assert_eq!(
+            *upstream.calls.lock().unwrap(),
+            [
+                "host.missing.example.",
+                "host.empty.example.",
+                "host.failed.example.",
+                "host."
+            ]
+        );
+        upstream.calls.lock().unwrap().clear();
+        handler.handle(&request("host.", RecordType::AAAA)).await;
+        assert!(upstream.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn searched_names_obey_local_routing_and_blocking() {
+        let upstream = FakeUpstream::new("u", 0, None);
+        let local = FakeUpstream::new("l", 0, Some(answer(&[Ipv4Addr::new(192, 168, 1, 2)])));
+        let (handler, _) = handler(&[(Group::Upstream, upstream.clone())]).await;
+        let domain = Name::from_ascii("lan.").unwrap();
+        let handler = handler
+            .with_local(local.clone(), vec![domain.clone()])
+            .with_search_domains(vec![domain]);
+        assert_eq!(
+            handler
+                .handle(&request("printer.", RecordType::A))
+                .await
+                .answers()
+                .len(),
+            2
+        );
+        assert_eq!(local.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
+
+        let (handler, _) = self::handler(&[(Group::Upstream, upstream.clone())]).await;
+        let blocklist = Box::leak(Box::new(
+            Blocklist::from_list("||ads.example.com^").unwrap(),
+        ));
+        let handler = handler
+            .with_search_domains(vec![Name::from_ascii("example.com.").unwrap()])
+            .with_sinkhole(blocklist, Ipv4Addr::new(198, 18, 0, 1));
+        let response = handler.handle(&request("ads.", RecordType::A)).await;
+        assert_eq!(response.answers().len(), 2);
+        let response = handler.handle(&request("ads.", RecordType::HTTPS)).await;
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+        assert!(response.answers().is_empty());
+        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

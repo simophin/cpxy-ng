@@ -86,6 +86,7 @@ them). A change applies when the container is recreated, which restarts both ser
 | `SOCKS5_PROXY_LISTEN` | empty, off | A SOCKS5 proxy as well, e.g. `[::]:1080`. |
 | `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | tsgw's split DNS: servers whose answer is used when every address in it is in the local region. See [choosing the servers](cpxy-tsgw.md#choosing-the-servers). |
 | `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy` | Servers whose answer is used otherwise. `?via=cpxy` asks a `tcp://`, `tls://` or `https://` server through the cpxy server. |
+| `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries from Tailscale clients, comma or space separated. Tries each suffix before the bare name. |
 | `BLOCK_ADS` | `1` | tsgw answers names on the built-in ad blocklist with an address that goes nowhere; `0` turns it off. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The exit node's name on the tailnet. |
 | `TS_AUTHKEY` | empty | An auth key for the first login instead of the link in the log. |

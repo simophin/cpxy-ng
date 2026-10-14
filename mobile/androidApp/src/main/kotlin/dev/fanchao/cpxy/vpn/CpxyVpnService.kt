@@ -85,6 +85,7 @@ class CpxyVpnService : VpnService() {
                 .setMtu(TunParameters.MTU)
                 .addAddress(TunParameters.ADDRESS, TunParameters.PREFIX_LENGTH)
                 .addDnsServer(TunParameters.DNS_SERVER)
+                .apply { settings.dnsSearchDomains.forEach { addSearchDomain(it) } }
                 .addRoute("0.0.0.0", 0)
                 // No IPv6 address, so apps do not use IPv6; the route keeps it off the
                 // underlying network.
