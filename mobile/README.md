@@ -64,3 +64,29 @@ Release APKs currently use the checked-in debug signing key.
 7. Turn on always-on VPN from Settings; the VPN connects with the selected profile.
 
 The engine logs to logcat with the tag `cpxy-engine`.
+
+## Share the VPN connection over Wi-Fi
+
+In Settings → Share connection, enable HTTP proxy and/or SOCKS5 proxy and choose their ports
+(defaults: HTTP 8080, SOCKS5 1080). Both are off by default. Connect or reconnect the VPN to
+apply changes, then configure another device with the Android device's Wi-Fi IPv4 address as
+its proxy host and the selected port. HTTP supports ordinary requests and HTTPS CONNECT;
+SOCKS5 supports TCP CONNECT, including hostname requests (no UDP ASSOCIATE).
+
+The listeners bind to `0.0.0.0` on all IPv4 interfaces and have no authentication. They run
+only while the VPN engine runs. Proxy hostnames use the profile's DNS split and ad blocking,
+and destinations use the engine's direct/CN versus cpxy routing. App selection affects local
+Android apps; shared proxy connections use the engine regardless of the selected apps.
+If an enabled port is occupied or cannot be bound, the VPN connection fails with the bind
+error. Enabled HTTP and SOCKS5 listeners must use different ports.
+
+For a smoke check, enable both proxies and reconnect. From another device on the same Wi-Fi,
+run (replacing `PHONE_IP`):
+
+```bash
+curl --proxy http://PHONE_IP:8080 https://ifconfig.me
+curl --proxy socks5h://PHONE_IP:1080 https://ifconfig.me
+```
+
+Disconnect and confirm both proxies stop accepting connections. Then disable one proxy,
+reconnect, and confirm only the enabled proxy accepts connections.

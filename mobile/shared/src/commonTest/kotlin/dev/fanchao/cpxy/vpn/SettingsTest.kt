@@ -11,6 +11,8 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlinx.serialization.json.Json
 
 class SettingsTest {
     private val directory = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "cpxy-vpn-test-${Random.nextLong().toULong()}"
@@ -61,6 +63,31 @@ class SettingsTest {
     fun exceptSelectedAlsoLeavesOutThisApp() {
         val settings = AppSettings(AppFilter.ExceptSelected, exceptApps = setOf("b"))
         assertEquals(AppRouting.Except(setOf("b", OWN)), settings.routing(OWN))
+    }
+
+    @Test
+    fun proxySettingsPersistIndependently() = runTest {
+        repository.update { it.copy(httpProxyEnabled = true, httpProxyPort = 8888, socksProxyEnabled = true, socksProxyPort = 1081) }
+        repository.update { it.copy(httpProxyEnabled = false) }
+        val settings = repository.settings.first()
+        assertEquals(false, settings.httpProxyEnabled)
+        assertEquals(8888, settings.httpProxyPort)
+        assertEquals(true, settings.socksProxyEnabled)
+        assertEquals(1081, settings.socksProxyPort)
+    }
+
+    @Test
+    fun oldSettingsDefaultToDisabledProxies() {
+        assertEquals(AppSettings(), Json.decodeFromString<AppSettings>("{}"))
+    }
+
+    @Test
+    fun rejectsInvalidPortsAndEnabledPortConflicts() {
+        assertFailsWith<IllegalArgumentException> { AppSettings(httpProxyPort = 0) }
+        assertFailsWith<IllegalArgumentException> { AppSettings(socksProxyPort = 65536) }
+        assertFailsWith<IllegalArgumentException> { AppSettings(httpProxyEnabled = true, socksProxyEnabled = true, socksProxyPort = 8080) }
+        // Disabled listeners can keep their saved port even when another listener uses it.
+        AppSettings(httpProxyEnabled = true, socksProxyPort = 8080)
     }
 
     private companion object {

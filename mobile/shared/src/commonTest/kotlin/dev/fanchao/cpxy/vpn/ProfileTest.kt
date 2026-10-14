@@ -37,6 +37,17 @@ class ProfileTest {
     }
 
     @Test
+    fun engineConfigIncludesOnlyEnabledProxyPorts() {
+        val settings = AppSettings(httpProxyEnabled = true, httpProxyPort = 8888)
+        val config = Json.decodeFromString<EngineConfig>(profile.engineConfigJson(settings))
+        assertEquals(8888, config.httpProxyPort)
+        assertEquals(null, config.socksProxyPort)
+        val socks = Json.decodeFromString<EngineConfig>(profile.engineConfigJson(settings.copy(httpProxyEnabled = false, socksProxyEnabled = true)))
+        assertEquals(null, socks.httpProxyPort)
+        assertEquals(1080, socks.socksProxyPort)
+    }
+
+    @Test
     fun validProfileHasNoErrors() {
         assertTrue(profile.validationErrors().isEmpty())
     }

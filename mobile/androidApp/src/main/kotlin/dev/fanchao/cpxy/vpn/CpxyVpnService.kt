@@ -94,7 +94,7 @@ class CpxyVpnService : VpnService() {
                 .establish()
                 ?: error("The VPN permission was revoked")
             // The engine owns the descriptor from here, and closes it even when it fails to start.
-            startEngine(tun.detachFd(), profile.engineConfigJson())
+            startEngine(tun.detachFd(), profile.engineConfigJson(settings))
         }
 
         started.onSuccess { started ->

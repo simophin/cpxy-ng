@@ -29,6 +29,8 @@ data class EngineConfig(
     val mtu: Int? = null,
     /** Resolves names on the engine's built-in ad blocklist to an address it drops. */
     @SerialName("block_ads") val blockAds: Boolean = false,
+    @SerialName("http_proxy_port") val httpProxyPort: Int? = null,
+    @SerialName("socks_proxy_port") val socksProxyPort: Int? = null,
 )
 
 /** The TUN parameters the platform sets up, mirroring `mobile-engine/src/config.rs`. */
@@ -43,13 +45,15 @@ object TunParameters {
 
 private val engineJson = Json { explicitNulls = false }
 
-fun Profile.engineConfigJson(): String = engineJson.encodeToString(
+fun Profile.engineConfigJson(settings: AppSettings = AppSettings()): String = engineJson.encodeToString(
     EngineConfig(
         server = server.trim(),
         dnsUpstream = dnsUpstream,
         dnsAlternative = dnsAlternative,
         mtu = TunParameters.MTU,
         blockAds = true,
+        httpProxyPort = settings.httpProxyPort.takeIf { settings.httpProxyEnabled },
+        socksProxyPort = settings.socksProxyPort.takeIf { settings.socksProxyEnabled },
     )
 )
 

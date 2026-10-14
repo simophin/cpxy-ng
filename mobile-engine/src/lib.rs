@@ -22,6 +22,7 @@ mod filter;
 mod fin;
 #[cfg(target_os = "linux")]
 pub mod linux;
+mod proxy;
 mod routing;
 mod tun;
 
@@ -150,6 +151,10 @@ fn start_with_dns(
         settings.mtu,
         tcp_window,
         listener,
+        proxy::Ports {
+            http: settings.http_proxy_port,
+            socks: settings.socks_proxy_port,
+        },
         Some(DnsSpecs {
             upstream: &settings.dns_upstream,
             alternative: &settings.dns_alternative,
@@ -168,7 +173,15 @@ pub fn start_router(
     mtu: u16,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
-    start_inner(tun, server, mtu, LOCAL_TCP_WINDOW, listener, None)
+    start_inner(
+        tun,
+        server,
+        mtu,
+        LOCAL_TCP_WINDOW,
+        listener,
+        proxy::Ports::default(),
+        None,
+    )
 }
 
 /// Which DNS packets the engine answers itself rather than relays.
@@ -218,6 +231,7 @@ fn start_inner(
     mtu: u16,
     tcp_window: u32,
     listener: Arc<dyn EventListener>,
+    proxy_ports: proxy::Ports,
     dns_specs: Option<DnsSpecs>,
 ) -> anyhow::Result<EngineHandle> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -240,6 +254,8 @@ fn start_inner(
                 })
         })
         .transpose()?;
+    // Bind before reporting success, so an occupied port fails the connection visibly.
+    let proxies = runtime.block_on(proxy::Listeners::bind(proxy_ports))?;
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
     let device_eof = Arc::new(Notify::new());
@@ -267,6 +283,7 @@ fn start_inner(
         tcp_window,
         outbound,
         dns,
+        proxies,
         shutdown_rx,
     ));
     tracing::info!("Engine started");
@@ -369,6 +386,7 @@ async fn run<O: Outbound + Send + Sync + 'static>(
     tcp_window: u32,
     outbound: Arc<O>,
     dns: Option<DnsService>,
+    proxies: proxy::Listeners,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut tcp_config = TcpConfig::default();
@@ -383,6 +401,10 @@ async fn run<O: Outbound + Send + Sync + 'static>(
         .udp_timeout(UDP_IDLE_TIMEOUT)
         .with_tcp_config(tcp_config);
     let mut stack = IpStack::new(config, device);
+    let mut proxy_tasks = proxies.spawn(
+        outbound.clone(),
+        dns.as_ref().map(|dns| dns.handler.clone()),
+    );
     let mut flows = JoinSet::new();
 
     loop {
@@ -390,6 +412,10 @@ async fn run<O: Outbound + Send + Sync + 'static>(
             stream = stack.accept() => stream,
             // Reap the flows that ended.
             Some(_) = flows.join_next() => continue,
+            Some(result) = proxy_tasks.join_next() => {
+                tracing::error!(?result, "Proxy listener stopped");
+                break;
+            }
             _ = &mut shutdown => break,
             _ = device_eof.notified() => {
                 tracing::warn!("The device closed");
@@ -416,6 +442,7 @@ async fn run<O: Outbound + Send + Sync + 'static>(
     // once the runtime shuts down, so the flows must end first. Dropping the stack aborts the task
     // that owns the device.
     drop(stack);
+    proxy_tasks.shutdown().await;
     flows.shutdown().await;
     let _ = device_closed.await;
 }
@@ -556,6 +583,38 @@ mod tests {
         assert_eq!(mss_for_mtu(1280), 1220);
         assert_eq!(mss_for_mtu(1500), 1440);
         assert_eq!(mss_for_mtu(40), 0);
+    }
+
+    #[test]
+    fn stopping_engine_closes_proxy_listeners_and_pending_handshakes() {
+        use std::io::{Read, Write};
+        let reserved = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        let port = reserved.local_addr().unwrap().port();
+        drop(reserved);
+        let mut fds = [0; 2];
+        // SAFETY: socketpair fills in two new descriptors, owned below.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, fds.as_mut_ptr()) },
+            0
+        );
+        let (tun, _peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        let config = format!(
+            r#"{{"server":"http://:k@127.0.0.1:1", "dns_upstream":["127.0.0.1"], "dns_alternative":["127.0.0.1"], "socks_proxy_port":{port}}}"#
+        );
+        let engine = start(tun, &config, Arc::new(Ignore)).unwrap();
+        let mut client = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        client.write_all(&[5, 1, 0]).unwrap();
+        let mut reply = [0; 2];
+        client.read_exact(&mut reply).unwrap();
+        assert_eq!(reply, [5, 0]);
+        engine.stop();
+        assert_eq!(client.read(&mut reply).unwrap(), 0);
+        assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).is_err());
+        // A subsequent connection can bind the saved port again.
+        std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).unwrap();
     }
 
     #[test]
