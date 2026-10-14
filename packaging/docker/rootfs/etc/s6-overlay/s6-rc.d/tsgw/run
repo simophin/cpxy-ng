@@ -1,5 +1,5 @@
 #!/command/execlineb -P
-# The Tailscale exit node. Its proxy and alternative DNS come from /etc/cpxy/setup.
+# The Tailscale exit node. Its proxy comes from /etc/cpxy/setup.
 with-contenv
 s6-envdir /run/cpxy/env/tsgw
 pipeline -dw { /etc/cpxy/log-prefix tsgw }

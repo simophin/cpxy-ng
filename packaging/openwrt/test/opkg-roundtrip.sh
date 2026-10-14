@@ -28,12 +28,11 @@ opkg install /pkg.ipk
 
 # What the install added
 for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split /usr/bin/cpxy-client /usr/bin/cpxy-tsgw \
-	/usr/bin/cpxy-smartdns /usr/bin/cpxy-show /etc/config/cpxy /lib/upgrade/keep.d/cpxy \
-	/usr/libexec/cpxy/net.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh \
-	/usr/share/doc/cpxy/smartdns-LICENSE /usr/share/doc/cpxy/smartdns-SOURCE; do
+	/usr/bin/cpxy-show /etc/config/cpxy /lib/upgrade/keep.d/cpxy \
+	/usr/libexec/cpxy/net.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }
 done
-for service in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do
+for service in cpxy-client cpxy-router cpxy-tsgw; do
 	[ -x /etc/init.d/$service ] || { echo "FAIL: missing /etc/init.d/$service"; exit 1; }
 	ls /etc/rc.d | grep -q "^S..$service\$" || { echo "FAIL: $service not enabled"; exit 1; }
 done
@@ -48,8 +47,8 @@ echo "install ok"
 
 opkg remove cpxy
 for f in /usr/bin/cpxy-router /usr/bin/cpxy-dns-split /usr/bin/cpxy-client /usr/bin/cpxy-tsgw \
-	/usr/bin/cpxy-smartdns /usr/bin/cpxy-show /etc/init.d/cpxy-client /etc/init.d/cpxy-smartdns \
-	/etc/init.d/cpxy-router /etc/init.d/cpxy-tsgw /usr/libexec/cpxy /usr/share/doc/cpxy; do
+	/usr/bin/cpxy-show /etc/init.d/cpxy-client /etc/init.d/cpxy-router /etc/init.d/cpxy-tsgw \
+	/usr/libexec/cpxy; do
 	[ ! -e "$f" ] || { echo "FAIL: left behind $f"; exit 1; }
 done
 rm -f /etc/config/cpxy   # a modified conffile is kept by opkg on purpose; the default one is removed

@@ -5,7 +5,11 @@ use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
 use client::dns_split::server::{DnsSplitHandler, serve_tcp, serve_udp};
 use client::dns_split::spec::ServerSpec;
-use client::dns_split::upstream::{DnsUpstream, Group, HickoryUpstream, tls_client_config};
+use client::dns_split::upstream::{
+    Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
+};
+use client::outbound::ProtocolOutbound;
+use client::protocol_config::Config as ServerConfig;
 use hickory_proto::rr::Name;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -30,6 +34,11 @@ struct CliOptions {
     /// Alternative DNS server, in the same format as --upstream. Repeatable.
     #[clap(long, env, required = true, value_delimiter = ',')]
     alternative: Vec<ServerSpec>,
+
+    /// The cpxy server URL with its key, `https://:<key>@<host>:<port>`, for the servers given
+    /// with `?via=cpxy`
+    #[clap(long, env)]
+    server: Option<ServerConfig>,
 
     /// How long to wait for answers to a query, in seconds
     #[clap(long, env, default_value_t = 5)]
@@ -79,6 +88,10 @@ async fn main() -> anyhow::Result<()> {
     let options = CliOptions::parse();
     let timeout = Duration::from_secs(options.timeout);
     let tls_config = tls_client_config()?;
+    let cpxy = options.server.map(|server| {
+        tracing::info!("Using cpxy server {server:?} for the servers via cpxy");
+        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(server)))) as Arc<dyn Dialer>
+    });
 
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
     for (group, specs) in [
@@ -86,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
         (Group::Alternative, &options.alternative),
     ] {
         for spec in specs {
-            let server = HickoryUpstream::new(spec, tls_config.clone(), timeout)
+            let server = HickoryUpstream::new(spec, tls_config.clone(), timeout, cpxy.clone())
                 .await
                 .with_context(|| format!("Error setting up {group} server {spec}"))?;
             tracing::info!("Using {group} server {}", server.name());
@@ -120,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
         handler = handler.with_sinkhole(blocklist, sinkhole);
     }
     if let Some(spec) = &options.local_server {
-        let server = HickoryUpstream::new(spec, tls_config.clone(), timeout)
+        let server = HickoryUpstream::new(spec, tls_config.clone(), timeout, cpxy.clone())
             .await
             .with_context(|| format!("Error setting up local server {spec}"))?;
         tracing::info!("Using local server {} for local names", server.name());

@@ -2,18 +2,17 @@
 
 The `cpxy` package puts your networks behind cpxy servers, with nothing to set up on the devices.
 For each set of networks (for example `lan`, `guest` and `iot`) it runs one **instance**, with its
-own cpxy server and four services:
+own cpxy server and three services:
 
 | Service | What it does |
 |---|---|
-| `cpxy-client` | An HTTP proxy (`[::]:5000` for the first instance), through the instance's server. Devices may use it directly; smartdns and tsgw use it too. |
-| `cpxy-smartdns` | A resolver that asks overseas DNS servers (1.1.1.1 and 8.8.8.8 over TCP by default) through that proxy, so its answers are not tampered with. It serves only the instance's split DNS. |
-| `cpxy-router` | Sends the networks' TCP through the server (local-region destinations go direct) and answers their DNS with **dns_split**, which picks the local-region answer when there is one and smartdns's otherwise. |
+| `cpxy-client` | An HTTP proxy (`[::]:5000` for the first instance), through the instance's server. Devices may use it directly; tsgw uses it too. |
+| `cpxy-router` | Sends the networks' TCP through the server (local-region destinations go direct) and answers their DNS with **dns_split**, which picks the local-region answer when there is one, and otherwise the answer of overseas DNS servers (1.1.1.1 and 8.8.8.8 over TCP by default) asked through the server, so it is not tampered with. |
 | `cpxy-tsgw` | A [Tailscale exit node](cpxy-tsgw.md) with the same routing and split DNS, for phones and laptops away from home. |
 
 ```text
 device on 'guest' ── DNS ─► dns_split (guest) ─┬─ local-region DNS servers
-                                               └─ smartdns (guest) ─► HTTP proxy (guest) ─► guest's server
+                                               └─ overseas DNS servers, through guest's server
                   └─ TCP ─► cpxy1 ─► packet engine ─► guest's server (local region: direct)
 phone (Tailscale) ───────► cpxy-tsgw (guest) ─► the same, through guest's server
 ```
@@ -46,8 +45,7 @@ opkg update && opkg install /tmp/cpxy_*.ipk      # also pulls in ip-full and kmo
 ```
 
 If the older `cpxy-router` package is installed, remove it first (`opkg remove cpxy-router`); its
-settings do not carry over. The package includes its own smartdns: a `smartdns` package, if
-installed, is neither used nor changed.
+settings do not carry over. A `smartdns` package, if installed, is neither used nor changed.
 
 The services are enabled, but wait for a server. Set one, and everything starts:
 
@@ -101,7 +99,6 @@ The `index` gives each instance its own ports, devices and routing numbers:
 |---|---|---|---|---|
 | `client_http_listen` | `[::]:5000+i` | 5000 | 5001 | 5002 |
 | `client_socks5_listen` (with `client_socks5 1`) | `[::]:1080+i` | 1080 | 1081 | 1082 |
-| `smartdns_listen` | `127.0.0.1:5336+10i` | 5336 | 5346 | 5356 |
 | `dns_listen` (dns_split) | `0.0.0.0:5335+10i` | 5335 | 5345 | 5355 |
 | `tun` | `cpxy<i>` | cpxy0 | cpxy1 | cpxy2 |
 | `routing_table` | `100+i` | 100 | 101 | 102 |
@@ -119,14 +116,11 @@ never taken from `defaults`.
 |---|---|---|
 | `server` | none, **required** | The cpxy server URL with its key. Kept out of the process list. |
 | `enabled` (instance) | `1` | `0` stops the whole instance. |
-| `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy, smartdns and exit node. |
-| `client`, `smartdns`, `router`, `tsgw` | `1` | Which services the instance runs. |
+| `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy and exit node. |
+| `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy. |
-| `smartdns_server` (list) | `tcp://1.1.1.1`, `tcp://8.8.8.8` | smartdns's servers: `tcp://`, `tls://` or `https://` with an IP address (a host name would need the router's resolver). |
-| `smartdns_proxy` | `1` | Ask them through the instance's proxy. `0` asks directly, and also allows plain UDP servers. |
-| `smartdns_cache_size`, `smartdns_prefetch`, `smartdns_serve_expired` | `4096`, `1`, `1` | smartdns's cache. |
 | `dns_upstream` (list) | `223.5.5.5`, `119.29.29.29` | DNS servers whose answer is used when all its addresses are in the local region. The fastest ones are usually your ISP's. |
-| `dns_alternative` (list) | the instance's smartdns | DNS servers whose answer is used otherwise. |
+| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy`, `tcp://8.8.8.8?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
 | `block_ads` | `1` | Answer names on the built-in ad blocklist with an address that goes nowhere (dns_split and tsgw). |
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |
@@ -139,7 +133,13 @@ never taken from `defaults`.
 | `tsgw_no_logs_no_support`, `tsgw_verbose` | `0` | Stop uploading Tailscale's logs; more logging. |
 
 A DNS server entry (`dns_upstream`, `dns_alternative`) is a plain IP, or a `udp://`, `tcp://`,
-`tls://` or `https://` URL; `tls://` and `https://` accept `?ip=<addr>`.
+`tls://` or `https://` URL; `tls://` and `https://` accept `?ip=<addr>`. `tcp://`, `tls://` and
+`https://` accept `?via=cpxy` to ask through the instance's server, which then looks up a host
+name without `?ip=` itself, e.g. `https://dns.google/dns-query?via=cpxy`.
+
+**Upgrading from a package with smartdns:** the `smartdns` and `smartdns_*` options are ignored
+now. An instance without `dns_alternative` asks the same servers through its server; one that set
+`dns_alternative` to its smartdns (`127.0.0.1:5336`) must change it.
 
 ### DNS
 
@@ -149,9 +149,9 @@ use IPv4. dns_split asks `dns_upstream` and `dns_alternative` at once and uses t
 answer only when all its addresses are in the local region, so a tampered answer can never send
 a blocked site direct.
 
-Each instance's DNS stays inside it: its dns_split asks its own smartdns, which goes through its
-own proxy and server. The router's own lookups never go through cpxy, so nothing here depends on
-itself to start.
+Each instance's DNS stays inside it: its dns_split asks its overseas servers through its own
+server. The router's own lookups never go through cpxy, so nothing here depends on itself to
+start.
 
 Because DNS is redirected per firewall zone, a zone holding one instance's networks must not hold
 networks of another instance or of none (the service says so). Set `router_dns` to `0` for such an
@@ -181,7 +181,7 @@ the details.
 - **What runs:** `cpxy-show`, and `logread -e cpxy` for every service's messages.
 - **Turn one instance off:** `uci set cpxy.guest.enabled=0; uci commit cpxy`. Its networks go
   direct again; the others keep running.
-- **Turn everything off for now:** `for s in cpxy-tsgw cpxy-router cpxy-smartdns cpxy-client; do /etc/init.d/$s stop; done`.
+- **Turn everything off for now:** `for s in cpxy-tsgw cpxy-router cpxy-client; do /etc/init.d/$s stop; done`.
   The networks go direct and use dnsmasq again. `start` (or a reboot) brings them back.
 - **Upgrade:** install the newer `.ipk` the same way. `/etc/config/cpxy` and the Tailscale logins
   are kept.
@@ -206,7 +206,7 @@ the details.
 | Nothing starts | `cpxy-show` names what is missing or clashing. |
 | A network's devices are not proxied | `logread -e cpxy` for "has no device yet"; check `network` against `uci show network`. |
 | A network has no internet | The server URL or key is wrong, or the server is unreachable: `logread -e cpxy-router`. |
-| Names do not resolve | `logread -e cpxy-dns-split` and `logread -e cpxy-smartdns`; smartdns needs the instance's proxy, so check `cpxy-client` too. |
+| Names do not resolve | `logread -e cpxy-dns-split`: it shows each server it uses, and the errors reaching them or the instance's server. |
 | Local names (`printer.lan`) do not resolve | `dns_local_domain`, and that dnsmasq answers on `dns_local_server`. |
 | A site or app is missing content | The ad blocklist may be in the way: `uci set cpxy.<instance>.block_ads=0`. |
 | The exit node does not appear | It is not logged in or not approved: `logread -e cpxy-tsgw`. |

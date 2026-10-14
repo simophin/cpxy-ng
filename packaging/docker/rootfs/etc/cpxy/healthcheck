@@ -1,7 +1,7 @@
 #!/bin/sh
 # Docker's health check: every service is up and has stayed up for a few seconds, so one that
 # keeps crashing (and being restarted) shows as unhealthy.
-for service in client smartdns tsgw; do
+for service in client tsgw; do
 	# Split into the two fields
 	# shellcheck disable=SC2046
 	set -- $(/command/s6-svstat -o up,updownfor "/run/service/$service" 2>/dev/null)

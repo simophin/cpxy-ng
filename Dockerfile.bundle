@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# One container per bundle: the cpxy client's HTTP proxy, a smartdns asking overseas servers through
-# it, and cpxy-tsgw (a Tailscale exit node) using both. s6-overlay starts and supervises the three;
-# docs/docker-bundle.md explains the settings.
+# One container per bundle: the cpxy client's HTTP proxy, and cpxy-tsgw (a Tailscale exit node)
+# using it. s6-overlay starts and supervises the two; docs/docker-bundle.md explains the settings.
 
 # Run Cargo, rustc and Go on the BuildKit host instead of emulating the target CPU, as
 # Dockerfile.tsgw does.
@@ -32,13 +31,6 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/r
     cargo zigbuild --release --locked --target "$rust_target" -p client --bin standalone && \
     cp "target/$rust_target/release/standalone" /out/cpxy-client
 
-# smartdns is C with static OpenSSL from Alpine's packages, so it builds on the target
-# architecture, from the same pinned release as the OpenWrt package. CI builds each architecture on
-# a runner of that architecture; elsewhere a foreign one needs QEMU.
-FROM alpine:3.22 AS smartdns
-COPY packaging/openwrt/build-smartdns.sh /build-smartdns.sh
-RUN /build-smartdns.sh /out
-
 # s6-overlay's release archives, pinned by checksum, unpacked on the build host.
 FROM --platform=$BUILDPLATFORM alpine:3.22 AS s6
 ARG TARGETARCH
@@ -59,8 +51,6 @@ RUN apk add --no-cache xz >/dev/null && \
 FROM alpine:3.22
 COPY --from=s6 /out/ /
 COPY --from=builder /out/cpxy-client /out/cpxy-tsgw /usr/bin/
-COPY --from=smartdns /out/cpxy-smartdns /usr/bin/
-COPY --from=smartdns /out/smartdns-LICENSE /out/smartdns-SOURCE /usr/share/doc/cpxy/
 COPY packaging/docker/rootfs/ /
 
 # Every setting, with the image's defaults; override any with `-e`. Each is explained in
@@ -68,22 +58,14 @@ COPY packaging/docker/rootfs/ /
 #
 # The cpxy server URL with its key, e.g. https://:<key>@<host>:<port>; the client and tsgw share it
 ENV SERVER=
-# The client's proxies. smartdns and tsgw reach the HTTP proxy on loopback at its port. SOCKS5 is
-# off unless set, e.g. [::]:1080.
+# The client's proxies. tsgw reaches the HTTP proxy on loopback at its port. SOCKS5 is off unless
+# set, e.g. [::]:1080.
 ENV HTTP_PROXY_LISTEN=[::]:5000
 ENV SOCKS5_PROXY_LISTEN=
-# smartdns, on loopback only. On host network give each container its own port.
-ENV SMARTDNS_LISTEN=127.0.0.1:5336
-# The servers smartdns asks through the proxy: tcp://, tls:// or https:// to IP addresses,
-# separated by commas
-ENV SMARTDNS_SERVERS=tcp://1.1.1.1,tcp://8.8.8.8
-ENV SMARTDNS_CACHE_SIZE=4096
-# Refresh popular names before they expire, and answer from an expired entry while refreshing it
-ENV SMARTDNS_PREFETCH=1
-ENV SMARTDNS_SERVE_EXPIRED=1
-# DNS servers whose answer is used when every address in it is in the local region; otherwise
-# smartdns's answer is used
+# DNS servers whose answer is used when every address in it is in the local region, and servers
+# whose answer is used otherwise, here asked through the cpxy server (?via=cpxy)
 ENV DNS_UPSTREAM=223.5.5.5,tcp://119.29.29.29
+ENV DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy
 # Answer names on the built-in ad blocklist with an address that goes nowhere; 0 turns it off
 ENV BLOCK_ADS=1
 # The node's name on the tailnet, and an auth key to log in without opening the link in the log

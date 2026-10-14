@@ -15,9 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Each architecture builds on its own runner, natively: smartdns is C built on the target
-  # architecture, which would otherwise need QEMU. Each pushes its image by digest only; `merge`
-  # tags the two as one image.
+  # Each architecture builds on its own runner, in parallel and with its own cache. Each pushes its
+  # image by digest only; `merge` tags the two as one image.
   build:
     strategy:
       matrix:

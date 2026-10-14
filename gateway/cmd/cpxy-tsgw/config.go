@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	defaultMTU            = 1280
-	defaultHostname       = "cpxy-tsgw"
-	defaultDNSUpstream    = "223.5.5.5,tcp://119.29.29.29"
-	defaultDNSAlternative = "https://dns.google/dns-query?ip=8.8.8.8"
+	defaultMTU         = 1280
+	defaultHostname    = "cpxy-tsgw"
+	defaultDNSUpstream = "223.5.5.5,tcp://119.29.29.29"
+	// Asked through the cpxy server, so neither poisoned nor blocked
+	defaultDNSAlternative = "tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy"
 )
 
 // settings are read from KEY=value pairs: the environment (systemd's EnvironmentFile), over an

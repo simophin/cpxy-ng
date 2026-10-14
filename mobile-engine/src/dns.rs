@@ -8,7 +8,11 @@ use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
 use client::dns_split::server::{DnsSplitHandler, encode_udp, serve_tcp_connection};
 use client::dns_split::spec::ServerSpec;
-use client::dns_split::upstream::{DnsUpstream, Group, HickoryUpstream, tls_client_config};
+use client::dns_split::upstream::{
+    Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
+};
+use client::outbound::ProtocolOutbound;
+use client::protocol_config::Config as ServerConfig;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use hickory_proto::op::Message;
@@ -25,21 +29,27 @@ const CACHE_OPTIONS: CacheOptions = CacheOptions {
     negative_ttl: 300,
 };
 
+/// Servers given with `?via=cpxy` are reached through `server`, without the routing that
+/// decides between direct and the cpxy server for the device's flows.
 pub async fn handler(
     upstream: &[ServerSpec],
     alternative: &[ServerSpec],
+    server: &ServerConfig,
     blocklist: Option<&'static Blocklist>,
 ) -> anyhow::Result<DnsSplitHandler> {
     let tls_config = tls_client_config()?;
+    let cpxy: Arc<dyn Dialer> =
+        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(server.clone()))));
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
     for (group, specs) in [
         (Group::Upstream, upstream),
         (Group::Alternative, alternative),
     ] {
         for spec in specs {
-            let server = HickoryUpstream::new(spec, tls_config.clone(), QUERY_TIMEOUT)
-                .await
-                .with_context(|| format!("Error setting up {group} DNS server {spec}"))?;
+            let server =
+                HickoryUpstream::new(spec, tls_config.clone(), QUERY_TIMEOUT, Some(cpxy.clone()))
+                    .await
+                    .with_context(|| format!("Error setting up {group} DNS server {spec}"))?;
             tracing::info!("Using {group} DNS server {}", server.name());
             servers.push((group, Arc::new(server)));
         }

@@ -1,6 +1,5 @@
 # cpxy: one instance per set of networks. Each instance runs, for its own cpxy server:
-#   cpxy-client    an HTTP proxy, which smartdns and tsgw also use
-#   cpxy-smartdns  a resolver that asks overseas servers through that proxy
+#   cpxy-client    an HTTP proxy, which tsgw also uses
 #   cpxy-router    the networks' TCP through the server, and their DNS through dns_split
 #   cpxy-tsgw      a Tailscale exit node with the same routing and DNS
 # Every option in 'defaults' can also be set in an instance, which then wins.
@@ -12,30 +11,22 @@ config defaults 'defaults'
 
 	# The components every instance runs (1) or not (0)
 	option client '1'
-	option smartdns '1'
 	option router '1'
 	option tsgw '1'
 
 	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index.
 	option client_socks5 '0'
 
-	# cpxy-smartdns: the overseas servers, asked through the instance's HTTP proxy (smartdns_proxy).
-	# tcp://, tls:// or https:// with an IP address; plain UDP only with smartdns_proxy 0.
-	list smartdns_server 'tcp://1.1.1.1'
-	list smartdns_server 'tcp://8.8.8.8'
-	option smartdns_proxy '1'
-	option smartdns_cache_size '4096'
-	option smartdns_prefetch '1'
-	option smartdns_serve_expired '1'
-
 	# Split DNS, for the networks (dns_split, in cpxy-router) and for cpxy-tsgw's clients.
 	# The dns_upstream answer is used when all its addresses are in the local region, the
 	# dns_alternative answer otherwise. Each entry is an IP, or a udp://, tcp://, tls:// or
-	# https:// URL (tls:// and https:// accept ?ip=<addr>).
+	# https:// URL (tls:// and https:// accept ?ip=<addr>). tcp://, tls:// and https:// accept
+	# ?via=cpxy to ask through the instance's cpxy server, so the answer is neither poisoned nor
+	# blocked.
 	list dns_upstream '223.5.5.5'
 	list dns_upstream '119.29.29.29'
-	# Unset: the instance's own smartdns
-	# list dns_alternative 'tls://1.1.1.1'
+	# Unset: tcp://1.1.1.1?via=cpxy and tcp://8.8.8.8?via=cpxy
+	# list dns_alternative 'https://dns.google/dns-query?ip=8.8.8.8&via=cpxy'
 	option dns_cache '1'
 	# Answer names on the built-in ad blocklist with an address that goes nowhere
 	option block_ads '1'
@@ -63,14 +54,14 @@ config instance 'main'
 	# 0..9, unique. Everything below defaults to a value derived from it; set one only if it
 	# clashes with something else on the router.
 	option index '0'
-	# The OpenWrt networks whose devices use this instance (none: client, smartdns and tsgw only)
+	# The OpenWrt networks whose devices use this instance (none: client and tsgw only)
 	list network 'lan'
 	# Derived from index (i):
 	#   tun 'cpxy<i>'                          routing_table '100+i'
 	#   rule_priority '9100+10i' (uses 4)      client_http_listen '[::]:5000+i'
-	#   client_socks5_listen '[::]:1080+i'     smartdns_listen '127.0.0.1:5336+10i'
-	#   dns_listen '0.0.0.0:5335+10i'          tsgw_port '41700+i'
-	#   tsgw_hostname 'cpxy-<name>'            tsgw_state_dir '/etc/cpxy/tsgw/<name>'
+	#   client_socks5_listen '[::]:1080+i'     dns_listen '0.0.0.0:5335+10i'
+	#   tsgw_port '41700+i'                    tsgw_hostname 'cpxy-<name>'
+	#   tsgw_state_dir '/etc/cpxy/tsgw/<name>'
 
 # Another network on its own server, without a Tailscale exit node:
 # config instance 'guest'

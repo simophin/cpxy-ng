@@ -1,5 +1,5 @@
 #!/bin/sh
-# Exercise the four init scripts with three instances, and real UCI firewall generation, in an
+# Exercise the three init scripts with three instances, and real UCI firewall generation, in an
 # OpenWrt rootfs. procd, ip and the routing helpers are stubbed: commands are logged, not run.
 #
 # usage: init-dryrun.sh <ipk> [image]    (needs podman or docker)
@@ -80,13 +80,13 @@ service() (
 )
 everything() {
 	: >"$LOG"
-	for s in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do service "$s" "$1" 2>>/tmp/err || fail "$s $1"; done
+	for s in cpxy-client cpxy-router cpxy-tsgw; do service "$s" "$1" 2>>/tmp/err || fail "$s $1"; done
 }
 router() { service cpxy-router "$1" 2>>/tmp/err || fail "cpxy-router $1"; }
 # invalid <error>: every service refuses the configuration and changes nothing
 invalid() {
 	: >/tmp/err
-	for s in cpxy-client cpxy-smartdns cpxy-router cpxy-tsgw; do
+	for s in cpxy-client cpxy-router cpxy-tsgw; do
 		: >"$LOG"
 		if service "$s" reload_service 2>>/tmp/err; then fail "$s accepted an invalid configuration"; fi
 		[ ! -s "$LOG" ] || fail "$s: invalid reload changed the running service"
@@ -122,13 +122,6 @@ want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
 want 'set file /tmp/cpxy/client-guest.env'
 grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
-# cpxy-smartdns: its own port, through its own instance's proxy
-want 'set command /usr/bin/cpxy-smartdns -f -c /tmp/cpxy/smartdns-guest.conf -p -'
-grep -qxF 'bind 127.0.0.1:5346' /tmp/cpxy/smartdns-guest.conf || fail 'guest smartdns port'
-grep -qxF 'proxy-server http://127.0.0.1:5001 -name cpxy' /tmp/cpxy/smartdns-guest.conf || fail 'guest smartdns proxy'
-grep -qxF 'server tcp://1.1.1.1 -proxy cpxy' /tmp/cpxy/smartdns-main.conf || fail 'smartdns server'
-grep -qxF 'speed-check-mode none' /tmp/cpxy/smartdns-main.conf || fail 'smartdns probes answers'
-if grep -q 'resolv\|conf-file\|:53$' /tmp/cpxy/smartdns-main.conf; then fail 'smartdns touches the system resolver'; fi
 # cpxy-router: a worker and a dns_split per instance
 want 'up cpxy0 100 9100 br-lan'
 want 'up cpxy1 101 9110 br-guest'
@@ -137,7 +130,12 @@ want 'set command /usr/bin/cpxy-router --tun cpxy1'
 want 'set env SERVER=https://:guest-key@second.example:443 NO_COLOR=1'
 want 'instance guest_dns'
 want 'set command /usr/bin/cpxy-dns-split --listen 0.0.0.0:5345'
-want 'append command --alternative 127.0.0.1:5346'
+want 'append command --alternative tcp://1.1.1.1?via=cpxy'
+want 'append command --alternative tcp://8.8.8.8?via=cpxy'
+# dns_split asks those through its instance's server, whose key stays out of the process list
+want 'set file /tmp/cpxy/dns-guest.env'
+grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/dns-guest.env || fail 'dns_split server'
+absent 'append command --server'
 want 'append command --local-server 127.0.0.1:53'
 want 'append command --local-domain lan'
 want 'append command --cache-db /tmp/cpxy/dns-iot.sqlite'
@@ -156,7 +154,7 @@ position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewal
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
-want 'DNS_UPSTREAM=223.5.5.5,119.29.29.29 DNS_ALTERNATIVE=127.0.0.1:5336 BLOCK_ADS=1'
+want 'DNS_UPSTREAM=223.5.5.5,119.29.29.29 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy BLOCK_ADS=1'
 want 'NO_COLOR=1 HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
 want 'set file /tmp/cpxy/tsgw-guest.env'
 want 'set file /tmp/cpxy/router-guest.env'
@@ -179,21 +177,22 @@ uci set cpxy.guest.index=1
 uci set cpxy.guest.client_http_listen='[::]:5000'
 invalid 'tcp 5000 is already used'
 uci delete cpxy.guest.client_http_listen
-uci set cpxy.guest.smartdns_listen=127.0.0.1:53
+uci set cpxy.guest.dns_listen=0.0.0.0:53
 invalid 'must not use port 53'
-uci delete cpxy.guest.smartdns_listen
-uci add_list cpxy.guest.smartdns_server=tls://dns.google
-invalid "smartdns_server 'tls://dns.google' must be an IP address"
-uci delete cpxy.guest.smartdns_server
-uci add_list cpxy.guest.smartdns_server=8.8.8.8
-invalid "smartdns_server '8.8.8.8' must be an IP address, over tcp://"
-uci delete cpxy.guest.smartdns_server
-uci set cpxy.guest.client=0
-invalid 'smartdns_proxy needs'
-uci set cpxy.guest.client=1
-uci set cpxy.guest.smartdns=0
-invalid "'dns_alternative' is required"
+uci delete cpxy.guest.dns_listen
+uci add_list cpxy.guest.dns_alternative='udp://8.8.8.8?via=cpxy'
+invalid "DNS server 'udp://8.8.8.8?via=cpxy' goes through the cpxy server"
+uci delete cpxy.guest.dns_alternative
+uci add_list cpxy.guest.dns_alternative='8.8.8.8?via=cpxy'
+invalid "DNS server '8.8.8.8?via=cpxy' goes through the cpxy server"
+uci delete cpxy.guest.dns_alternative
+# Settings of the smartdns this package no longer has are ignored
 uci set cpxy.guest.smartdns=1
+uci add_list cpxy.guest.smartdns_server=tcp://1.1.1.1
+uci commit cpxy
+router reload_service
+uci delete cpxy.guest.smartdns
+uci delete cpxy.guest.smartdns_server
 uci set cpxy.guest.tun=cpxy0
 : >/tmp/err
 if service cpxy-router reload_service 2>/tmp/err; then fail 'duplicate tun accepted'; fi

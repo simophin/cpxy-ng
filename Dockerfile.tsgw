@@ -48,8 +48,8 @@ ENV CONTROL_URL=
 # Set to true to stop uploading Tailscale's own logs to Tailscale
 ENV TS_NO_LOGS_NO_SUPPORT=
 # DNS servers whose answer is used when every address in it is in the local region, and servers
-# whose answer is used otherwise (a resolver on your tailnet is the reliable choice). Empty means
-# the program's defaults, listed in docs/cpxy-tsgw.md.
+# whose answer is used otherwise (?via=cpxy asks one through the cpxy server). Empty means the
+# program's defaults, listed in docs/cpxy-tsgw.md.
 ENV DNS_UPSTREAM=
 ENV DNS_ALTERNATIVE=
 # Answer names on the built-in ad blocklist with an address that goes nowhere; 0 turns it off

@@ -1,6 +1,6 @@
 #!/bin/sh
 # opkg leaves empty directories behind
-rmdir "${IPKG_INSTROOT}/usr/libexec/cpxy" "${IPKG_INSTROOT}/usr/share/doc/cpxy" 2>/dev/null
+rmdir "${IPKG_INSTROOT}/usr/libexec/cpxy" 2>/dev/null
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
 	# Apply the removal of the instances' firewall sections
 	/etc/init.d/firewall reload >/dev/null 2>&1

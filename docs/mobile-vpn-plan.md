@@ -11,6 +11,8 @@ on the router (see [packaging/openwrt/README.md](../packaging/openwrt/README.md)
 
 1. **DNS split.** The app answers the device's DNS with `dns_split`: an answer from the `upstream`
    servers is used when all its addresses are in CN, otherwise the `alternative` servers' answer.
+   Servers given with `?via=cpxy`, a new profile's alternative servers among them, are asked through
+   the cpxy server.
 2. **Traffic split.** TCP to CN (and private) IPv4 addresses goes direct; everything else goes
    through the cpxy server.
 3. **UDP.** UDP 443 (QUIC) is refused so browsers fall back to TCP through the proxy. All other UDP

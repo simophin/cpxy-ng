@@ -77,6 +77,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client::dns_split::spec::{Endpoint, Via};
 
     #[test]
     fn parses_a_full_config() {
@@ -95,8 +96,8 @@ mod tests {
         assert!(settings.server.tls);
         assert_eq!(settings.dns_upstream.len(), 2);
         assert!(matches!(
-            settings.dns_alternative[0],
-            ServerSpec::Https { .. }
+            settings.dns_alternative[0].endpoint,
+            Endpoint::Https { .. }
         ));
         assert_eq!(settings.mtu, 1400);
     }
@@ -119,6 +120,17 @@ mod tests {
         )
         .unwrap();
         assert!(config.settings().unwrap().block_ads);
+    }
+
+    #[test]
+    fn reads_servers_via_cpxy() {
+        let config = Config::from_json(
+            r#"{"server": "http://:k@1.2.3.4:80", "dns_upstream": ["223.5.5.5"], "dns_alternative": ["tcp://1.1.1.1?via=cpxy", "8.8.8.8"]}"#,
+        )
+        .unwrap();
+        let settings = config.settings().unwrap();
+        assert_eq!(settings.dns_alternative[0].via, Via::Cpxy);
+        assert_eq!(settings.dns_alternative[1].via, Via::Direct);
     }
 
     #[test]

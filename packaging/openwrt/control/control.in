@@ -5,8 +5,7 @@ Conflicts: cpxy-router
 Section: net
 Architecture: @ARCH@
 Maintainer: cpxy-ng
-Description: cpxy for OpenWrt: per network, an HTTP proxy, smartdns, LAN routing with split DNS and a Tailscale exit node
+Description: cpxy for OpenWrt: per network, an HTTP proxy, LAN routing with split DNS and a Tailscale exit node
  One instance per set of networks, each with its own cpxy server: cpxy-client (HTTP proxy),
- cpxy-smartdns (overseas DNS through that proxy), cpxy-router (TCP through the server, DNS
- through dns_split) and cpxy-tsgw (Tailscale exit node). Configure /etc/config/cpxy.
- Includes smartdns (GPL-3.0-or-later); see /usr/share/doc/cpxy.
+ cpxy-router (TCP through the server, DNS through dns_split, overseas DNS through the server)
+ and cpxy-tsgw (Tailscale exit node). Configure /etc/config/cpxy.

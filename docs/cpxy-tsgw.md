@@ -105,7 +105,7 @@ restart.
 | `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. |
 | `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). Also `--control-url`. |
 | `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | DNS servers whose answer is used when every address in it is in the local region. |
-| `DNS_ALTERNATIVE` | `https://dns.google/dns-query?ip=8.8.8.8` | DNS servers whose answer is used otherwise. A resolver on your tailnet is the reliable choice (see [Choosing the servers](#choosing-the-servers)). |
+| `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
 | `BLOCK_ADS` | `0`; `1` in the Docker image | `1` answers names on the built-in ad blocklist with an address that goes nowhere, so ads and trackers fail to load on every device using the exit node. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
 | `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
@@ -113,6 +113,8 @@ restart.
 
 DNS servers are a plain IP (with an optional `:port`), or a `udp://`, `tcp://`, `tls://` or
 `https://` URL; `tls://` and `https://` accept `?ip=<addr>` so no lookup is needed at startup.
+`tcp://`, `tls://` and `https://` accept `?via=cpxy` to connect through the cpxy server; the cpxy
+server then looks up a hostname without `?ip=` itself.
 
 `--verbose` adds Tailscale's own debug output to the log, including each DNS query clients send
 over the peer API (`peerapi: exitdns: ...`).
@@ -142,59 +144,13 @@ blocked site direct. What has to be trustworthy is the **alternative** answer:
   connecting to upstream`).
 - DNS over HTTPS or TLS works only while its server is reachable, and some, `dns.google` among
   them, are blocked by name.
-- **A resolver on your tailnet** is reached inside Tailscale's encrypted tunnel, so it can be neither
-  poisoned nor blocked. Run one on the cpxy server, so CDNs answer for where traffic leaves, and set
-  `DNS_ALTERNATIVE=<its Tailscale IP>:<port>`. [Below](#a-resolver-on-your-tailnet) shows how.
+- **A server asked through the cpxy server** (`?via=cpxy`, the default) can be neither poisoned nor
+  blocked, and CDNs answer for where traffic leaves. The cpxy server carries TCP only, so use
+  `tcp://`, `tls://` or `https://`.
 
 For `DNS_UPSTREAM`, the resolvers your router hands out over DHCP are usually the fastest and give
 the nearest CDN nodes for your ISP. Check that each server you list answers: a dead one costs
 nothing visible but means local-region names wait for the alternative answer.
-
-### A resolver on your tailnet
-
-Pick a Debian machine outside the local region that is on the tailnet, ideally the cpxy server
-itself. On it:
-
-```sh
-sudo apt install dnsmasq-base       # the binary only; the full dnsmasq package would want port 53
-sudo mkdir -p /etc/tailnet-dns
-sudo tee /etc/tailnet-dns/dnsmasq.conf <<'EOF'
-port=5335
-interface=tailscale0
-bind-dynamic
-no-resolv
-no-hosts
-server=1.1.1.1
-server=8.8.8.8
-cache-size=10000
-EOF
-sudo tee /etc/systemd/system/tailnet-dns.service <<'EOF'
-[Unit]
-Description=dnsmasq resolver for tailnet peers on port 5335
-After=network-online.target tailscaled.service
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/etc/tailnet-dns/dnsmasq.conf --pid-file=
-DynamicUser=yes
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl daemon-reload
-sudo systemctl enable --now tailnet-dns
-```
-
-It answers only on the machine's Tailscale addresses. Any port works; 5335 keeps it clear of
-another resolver on 53. If the machine runs a firewall, allow port 5335 from `tailscale0`, and if
-your tailnet has access rules, allow cpxy-tsgw's node to reach it.
-
-Then point cpxy-tsgw at it, using the machine's Tailscale IP (`tailscale ip -4 <machine>`):
-
-```sh
--e DNS_ALTERNATIVE=100.x.y.z:5335
-```
 
 ## Check it
 
@@ -239,7 +195,7 @@ the machine in the admin console.
 | The exit node does not show in the Tailscale app | The log says whether it is approved; approve it in the admin console. The tailnet policy must also let the client use exit nodes (`autogroup:internet`). |
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
-| Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Use a [resolver on your tailnet](#choosing-the-servers). |
+| Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Ask it [through the cpxy server](#choosing-the-servers) with `?via=cpxy`. |
 | A site or app is missing content | The ad blocklist may be in the way: set `BLOCK_ADS=0` and compare. |
 | Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. |
 
