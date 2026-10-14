@@ -27,7 +27,7 @@ sealed interface Route : NavKey
 data object HomeRoute : Route
 
 @Serializable
-data class EditProfileRoute(val profileId: String?) : Route
+data class EditProfileRoute(val profileId: String?, val duplicate: Boolean = false) : Route
 
 @Serializable
 data class AppPickerRoute(val filter: AppFilter) : Route
@@ -64,12 +64,14 @@ fun CpxyVpnApp(
                         controller = controller,
                         platform = platform,
                         onEditProfile = { backStack += EditProfileRoute(it) },
+                        onDuplicateProfile = { backStack += EditProfileRoute(it, duplicate = true) },
                         onChooseApps = { backStack += AppPickerRoute(it) },
                     )
                 }
                 entry<EditProfileRoute> { route ->
                     EditProfileScreen(
                         profileId = route.profileId,
+                        duplicate = route.duplicate,
                         repository = repository,
                         onDone = { pop() },
                     )

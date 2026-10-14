@@ -3,10 +3,13 @@ package dev.fanchao.cpxy.vpn.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -28,6 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.Profile
@@ -52,10 +58,11 @@ fun EditProfileScreen(
     profileId: String?,
     repository: ProfileRepository,
     onDone: () -> Unit,
+    duplicate: Boolean = false,
 ) {
     // Null while loading.
-    val initial by produceState<Profile?>(null, profileId) {
-        value = profileId?.let { id -> repository.profiles.first().profiles.firstOrNull { it.id == id } }
+    val initial by produceState<Profile?>(null, profileId, duplicate) {
+        val source = profileId?.let { id -> repository.profiles.first().profiles.firstOrNull { it.id == id } }
             ?: Profile(
                 id = Uuid.random().toString(),
                 name = "",
@@ -63,11 +70,12 @@ fun EditProfileScreen(
                 dnsUpstream = DefaultDnsUpstream,
                 dnsAlternative = DefaultDnsAlternative,
             )
+        value = if (duplicate) source.copy(id = Uuid.random().toString(), name = "${source.name} (copy)") else source
     }
     initial?.let { profile ->
         EditProfileForm(
             initial = profile,
-            isNew = profileId == null,
+            isNew = profileId == null || duplicate,
             repository = repository,
             onDone = onDone,
         )
@@ -82,12 +90,13 @@ private fun EditProfileForm(
     repository: ProfileRepository,
     onDone: () -> Unit,
 ) {
-    var name by remember { mutableStateOf(initial.name) }
-    var server by remember { mutableStateOf(initial.server) }
-    var dnsUpstream by remember { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
-    var dnsAlternative by remember { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
-    var showErrors by remember { mutableStateOf(false) }
+    var name by remember(initial.id) { mutableStateOf(initial.name) }
+    var server by remember(initial.id) { mutableStateOf(initial.server) }
+    var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
+    var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
+    var showErrors by remember(initial.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
     val profile = initial.copy(
         name = name.trim(),
@@ -96,6 +105,18 @@ private fun EditProfileForm(
         dnsAlternative = parseServerList(dnsAlternative),
     )
     val errors = if (showErrors) profile.validationErrors() else emptyMap()
+
+    fun save() {
+        showErrors = true
+        if (profile.validationErrors().isEmpty()) {
+            scope.launch {
+                repository.save(profile)
+                onDone()
+            }
+        }
+    }
+
+    val next = { focusManager.moveFocus(FocusDirection.Next); Unit }
 
     Scaffold(
         topBar = {
@@ -125,16 +146,19 @@ private fun EditProfileForm(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Field("Name", name, { name = it }, errors[ProfileField.Name])
+            Field("Name", name, { name = it }, errors[ProfileField.Name], onNext = next)
             Field(
                 label = "Server",
                 value = server,
                 onValueChange = { server = it },
                 error = errors[ProfileField.Server],
+                onNext = next,
                 hint = "https://:key@example.com",
                 keyboardType = KeyboardType.Uri,
             )
@@ -143,6 +167,7 @@ private fun EditProfileForm(
                 value = dnsUpstream,
                 onValueChange = { dnsUpstream = it },
                 error = errors[ProfileField.DnsUpstream],
+                onNext = next,
                 hint = "One per line. Used when all its answers are in CN.",
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
@@ -152,20 +177,14 @@ private fun EditProfileForm(
                 value = dnsAlternative,
                 onValueChange = { dnsAlternative = it },
                 error = errors[ProfileField.DnsAlternative],
+                imeAction = ImeAction.Done,
+                onDone = ::save,
                 hint = "One per line. Used otherwise. ?via=cpxy asks through the server (TCP, TLS or HTTPS).",
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = {
-                    showErrors = true
-                    if (profile.validationErrors().isEmpty()) {
-                        scope.launch {
-                            repository.save(profile)
-                            onDone()
-                        }
-                    }
-                }) {
+                Button(onClick = ::save) {
                     Text("Save")
                 }
             }
@@ -182,6 +201,9 @@ private fun Field(
     hint: String? = null,
     singleLine: Boolean = true,
     keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Next,
+    onNext: () -> Unit = {},
+    onDone: () -> Unit = {},
 ) {
     OutlinedTextField(
         value = value,
@@ -192,6 +214,8 @@ private fun Field(
         supportingText = (error ?: hint)?.let { { Text(it) } },
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 2,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        maxLines = if (singleLine) 1 else 4,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onNext = { onNext() }, onDone = { onDone() }),
     )
 }

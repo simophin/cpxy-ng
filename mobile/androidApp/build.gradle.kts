@@ -175,6 +175,7 @@ android {
         applicationId = "dev.fanchao.cpxy.vpn"
         minSdk = 26
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
         // CI passes the release tag, or `git describe` between releases.
         versionName = providers.environmentVariable("CPXY_VPN_VERSION")
@@ -282,6 +283,12 @@ kotlin {
 }
 
 dependencies {
+    androidTestImplementation(libs.compose.material3)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.1")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.1")
     implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

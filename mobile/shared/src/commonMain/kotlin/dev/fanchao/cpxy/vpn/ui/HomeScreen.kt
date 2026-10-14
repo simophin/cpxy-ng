@@ -1,7 +1,9 @@
 package dev.fanchao.cpxy.vpn.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,11 +15,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -35,11 +39,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.AppFilter
@@ -67,9 +75,11 @@ fun HomeScreen(
     controller: VpnController,
     platform: Platform,
     onEditProfile: (profileId: String?) -> Unit,
+    onDuplicateProfile: (profileId: String) -> Unit,
     onChooseApps: (AppFilter) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.Vpn) }
+    val settingsFocus = remember { FocusRequester() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(tab.title) }) },
@@ -77,6 +87,9 @@ fun HomeScreen(
             NavigationBar {
                 for (item in Tab.entries) {
                     NavigationBarItem(
+                        modifier = Modifier.focusProperties {
+                            if (tab == Tab.Settings) up = settingsFocus
+                        },
                         selected = tab == item,
                         onClick = { tab = item },
                         icon = { Icon(item.icon, contentDescription = null) },
@@ -94,9 +107,16 @@ fun HomeScreen(
         },
     ) { padding ->
         when (tab) {
-            Tab.Vpn -> VpnTab(repository, controller, onEditProfile, padding)
+            Tab.Vpn -> VpnTab(repository, controller, onEditProfile, onDuplicateProfile, padding)
             Tab.Traffic -> TrafficScreen(controller, padding)
-            Tab.Settings -> SettingsScreen(settingsRepository, controller, platform, onChooseApps, padding)
+            Tab.Settings -> Box(
+                modifier = Modifier.fillMaxSize().padding(padding)
+                    .focusRequester(settingsFocus).focusGroup(),
+            ) {
+                // Keep the focus group's bounds above the bottom navigation. D-pad Up
+                // enters the settings even when the last visible row has no focus target.
+                SettingsScreen(settingsRepository, controller, platform, onChooseApps, PaddingValues())
+            }
         }
     }
 }
@@ -106,6 +126,7 @@ private fun VpnTab(
     repository: ProfileRepository,
     controller: VpnController,
     onEditProfile: (profileId: String?) -> Unit,
+    onDuplicateProfile: (profileId: String) -> Unit,
     padding: PaddingValues,
 ) {
     val stored by repository.profiles.collectAsState(StoredProfiles())
@@ -151,8 +172,21 @@ private fun VpnTab(
                 },
                 headlineContent = { Text(profile.name) },
                 trailingContent = {
-                    IconButton(onClick = { onEditProfile(profile.id) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit ${profile.name}")
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Actions for ${profile.name}")
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(text = { Text("Edit") }, onClick = {
+                                menuExpanded = false
+                                onEditProfile(profile.id)
+                            })
+                            DropdownMenuItem(text = { Text("Duplicate") }, onClick = {
+                                menuExpanded = false
+                                onDuplicateProfile(profile.id)
+                            })
+                        }
                     }
                 },
             )
