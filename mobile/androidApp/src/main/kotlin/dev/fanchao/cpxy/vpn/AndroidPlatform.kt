@@ -44,6 +44,8 @@ class AndroidPlatform(private val activity: Activity) : Platform {
 
     override val versionName: String =
         activity.packageManager.getPackageInfo(activity.packageName, 0).versionName ?: "dev"
+
+    override val updates: UpdateChecker? = activity.app.updates
 }
 
 private class AndroidAppCatalog(private val context: Context) : AppCatalog {

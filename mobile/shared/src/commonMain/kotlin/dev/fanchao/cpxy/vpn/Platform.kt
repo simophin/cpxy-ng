@@ -15,6 +15,9 @@ interface Platform {
 
     /** The app's version name, such as `1.2.0` or `dev`. */
     val versionName: String
+
+    /** Checks for and installs newer versions; null where the app cannot update itself. */
+    val updates: UpdateChecker?
 }
 
 data class InstalledApp(

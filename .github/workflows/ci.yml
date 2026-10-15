@@ -4,14 +4,16 @@ on:
   push:
     branches:
       - main
+    # A pushed tag is a new version number: its build is published as that version
+    tags:
+      - '*'
   pull_request:
     types: [synchronize, opened, reopened]
-  release:
-    types: [published]
   # The full build (packages included) of any branch, on demand
   workflow_dispatch:
 
-# PRs run tests, including the mobile TUN lab; APK and per-platform builds run on main and releases.
+# PRs run tests, including the mobile TUN lab; APK and per-platform builds run on main and tags,
+# and the publish job puts them on the download server (download-worker/).
 # PR runs are cancelled when superseded. Everything else shares a single
 # group so only one build runs at a time (a newer pending run replaces an
 # older pending one, but a running build is never cancelled).
@@ -20,20 +22,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # Every build of a commit carries the same version: `git describe`, so the tag itself on a tagged
+  # commit and `<tag>-<commits since>-g<hash>` after it, which sort in commit order along main.
+  version:
+    name: Work out the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ipk_version: ${{ steps.version.outputs.ipk_version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tags and history for `git describe`
+          fetch-depth: 0
+      - name: Work out the version
+        id: version
+        run: |
+          version=$(git describe --tags --always)
+          version=${version#v}
+          # opkg compares what follows the last "-" as a revision, numerically: 1.17.0-r5, and
+          # 1.17.0-r0 for the tag itself.
+          case "$version" in
+            *-*-g*) base=${version%-*-g*}; commits=${version#"$base"-}; ipk_version="$base-r${commits%%-g*}" ;;
+            *.*.*) ipk_version="$version-r0" ;;
+            *) ipk_version="0.0.0-r$(git rev-list --count HEAD)" ;;
+          esac
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "ipk_version=$ipk_version" >>"$GITHUB_OUTPUT"
+          echo "$version (ipk $ipk_version)"
+
   build_mobile_vpn:
     name: Build mobile VPN APK
     if: github.event_name != 'pull_request'
-    needs: [test_mobile_engine, test_mobile_shared]
+    needs: [version, test_mobile_engine, test_mobile_shared]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          # Tags and history for `git describe`
-          fetch-depth: 0
 
       - name: Set up Java 21
         uses: actions/setup-java@v6
@@ -75,18 +103,12 @@ jobs:
           "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           "ndk;28.2.13676358"
 
-      # The release tag on releases, `git describe` otherwise; a leading "v" is dropped.
-      - name: Work out the app version
-        id: version
-        run: |
-          version=$(git describe --tags --always)
-          echo "version=${version#v}" >>"$GITHUB_OUTPUT"
-
       - name: Build APK and Gradle-owned Rust libraries
         run: ./gradlew :androidApp:assembleRelease
         working-directory: mobile
         env:
-          CPXY_VPN_VERSION: ${{ steps.version.outputs.version }}
+          CPXY_VPN_VERSION: ${{ needs.version.outputs.version }}
+          CPXY_UPDATE_URL: ${{ vars.DOWNLOAD_URL }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
       # Updates only install over an APK signed with the same key, so never publish a debug-signed one.
@@ -107,18 +129,17 @@ jobs:
                 lib/x86/libmobile_engine.so \
                 lib/x86_64/libmobile_engine.so)
 
-      - name: Name VPN APK for release upload
-        id: apk
+      # Every version folder names its files the same; only the folder differs
+      - name: Name the APK
         run: |
-          name="mobile-vpn-${{ steps.version.outputs.version }}-release.apk"
-          cp mobile/androidApp/build/outputs/apk/release/androidApp-release.apk "$name"
-          echo "name=$name" >>"$GITHUB_OUTPUT"
+          mkdir android
+          cp mobile/androidApp/build/outputs/apk/release/androidApp-release.apk android/cpxy-vpn.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.apk.outputs.name }}
-          path: ${{ steps.apk.outputs.name }}
+          name: android
+          path: android
           if-no-files-found: error
 
   test_mobile_engine:
@@ -227,24 +248,26 @@ jobs:
           cargo build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine --exclude client &&
           cargo build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin standalone --bin dns_split
 
+      # Published as raw/<target>/cpxy-*, the names the OpenWrt package installs them under
       - name: Rename files
         run:
           mkdir artifacts &&
-          mv -v target/${{ matrix.target.rust }}/release/standalone${{ matrix.target.binary_ext }} artifacts/client-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
-          mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/server-${{ matrix.target.rust }}${{ matrix.target.binary_ext }} &&
-          mv -v target/${{ matrix.target.rust }}/release/dns_split${{ matrix.target.binary_ext }} artifacts/dns_split-${{ matrix.target.rust }}${{ matrix.target.binary_ext }}
+          mv -v target/${{ matrix.target.rust }}/release/standalone${{ matrix.target.binary_ext }} artifacts/cpxy-client${{ matrix.target.binary_ext }} &&
+          mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/cpxy-server${{ matrix.target.binary_ext }} &&
+          mv -v target/${{ matrix.target.rust }}/release/dns_split${{ matrix.target.binary_ext }} artifacts/cpxy-dns-split${{ matrix.target.binary_ext }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: executables-${{ matrix.target.rust }}
+          name: raw-${{ matrix.target.rust }}
           path: artifacts
+          if-no-files-found: error
 
   # Build the shared packet engine as a static native router client.
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
-    needs: [build_executables, build_tsgw]
+    needs: [version, build_executables, build_tsgw]
     strategy:
       matrix:
         target:
@@ -272,13 +295,13 @@ jobs:
       - name: Download cpxy executables
         uses: actions/download-artifact@v8
         with:
-          name: executables-${{ matrix.target.rust }}
+          name: raw-${{ matrix.target.rust }}
           path: executables
 
       - name: Download cpxy-tsgw
         uses: actions/download-artifact@v8
         with:
-          name: cpxy-tsgw-${{ matrix.target.rust }}
+          name: tsgw-${{ matrix.target.rust }}
           path: executables
 
       # Artifacts don't keep file modes
@@ -289,18 +312,14 @@ jobs:
         run: cross build --release --locked --target ${{ matrix.target.rust }} -p mobile-engine --bin cpxy-router
 
       - name: Build package
+        env:
+          # Lists the download server's feed in the package, for `opkg upgrade`
+          CPXY_FEED_URL: ${{ vars.DOWNLOAD_URL }}
         run: |
-          if [ "${{ github.event_name }}" = release ]; then
-            version="${{ github.event.release.tag_name }}"; version="${version#v}"
-          else
-            version="0.0.0-git.$(git rev-parse --short HEAD)"
-          fi
           mkdir -p bins
-          cp executables/dns_split-${{ matrix.target.rust }} bins/cpxy-dns-split
-          cp executables/client-${{ matrix.target.rust }} bins/cpxy-client
-          cp executables/cpxy-tsgw-${{ matrix.target.rust }} bins/cpxy-tsgw
+          cp executables/cpxy-dns-split executables/cpxy-client executables/cpxy-tsgw bins/
           cp target/${{ matrix.target.rust }}/release/cpxy-router bins/cpxy-router
-          packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "$version" bins openwrt-package
+          packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
           ls -l openwrt-package bins
 
       - name: Test install and removal on OpenWrt 24.10
@@ -314,14 +333,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends nftables
           # Ubuntu runners restrict unprivileged user namespaces by default
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          cp executables/server-${{ matrix.target.rust }} bins/cpxy-server
+          cp executables/cpxy-server bins/cpxy-server
           packaging/openwrt/test/lab.sh bins
 
       - name: Upload package
         uses: actions/upload-artifact@v7
         with:
-          name: openwrt-package-${{ matrix.target.opkg_arch }}
+          name: openwrt-${{ matrix.target.opkg_arch }}
           path: openwrt-package
+          if-no-files-found: error
 
   # cpxy-tsgw: the Go Tailscale exit node linked to the Rust packet engine (gateway/).
   test_tsgw:
@@ -390,14 +410,15 @@ jobs:
 
       - name: Build static binary
         run: |
-          gateway/build.sh ${{ matrix.target.rust }} artifacts/cpxy-tsgw-${{ matrix.target.rust }}
+          gateway/build.sh ${{ matrix.target.rust }} artifacts/cpxy-tsgw
           file artifacts/*
 
       - name: Upload binary
         uses: actions/upload-artifact@v7
         with:
-          name: cpxy-tsgw-${{ matrix.target.rust }}
+          name: tsgw-${{ matrix.target.rust }}
           path: artifacts
+          if-no-files-found: error
 
   test_openwrt_packaging:
     name: Test OpenWrt packaging
@@ -408,7 +429,7 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends shellcheck
           # OpenWrt's ash has `local`
-          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh \
+          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/make-feed.sh \
             packaging/openwrt/test/*.sh packaging/common/net.sh packaging/openwrt/files/usr/libexec/cpxy/*.sh \
             packaging/openwrt/files/usr/bin/cpxy-show packaging/openwrt/files/etc/init.d/* \
             packaging/openwrt/control/postinst packaging/openwrt/control/prerm packaging/openwrt/control/postrm
@@ -420,6 +441,23 @@ jobs:
           packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
           packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
           packaging/openwrt/test/init-dryrun.sh out/*.ipk
+      # r10 after r9 checks opkg orders the revisions as numbers
+      - name: Test installing and upgrading from signed feeds
+        env:
+          CPXY_FEED_URL: file:///
+        run: |
+          packaging/openwrt/build-ipk.sh x86_64 0.0.0-r9 bins older
+          packaging/openwrt/build-ipk.sh x86_64 0.0.0-r10 bins newer
+          packaging/openwrt/test/feed.sh older/*.ipk newer/*.ipk
+
+  test_download_worker:
+    name: Test the download worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test
+        run: npm test
+        working-directory: download-worker
 
   # The bundle image (Dockerfile.bundle), built for this runner and tested against a real cpxy
   # server; docker-publish-bundle.yml publishes it.
@@ -477,11 +515,19 @@ jobs:
       - name: Test DNS split
         run: cargo test -p client --features dns-split dns_split
 
-  release-upload:
-    name: Upload to Release
-    permissions:
-      contents: write
+  # Uploads the build to the R2 bucket the download server (download-worker/) serves, as one folder
+  # per version:
+  #   <version>/android/cpxy-vpn.apk
+  #   <version>/openwrt/<opkg arch>/{cpxy.ipk,Packages,Packages.gz,Packages.sig}
+  #   <version>/raw/<rust target>/cpxy-*
+  #   <version>/SHA256SUMS
+  # Needs the R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and OPKG_FEED_KEY secrets, and the
+  # CLOUDFLARE_ACCOUNT_ID, R2_BUCKET and DOWNLOAD_URL repository variables; skipped without
+  # R2_BUCKET.
+  publish:
+    name: Publish to the download server
     needs:
+      - version
       - build_mobile_vpn
       - test_mobile_engine
       - test_mobile_shared
@@ -491,16 +537,67 @@ jobs:
       - test_openwrt_packaging
       - test_tsgw
       - build_tsgw
-    if: github.event_name == 'release'
+      - test_download_worker
+    if: >-
+      github.event_name != 'pull_request' && vars.R2_BUCKET != '' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - name: Download Artifacts
+      - uses: actions/checkout@v7
+
+      - name: Download the build
         uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v3
-        with:
-          files: artifacts/**/*
+
+      - name: Lay out the version folder
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPKG_FEED_KEY: ${{ secrets.OPKG_FEED_KEY }}
+        run: |
+          out="out/$VERSION"
+          mkdir -p "$out/android"
+          cp artifacts/android/cpxy-vpn.apk "$out/android/"
+          for dir in artifacts/raw-* artifacts/tsgw-*; do
+            target="${dir#artifacts/*-}"
+            mkdir -p "$out/raw/$target"
+            cp "$dir"/* "$out/raw/$target/"
+          done
+          key="$RUNNER_TEMP/feed.key"
+          printf '%s\n' "$OPKG_FEED_KEY" >"$key"
+          for dir in artifacts/openwrt-*; do
+            arch="${dir#artifacts/openwrt-}"
+            mkdir -p "$out/openwrt/$arch"
+            cp "$dir"/*.ipk "$out/openwrt/$arch/cpxy.ipk"
+            packaging/openwrt/make-feed.sh "$out/openwrt/$arch" "$key"
+          done
+          rm "$key"
+          (cd "$out" && find . -type f | sed 's|^\./||' | sort | xargs sha256sum >SHA256SUMS)
+          cat "$out/SHA256SUMS"
+
+      - name: Upload
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 does not take the checksums newer AWS CLIs send by default
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          ENDPOINT: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: ${{ vars.R2_BUCKET }}
+        run: |
+          cache="public, max-age=31536000, immutable"
+          aws s3 cp --recursive --endpoint-url "$ENDPOINT" --cache-control "$cache" \
+            --exclude SHA256SUMS "out/$VERSION" "s3://$BUCKET/$VERSION"
+          # Last: the download server counts a version only once its SHA256SUMS is there
+          aws s3 cp --endpoint-url "$ENDPOINT" --cache-control "$cache" \
+            "out/$VERSION/SHA256SUMS" "s3://$BUCKET/$VERSION/SHA256SUMS"
+
+      - name: Check the download server has it
+        if: vars.DOWNLOAD_URL != ''
+        env:
+          DOWNLOAD_URL: ${{ vars.DOWNLOAD_URL }}
+        run: |
+          curl -fsS "${DOWNLOAD_URL%/}/$VERSION/SHA256SUMS" | diff - "out/$VERSION/SHA256SUMS"
+          echo "Published ${DOWNLOAD_URL%/}/$VERSION/" >>"$GITHUB_STEP_SUMMARY"

@@ -38,15 +38,18 @@ sdkmanager "ndk;28.2.13676358"
 ## CI and release APK
 
 The repository CI runs the engine unit tests, the Linux namespace TUN lab and
-`:shared:allTests` on pull requests, main and releases. On main and releases it also builds the
+`:shared:allTests` on pull requests, main and tags. On main and tags it also builds the
 release APK with the pinned NDK and cargo-ndk, then checks that `libmobile_engine.so` is packaged
-for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`.
+for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`, and that it is signed with the release key.
 
-Download the `mobile-vpn-<version>-release.apk` artifact from the CI run, or the asset with the
-same name from a GitHub release. CI sets the version (`CPXY_VPN_VERSION`) to the release tag, or
-to `git describe` between releases, such as `1.15.0-3-gabc1234`; local builds are `dev`. The
-Settings tab shows it.
-Release APKs currently use the checked-in debug signing key.
+Download it from the [download server](../docs/downloads.md) at
+`https://<download host>/latest/android/cpxy-vpn.apk`, or the `android` artifact of a CI run. CI
+sets the version (`CPXY_VPN_VERSION`) to `git describe`, such as `1.15.0-3-gabc1234`; local builds
+are `dev`. The Settings tab shows it. Installed from CI, the app updates itself from the download
+server (`CPXY_UPDATE_URL`).
+
+Release APKs are signed with `mobile/release.keystore` when `ANDROID_KEYSTORE_PASSWORD` is set (CI
+has it as a secret), and with the debug key otherwise. The two cannot update each other.
 
 ## Manual smoke check
 

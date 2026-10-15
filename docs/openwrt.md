@@ -35,14 +35,19 @@ answers local names (`.lan`, DHCP host names) for dns_split.
 
 ## Install
 
-Download `cpxy_<version>_<arch>.ipk` from the [releases](https://github.com/simophin/cpxy-ng/releases)
-(or the `openwrt-package-<arch>` artifact of a CI run), copy it to the router and install it:
+Download the package from the [download server](downloads.md), at
+`https://<download host>/latest/openwrt/<arch>/cpxy.ipk` (or the `openwrt-<arch>` artifact of a CI
+run), copy it to the router and install it:
 
 ```sh
-scp -O cpxy_*.ipk root@192.168.8.1:/tmp/
+curl -fLo cpxy.ipk https://<download host>/latest/openwrt/aarch64_cortex-a53/cpxy.ipk
+scp -O cpxy.ipk root@192.168.8.1:/tmp/
 ssh root@192.168.8.1
-opkg update && opkg install /tmp/cpxy_*.ipk      # also pulls in ip-full and kmod-tun
+opkg update && opkg install /tmp/cpxy.ipk      # also pulls in ip-full and kmod-tun
 ```
+
+The package also adds the download server's opkg feed and its signing key, so later versions come
+with `opkg update && opkg upgrade cpxy`.
 
 If the older `cpxy-router` package is installed, remove it first (`opkg remove cpxy-router`); its
 settings do not carry over. A `smartdns` package, if installed, is neither used nor changed.
@@ -184,8 +189,8 @@ the details.
   direct again; the others keep running.
 - **Turn everything off for now:** `for s in cpxy-tsgw cpxy-router cpxy-client; do /etc/init.d/$s stop; done`.
   The networks go direct and use dnsmasq again. `start` (or a reboot) brings them back.
-- **Upgrade:** install the newer `.ipk` the same way. `/etc/config/cpxy` and the Tailscale logins
-  are kept.
+- **Upgrade:** `opkg update && opkg upgrade cpxy`, or install a newer `.ipk` by hand.
+  `/etc/config/cpxy` and the Tailscale logins are kept.
 - **Uninstall:** `opkg remove cpxy` stops everything and removes the firewall sections and routing
   it added. A changed `/etc/config/cpxy` and `/etc/cpxy` stay behind; delete them if you do not
   need them, and remove the machines from the Tailscale admin console.

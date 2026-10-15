@@ -201,6 +201,10 @@ class CpxyVpnService : VpnService() {
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_PROFILE, Json.encodeToString(profile))
 
+        /** Connects with the selected profile. */
+        fun resumeIntent(context: Context): Intent =
+            Intent(context, CpxyVpnService::class.java).setAction(ACTION_START)
+
         fun stopIntent(context: Context): Intent =
             Intent(context, CpxyVpnService::class.java).setAction(ACTION_STOP)
     }

@@ -1,10 +1,16 @@
 package dev.fanchao.cpxy.vpn.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
@@ -14,6 +20,7 @@ import dev.fanchao.cpxy.vpn.AppFilter
 import dev.fanchao.cpxy.vpn.Platform
 import dev.fanchao.cpxy.vpn.ProfileRepository
 import dev.fanchao.cpxy.vpn.SettingsRepository
+import dev.fanchao.cpxy.vpn.UpdateChecker
 import dev.fanchao.cpxy.vpn.VpnController
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.modules.SerializersModule
@@ -53,6 +60,8 @@ fun CpxyVpnApp(
         val backStack = rememberNavBackStack(SavedStateConfig, HomeRoute)
         val pop = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
 
+        platform.updates?.let { UpdatePrompt(it) }
+
         NavDisplay(
             backStack = backStack,
             onBack = { pop() },
@@ -89,4 +98,23 @@ fun CpxyVpnApp(
             },
         )
     }
+}
+
+/** Runs the daily update check, and offers the version it finds. */
+@Composable
+private fun UpdatePrompt(updates: UpdateChecker) {
+    LaunchedEffect(updates) { updates.checkIfDue() }
+    val version = updates.prompt.collectAsState().value ?: return
+    AlertDialog(
+        onDismissRequest = updates::dismissPrompt,
+        title = { Text("Update available") },
+        text = { Text("Version $version is available. The VPN reconnects after the update.") },
+        confirmButton = { TextButton(onClick = { updates.install(version) }) { Text("Install") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { updates.skip(version) }) { Text("Skip this version") }
+                TextButton(onClick = updates::dismissPrompt) { Text("Later") }
+            }
+        },
+    )
 }

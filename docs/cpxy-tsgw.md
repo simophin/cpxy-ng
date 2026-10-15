@@ -54,9 +54,10 @@ or through the box's NAT like any Tailscale node; then set `TS_PORT` and publish
 (`-p 41641:41641/udp`) for direct connections. Nothing in the container
 needs root, so `--user` with a volume it can write works too.
 
-**The binary.** `cpxy-tsgw-<arch>-unknown-linux-musl` in the
-[GitHub releases](https://github.com/simophin/cpxy-ng/releases) (or the `cpxy-tsgw-<target>`
-artifact of a CI run) runs on any Linux, as any user. Give it the settings in its environment, or in
+**The binary.** `raw/<arch>-unknown-linux-musl/cpxy-tsgw` on the
+[download server](downloads.md), for example
+`https://<download host>/latest/raw/x86_64-unknown-linux-musl/cpxy-tsgw` (or the `tsgw-<target>`
+artifact of a CI run), runs on any Linux, as any user. Give it the settings in its environment, or in
 a `KEY=value` file passed with `--config`, and a `STATE_DIR` it can write:
 
 ```sh
@@ -213,8 +214,8 @@ gateway/build.sh test                             # the Go tests, linked to the 
 
 `Dockerfile.tsgw` builds the same static binary inside the `cargo-zigbuild` image, with Go added,
 into an image from `scratch` that declares every setting and its default;
-`.github/workflows/docker-publish-tsgw.yml` publishes it from `main`. CI also uploads the bare
-binaries and attaches them to releases.
+`.github/workflows/docker-publish-tsgw.yml` publishes it from `main`. CI also publishes the bare
+binaries to the [download server](downloads.md).
 
 `gateway/internal/e2e` tests a built binary on a real tailnet: it creates ephemeral auth keys with
 the Tailscale API, runs cpxy-tsgw, approves its exit node, joins a client that uses it, checks that

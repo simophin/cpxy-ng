@@ -68,9 +68,10 @@ packaging/openwrt/test/init-dryrun.sh out/*.ipk
 packaging/openwrt/test/lab.sh bins
 ```
 
-CI builds the package for `aarch64_cortex-a53` (GL-MT3000) and `x86_64` on `main`, on releases,
+CI builds the package for `aarch64_cortex-a53` (GL-MT3000) and `x86_64` on `main`, on tags,
 and on demand (`gh workflow run ci.yml --ref <branch>`); pull requests run the packaging tests
-with stand-in binaries.
+with stand-in binaries. Builds of `main` and tags are published as signed opkg feeds
+(`make-feed.sh`, tested by `test/feed.sh`); see [docs/downloads.md](../../docs/downloads.md).
 
 `lab.sh` needs `cpxy-router` and `cpxy-server` for the host, plus `iproute2`, `nft`, `curl` and
 `python3`; the container tests need podman or docker. None of them runs the real fw3/fw4, procd or

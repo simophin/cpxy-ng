@@ -19,6 +19,19 @@ class App : Application() {
     }
 
     val controller: AndroidVpnController by lazy { AndroidVpnController(this) }
+
+    /** Null in builds without a download server, such as local ones. */
+    val updates: UpdateChecker? by lazy {
+        BuildConfig.UPDATE_URL.takeIf { it.isNotEmpty() }?.let { url ->
+            UpdateChecker(
+                updater = AndroidUpdater(this, url.removeSuffix("/")),
+                currentVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "dev",
+                settingsRepository = settingsRepository,
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+                now = System::currentTimeMillis,
+            )
+        }
+    }
 }
 
 val Context.app: App get() = applicationContext as App

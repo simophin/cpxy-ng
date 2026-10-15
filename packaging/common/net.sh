@@ -1,6 +1,6 @@
 #!/bin/sh
-# Runtime network state for cpxy: the TUN device and policy routing. Shared by the OpenWrt
-# package (sourced by /etc/init.d/cpxy) and the Debian package (sourced by gateway.sh).
+# Runtime network state for cpxy: the TUN device and policy routing. Used by the OpenWrt
+# package (sourced by its init scripts).
 # Everything here lives in the kernel, so stopping the service (or rebooting) removes it.
 #
 # Packet path for a proxied LAN device:

@@ -39,6 +39,8 @@ import dev.fanchao.cpxy.vpn.AppFilter
 import dev.fanchao.cpxy.vpn.AppSettings
 import dev.fanchao.cpxy.vpn.Platform
 import dev.fanchao.cpxy.vpn.SettingsRepository
+import dev.fanchao.cpxy.vpn.UpdateChecker
+import dev.fanchao.cpxy.vpn.UpdateState
 import dev.fanchao.cpxy.vpn.VpnController
 import dev.fanchao.cpxy.vpn.VpnState
 import kotlinx.coroutines.launch
@@ -178,7 +180,39 @@ internal fun SettingsScreen(
                 supportingContent = { Text(platform.versionName) },
             )
         }
+        platform.updates?.takeIf { it.enabled }?.let { updates ->
+            item { UpdateSetting(updates) }
+        }
     }
+}
+
+@Composable
+private fun UpdateSetting(updates: UpdateChecker) {
+    val state by updates.state.collectAsState()
+    val busy = state is UpdateState.Checking || state is UpdateState.Downloading
+    ListItem(
+        modifier = Modifier.clickable(enabled = !busy) {
+            when (val current = state) {
+                is UpdateState.Available -> updates.install(current.versionName)
+                else -> updates.checkNow()
+            }
+        },
+        headlineContent = { Text(if (state is UpdateState.Available) "Install update" else "Check for updates") },
+        supportingContent = {
+            Text(
+                when (val current = state) {
+                    UpdateState.Idle -> "Look for a newer version"
+                    UpdateState.Checking -> "Checking…"
+                    UpdateState.UpToDate -> "This is the latest version"
+                    is UpdateState.Available -> "Version ${current.versionName} is available"
+                    is UpdateState.Downloading ->
+                        current.progress?.let { "Downloading… ${(it * 100).toInt()}%" } ?: "Downloading…"
+                    UpdateState.Installing -> "Confirm the installation. The VPN reconnects after the update."
+                    is UpdateState.Failed -> current.message
+                },
+            )
+        },
+    )
 }
 
 private val AppFilter.title: String

@@ -181,11 +181,17 @@ android {
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
-        // CI passes the release tag, or `git describe` between releases.
+        // CI passes `git describe`: the tag, or `<tag>-<commits>-g<hash>` after it.
         versionName = providers.environmentVariable("CPXY_VPN_VERSION")
             .filter { it.isNotBlank() }
             .orElse("dev")
             .get()
+        // The download server the app updates from; CI passes it, and local builds do not update.
+        buildConfigField(
+            "String",
+            "UPDATE_URL",
+            "\"${providers.environmentVariable("CPXY_UPDATE_URL").orElse("").get()}\"",
+        )
     }
 
     signingConfigs {
@@ -223,6 +229,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 
