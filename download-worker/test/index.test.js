@@ -16,8 +16,17 @@ function fakeBucket(files, pageSize = 2) {
     async head(key) {
       return key in files ? object(key) : null;
     },
-    async get(key) {
-      return key in files ? { ...object(key), body: files[key], text: async () => files[key] } : null;
+    async get(key, options = {}) {
+      if (!(key in files)) return null;
+      const body = { ...object(key), body: files[key], text: async () => files[key] };
+      // Like R2, a range from headers is set with or without a Range header
+      if (options.range instanceof Headers) {
+        const match = /^bytes=(\d+)-(\d*)$/.exec(options.range.get('range') ?? '');
+        const offset = match ? +match[1] : 0;
+        const end = match?.[2] ? +match[2] + 1 : files[key].length;
+        return { ...body, body: files[key].slice(offset, end), range: { offset, length: end - offset } };
+      }
+      return body;
     },
     async list({ delimiter, prefix, cursor }) {
       const start = cursor ? +cursor : 0;
@@ -87,6 +96,19 @@ test('serves files', async () => {
   const head = await get(bucket, '/1.17.0/SHA256SUMS', 'HEAD');
   assert.equal(head.status, 200);
   assert.equal(head.headers.get('content-length'), '4');
+});
+
+test('serves a range only when asked for one', async () => {
+  const bucket = fakeBucket({ '1.17.0/SHA256SUMS': 'sums' });
+  const whole = await get(bucket, '/1.17.0/SHA256SUMS');
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-range'), null);
+  assert.equal(await whole.text(), 'sums');
+
+  const part = await get(bucket, '/1.17.0/SHA256SUMS', 'GET', { range: 'bytes=1-2' });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('content-range'), 'bytes 1-2/4');
+  assert.equal(await part.text(), 'um');
 });
 
 test('answers 404 for what is not there', async () => {

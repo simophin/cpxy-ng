@@ -130,7 +130,8 @@ async function serveObject(request, bucket, key) {
   }
   // onlyIf did not match: an object without a body
   if (!('body' in object)) return new Response(null, { status: 304, headers });
-  if (object.range) {
+  // R2 reports a range for every get given the request headers, so only a Range header makes it partial
+  if (object.range && request.headers.has('range')) {
     const offset = object.range.offset ?? object.size - object.range.suffix;
     const length = object.range.length ?? object.size - offset;
     headers.set('content-range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
