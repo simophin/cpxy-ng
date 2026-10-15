@@ -5,7 +5,9 @@ the OpenWrt package and the plain binaries. There are no GitHub releases. Docker
 as before.
 
 The server is a Cloudflare Worker ([download-worker/](../download-worker)) in front of an R2 bucket.
-Its address is the `DOWNLOAD_URL` repository variable, written `https://<download host>` below.
+It runs at `https://cpxy-download.<account subdomain>.workers.dev`, which is the `DOWNLOAD_URL`
+repository variable, written `https://<download host>` below. The address is built into every APK
+and package, so moving to another one means installing a build with the new address by hand once.
 
 ## Layout
 
@@ -71,15 +73,18 @@ The tag's build is published as `1.18.0`, and later commits as `1.18.0-<n>-g<has
 
 ## Setting up the server
 
-1. In Cloudflare, create an R2 bucket, and an R2 API token with Object Read & Write on it.
-2. Create an API token for the Worker: Workers Scripts Edit, Workers Routes Edit, and Zone Read
-   for the zone of the download host.
-3. Set the repository secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
-   `CLOUDFLARE_API_TOKEN`, and the variables `CLOUDFLARE_ACCOUNT_ID`, `R2_BUCKET` and
-   `DOWNLOAD_URL` (`https://<download host>`).
-4. Run the `Download worker` workflow. It deploys the Worker on the download host as a custom
-   domain.
-5. Push to `main`, or run CI on `main`. The `publish` job uploads the build, then fetches its
+1. In the Cloudflare dashboard, open Workers & Pages once so the account gets its `workers.dev`
+   subdomain (shown there, and changeable under its settings). The Worker's address is then
+   `https://cpxy-download.<subdomain>.workers.dev`.
+2. Create an R2 bucket, and an R2 API token with Object Read & Write on it. Its access key ID and
+   secret are what CI uploads with.
+3. Create an API token for deploying the Worker, with Account → Workers Scripts → Edit.
+4. Set the repository secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
+   `CLOUDFLARE_API_TOKEN`, and the variables `CLOUDFLARE_ACCOUNT_ID` (on the dashboard's account
+   home page), `R2_BUCKET` and `DOWNLOAD_URL` (the Worker's address).
+5. Run the `Download worker` workflow, and check `https://<download host>/` answers (empty for
+   now).
+6. Push to `main`, or run CI on `main`. The `publish` job uploads the build, then fetches its
    `SHA256SUMS` back through the server.
 
 Until `R2_BUCKET` is set, `publish` is skipped and the build is only in the CI run's artifacts.

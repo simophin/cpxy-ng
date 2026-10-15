@@ -1,10 +1,10 @@
-# Deployed by .github/workflows/download-worker.yml, which fills in the bucket and the domain from
-# the repository variables R2_BUCKET and DOWNLOAD_URL.
+# Deployed by .github/workflows/download-worker.yml, which fills in the bucket from the repository
+# variable R2_BUCKET. Served at https://cpxy-download.<account subdomain>.workers.dev, which is the
+# DOWNLOAD_URL repository variable.
 name = "cpxy-download"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
-workers_dev = false
-routes = [{ pattern = "@DOWNLOAD_HOST@", custom_domain = true }]
+workers_dev = true
 
 [[r2_buckets]]
 binding = "BUCKET"

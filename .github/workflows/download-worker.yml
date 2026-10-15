@@ -1,9 +1,9 @@
 name: Download worker
 
 # Deploys download-worker/, which serves the R2 bucket CI publishes builds to (see the publish job
-# in ci.yml). Needs the CLOUDFLARE_API_TOKEN secret (Workers Scripts: Edit, Workers Routes: Edit,
-# Zone: Read for the domain's zone) and the CLOUDFLARE_ACCOUNT_ID, R2_BUCKET and DOWNLOAD_URL
-# repository variables.
+# in ci.yml), at https://cpxy-download.<account subdomain>.workers.dev. Needs the
+# CLOUDFLARE_API_TOKEN secret (Account: Workers Scripts Edit) and the CLOUDFLARE_ACCOUNT_ID and
+# R2_BUCKET repository variables.
 on:
   push:
     branches: [main]
@@ -22,7 +22,7 @@ permissions:
 jobs:
   deploy:
     name: Deploy
-    if: vars.R2_BUCKET != '' && vars.DOWNLOAD_URL != ''
+    if: vars.R2_BUCKET != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -31,14 +31,12 @@ jobs:
         run: npm test
         working-directory: download-worker
 
-      - name: Fill in the bucket and the domain
+      - name: Fill in the bucket
         working-directory: download-worker
         env:
           R2_BUCKET: ${{ vars.R2_BUCKET }}
-          DOWNLOAD_URL: ${{ vars.DOWNLOAD_URL }}
         run: |
-          host="${DOWNLOAD_URL#*://}"; host="${host%%/*}"
-          sed -i -e "s|@R2_BUCKET@|$R2_BUCKET|" -e "s|@DOWNLOAD_HOST@|$host|" wrangler.toml
+          sed -i "s|@R2_BUCKET@|$R2_BUCKET|" wrangler.toml
           cat wrangler.toml
 
       - name: Deploy
