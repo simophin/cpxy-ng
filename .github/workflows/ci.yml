@@ -87,6 +87,14 @@ jobs:
         working-directory: mobile
         env:
           CPXY_VPN_VERSION: ${{ steps.version.outputs.version }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+
+      # Updates only install over an APK signed with the same key, so never publish a debug-signed one.
+      - name: Check the APK is signed with the release key
+        run: |
+          apksigner=$(ls -d "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"/build-tools/* | sort -V | tail -1)/apksigner
+          "$apksigner" verify --print-certs mobile/androidApp/build/outputs/apk/release/androidApp-release.apk \
+            | grep -i 'certificate SHA-256 digest: 8ba8b5744c53c0088636a7e937125fc64bd7c38a143e7a849c2960165b67e25b'
 
       - name: Inspect packaged native libraries
         run: |

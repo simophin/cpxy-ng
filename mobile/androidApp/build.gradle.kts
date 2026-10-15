@@ -166,6 +166,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseKeystorePassword: String? = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD")
+    .filter { it.isNotBlank() }
+    .orNull
+
 android {
     namespace = "dev.fanchao.cpxy.vpn"
     compileSdk = 37
@@ -191,6 +195,15 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // CI passes the password; local release builds without it are signed with the debug key.
+        releaseKeystorePassword?.let { password ->
+            create("release") {
+                storeFile = file("../release.keystore")
+                storePassword = password
+                keyAlias = "cpxy-vpn"
+                keyPassword = password
+            }
+        }
     }
 
     buildTypes {
@@ -201,7 +214,7 @@ android {
                 "proguard-rules.pro"
             )
 
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {
