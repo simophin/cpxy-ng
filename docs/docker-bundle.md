@@ -6,14 +6,14 @@ One container runs a whole cpxy bundle for a Linux server, the same set the
 | Service | What it does |
 |---|---|
 | client | The cpxy HTTP proxy (and optionally SOCKS5) for anything on your network to use |
-| tsgw | A [Tailscale exit node](cpxy-tsgw.md) with cpxy routing and split DNS. Its alternative DNS servers, 1.1.1.1 and 8.8.8.8 over TCP, are asked **through the cpxy server**, so their answers are neither poisoned nor blocked. Tailscale's own traffic goes through the proxy. |
+| tsgw | A [Tailscale exit node](cpxy-tsgw.md) with cpxy routing and split DNS. Its alternative DNS server, 1.1.1.1 over TCP, is asked **through the cpxy server**, so its answers are neither poisoned nor blocked. Tailscale's own traffic goes through the proxy. |
 
 ```text
 apps ──► client :5000 ─────────────────────────────► cpxy server
           ▲
           └── tsgw (control, DERP)
 phone ── Tailscale ──► tsgw ── packet engine ──────► cpxy server
-                         └── split DNS alternative ► cpxy server ► 1.1.1.1, 8.8.8.8
+                         └── split DNS alternative ► cpxy server ► 1.1.1.1
 ```
 
 Both share one server URL. [s6-overlay](https://github.com/just-containers/s6-overlay)
@@ -84,8 +84,8 @@ them). A change applies when the container is recreated, which restarts both ser
 | `SERVER` | none, **required** | The cpxy server URL with its key, `https://:<key>@<host>:<port>` (or `http://`). The client and tsgw both use it. |
 | `HTTP_PROXY_LISTEN` | `[::]:5000` | The HTTP proxy. tsgw reaches it on loopback at this port. |
 | `SOCKS5_PROXY_LISTEN` | empty, off | A SOCKS5 proxy as well, e.g. `[::]:1080`. |
-| `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | tsgw's split DNS: servers whose answer is used when every address in it is in the local region. See [choosing the servers](cpxy-tsgw.md#choosing-the-servers). |
-| `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy` | Servers whose answer is used otherwise. `?via=cpxy` asks a `tcp://`, `tls://` or `https://` server through the cpxy server. |
+| `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | tsgw's split DNS: servers whose answer is used when every address in it is in the local region. See [choosing the servers](cpxy-tsgw.md#choosing-the-servers). |
+| `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | Servers whose answer is used otherwise. `?via=cpxy` asks a `tcp://`, `tls://` or `https://` server through the cpxy server. |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries from Tailscale clients, comma or space separated. Tries each suffix before the bare name. |
 | `BLOCK_ADS` | `1` | tsgw answers names on the built-in ad blocklist with an address that goes nowhere; `0` turns it off. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The exit node's name on the tailnet. |

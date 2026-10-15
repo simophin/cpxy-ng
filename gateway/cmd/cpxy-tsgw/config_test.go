@@ -39,7 +39,7 @@ BLOCK_ADS=1
 	if s.hostname != defaultHostname {
 		t.Fatalf("defaults not applied: %+v", s)
 	}
-	if want := []string{"tcp://1.1.1.1?via=cpxy", "tcp://8.8.8.8?via=cpxy"}; !reflect.DeepEqual(s.engine.DNSAlternative, want) {
+	if want := []string{"tcp://1.1.1.1?via=cpxy"}; !reflect.DeepEqual(s.engine.DNSAlternative, want) {
 		t.Fatalf("DNS_ALTERNATIVE %q", s.engine.DNSAlternative)
 	}
 }

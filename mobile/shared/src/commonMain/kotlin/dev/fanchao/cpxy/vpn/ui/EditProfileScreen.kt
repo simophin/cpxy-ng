@@ -46,11 +46,11 @@ import kotlinx.coroutines.launch
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-/** A new profile starts with public CN resolvers as its upstream DNS. */
-private val DefaultDnsUpstream = listOf("223.5.5.5", "119.29.29.29")
+/** A new profile starts with AliDNS as its upstream DNS. Every query goes to every server, so one each. */
+private val DefaultDnsUpstream = listOf("223.5.5.5")
 
-/** And with overseas resolvers asked through the cpxy server as its alternative DNS. */
-private val DefaultDnsAlternative = listOf("tcp://1.1.1.1?via=cpxy", "tcp://8.8.8.8?via=cpxy")
+/** And with an overseas resolver asked through the cpxy server as its alternative DNS. */
+private val DefaultDnsAlternative = listOf("tcp://1.1.1.1?via=cpxy")
 
 @OptIn(ExperimentalUuidApi::class)
 @Composable

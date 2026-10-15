@@ -30,8 +30,7 @@ config defaults 'defaults'
 	# ?via=cpxy to ask through the instance's cpxy server, so the answer is neither poisoned nor
 	# blocked.
 	list dns_upstream '223.5.5.5'
-	list dns_upstream '119.29.29.29'
-	# Unset: tcp://1.1.1.1?via=cpxy and tcp://8.8.8.8?via=cpxy
+	# Unset: tcp://1.1.1.1?via=cpxy
 	# list dns_alternative 'https://dns.google/dns-query?ip=8.8.8.8&via=cpxy'
 	option dns_cache '1'
 	# Answer names on the built-in ad blocklist with an address that goes nowhere

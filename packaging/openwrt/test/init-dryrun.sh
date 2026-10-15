@@ -133,7 +133,7 @@ want 'set env SERVER=https://:guest-key@second.example:443 NO_COLOR=1'
 want 'instance guest_dns'
 want 'set command /usr/bin/cpxy-dns-split --listen 0.0.0.0:5345'
 want 'append command --alternative tcp://1.1.1.1?via=cpxy'
-want 'append command --alternative tcp://8.8.8.8?via=cpxy'
+absent 'append command --alternative tcp://8.8.8.8'
 # dns_split asks those through its instance's server, whose key stays out of the process list
 want 'set file /tmp/cpxy/dns-guest.env'
 grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/dns-guest.env || fail 'dns_split server'
@@ -159,7 +159,7 @@ position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewal
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
-want 'DNS_UPSTREAM=223.5.5.5,119.29.29.29 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy BLOCK_ADS=1'
+want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy BLOCK_ADS=1'
 want 'DNS_SEARCH_DOMAINS=home.arpa,corp.example HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
 want 'set file /tmp/cpxy/tsgw-guest.env'
 want 'set file /tmp/cpxy/router-guest.env'

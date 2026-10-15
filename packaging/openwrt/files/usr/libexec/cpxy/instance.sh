@@ -99,7 +99,7 @@ cpxy_instance() {
 	cpxy_get CPXY_DNS_SEARCH_DOMAINS "$name" dns_search_domain
 	cpxy_get CPXY_DNS_UPSTREAM "$name" dns_upstream
 	# Overseas servers, asked through the instance's cpxy server
-	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative "tcp://1.1.1.1?via=cpxy tcp://8.8.8.8?via=cpxy"
+	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative "tcp://1.1.1.1?via=cpxy"
 	cpxy_get_bool CPXY_DNS_CACHE "$name" dns_cache 1
 	cpxy_get_bool CPXY_BLOCK_ADS "$name" block_ads 1
 	cpxy_get CPXY_DNS_LOCAL_DOMAINS "$name" dns_local_domain
