@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	defaultMTU         = 1280
-	defaultHostname    = "cpxy-tsgw"
+	defaultMTU      = 1280
+	defaultHostname = "cpxy-tsgw"
 	// One server each: every query goes to every server. AliDNS for the local region.
 	defaultDNSUpstream = "223.5.5.5"
 	// Asked through the cpxy server, so neither poisoned nor blocked
