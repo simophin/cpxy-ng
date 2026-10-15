@@ -1,4 +1,5 @@
-//! Optional LAN proxies. Listener and connection tasks live only as long as the engine.
+//! Optional LAN proxies, and the app's own loopback proxy. Listener and connection tasks live
+//! only as long as the engine.
 use anyhow::{Context, ensure};
 use client::dns_split::server::DnsSplitHandler;
 use client::handshaker::Handshaker;
@@ -18,11 +19,15 @@ use tokio::task::JoinSet;
 pub(crate) struct Ports {
     pub http: Option<u16>,
     pub socks: Option<u16>,
+    /// An HTTP proxy on a free loopback port for the app's own requests, such as updates: the
+    /// app is left out of the VPN so that the engine's sockets bypass it.
+    pub local_http: bool,
 }
 
 pub(crate) struct Listeners {
     http: Option<TcpListener>,
     socks: Option<TcpListener>,
+    local_http: Option<TcpListener>,
 }
 
 impl Listeners {
@@ -37,10 +42,25 @@ impl Listeners {
                 None => Ok(None),
             }
         }
+        let local_http = if ports.local_http {
+            Some(
+                TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                    .await
+                    .context("Cannot bind the local HTTP proxy")?,
+            )
+        } else {
+            None
+        };
         Ok(Self {
             http: bind(ports.http, "HTTP").await?,
             socks: bind(ports.socks, "SOCKS5").await?,
+            local_http,
         })
+    }
+
+    pub fn local_http_port(&self) -> Option<u16> {
+        let listener = self.local_http.as_ref()?;
+        listener.local_addr().ok().map(|addr| addr.port())
     }
 
     pub fn spawn<O: Outbound + Send + Sync + 'static>(
@@ -54,6 +74,12 @@ impl Listeners {
         });
         let mut tasks = JoinSet::new();
         if let Some(listener) = self.http {
+            tasks.spawn(serve_listener::<HttpProxyHandshaker<_>, _>(
+                listener,
+                outbound.clone(),
+            ));
+        }
+        if let Some(listener) = self.local_http {
             tasks.spawn(serve_listener::<HttpProxyHandshaker<_>, _>(
                 listener,
                 outbound.clone(),
@@ -175,13 +201,17 @@ mod tests {
             let listeners = Listeners::bind(Ports {
                 http: Some(0),
                 socks: Some(0),
+                local_http: true,
             })
             .await
             .unwrap();
             let http = listeners.http.as_ref().unwrap().local_addr().unwrap();
             let socks = listeners.socks.as_ref().unwrap().local_addr().unwrap();
+            let local = listeners.local_http.as_ref().unwrap().local_addr().unwrap();
             assert!(http.ip().is_unspecified());
             assert!(socks.ip().is_unspecified());
+            assert!(local.ip().is_loopback());
+            assert_eq!(listeners.local_http_port(), Some(local.port()));
             let mut tasks = listeners.spawn(Arc::new(DirectOutbound::default()), None);
 
             let mut tunnel = TcpStream::connect((Ipv4Addr::LOCALHOST, http.port()))
@@ -221,6 +251,20 @@ mod tests {
             }
             assert!(header.starts_with(b"GET /test HTTP/1.1\r\n"));
 
+            let mut own = TcpStream::connect(local).await.unwrap();
+            own.write_all(
+                format!("CONNECT {destination} HTTP/1.1\r\nHost: {destination}\r\n\r\n").as_bytes(),
+            )
+            .await
+            .unwrap();
+            let mut reply = vec![0; expected.len()];
+            own.read_exact(&mut reply).await.unwrap();
+            assert_eq!(reply, expected);
+            own.write_all(b"own payload").await.unwrap();
+            let mut payload = [0; 11];
+            own.read_exact(&mut payload).await.unwrap();
+            assert_eq!(&payload, b"own payload");
+
             let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, socks.port()))
                 .await
                 .unwrap();
@@ -252,6 +296,7 @@ mod tests {
                     .await
                     .is_err()
             );
+            assert!(TcpStream::connect(local).await.is_err());
             assert_eq!(tunnel.read(&mut payload).await.unwrap(), 0);
             assert_eq!(client.read(&mut payload).await.unwrap(), 0);
             echo_task.abort();
@@ -342,6 +387,7 @@ mod tests {
         let result = Listeners::bind(Ports {
             http: Some(port),
             socks: Some(occupied.local_addr().unwrap().port()),
+            local_http: false,
         })
         .await;
         assert!(result.err().unwrap().to_string().contains("SOCKS5"));

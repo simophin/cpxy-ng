@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.net.InetSocketAddress
+import java.net.Proxy
 import dev.fanchao.cpxy.vpn.engine.ConnectionPage as EngineConnectionPage
 
 /** Starts and stops [CpxyVpnService], which reports back through the `report` methods. */
@@ -53,6 +55,21 @@ class AndroidVpnController(private val context: Context) : VpnController {
 
     internal fun reportTraffic(traffic: Traffic) {
         mutableTraffic.value = traffic
+    }
+
+    /**
+     * The engine's proxy for this app's own requests, which bypass the VPN, or null while it is
+     * not running.
+     */
+    fun localProxy(): Proxy? {
+        val port = try {
+            engine?.localProxyPort()
+        } catch (_: IllegalStateException) {
+            // The service closed the engine
+            null
+        } ?: return null
+        // The engine listens on IPv4 only; the loopback address on Android is ::1
+        return Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port.toInt()))
     }
 
     override suspend fun connectionsSince(since: Long, limit: Int): ConnectionPage =

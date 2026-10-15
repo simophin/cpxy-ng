@@ -140,6 +140,12 @@ impl Engine {
         self.handle.traffic()
     }
 
+    /// The loopback port of an HTTP proxy for the app's own requests, which bypass the VPN, to
+    /// connect the way the VPN does.
+    pub fn local_proxy_port(&self) -> Option<u16> {
+        self.handle.local_proxy_port()
+    }
+
     /// The oldest `limit` of the recent connections from `since` on. When `since` is before
     /// [`ConnectionPage::oldest_seq`], connections in between were dropped.
     pub fn connections_since(&self, since: u64, limit: u32) -> ConnectionPage {

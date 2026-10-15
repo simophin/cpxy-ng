@@ -100,6 +100,7 @@ pub struct EngineHandle {
     traffic: Arc<Traffic>,
     /// Answers [`EngineHandle::resolve_dns`]; `None` when the engine leaves DNS alone.
     dns: Option<Arc<DnsSplitHandler>>,
+    local_proxy_port: Option<u16>,
 }
 
 struct Running {
@@ -112,6 +113,9 @@ struct Running {
 /// Starts the engine on a TUN device the platform has set up with [`TUN_ADDR`], [`DNS_ADDR`] as
 /// its DNS server, and the config's MTU. Blocks while the DNS servers are set up, which may look
 /// up their hostnames. The engine owns the descriptor and closes it when stopped.
+///
+/// The app reaches the network the way the VPN does through
+/// [`EngineHandle::local_proxy_port`].
 pub fn start(
     tun: OwnedFd,
     config_json: &str,
@@ -123,6 +127,7 @@ pub fn start(
         listener,
         DnsIntercept::VirtualServer,
         LOCAL_TCP_WINDOW,
+        true,
     )
 }
 
@@ -140,6 +145,7 @@ pub fn start_gateway(
         listener,
         DnsIntercept::AnyServer,
         GATEWAY_TCP_WINDOW,
+        false,
     )
 }
 
@@ -149,6 +155,7 @@ fn start_with_dns(
     listener: Arc<dyn EventListener>,
     intercept: DnsIntercept,
     tcp_window: u32,
+    local_proxy: bool,
 ) -> anyhow::Result<EngineHandle> {
     let settings = Config::from_json(config_json)?.settings()?;
     start_inner(
@@ -161,6 +168,7 @@ fn start_with_dns(
         proxy::Ports {
             http: settings.http_proxy_port,
             socks: settings.socks_proxy_port,
+            local_http: local_proxy,
         },
         Some(DnsSpecs {
             upstream: &settings.dns_upstream,
@@ -269,6 +277,7 @@ fn start_inner(
         .transpose()?;
     // Bind before reporting success, so an occupied port fails the connection visibly.
     let proxies = runtime.block_on(proxy::Listeners::bind(proxy_ports))?;
+    let local_proxy_port = proxies.local_http_port();
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
     let device_eof = Arc::new(Notify::new());
@@ -309,6 +318,7 @@ fn start_inner(
         })),
         traffic,
         dns: resolver,
+        local_proxy_port,
     })
 }
 
@@ -338,6 +348,12 @@ impl EngineHandle {
             .unwrap()
             .as_ref()
             .is_some_and(|r| !r.stopped.is_finished())
+    }
+
+    /// The loopback port of an HTTP proxy that connects the way the VPN does, for the app's own
+    /// requests, which bypass the VPN. Only [`start`] opens one.
+    pub fn local_proxy_port(&self) -> Option<u16> {
+        self.local_proxy_port
     }
 
     pub fn traffic(&self) -> TrafficStats {
