@@ -18,7 +18,10 @@ pub enum EngineError {
 /// A TCP flow connected through an outbound, or failing to.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ConnectionEvent {
+    /// The server name the app asked for, or the address when it named none.
     pub host: String,
+    /// The address connected to, when known.
+    pub ip: Option<String>,
     pub port: u16,
     /// `direct` or `proxy`.
     pub outbound: String,
@@ -28,12 +31,11 @@ pub struct ConnectionEvent {
     pub time_millis: u64,
     /// Set when connecting failed.
     pub error: Option<String>,
-    /// The ISO 3166-1 alpha-2 code of the country `host` is in, when known.
+    /// The ISO 3166-1 alpha-2 code of the country `ip` is in, when known.
     pub country_code: Option<String>,
 }
 
-fn country_code_of(host: &str) -> Option<String> {
-    let ip: Ipv4Addr = host.parse().ok()?;
+fn country_code_of(ip: Ipv4Addr) -> Option<String> {
     find_country_code_v4(&ip, GEOIP)
         .ok()
         .flatten()
@@ -45,12 +47,14 @@ impl From<OutboundEvent> for ConnectionEvent {
         match event {
             OutboundEvent::Connected {
                 host,
+                ip,
                 port,
                 outbound,
                 delay_mills,
                 request_time_mills,
             } => Self {
-                country_code: country_code_of(&host),
+                country_code: ip.and_then(country_code_of),
+                ip: ip.map(|ip| ip.to_string()),
                 host,
                 port,
                 outbound: outbound.into_owned(),
@@ -60,13 +64,15 @@ impl From<OutboundEvent> for ConnectionEvent {
             },
             OutboundEvent::Error {
                 host,
+                ip,
                 port,
                 outbound,
                 delay_mills,
                 request_time_mills,
                 error,
             } => Self {
-                country_code: country_code_of(&host),
+                country_code: ip.and_then(country_code_of),
+                ip: ip.map(|ip| ip.to_string()),
                 host,
                 port,
                 outbound: outbound.into_owned(),
@@ -168,7 +174,8 @@ mod tests {
     #[test]
     fn converts_outbound_events() {
         let event: ConnectionEvent = OutboundEvent::Error {
-            host: "1.0.0.1".into(),
+            host: "one.one.one.one".into(),
+            ip: Some(Ipv4Addr::new(1, 0, 0, 1)),
             port: 443,
             outbound: Cow::Borrowed("proxy"),
             delay_mills: 12,
@@ -179,7 +186,8 @@ mod tests {
         assert_eq!(
             event,
             ConnectionEvent {
-                host: "1.0.0.1".into(),
+                host: "one.one.one.one".into(),
+                ip: Some("1.0.0.1".into()),
                 port: 443,
                 outbound: "proxy".into(),
                 delay_millis: 12,
@@ -192,10 +200,9 @@ mod tests {
 
     #[test]
     fn looks_up_country_codes() {
-        assert_eq!(country_code_of("1.0.1.1").as_deref(), Some("CN"));
-        assert_eq!(country_code_of("8.8.8.8").as_deref(), Some("US"));
-        assert_eq!(country_code_of("192.168.1.1"), None);
-        assert_eq!(country_code_of("example.com"), None);
+        assert_eq!(country_code_of([1, 0, 1, 1].into()).as_deref(), Some("CN"));
+        assert_eq!(country_code_of([8, 8, 8, 8].into()).as_deref(), Some("US"));
+        assert_eq!(country_code_of([192, 168, 1, 1].into()), None);
     }
 
     #[test]

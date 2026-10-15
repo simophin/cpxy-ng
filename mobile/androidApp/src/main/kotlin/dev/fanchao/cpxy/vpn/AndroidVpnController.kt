@@ -78,6 +78,7 @@ class AndroidVpnController(private val context: Context) : VpnController {
                         seq = record.seq.toLong(),
                         event = ConnectionEvent(
                             host = event.host,
+                            ip = event.ip,
                             port = event.port.toInt(),
                             outbound = event.outbound,
                             delayMillis = event.delayMillis.toLong(),

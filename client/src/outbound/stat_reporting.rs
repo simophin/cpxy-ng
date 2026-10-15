@@ -1,6 +1,6 @@
 use crate::stats_server::OutboundEvent;
 use anyhow::Context;
-use cpxy_ng::outbound::{Outbound, OutboundRequest};
+use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use std::borrow::Cow;
 use std::time::{Instant, SystemTime};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -26,6 +26,10 @@ where
             .context("Error getting system time")?
             .as_millis() as u64;
         let host = req.host.host().to_string();
+        let ip = match &req.host {
+            OutboundHost::Domain(_) => None,
+            OutboundHost::Resolved { ip, .. } => *ip,
+        };
         let port = req.port;
         tracing::debug!(outbound = %self.name, host, port, "StatReporting: sending request");
         let r = self.inner.send(req).await;
@@ -36,6 +40,7 @@ where
                 tracing::debug!(outbound = %self.name, host, port, delay_mills, "StatReporting: connected");
                 OutboundEvent::Connected {
                     host,
+                    ip,
                     port,
                     outbound: self.name.clone(),
                     delay_mills,
@@ -47,6 +52,7 @@ where
                 tracing::warn!(outbound = %self.name, host, port, delay_mills, error = %e, "StatReporting: connection failed");
                 OutboundEvent::Error {
                     host,
+                    ip,
                     outbound: self.name.clone(),
                     port,
                     delay_mills,

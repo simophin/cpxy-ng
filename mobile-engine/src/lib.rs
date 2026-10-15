@@ -24,6 +24,7 @@ mod fin;
 pub mod linux;
 mod proxy;
 mod routing;
+mod sni;
 mod tun;
 
 pub use client::stats_server::OutboundEvent;
@@ -34,12 +35,13 @@ pub use ffi::{ConnectionEvent, Engine, EngineError, start_engine};
 uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
-use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
+use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
     TcpOptions,
 };
+use routing::Router;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
@@ -74,6 +76,10 @@ const LOCAL_TCP_WINDOW: u32 = 64 << 10;
 const GATEWAY_TCP_WINDOW: u32 = 1 << 20;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a connection waits for the app to name its server before it is reported under its
+/// address. Only the report waits: apps that send first have sent by now, and the rest, such as
+/// SSH, wait for the server.
+const SNI_WAIT: Duration = Duration::from_secs(1);
 
 /// Receives what the engine reports while it runs. Called from engine threads.
 pub trait EventListener: Send + Sync {
@@ -278,7 +284,7 @@ fn start_inner(
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
-    let outbound = Arc::new(routing::outbound(server, proxy_routes, events_tx));
+    let router = Arc::new(Router::new(server, proxy_routes, events_tx));
     let (shutdown, shutdown_rx) = oneshot::channel();
     runtime.spawn(forward_events(events_rx, listener));
     let resolver = dns.as_ref().map(|dns| dns.handler.clone());
@@ -288,7 +294,7 @@ fn start_inner(
         device_eof,
         mtu,
         tcp_window,
-        outbound,
+        router,
         dns,
         proxies,
         shutdown_rx,
@@ -385,13 +391,13 @@ async fn forward_events(
     }
 }
 
-async fn run<O: Outbound + Send + Sync + 'static>(
+async fn run(
     device: TunDevice,
     device_closed: oneshot::Receiver<()>,
     device_eof: Arc<Notify>,
     mtu: u16,
     tcp_window: u32,
-    outbound: Arc<O>,
+    router: Arc<Router>,
     dns: Option<DnsService>,
     proxies: proxy::Listeners,
     mut shutdown: oneshot::Receiver<()>,
@@ -408,10 +414,8 @@ async fn run<O: Outbound + Send + Sync + 'static>(
         .udp_timeout(UDP_IDLE_TIMEOUT)
         .with_tcp_config(tcp_config);
     let mut stack = IpStack::new(config, device);
-    let mut proxy_tasks = proxies.spawn(
-        outbound.clone(),
-        dns.as_ref().map(|dns| dns.handler.clone()),
-    );
+    let mut proxy_tasks =
+        proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
     let mut flows = JoinSet::new();
 
     loop {
@@ -431,7 +435,7 @@ async fn run<O: Outbound + Send + Sync + 'static>(
         };
         match stream {
             Ok(IpStackStream::Tcp(tcp)) => {
-                flows.spawn(handle_tcp(tcp, outbound.clone(), dns.clone()));
+                flows.spawn(handle_tcp(tcp, router.clone(), dns.clone()));
             }
             Ok(IpStackStream::Udp(udp)) => {
                 flows.spawn(handle_udp(udp, dns.clone()));
@@ -466,11 +470,9 @@ fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
     }
 }
 
-async fn handle_tcp<O: Outbound>(
-    flow: IpStackTcpStream,
-    outbound: Arc<O>,
-    dns: Option<DnsService>,
-) {
+/// The connection is reported under its server name once the app's ClientHello names it, or
+/// under its address when no name comes within [`SNI_WAIT`].
+async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<DnsService>) {
     let Some(dst) = ipv4_dst(flow.peer_addr()) else {
         return;
     };
@@ -478,23 +480,44 @@ async fn handle_tcp<O: Outbound>(
         return dns::serve_tcp_flow(flow, handler).await;
     }
 
+    let address = dst.ip().to_string();
     let request = OutboundRequest {
         host: OutboundHost::Resolved {
-            domain: dst.ip().to_string(),
+            domain: address.clone(),
             ip: Some(*dst.ip()),
         },
         port: dst.port(),
         tls: false,
         initial_plaintext: Vec::new(),
     };
-    // On failure the flow is dropped, which resets the app's connection.
-    let Ok(mut upstream) = outbound.send(request).await else {
-        return;
+    // The app's first bytes wait in the flow while connecting, and the tap reads the server name
+    // from them as they are relayed, so connecting never waits for it.
+    let (name_tx, mut name_rx) = oneshot::channel();
+    let mut flow = sni::SniTap::new(fin::FinRetry::new(flow), name_tx);
+    let (outcome, upstream) = router.connect(request).await;
+    let mut upstream = match upstream {
+        Ok(upstream) => upstream,
+        Err(_) => {
+            flow.sniff_buffered().await;
+            let name = name_rx.try_recv().ok().flatten();
+            router.report(outcome, name.unwrap_or(address));
+            // Dropping the flow resets the app's connection.
+            return;
+        }
     };
-    let mut flow = fin::FinRetry::new(flow);
-    if let Err(e) = tokio::io::copy_bidirectional(&mut flow, &mut upstream).await {
-        tracing::debug!("TCP flow to {dst} ended: {e}");
-    }
+
+    let relay = async move {
+        if let Err(e) = tokio::io::copy_bidirectional(&mut flow, &mut upstream).await {
+            tracing::debug!("TCP flow to {dst} ended: {e}");
+        }
+        // Dropping the tap here ends the wait for a name.
+    };
+    let report = async {
+        let name = tokio::time::timeout(SNI_WAIT, name_rx).await;
+        let name = name.ok().and_then(Result::ok).flatten();
+        router.report(outcome, name.unwrap_or(address));
+    };
+    tokio::join!(relay, report);
 }
 
 async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
@@ -622,6 +645,74 @@ mod tests {
         assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).is_err());
         // A subsequent connection can bind the saved port again.
         std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).unwrap();
+    }
+
+    #[test]
+    fn reports_a_tls_connection_under_its_server_name() {
+        use std::io::Read;
+        use std::os::unix::net::UnixDatagram;
+
+        struct Channel(Mutex<std::sync::mpsc::Sender<OutboundEvent>>);
+        impl EventListener for Channel {
+            fn on_outbound_event(&self, event: OutboundEvent) {
+                let _ = self.0.lock().unwrap().send(event);
+            }
+        }
+
+        let (tun, peer) = UnixDatagram::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let (events_tx, events) = std::sync::mpsc::channel();
+        let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
+        let engine = start(tun.into(), config, Arc::new(Channel(Mutex::new(events_tx)))).unwrap();
+
+        // Loopback goes direct, to this listener.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let send = |seq: u32, ack: Option<u32>, payload: &[u8]| {
+            let builder = etherparse::PacketBuilder::ipv4(TUN_ADDR.octets(), [127, 0, 0, 1], 64)
+                .tcp(40000, port, seq, 65535);
+            let builder = match ack {
+                Some(ack) => builder.ack(ack).psh(),
+                None => builder.syn(),
+            };
+            let mut packet = Vec::with_capacity(builder.size(payload.len()));
+            builder.write(&mut packet, payload).unwrap();
+            peer.send(&packet).unwrap();
+        };
+        send(1, None, &[]);
+        let mut packet = [0u8; 2048];
+        let syn_ack = loop {
+            let n = peer.recv(&mut packet).unwrap();
+            let sliced = etherparse::SlicedPacket::from_ip(&packet[..n]).unwrap();
+            if let Some(etherparse::TransportSlice::Tcp(tcp)) = sliced.transport
+                && tcp.syn()
+                && tcp.ack()
+            {
+                break tcp.sequence_number();
+            }
+        };
+        let hello = sni::tests::client_hello(Some(&sni::tests::server_name_ext(b"example.com")));
+        send(2, Some(syn_ack.wrapping_add(1)), &hello);
+
+        let (mut accepted, _) = listener.accept().unwrap();
+        accepted
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut relayed = vec![0u8; hello.len()];
+        accepted.read_exact(&mut relayed).unwrap();
+        assert_eq!(relayed, hello);
+
+        match events.recv_timeout(Duration::from_secs(5)).unwrap() {
+            OutboundEvent::Connected {
+                host, ip, outbound, ..
+            } => {
+                assert_eq!(host, "example.com");
+                assert_eq!(ip, Some(Ipv4Addr::LOCALHOST));
+                assert_eq!(outbound, "direct");
+            }
+            OutboundEvent::Error { error, .. } => panic!("connecting failed: {error}"),
+        }
+        engine.stop();
     }
 
     #[test]

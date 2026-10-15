@@ -213,10 +213,12 @@ private fun ConnectionRow(event: ConnectionEvent) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val detail = event.error?.let { "${event.outbound} failed: $it" }
+            val outcome = event.error?.let { "${event.outbound} failed: $it" }
                 ?: "${event.outbound}, ${event.delayMillis} ms"
+            // A named connection also shows the address it went to.
+            val address = event.ip?.takeIf { it != event.host }
             Text(
-                detail,
+                listOfNotNull(address, outcome).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (event.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,

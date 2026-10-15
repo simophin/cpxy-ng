@@ -42,7 +42,8 @@ private class FakeController(private val capacity: Int = 100) : VpnController {
 
     private companion object {
         val event = ConnectionEvent(
-            host = "1.2.3.4",
+            host = "example.com",
+            ip = "1.2.3.4",
             port = 443,
             outbound = "proxy",
             delayMillis = 1,
