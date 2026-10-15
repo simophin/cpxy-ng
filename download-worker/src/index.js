@@ -6,6 +6,11 @@
 //   <version>/android/cpxy-vpn.apk
 //   <version>/openwrt/<opkg arch>/{cpxy.ipk,Packages,Packages.gz,Packages.sig}
 //   <version>/raw/<rust target>/cpxy-*
+//
+// Browsers get HTML pages (pages.js): the versions at `/` and a version's files at `<version>/`.
+// Anything else asking for `/` gets the version names as text.
+
+import { parseSums, renderIndex, renderVersion } from './pages.js';
 
 // A tag, or `git describe` of a later commit: 1.17.0, 1.17.0-5-gabc1234. Matches AppVersion in
 // mobile/shared, which orders versions the same way.
@@ -57,6 +62,49 @@ async function cachedLatest(bucket) {
 export function resetCache() {
   cached = { at: 0, version: null };
 }
+
+/** Every version with whether it is complete and when it was, newest first. */
+async function versionStatuses(bucket) {
+  return Promise.all(
+    (await listVersions(bucket)).map(async (name) => {
+      const sums = await bucket.head(`${name}/SHA256SUMS`);
+      return { name, complete: !!sums, uploaded: sums?.uploaded };
+    }),
+  );
+}
+
+/** The files in a version folder, with paths inside it. */
+async function listFiles(bucket, version) {
+  const prefix = `${version}/`;
+  const files = [];
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix, cursor });
+    for (const object of page.objects) files.push({ path: object.key.slice(prefix.length), size: object.size });
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return files;
+}
+
+async function versionPage(bucket, version) {
+  const [files, sums, latest] = await Promise.all([
+    listFiles(bucket, version),
+    bucket.get(`${version}/SHA256SUMS`),
+    cachedLatest(bucket),
+  ]);
+  if (!files.length) return text(404, 'Not found\n');
+  const html = renderVersion(version, files, sums ? parseSums(await sums.text()) : new Map(), {
+    complete: !!sums,
+    latest,
+    uploaded: sums?.uploaded,
+  });
+  // A complete version does not change, but the latest marker on it does
+  return new Response(html, {
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': sums ? 'public, max-age=300' : 'no-cache' },
+  });
+}
+
+const wantsHtml = (request) => (request.headers.get('accept') ?? '').includes('text/html');
 
 function text(status, body, headers = {}) {
   return new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', ...headers } });
@@ -112,6 +160,9 @@ export default {
       const version = await cachedLatest(env.BUCKET);
       if (!version) return text(404, 'Nothing is published yet\n');
       const rest = path.slice('/latest'.length);
+      if (rest === '/' && wantsHtml(request)) {
+        return new Response(null, { status: 302, headers: { location: `/${version}/`, 'cache-control': 'no-cache' } });
+      }
       if (rest === '' || rest === '/') return text(200, `${version}\n`, { 'cache-control': 'no-cache' });
       return new Response(null, {
         status: 302,
@@ -120,8 +171,22 @@ export default {
     }
 
     if (path === '/') {
-      const versions = await listVersions(env.BUCKET);
-      return text(200, versions.map((v) => `${v}\n`).join(''), { 'cache-control': 'no-cache' });
+      const vary = { vary: 'accept', 'cache-control': 'no-cache' };
+      if (!wantsHtml(request)) {
+        const versions = await listVersions(env.BUCKET);
+        return text(200, versions.map((v) => `${v}\n`).join(''), vary);
+      }
+      const versions = await versionStatuses(env.BUCKET);
+      const latest = versions.find((v) => v.complete)?.name ?? null;
+      return new Response(renderIndex(versions, latest), {
+        headers: { 'content-type': 'text/html; charset=utf-8', ...vary },
+      });
+    }
+
+    const name = path.slice(1).replace(/\/$/, '');
+    if (parseVersion(name)) {
+      if (!path.endsWith('/')) return new Response(null, { status: 301, headers: { location: `/${name}/` } });
+      return versionPage(env.BUCKET, name);
     }
     if (path.endsWith('/')) return text(404, 'Not found\n');
     return serveObject(request, env.BUCKET, path.slice(1));

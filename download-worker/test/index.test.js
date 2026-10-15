@@ -9,6 +9,7 @@ function fakeBucket(files, pageSize = 2) {
     key,
     size: files[key].length,
     httpEtag: `"${key}"`,
+    uploaded: new Date('2026-10-15T03:00:00Z'),
     writeHttpMetadata() {},
   });
   return {
@@ -16,13 +17,17 @@ function fakeBucket(files, pageSize = 2) {
       return key in files ? object(key) : null;
     },
     async get(key) {
-      return key in files ? { ...object(key), body: files[key] } : null;
+      return key in files ? { ...object(key), body: files[key], text: async () => files[key] } : null;
     },
-    async list({ delimiter, cursor }) {
-      assert.equal(delimiter, '/');
-      const prefixes = [...new Set(Object.keys(files).map((k) => k.split('/')[0] + '/'))].sort();
+    async list({ delimiter, prefix, cursor }) {
       const start = cursor ? +cursor : 0;
       const end = start + pageSize;
+      if (prefix !== undefined) {
+        const keys = Object.keys(files).filter((k) => k.startsWith(prefix)).sort();
+        return { objects: keys.slice(start, end).map(object), truncated: end < keys.length, cursor: String(end) };
+      }
+      assert.equal(delimiter, '/');
+      const prefixes = [...new Set(Object.keys(files).map((k) => k.split('/')[0] + '/'))].sort();
       return {
         delimitedPrefixes: prefixes.slice(start, end),
         truncated: end < prefixes.length,
@@ -32,8 +37,9 @@ function fakeBucket(files, pageSize = 2) {
   };
 }
 
-const get = (bucket, path, method = 'GET') =>
-  worker.fetch(new Request(`https://dl.example${path}`, { method }), { BUCKET: bucket });
+const get = (bucket, path, method = 'GET', headers = {}) =>
+  worker.fetch(new Request(`https://dl.example${path}`, { method, headers, redirect: 'manual' }), { BUCKET: bucket });
+const browse = (bucket, path) => get(bucket, path, 'GET', { accept: 'text/html,application/xhtml+xml,*/*;q=0.8' });
 
 beforeEach(resetCache);
 
@@ -92,4 +98,74 @@ test('refuses other methods and odd paths', async () => {
   const bucket = fakeBucket({});
   assert.equal((await get(bucket, '/x', 'POST')).status, 405);
   assert.equal((await get(bucket, '/%E0%A4%A')).status, 400);
+});
+
+const SUMS = (paths) => paths.map((p, i) => `${String(i).padStart(64, '0')}  ${p}`).join('\n') + '\n';
+
+test('lists versions as text for scripts and as a page for browsers', async () => {
+  const bucket = fakeBucket({
+    '1.17.0/SHA256SUMS': 'x',
+    '1.17.0-2-gabc1234/SHA256SUMS': 'x',
+    '1.17.0-3-gdef5678/android/cpxy-vpn.apk': 'x',
+  });
+  assert.equal(await (await get(bucket, '/')).text(), '1.17.0-3-gdef5678\n1.17.0-2-gabc1234\n1.17.0\n');
+
+  const page = await browse(bucket, '/');
+  assert.match(page.headers.get('content-type'), /text\/html/);
+  assert.equal(page.headers.get('vary'), 'accept');
+  const html = await page.text();
+  assert.match(html, /Latest version<\/div><div class="name">1\.17\.0-2-gabc1234</);
+  assert.match(html, /href="\/1\.17\.0-3-gdef5678\/">1\.17\.0-3-gdef5678<\/a><span class="badge warn">uploading/);
+  assert.match(html, /href="\/1\.17\.0\/">1\.17\.0<\/a><span class="badge">tag/);
+});
+
+test('a version page lists every file under its section, with its checksum', async () => {
+  const paths = [
+    'android/cpxy-vpn.apk',
+    'openwrt/x86_64/cpxy.ipk',
+    'openwrt/x86_64/Packages',
+    'raw/x86_64-pc-windows-msvc/cpxy-client.exe',
+    'raw/x86_64-unknown-linux-musl/cpxy-client',
+    'raw/x86_64-unknown-linux-musl/cpxy-tsgw',
+    'notes.txt',
+  ];
+  const files = Object.fromEntries(paths.map((p) => [`1.17.0/${p}`, 'x'.repeat(2048)]));
+  files['1.17.0/SHA256SUMS'] = SUMS(paths);
+  const bucket = fakeBucket(files);
+
+  const response = await browse(bucket, '/1.17.0/');
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  for (const p of [...paths, 'SHA256SUMS']) assert.ok(html.includes(`href="/1.17.0/${p}"`), p);
+  const order = ['id="android"', 'id="openwrt"', 'id="cpxy-client"', 'id="cpxy-tsgw"', 'id="checksums"', 'id="other"'];
+  const at = order.map((s) => html.indexOf(s));
+  assert.ok(at.every((i, n) => i > 0 && (n === 0 || i > at[n - 1])), `sections in order: ${at}`);
+  assert.match(html, />Windows x64</);
+  assert.match(html, />Linux x86-64</);
+  assert.match(html, /Package, x86-64/);
+  assert.ok(html.includes('0'.repeat(63) + '1'), 'checksum of the second file');
+  assert.match(html, /2\.0 KB/);
+});
+
+test('version pages redirect to their folder, and 404 when empty', async () => {
+  const bucket = fakeBucket({ '1.17.0/SHA256SUMS': 'x' });
+  const response = await browse(bucket, '/1.17.0');
+  assert.equal(response.status, 301);
+  assert.equal(response.headers.get('location'), '/1.17.0/');
+  assert.equal((await browse(bucket, '/1.18.0/')).status, 404);
+});
+
+test('latest/ takes a browser to the latest version page', async () => {
+  const bucket = fakeBucket({ '1.17.0/SHA256SUMS': 'x' });
+  const response = await browse(bucket, '/latest/');
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), '/1.17.0/');
+  assert.equal(await (await get(bucket, '/latest/')).text(), '1.17.0\n');
+});
+
+test('escapes file names', async () => {
+  const bucket = fakeBucket({ '1.17.0/SHA256SUMS': 'x', '1.17.0/<b>.txt': 'x' });
+  const html = await (await browse(bucket, '/1.17.0/')).text();
+  assert.ok(!html.includes('<b>'));
+  assert.ok(html.includes('&lt;b&gt;.txt'));
 });
