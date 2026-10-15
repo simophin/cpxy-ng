@@ -18,14 +18,17 @@ data class Traffic(
 
 /** A TCP flow the engine connected direct or through the proxy, or failed to. */
 data class ConnectionEvent(
+    /** The server name the app asked for, or the address when it named none. */
     val host: String,
+    /** The address connected to, when known. */
+    val ip: String?,
     val port: Int,
     /** `direct` or `proxy`. */
     val outbound: String,
     val delayMillis: Long,
     val timeMillis: Long,
     val error: String?,
-    /** ISO 3166-1 alpha-2 code of the country [host] is in, when known. */
+    /** ISO 3166-1 alpha-2 code of the country [ip] is in, when known. */
     val countryCode: String?,
 )
 

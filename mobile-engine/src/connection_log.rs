@@ -84,6 +84,7 @@ mod tests {
     fn event(port: u16) -> ConnectionEvent {
         ConnectionEvent {
             host: "1.2.3.4".into(),
+            ip: Some("1.2.3.4".into()),
             port,
             outbound: "proxy".into(),
             delay_millis: 1,

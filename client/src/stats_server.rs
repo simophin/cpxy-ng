@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use serde::Serialize;
 use std::borrow::Cow;
+use std::net::Ipv4Addr;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast::Receiver;
 
@@ -14,6 +15,8 @@ use tokio::sync::broadcast::Receiver;
 pub enum OutboundEvent {
     Connected {
         host: String,
+        /// The address connected to, when `host` was resolved before connecting.
+        ip: Option<Ipv4Addr>,
         port: u16,
         outbound: Cow<'static, str>,
         delay_mills: usize,
@@ -21,6 +24,8 @@ pub enum OutboundEvent {
     },
     Error {
         host: String,
+        /// The address connected to, when `host` was resolved before connecting.
+        ip: Option<Ipv4Addr>,
         port: u16,
         outbound: Cow<'static, str>,
         delay_mills: usize,
