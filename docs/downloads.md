@@ -31,7 +31,10 @@ The version is `git describe`: a tag such as `1.17.0` on the tagged commit, and
 `1.17.0-5-gabc1234` five commits after it. Versions are ordered by the tag's numbers, then the
 commit count, so later commits on `main` are newer.
 
-- `https://<download host>/` lists the versions, newest first.
+- `https://<download host>/` lists the versions, newest first: a page in a browser, and one name
+  per line otherwise.
+- `https://<download host>/<version>/` is a page of the version's files, grouped by what they are,
+  with sizes and checksums. `/latest/` takes a browser to the newest one.
 - `https://<download host>/latest` is the newest complete version's name (it has its
   `SHA256SUMS`).
 - `https://<download host>/latest/<path>` redirects to `<path>` in that version, for example
