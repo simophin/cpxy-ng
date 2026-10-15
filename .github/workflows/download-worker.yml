@@ -45,3 +45,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: download-worker
+          # The action's default is Wrangler 3, which is out of date
+          wranglerVersion: '4.151.0'
