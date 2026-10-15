@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.Proxy
 import java.net.URI
 import java.net.URL
 import java.security.MessageDigest
@@ -111,8 +112,9 @@ class AndroidUpdater(private val context: Context, private val baseUrl: String) 
         apk.delete()
     }
 
+    /** Through the engine while it runs, as this app is left out of the VPN. */
     private fun open(url: String): HttpURLConnection =
-        (URL(url).openConnection() as HttpURLConnection).apply {
+        (URL(url).openConnection(context.app.controller.localProxy() ?: Proxy.NO_PROXY) as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 30_000
             setRequestProperty("Cache-Control", "no-cache")
