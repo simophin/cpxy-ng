@@ -104,8 +104,8 @@ restart.
 | `TS_AUTHKEY` | none | An auth key for the first login instead of the link in the log. |
 | `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. |
 | `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). Also `--control-url`. |
-| `DNS_UPSTREAM` | `223.5.5.5,tcp://119.29.29.29` | DNS servers whose answer is used when every address in it is in the local region. |
-| `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
+| `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | DNS servers whose answer is used when every address in it is in the local region. |
+| `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
 | `BLOCK_ADS` | `0`; `1` in the Docker image | `1` answers names on the built-in ad blocklist with an address that goes nowhere, so ads and trackers fail to load on every device using the exit node. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
@@ -149,8 +149,12 @@ blocked site direct. What has to be trustworthy is the **alternative** answer:
   blocked, and CDNs answer for where traffic leaves. The cpxy server carries TCP only, so use
   `tcp://`, `tls://` or `https://`.
 
-For `DNS_UPSTREAM`, the resolvers your router hands out over DHCP are usually the fastest and give
-the nearest CDN nodes for your ISP. Check that each server you list answers: a dead one costs
+Every query goes to every server listed, in both groups, so each extra server is another query
+(and, through the cpxy server, another connection) for every name. One server per group, as the
+defaults have, is usually best.
+
+For `DNS_UPSTREAM`, the resolver your router hands out over DHCP is usually the fastest and gives
+the nearest CDN nodes for your ISP. Check that the server you list answers: a dead one costs
 nothing visible but means local-region names wait for the alternative answer.
 
 ## Check it

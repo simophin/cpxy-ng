@@ -7,7 +7,7 @@ own cpxy server and three services:
 | Service | What it does |
 |---|---|
 | `cpxy-client` | An HTTP proxy (`[::]:5000` for the first instance), through the instance's server. Devices may use it directly; tsgw uses it too. |
-| `cpxy-router` | Sends the networks' TCP through the server (local-region destinations go direct) and answers their DNS with **dns_split**, which picks the local-region answer when there is one, and otherwise the answer of overseas DNS servers (1.1.1.1 and 8.8.8.8 over TCP by default) asked through the server, so it is not tampered with. |
+| `cpxy-router` | Sends the networks' TCP through the server (local-region destinations go direct) and answers their DNS with **dns_split**, which picks the local-region answer when there is one, and otherwise the answer of an overseas DNS server (1.1.1.1 over TCP by default) asked through the server, so it is not tampered with. |
 | `cpxy-tsgw` | A [Tailscale exit node](cpxy-tsgw.md) with the same routing and split DNS, for phones and laptops away from home. |
 
 ```text
@@ -119,8 +119,8 @@ never taken from `defaults`.
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy and exit node. |
 | `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy. |
-| `dns_upstream` (list) | `223.5.5.5`, `119.29.29.29` | DNS servers whose answer is used when all its addresses are in the local region. The fastest ones are usually your ISP's. |
-| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy`, `tcp://8.8.8.8?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
+| `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used when all its addresses are in the local region. The fastest ones are usually your ISP's. |
+| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
 | `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
 | `block_ads` | `1` | Answer names on the built-in ad blocklist with an address that goes nowhere (dns_split and tsgw). |

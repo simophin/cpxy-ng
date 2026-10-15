@@ -98,7 +98,7 @@ echo "proxies: ok"
 eventually 60 "tsgw reaching Tailscale through the proxy" server_saw 'target_host="controlplane.tailscale.com"'
 eventually 60 "tsgw's login link" sh -c "docker logs cpxy-test-a 2>&1 | grep -q '^\[tsgw\].*https://login.tailscale.com/'"
 env="$(docker exec cpxy-test-b sh -c 'tr "\0" "\n" </proc/$(pidof cpxy-tsgw)/environ')"
-echo "$env" | grep -qx 'DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy,tcp://8.8.8.8?via=cpxy' ||
+echo "$env" | grep -qx 'DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy' ||
 	fail "b's tsgw does not ask its alternative DNS through the server"
 docker logs cpxy-test-a 2>&1 | grep -q '^\[tsgw\].*Using alternative DNS server tcp://1.1.1.1:53?via=cpxy' ||
 	fail "a's tsgw did not set up its alternative DNS through the server"
