@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.fanchao.cpxy.vpn.ui.AppPickerScreen
 import dev.fanchao.cpxy.vpn.ui.CpxyVpnApp
 import dev.fanchao.cpxy.vpn.ui.EditProfileScreen
 import kotlinx.coroutines.*
@@ -162,6 +163,30 @@ class NavigationTest {
             compose.waitUntil { compose.onAllNodesWithText(label).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText(label).assertExists()
         }
+    }
+
+    @Test fun dpadMovesFromAppPickerTopBarThroughSearchToApps() {
+        val catalog = object : AppCatalog {
+            override suspend fun apps() = listOf(InstalledApp("com.example.alpha", "Alpha", isSystem = false))
+            override suspend fun icon(packageName: String): ImageBitmap? = null
+        }
+        compose.setContent { MaterialTheme { AppPickerScreen(AppFilter.OnlySelected, settings, catalog, {}) } }
+        val search = compose.onNode(hasSetTextAction())
+        val alpha = compose.onNode(hasText("Alpha") and isToggleable())
+        compose.waitUntil { compose.onAllNodes(hasText("Alpha") and isToggleable()).fetchSemanticsNodes().isNotEmpty() }
+        for (action in listOf("Back", "More options")) {
+            compose.onNodeWithContentDescription(action).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(Key.DirectionDown)
+            search.assertIsFocused()
+        }
+        press(Key.DirectionDown)
+        alpha.assertIsFocused()
+        press(Key.DirectionCenter)
+        compose.waitUntil { runBlocking { "com.example.alpha" in settings.settings.first().appsFor(AppFilter.OnlySelected) } }
+        press(Key.DirectionUp)
+        search.assertIsFocused()
+        press(Key.DirectionUp)
+        compose.onNodeWithContentDescription("Back").assertIsFocused()
     }
 
     @Test fun duplicateIsPrefilledAndSavedSeparately() {
