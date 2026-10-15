@@ -109,6 +109,9 @@ touchscreen; the TV launcher uses the CPXY VPN banner.
   On Home, use Left/Right between a profile and its hamburger menu. In Settings, use
   Left/Right between an app filter and its Choose button; Center activates the focused
   control. Navigate through proxy routes, proxy switches and port dialogs with Up/Down.
+- Choose either app filter. Press Down from the top bar to the search box and on to
+  the apps; focusing the search box must not open the keyboard. Center opens it, Back
+  closes it, and Down continues to the filtered apps.
 - Open a profile's hamburger menu and choose Edit or Duplicate. Duplicate opens a new
   profile prefilled with the server and DNS lists; Save creates and selects the copy.
   Back discards the draft without changing the original.

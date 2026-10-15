@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -36,7 +39,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,7 +79,7 @@ fun AppPickerScreen(
     val selected by produceState<Set<String>>(emptySet(), filter) {
         settingsRepository.settings.collect { value = it.appsFor(filter) }
     }
-    var query by rememberSaveable { mutableStateOf("") }
+    val query = rememberTextFieldState()
     var showSystem by rememberSaveable { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -120,26 +129,37 @@ fun AppPickerScreen(
             return@Scaffold
         }
 
-        val words = query.trim().lowercase()
+        val words = query.text.trim().toString().lowercase()
         val shown = apps.apps.filter { app ->
             (showSystem || !app.isSystem || app.packageName in apps.initiallySelected) &&
                 (words.isEmpty() || words in app.label.lowercase() || words in app.packageName.lowercase())
         }
+        // Keep the list's bounds below the top bar. A full-screen lazy list with content
+        // padding overlaps the top bar during focus search, so D-pad Down cannot enter it.
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = padding.calculateBottomPadding() + 16.dp,
-            ),
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             item {
+                // On TV the keyboard captures the D-pad, so focusing the field must not open it.
+                // Center or Enter opens it, as does a tap; Up and Down move past the field.
+                // A focused field starts its input session when this option turns on.
+                var typing by remember { mutableStateOf(false) }
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    state = query,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                        .onFocusChanged { if (!it.isFocused) typing = false }
+                        .onPreviewKeyEvent {
+                            if (typing || it.type != KeyEventType.KeyDown || it.key !in OpenKeyboardKeys) {
+                                return@onPreviewKeyEvent false
+                            }
+                            typing = true
+                            true
+                        },
                     placeholder = { Text("Search apps") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    singleLine = true,
+                    lineLimits = TextFieldLineLimits.SingleLine,
+                    keyboardOptions = KeyboardOptions(showKeyboardOnFocus = typing),
                 )
             }
             items(shown, key = { it.packageName }) { app ->
@@ -168,6 +188,8 @@ fun AppPickerScreen(
         }
     }
 }
+
+private val OpenKeyboardKeys = setOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)
 
 private class LoadedApps(val apps: List<InstalledApp>, val initiallySelected: Set<String>)
 
