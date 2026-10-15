@@ -5,9 +5,11 @@
 #   <opkg arch>  what `opkg print-architecture` shows on the router, e.g. aarch64_cortex-a53
 #   <bin dir>    holds, for that architecture: cpxy-router, cpxy-dns-split, cpxy-client and
 #                cpxy-tsgw
+# CPXY_FEED_URL  optional: the feed's base URL (https://<host>), which the package then lists in
+#                /etc/opkg/cpxy.conf so `opkg update && opkg upgrade cpxy` finds newer versions
 set -eu
 
-[ $# -eq 4 ] || { sed -n '2,8p' "$0" >&2; exit 2; }
+[ $# -eq 4 ] || { sed -n '2,10p' "$0" >&2; exit 2; }
 arch="$1" version="$2" bindir="$3" outdir="$4"
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -24,6 +26,14 @@ for bin in cpxy-router cpxy-dns-split cpxy-client cpxy-tsgw; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
 chmod 0755 "$work/data/etc/init.d/"*
+# The key the feed's Packages.sig is checked with, named by its fingerprint as opkg expects
+mkdir -p "$work/data/etc/opkg/keys"
+fingerprint="$(tail -1 "$here/feed.pub" | base64 -d | od -An -tx1 -j2 -N8 | tr -d ' \n')"
+install -m 0644 "$here/feed.pub" "$work/data/etc/opkg/keys/$fingerprint"
+if [ -n "${CPXY_FEED_URL:-}" ]; then
+	echo "src/gz cpxy ${CPXY_FEED_URL%/}/latest/openwrt/$arch" >"$work/data/etc/opkg/cpxy.conf"
+	chmod 0644 "$work/data/etc/opkg/cpxy.conf"
+fi
 chmod 0644 "$work/data/etc/config/cpxy" "$work/data/lib/upgrade/keep.d/cpxy" "$work/data/usr/libexec/cpxy/"*
 
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/control/control.in" >"$work/control/control"

@@ -210,6 +210,12 @@ describe` between releases (`CPXY_VPN_VERSION`; `dev` when unset). `release-uplo
 executable builds use `--workspace --exclude mobile-engine`: the engine uses Unix TUN descriptors
 and must not be compiled by the Windows release jobs. It is built by its dedicated mobile jobs.
 
+Since changed (2026-10-15): there are no GitHub releases. Builds of main and tags are published to
+the download server ([downloads.md](downloads.md)) as `<version>/android/cpxy-vpn.apk`, signed
+with `mobile/release.keystore` (password in the `ANDROID_KEYSTORE_PASSWORD` secret), and the app
+updates itself from there. `versionCode` stays 1: Android installs an update with the same
+`versionCode` and the same signing key, and the app compares version names instead.
+
 Validation: actionlint accepted the workflow; all 15 engine tests and 9 shared JVM tests passed;
 the release Linux TUN lab passed (peak engine RSS 11 MB); `:androidApp:assembleRelease` passed
 and the exact CI inspection confirmed all four engine libraries in the APK. The inspection also

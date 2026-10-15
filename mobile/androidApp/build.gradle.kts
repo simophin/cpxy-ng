@@ -166,6 +166,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseKeystorePassword: String? = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD")
+    .filter { it.isNotBlank() }
+    .orNull
+
 android {
     namespace = "dev.fanchao.cpxy.vpn"
     compileSdk = 37
@@ -177,11 +181,17 @@ android {
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
-        // CI passes the release tag, or `git describe` between releases.
+        // CI passes `git describe`: the tag, or `<tag>-<commits>-g<hash>` after it.
         versionName = providers.environmentVariable("CPXY_VPN_VERSION")
             .filter { it.isNotBlank() }
             .orElse("dev")
             .get()
+        // The download server the app updates from; CI passes it, and local builds do not update.
+        buildConfigField(
+            "String",
+            "UPDATE_URL",
+            "\"${providers.environmentVariable("CPXY_UPDATE_URL").orElse("").get()}\"",
+        )
     }
 
     signingConfigs {
@@ -190,6 +200,15 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+        // CI passes the password; local release builds without it are signed with the debug key.
+        releaseKeystorePassword?.let { password ->
+            create("release") {
+                storeFile = file("../release.keystore")
+                storePassword = password
+                keyAlias = "cpxy-vpn"
+                keyPassword = password
+            }
         }
     }
 
@@ -201,7 +220,7 @@ android {
                 "proguard-rules.pro"
             )
 
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -210,6 +229,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 

@@ -40,6 +40,10 @@ data class AppSettings(
     val proxyRoutes: List<String> = emptyList(),
     /** Ordered search suffixes for all profiles. */
     val dnsSearchDomains: List<String> = emptyList(),
+    /** When [UpdateChecker] last asked the server, in epoch milliseconds. */
+    val lastUpdateCheck: Long = 0,
+    /** A version the user chose not to install; the daily check does not offer it again. */
+    val skippedUpdate: String? = null,
 ) {
     init {
         require(dnsSearchDomains.all(::isDnsSearchDomain)) { "Search domains must be DNS hostname suffixes" }

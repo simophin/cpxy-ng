@@ -33,6 +33,7 @@ class NavigationTest {
         override val openAlwaysOnSettings: () -> Unit = { alwaysOnOpened = true }
         override val addQuickSettingsTile: (() -> Unit)? = null
         override val versionName = "test"
+        override val updates: UpdateChecker? = null
         override val apps = object : AppCatalog {
             override suspend fun apps() = emptyList<InstalledApp>()
             override suspend fun icon(packageName: String): ImageBitmap? = null
