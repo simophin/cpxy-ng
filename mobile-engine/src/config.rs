@@ -30,7 +30,7 @@ pub struct Config {
     /// IPv4 CIDRs forced through the proxy before automatic direct routing.
     #[serde(default)]
     pub proxy_routes: Vec<String>,
-    /// DNS servers whose answer is used when all its addresses are in CN.
+    /// DNS servers whose answer is used, keeping just its CN addresses, when it has any.
     pub dns_upstream: Vec<String>,
     /// DNS servers whose answer is used otherwise.
     pub dns_alternative: Vec<String>,

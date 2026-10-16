@@ -19,8 +19,9 @@ use tokio::net::{TcpListener, UdpSocket};
 
 const PURGE_INTERVAL: Duration = Duration::from_secs(300);
 
-/// A DNS forwarder that races queries across upstream and alternative servers. An answer whose
-/// addresses are all in the local region wins; otherwise the alternative servers' answer is used.
+/// A DNS forwarder that races queries across upstream and alternative servers. An answer with any
+/// address in the local region wins, keeping just those addresses; otherwise the alternative
+/// servers' answer is used.
 #[derive(clap::Parser)]
 struct CliOptions {
     /// The address to listen on, for both UDP and TCP

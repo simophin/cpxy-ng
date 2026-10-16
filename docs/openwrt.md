@@ -124,7 +124,7 @@ never taken from `defaults`.
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy and exit node. |
 | `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy. |
-| `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used when all its addresses are in the local region. The fastest ones are usually your ISP's. |
+| `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. |
 | `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
 | `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
@@ -152,8 +152,8 @@ now. An instance without `dns_alternative` asks the same servers through its ser
 With `router_dns` on, the firewall sends every IPv4 DNS query from the instance's networks (to
 the router or to any other server) to the instance's dns_split, and refuses IPv6 DNS so devices
 use IPv4. dns_split asks `dns_upstream` and `dns_alternative` at once and uses the upstream
-answer only when all its addresses are in the local region, so a tampered answer can never send
-a blocked site direct.
+answer only when it has addresses in the local region, keeping just those, so a tampered answer
+can never send a blocked site direct.
 
 Each instance's DNS stays inside it: its dns_split asks its overseas servers through its own
 server. The router's own lookups never go through cpxy, so nothing here depends on itself to

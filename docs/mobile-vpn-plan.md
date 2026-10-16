@@ -10,7 +10,8 @@ A new VPN app for Android and iOS that does on the phone what the `cpxy-router` 
 on the router (see [packaging/openwrt/README.md](../packaging/openwrt/README.md)):
 
 1. **DNS split.** The app answers the device's DNS with `dns_split`: an answer from the `upstream`
-   servers is used when all its addresses are in CN, otherwise the `alternative` servers' answer.
+   servers is used, keeping just its CN addresses, when it has any; otherwise the `alternative`
+   servers' answer.
    Servers given with `?via=cpxy`, a new profile's alternative servers among them, are asked through
    the cpxy server.
 2. **Traffic split.** TCP to CN (and private) IPv4 addresses goes direct; everything else goes

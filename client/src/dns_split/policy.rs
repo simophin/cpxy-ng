@@ -2,7 +2,7 @@ use super::upstream::{DnsUpstream, Group};
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use hickory_proto::op::{Message, ResponseCode};
-use hickory_proto::rr::RData;
+use hickory_proto::rr::{RData, Record};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +18,8 @@ pub struct Resolution {
 
 /// Sends each query to every configured server and picks an answer:
 ///
-/// - The first answer whose addresses are all in the local region wins, from either group.
+/// - The first answer with any address in the local region wins, from either group, with its
+///   addresses outside the local region removed.
 /// - Otherwise the first answer from an alternative server wins.
 /// - If no alternative server answers, the first upstream answer is used as a last resort.
 pub struct Racer {
@@ -66,7 +67,7 @@ impl Racer {
                 }
             };
 
-            let message = match result {
+            let mut message = match result {
                 Ok(m) if is_usable(&m) => m,
                 Ok(m) => {
                     tracing::debug!("{group} server {name} returned {}", m.response_code());
@@ -78,7 +79,7 @@ impl Racer {
                 }
             };
 
-            if is_local_region_answer(&message, self.is_local_ip) {
+            if keep_local_region_answers(&mut message, self.is_local_ip) {
                 tracing::debug!("Using local-region answer from {group} server {name}");
                 return Some(Resolution {
                     message,
@@ -118,22 +119,24 @@ fn is_usable(message: &Message) -> bool {
     )
 }
 
-/// True when the answer has at least one A record and every A record is in the local region.
-pub fn is_local_region_answer(message: &Message, is_local_ip: fn(Ipv4Addr) -> bool) -> bool {
+/// True when the answer has at least one A record in the local region, in which case the A records
+/// outside it are removed. Leaves the message untouched when it returns false.
+pub fn keep_local_region_answers(message: &mut Message, is_local_ip: fn(Ipv4Addr) -> bool) -> bool {
     if message.response_code() != ResponseCode::NoError {
         return false;
     }
 
-    let mut addresses = message
-        .answers()
-        .iter()
-        .filter_map(|r| match r.data() {
-            RData::A(a) => Some(a.0),
-            _ => None,
-        })
-        .peekable();
+    let is_local_record = |r: &Record| matches!(r.data(), RData::A(a) if is_local_ip(a.0));
+    if !message.answers().iter().any(is_local_record) {
+        return false;
+    }
 
-    addresses.peek().is_some() && addresses.all(is_local_ip)
+    message
+        .answers_mut()
+        .retain(|r| !matches!(r.data(), RData::A(_)) || is_local_record(r));
+    let count = message.answers().len() as u16;
+    message.set_answer_count(count);
+    true
 }
 
 #[cfg(test)]
@@ -141,8 +144,8 @@ pub(crate) mod tests {
     use super::*;
     use futures::future::BoxFuture;
     use hickory_proto::op::{MessageType, Query};
-    use hickory_proto::rr::rdata::A;
-    use hickory_proto::rr::{Name, Record, RecordType};
+    use hickory_proto::rr::rdata::{A, CNAME};
+    use hickory_proto::rr::{Name, RecordType};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     pub fn local_ip(ip: Ipv4Addr) -> bool {
@@ -267,12 +270,23 @@ pub(crate) mod tests {
         assert_eq!(first_ip(&r.message), REMOTE_2);
     }
 
+    fn a_records(message: &Message) -> Vec<Ipv4Addr> {
+        message
+            .answers()
+            .iter()
+            .filter_map(|r| match r.data() {
+                RData::A(a) => Some(a.0),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[tokio::test(start_paused = true)]
-    async fn mixed_answer_is_not_local() {
+    async fn mixed_answer_keeps_only_local_addresses() {
         let racer = racer(vec![
             (
                 Group::Upstream,
-                FakeUpstream::new("u", 10, Some(answer(&[LOCAL, REMOTE]))),
+                FakeUpstream::new("u", 10, Some(answer(&[REMOTE, LOCAL, REMOTE_2, LOCAL_2]))),
             ),
             (
                 Group::Alternative,
@@ -283,7 +297,35 @@ pub(crate) mod tests {
             .resolve(&query("example.com.", RecordType::A))
             .await
             .unwrap();
-        assert_eq!(r.source, Group::Alternative);
+        assert_eq!(r.source, Group::Upstream);
+        assert!(r.cacheable);
+        assert_eq!(a_records(&r.message), vec![LOCAL, LOCAL_2]);
+        assert_eq!(r.message.answer_count(), 2);
+    }
+
+    #[test]
+    fn filtering_keeps_cname_records() {
+        let mut message = query("www.example.com.", RecordType::A);
+        message.set_message_type(MessageType::Response);
+        message.add_answer(Record::from_rdata(
+            Name::from_ascii("www.example.com.").unwrap(),
+            300,
+            RData::CNAME(CNAME(Name::from_ascii("example.com.").unwrap())),
+        ));
+        for record in answer(&[REMOTE, LOCAL]).take_answers() {
+            message.add_answer(record);
+        }
+
+        assert!(keep_local_region_answers(&mut message, local_ip));
+        assert!(matches!(message.answers()[0].data(), RData::CNAME(_)));
+        assert_eq!(a_records(&message), vec![LOCAL]);
+    }
+
+    #[test]
+    fn non_local_answer_is_left_untouched() {
+        let mut message = answer(&[REMOTE, REMOTE_2]);
+        assert!(!keep_local_region_answers(&mut message, local_ip));
+        assert_eq!(a_records(&message), vec![REMOTE, REMOTE_2]);
     }
 
     #[tokio::test(start_paused = true)]
