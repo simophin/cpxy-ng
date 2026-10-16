@@ -105,7 +105,7 @@ restart.
 | `TS_AUTHKEY` | none | An auth key for the first login instead of the link in the log. |
 | `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. |
 | `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). Also `--control-url`. |
-| `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | DNS servers whose answer is used when every address in it is in the local region. |
+| `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. |
 | `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
 | `BLOCK_ADS` | `0`; `1` in the Docker image | `1` answers names on the built-in ad blocklist with an address that goes nowhere, so ads and trackers fail to load on every device using the exit node. |
@@ -136,8 +136,8 @@ themselves is ordinary HTTPS traffic and goes through the server like any other.
 
 ### Choosing the servers
 
-The split works by asking both groups at once: an upstream answer is used when every address in it
-is in the local region, and the alternative answer otherwise. Where DNS is tampered with, blocked
+The split works by asking both groups at once: an upstream answer with any address in the local
+region is used with just those addresses, and the alternative answer otherwise. Where DNS is tampered with, blocked
 names get fake addresses outside the local region, so a tampered upstream answer can never send a
 blocked site direct. What has to be trustworthy is the **alternative** answer:
 
