@@ -118,6 +118,14 @@ class NavigationTest {
         compose.onNode(isFocused() and (hasText("Home") or hasText("Connect to Home") or hasContentDescription("Actions for Home"))).assertExists()
     }
 
+    @Test fun dpadReachesTheAddButtonWithoutProfiles() {
+        showApp()
+        compose.waitUntil { compose.onAllNodesWithText("Add a profile with the + button.").fetchSemanticsNodes().isNotEmpty() }
+        focusTab("VPN")
+        press(Key.DirectionUp)
+        compose.onNodeWithContentDescription("Add profile").assertIsFocused()
+    }
+
     @Test fun dpadOpensProfileMenuAndReturnsToSelectionAndTabs() {
         runBlocking { repository.save(original) }
         showApp()

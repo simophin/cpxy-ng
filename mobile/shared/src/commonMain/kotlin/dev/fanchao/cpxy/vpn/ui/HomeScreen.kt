@@ -45,10 +45,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.AppFilter
@@ -81,6 +86,13 @@ fun HomeScreen(
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.Vpn) }
     val contentFocus = remember { FocusRequester() }
+    // D-pad Up enters the content, whose controls need not be above the one focused. When the
+    // content has nothing to focus, such as Home with no profiles, Up searches as usual instead:
+    // a fixed `up` would go nowhere, and leave + unreachable.
+    val upIntoContent = Modifier.onPreviewKeyEvent {
+        tab != Tab.Traffic && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp &&
+            contentFocus.requestFocus(FocusDirection.Up)
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text(tab.title) }) },
@@ -88,9 +100,7 @@ fun HomeScreen(
             NavigationBar {
                 for (item in Tab.entries) {
                     NavigationBarItem(
-                        modifier = Modifier.focusProperties {
-                            if (tab != Tab.Traffic) up = contentFocus
-                        },
+                        modifier = upIntoContent,
                         selected = tab == item,
                         onClick = { tab = item },
                         icon = { Icon(item.icon, contentDescription = null) },
@@ -103,7 +113,7 @@ fun HomeScreen(
             if (tab == Tab.Vpn) {
                 FloatingActionButton(
                     onClick = { onEditProfile(null) },
-                    modifier = Modifier.focusProperties { up = contentFocus },
+                    modifier = upIntoContent,
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add profile")
                 }
