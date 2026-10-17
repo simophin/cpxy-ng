@@ -12,7 +12,7 @@ on:
   # The full build (packages included) of any branch, on demand
   workflow_dispatch:
 
-# PRs run tests, including the mobile TUN lab; APK and per-platform builds run on main and tags,
+# PRs run tests, including the mobile TUN lab; the APK and OpenWrt packages build on main and tags,
 # and the publish job puts them on the download server (download-worker/). Main also publishes the
 # Docker images to ghcr.io and deploys the download server.
 # PR runs are cancelled when superseded. Everything else shares a single
@@ -194,81 +194,12 @@ jobs:
         run: ./gradlew :shared:allTests
         working-directory: mobile
 
-  build_executables:
-    name: Build executables
-    if: github.event_name != 'pull_request'
-    strategy:
-      matrix:
-        target:
-          - rust: x86_64-pc-windows-msvc
-            runs_on: windows-latest
-            binary_ext: .exe
-          - rust: i686-pc-windows-msvc
-            runs_on: windows-latest
-            binary_ext: .exe
-          - rust: x86_64-unknown-linux-musl
-            runs_on: ubuntu-latest
-            build_with_cross: true
-          - rust: aarch64-unknown-linux-musl
-            runs_on: ubuntu-latest
-            build_with_cross: true
-          - rust: x86_64-apple-darwin
-            runs_on: macos-latest
-          - rust: aarch64-apple-darwin
-            runs_on: macos-latest
-    runs-on: ${{ matrix.target.runs_on }}
-    steps:
-      - uses: actions/checkout@v7
-      # Install the target for the toolchain pinned in rust-toolchain.toml,
-      # which is the one cargo builds with.
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target.rust }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target.rust }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: cargo-bins/cargo-binstall@main
-
-      - name: Install cross
-        if: matrix.target.build_with_cross == true
-        run: cargo binstall cross
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # The mobile TUN engine is Unix-only and has its own build/test jobs. client_cn is not
-      # built (its code stays), so the client is built bin by bin.
-      - name: Build with cross
-        if: matrix.target.build_with_cross == true
-        run:
-          cross build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine --exclude client &&
-          cross build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin standalone --bin dns_split
-
-      - name: Build
-        if: matrix.target.build_with_cross != true
-        run:
-          cargo build --release --target ${{ matrix.target.rust }} --workspace --exclude mobile-engine --exclude client &&
-          cargo build --release --target ${{ matrix.target.rust }} -p client --features dns-split --bin standalone --bin dns_split
-
-      # Published as raw/<target>/cpxy-*, the names the OpenWrt package installs them under
-      - name: Rename files
-        run:
-          mkdir artifacts &&
-          mv -v target/${{ matrix.target.rust }}/release/standalone${{ matrix.target.binary_ext }} artifacts/cpxy-client${{ matrix.target.binary_ext }} &&
-          mv -v target/${{ matrix.target.rust }}/release/server${{ matrix.target.binary_ext }} artifacts/cpxy-server${{ matrix.target.binary_ext }} &&
-          mv -v target/${{ matrix.target.rust }}/release/dns_split${{ matrix.target.binary_ext }} artifacts/cpxy-dns-split${{ matrix.target.binary_ext }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: raw-${{ matrix.target.rust }}
-          path: artifacts
-          if-no-files-found: error
-
-  # Build the shared packet engine as a static native router client.
+  # Builds the static router binaries (the shared packet engine as a native router client, plus the
+  # client and dns-split) and packages them with cpxy-tsgw.
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
-    needs: [version, build_executables, build_tsgw]
+    needs: [version, build_tsgw]
     strategy:
       matrix:
         target:
@@ -295,12 +226,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download cpxy executables
-        uses: actions/download-artifact@v8
-        with:
-          name: raw-${{ matrix.target.rust }}
-          path: executables
-
       - name: Download cpxy-tsgw
         uses: actions/download-artifact@v8
         with:
@@ -308,20 +233,27 @@ jobs:
           path: executables
 
       # Artifacts don't keep file modes
-      - name: Make cpxy executables executable
-        run: chmod +x executables/*
+      - name: Make cpxy-tsgw executable
+        run: chmod +x executables/cpxy-tsgw
 
-      - name: Build native router client
-        run: cross build --release --locked --target ${{ matrix.target.rust }} -p mobile-engine --bin cpxy-router
+      # The server is only for the routing test
+      - name: Build router executables
+        run: >
+          cross build --release --locked --target ${{ matrix.target.rust }}
+          -p mobile-engine -p client -p server --features client/dns-split
+          --bin cpxy-router --bin standalone --bin dns_split --bin server
 
       - name: Build package
         env:
           # Lists the download server's feed in the package, for `opkg upgrade`
           CPXY_FEED_URL: ${{ vars.DOWNLOAD_URL }}
+          RELEASE: target/${{ matrix.target.rust }}/release
         run: |
           mkdir -p bins
-          cp executables/cpxy-dns-split executables/cpxy-client executables/cpxy-tsgw bins/
-          cp target/${{ matrix.target.rust }}/release/cpxy-router bins/cpxy-router
+          cp executables/cpxy-tsgw bins/
+          cp "$RELEASE/cpxy-router" bins/cpxy-router
+          cp "$RELEASE/standalone" bins/cpxy-client
+          cp "$RELEASE/dns_split" bins/cpxy-dns-split
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
           docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
             apk add --no-cache openssl
@@ -340,7 +272,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends nftables
           # Ubuntu runners restrict unprivileged user namespaces by default
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          cp executables/cpxy-server bins/cpxy-server
+          cp target/${{ matrix.target.rust }}/release/server bins/cpxy-server
           packaging/openwrt/test/lab.sh bins
 
       - name: Upload package
@@ -377,7 +309,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends shellcheck
           shellcheck -s sh -S warning -e SC3043 gateway/build.sh
 
-  # The static binaries; publish_docker builds the Docker image.
+  # The static binaries the OpenWrt package ships; publish_docker builds the Docker image's own.
   build_tsgw:
     name: Build cpxy-tsgw (${{ matrix.target.rust }})
     if: github.event_name != 'pull_request'
@@ -535,7 +467,6 @@ jobs:
   #   <version>/android/cpxy-vpn.apk
   #   <version>/openwrt/<opkg arch>/{cpxy.ipk,Packages,Packages.gz,Packages.sig}
   #   <version>/openwrt-apk/<apk arch>/cpxy.apk
-  #   <version>/raw/<rust target>/cpxy-*
   #   <version>/SHA256SUMS
   # Needs the R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and OPKG_FEED_KEY secrets, and the
   # CLOUDFLARE_ACCOUNT_ID, R2_BUCKET and DOWNLOAD_URL repository variables; skipped without
@@ -547,7 +478,6 @@ jobs:
       - build_mobile_vpn
       - test_mobile_engine
       - test_mobile_shared
-      - build_executables
       - build_openwrt_package
       - test
       - test_openwrt_packaging
@@ -575,11 +505,6 @@ jobs:
           out="out/$VERSION"
           mkdir -p "$out/android"
           cp artifacts/android/cpxy-vpn.apk "$out/android/"
-          for dir in artifacts/raw-* artifacts/tsgw-*; do
-            target="${dir#artifacts/*-}"
-            mkdir -p "$out/raw/$target"
-            cp "$dir"/* "$out/raw/$target/"
-          done
           key="$RUNNER_TEMP/feed.key"
           printf '%s\n' "$OPKG_FEED_KEY" >"$key"
           for dir in artifacts/openwrt-*; do

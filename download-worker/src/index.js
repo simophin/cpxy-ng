@@ -5,7 +5,7 @@
 //   <version>/SHA256SUMS
 //   <version>/android/cpxy-vpn.apk
 //   <version>/openwrt/<opkg arch>/{cpxy.ipk,Packages,Packages.gz,Packages.sig}
-//   <version>/raw/<rust target>/cpxy-*
+//   <version>/openwrt-apk/<apk arch>/cpxy.apk
 //
 // Browsers get HTML pages (pages.js): the versions at `/` and a version's files at `<version>/`.
 // Anything else asking for `/` gets the version names as text.
