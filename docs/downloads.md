@@ -19,6 +19,7 @@ One folder per version, and every folder names its files the same:
   android/cpxy-vpn.apk
   openwrt/<opkg arch>/cpxy.ipk               aarch64_cortex-a53, x86_64
   openwrt/<opkg arch>/Packages{,.gz,.sig}    a signed opkg feed
+  openwrt-apk/<apk arch>/cpxy.apk           aarch64, x86_64; native OpenWrt apk v3
   raw/<rust target>/cpxy-client              also cpxy-server, cpxy-dns-split (.exe on Windows)
   raw/<rust target>/cpxy-tsgw                the two Linux musl targets only
 ```
@@ -51,6 +52,12 @@ commit count, so later commits on `main` are newer.
   signing key, so after the first install `opkg update && opkg upgrade cpxy` installs the newest
   version. The package version is the build's version with the commit count as an opkg revision:
   `1.17.0-r5`, and `1.17.0-r0` for the tag.
+- **OpenWrt 25.12 / apk:** download `openwrt-apk/<apk arch>/cpxy.apk` on the controller,
+  verify its entry in that version's `SHA256SUMS`, copy it to the router and install locally
+  with `apk add`. This package adds no repository. `apk --no-network --repositories-file
+  /dev/null --allow-untrusted add /tmp/cpxy.apk` works with the dependencies already installed.
+  The apk uses the same `1.17.0-r5` package version as the ipk. Pin a release folder for
+  repeatable deployments; resolve `latest` only once per download to avoid mixing releases.
 
 ## Making a new version number
 
@@ -63,6 +70,10 @@ git tag 1.18.0 && git push origin 1.18.0
 The tag's build is published as `1.18.0`, and later commits as `1.18.0-<n>-g<hash>`.
 
 ## Signing keys
+
+The native OpenWrt apk is unsigned by default and is covered by the release's HTTPS-served
+`SHA256SUMS`. Local builds may set `CPXY_APK_SIGN_KEY` to an apk-tools private key; the builder
+passes it to `apk mkpkg --sign`. No apk signing key or feed is installed on the router.
 
 - **Android:** `mobile/release.keystore`, alias `cpxy-vpn`, checked in. Its password (store and
   key) is the `ANDROID_KEYSTORE_PASSWORD` secret; Gradle reads it from the environment. CI checks

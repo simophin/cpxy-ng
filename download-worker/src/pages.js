@@ -15,6 +15,7 @@ const TARGETS = {
 
 /** Names for the opkg architectures under openwrt/. */
 const OPKG_ARCHES = {
+  aarch64: 'ARM64 (apk), such as the Cudy TR3600',
   'aarch64_cortex-a53': 'ARM64 Cortex-A53, such as the GL-MT3000',
   x86_64: 'x86-64',
 };
@@ -58,7 +59,7 @@ const SECTIONS = [
     id: 'openwrt',
     title: 'OpenWrt package',
     about:
-      'Proxy, split DNS, LAN routing and a Tailscale exit node for a router. Install the .ipk once with opkg install; it adds this feed, so opkg upgrade cpxy finds later versions.',
+      'Proxy, split DNS, LAN routing and a Tailscale exit node for a router. Use the native .apk on OpenWrt 25.12 or newer, or the .ipk on opkg firmware. The apk is a direct download and adds no repository.',
     guide: `${REPO}/blob/main/docs/openwrt.md`,
   },
   ...Object.entries(RAW_PROGRAMS).map(([id, program]) => ({ id, ...program })),
@@ -82,6 +83,9 @@ export function describeFile(path) {
       const rank = 1 + Object.keys(FEED_FILES).indexOf(parts[2]);
       return { section: 'openwrt', label: `${FEED_FILES[parts[2]]}, ${parts[1]}`, rank, group: parts[1], minor: true };
     }
+  }
+  if (parts[0] === 'openwrt-apk' && parts.length === 3 && parts[2] === 'cpxy.apk') {
+    return { section: 'openwrt', label: `Native apk, ${OPKG_ARCHES[parts[1]] ?? parts[1]}`, rank: 0, group: `apk-${parts[1]}` };
   }
   if (parts[0] === 'raw' && parts.length === 3) {
     const program = parts[2].replace(/\.exe$/, '');
