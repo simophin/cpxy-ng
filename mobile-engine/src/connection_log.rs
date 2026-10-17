@@ -90,7 +90,6 @@ mod tests {
             delay_millis: 1,
             time_millis: 2,
             error: None,
-            country_code: None,
         }
     }
 

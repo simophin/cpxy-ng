@@ -8,11 +8,11 @@ pub mod server;
 pub mod spec;
 pub mod upstream;
 
-use cpxy_ng::geoip::find_country_code_v4;
-use geoip_data::GEOIP;
+use cpxy_ng::geoip::contains_v4;
+use geoip_data::CN;
 use std::net::Ipv4Addr;
 
 /// Whether the embedded GeoIP dataset places the address in China.
 pub fn is_local_region_ip(ip: Ipv4Addr) -> bool {
-    matches!(find_country_code_v4(&ip, GEOIP), Ok(Some("CN")))
+    contains_v4(&ip, CN)
 }

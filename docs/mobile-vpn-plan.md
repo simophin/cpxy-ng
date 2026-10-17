@@ -96,10 +96,12 @@ tunnel.
   - `Engine.stop()`, `Engine.traffic(): TrafficStats`
   - `Engine.connectionsSince(since, limit)` and `Engine.connectionsBefore(before?, limit)`: pages
     of the last 10,000 connections (`src/connection_log.rs`), each a `ConnectionEvent` mirroring
-    `OutboundEvent` (host, port, `direct`/`proxy`, delay, time, optional error, country) with a
-    `seq` that is never reused in the process. A page's `oldestSeq` shows which were dropped. The
-    traffic screen polls `connectionsSince` every 500 ms while it follows the newest, and pages
-    back with `connectionsBefore`.
+    `OutboundEvent` (host, ip, port, `direct`/`proxy`, delay, time, optional error) with a
+    `seq` that is never reused in the process. The app looks up the country of the ip itself, in
+    its bundled `country.dat` (`CountryLookup`), so the engine only carries the local region's
+    ranges. A page's `oldestSeq` shows which were dropped. The traffic screen polls
+    `connectionsSince` every 500 ms while it follows the newest, and pages back with
+    `connectionsBefore`.
 - `uniffi-bindgen` is a binary of the crate behind the `bindgen` feature. It reads the bindings from
   a host debug build: release libraries are stripped and carry no UniFFI metadata.
 - On Android the engine logs to logcat with the tag `cpxy-engine` (`paranoid-android`).

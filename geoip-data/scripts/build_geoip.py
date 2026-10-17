@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Converts a DB-IP "IP to Country Lite" CSV into the vendored `data/geoip.dat`.
+"""Converts a DB-IP "IP to Country Lite" CSV into the vendored GeoIP data.
 
-Usage: build_geoip.py <dbip-country-lite-YYYY-MM.csv[.gz]> <output.dat>
+Usage: build_geoip.py <dbip-country-lite-YYYY-MM.csv[.gz]> <cn.dat> <country.dat>
 
-The output is the serialized `cpxy_ng::geoip::GeoIPv4Entry` stream: for each IPv4 range,
-sorted by start address, 4 bytes start, 4 bytes inclusive end and 2 ASCII bytes country code.
+Both outputs list IPv4 ranges sorted by start address, as big-endian 4 bytes start and 4 bytes
+inclusive end:
+- `cn.dat`, for `cpxy_ng::geoip::contains_v4`, has only the ranges of the local region (`CN`).
+- `country.dat`, for the Android app's traffic log, follows each range with its 2 ASCII bytes
+  country code.
+
 IPv6 rows and DB-IP's unknown country `ZZ` are dropped, and adjacent ranges of the same
 country are merged.
 """
@@ -44,12 +48,18 @@ def merge(ranges):
 
 
 def main():
-    source, output = sys.argv[1:]
+    source, cn_output, country_output = sys.argv[1:]
     entries = merge(read_ranges(source))
-    with open(output, "wb") as f:
+    with open(country_output, "wb") as f:
         for start, end, country in entries:
             f.write(struct.pack(">II2s", start, end, country.encode("ascii")))
-    print(f"Wrote {len(entries)} ranges to {output}")
+    print(f"Wrote {len(entries)} ranges to {country_output}")
+
+    cn = [(start, end) for start, end, country in entries if country == "CN"]
+    with open(cn_output, "wb") as f:
+        for start, end in cn:
+            f.write(struct.pack(">II", start, end))
+    print(f"Wrote {len(cn)} ranges to {cn_output}")
 
 
 if __name__ == "__main__":

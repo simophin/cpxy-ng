@@ -23,6 +23,9 @@ class AndroidVpnController(private val context: Context) : VpnController {
     @Volatile
     internal var engine: Engine? = null
 
+    /** Mapped on first use, which is off the main thread. */
+    private val countries by lazy { context.bundledCountries() }
+
     override val state: StateFlow<VpnState> = mutableState.asStateFlow()
     override val traffic: StateFlow<Traffic> = mutableTraffic.asStateFlow()
 
@@ -101,7 +104,7 @@ class AndroidVpnController(private val context: Context) : VpnController {
                             delayMillis = event.delayMillis.toLong(),
                             timeMillis = event.timeMillis.toLong(),
                             error = event.error,
-                            countryCode = event.countryCode,
+                            countryCode = event.ip?.let(countries::countryOf),
                         ),
                     )
                 },

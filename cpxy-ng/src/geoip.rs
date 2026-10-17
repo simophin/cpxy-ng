@@ -1,118 +1,48 @@
-use anyhow::{Context, ensure};
-use std::cmp::Ordering;
-use std::io::Write;
 use std::net::Ipv4Addr;
 
-#[repr(C)]
-#[derive(Debug, Clone, Eq, PartialEq, Ord)]
-pub struct GeoIPv4Entry {
-    from: [u8; 4],
-    to: [u8; 4],
-    country_code: [u8; 2],
-}
+/// The size of a range in the serialized data: big-endian start and inclusive end.
+const ENTRY_SIZE: usize = 8;
 
-impl GeoIPv4Entry {
-    pub fn from(&self) -> Ipv4Addr {
-        self.from.into()
+/// Whether `ip` is in one of the IPv4 ranges of `sorted_serialized_data`, which holds
+/// non-overlapping ranges sorted by start, each as a big-endian 4 bytes start and 4 bytes
+/// inclusive end.
+pub fn contains_v4(ip: &Ipv4Addr, sorted_serialized_data: &[u8]) -> bool {
+    let (entries, rest) = sorted_serialized_data.as_chunks::<ENTRY_SIZE>();
+    debug_assert!(rest.is_empty());
+    let ip = u32::from(*ip);
+    let from =
+        |entry: &[u8; ENTRY_SIZE]| u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]);
+    let to =
+        |entry: &[u8; ENTRY_SIZE]| u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]);
+
+    // Only the last range starting at or before `ip` can hold it.
+    match entries.partition_point(|entry| from(entry) <= ip) {
+        0 => false,
+        index => ip <= to(&entries[index - 1]),
     }
-
-    pub fn to(&self) -> Ipv4Addr {
-        self.to.into()
-    }
-
-    pub fn new(from: Ipv4Addr, to: Ipv4Addr, country_code: [u8; 2]) -> Self {
-        assert!(to >= from, "Invalid IP range");
-
-        Self {
-            from: from.octets(),
-            to: to.octets(),
-            country_code,
-        }
-    }
-}
-
-impl PartialOrd for GeoIPv4Entry {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(
-            self.from()
-                .cmp(&other.from())
-                .then_with(|| self.to().cmp(&other.to())),
-        )
-    }
-}
-
-pub fn find_country_code_v4<'a>(
-    ip: &Ipv4Addr,
-    sorted_serialized_data: &'a [u8],
-) -> anyhow::Result<Option<&'a str>> {
-    let entry_size = size_of::<GeoIPv4Entry>();
-    ensure!(
-        sorted_serialized_data.len() % entry_size == 0,
-        "Invalid serialized data length, must be multiple of {entry_size}"
-    );
-
-    let entries = unsafe {
-        std::slice::from_raw_parts(
-            sorted_serialized_data.as_ptr() as *const GeoIPv4Entry,
-            sorted_serialized_data.len() / entry_size,
-        )
-    };
-
-    let code = match entries.binary_search_by(|entry| entry.from().cmp(ip)) {
-        Ok(index) => &entries[index].country_code,
-        Err(index) => {
-            if index == 0 {
-                return Ok(None);
-            }
-
-            let entry = &entries[index - 1];
-            if ip <= &entry.to() {
-                &entry.country_code
-            } else {
-                return Ok(None);
-            }
-        }
-    };
-
-    std::str::from_utf8(code.as_ref())
-        .context("Invalid country code")
-        .map(Some)
-}
-
-pub fn serialize_entries(writer: impl Write, mut entries: Vec<GeoIPv4Entry>) -> anyhow::Result<()> {
-    entries.sort();
-
-    let mut writer = writer;
-    for entry in entries {
-        let bytes: [u8; 10] = unsafe { std::mem::transmute(entry) };
-        writer.write_all(&bytes)?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn serialize(ranges: &[(u32, u32)]) -> Vec<u8> {
+        ranges
+            .iter()
+            .flat_map(|(from, to)| from.to_be_bytes().into_iter().chain(to.to_be_bytes()))
+            .collect()
+    }
+
     #[test]
-    fn serialization_and_mapping_works() {
-        let entries = vec![
-            GeoIPv4Entry::new(100.into(), 200.into(), *b"US"),
-            GeoIPv4Entry::new(0.into(), 50.into(), *b"CN"),
-            GeoIPv4Entry::new(50.into(), 100.into(), *b"NZ"),
-        ];
+    fn finds_addresses_in_ranges() {
+        let data = serialize(&[(0, 50), (60, 60), (100, 200), (u32::MAX - 1, u32::MAX)]);
 
-        let mut serialized = vec![0u8; 0];
-        serialize_entries(&mut serialized, entries).expect("Failed to serialize entries");
-
-        assert_eq!(
-            find_country_code_v4(&25.into(), &serialized).expect("Lookup failed"),
-            Some("CN")
-        );
-        assert_eq!(
-            find_country_code_v4(&75.into(), &serialized).expect("Lookup failed"),
-            Some("NZ")
-        );
+        for ip in [0, 25, 50, 60, 100, 200, u32::MAX - 1, u32::MAX] {
+            assert!(contains_v4(&ip.into(), &data), "{ip}");
+        }
+        for ip in [51, 59, 61, 99, 201, u32::MAX - 2] {
+            assert!(!contains_v4(&ip.into(), &data), "{ip}");
+        }
+        assert!(!contains_v4(&1.into(), &[]));
     }
 }
