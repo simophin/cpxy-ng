@@ -22,10 +22,15 @@ trap 'rm -rf "$work"' EXIT
 '
 "$engine" run --rm -v "$work:/packages:ro" "$image" sh -ec '
   mkdir -p /var/lock /tmp
+  # The rootfs image has not booted, so some configs (e.g. network) may not exist yet.
+  snapshot() {
+    for config in network dhcp firewall; do
+      echo "== $config"
+      if [ -e /etc/config/$config ]; then uci export $config; else echo absent; fi
+    done
+  }
   apk --no-network --repositories-file /dev/null --allow-untrusted add /packages/ip-full.apk /packages/kmod-tun.apk
-  uci export network >/tmp/network.before
-  uci export dhcp >/tmp/dhcp.before
-  uci export firewall >/tmp/firewall.before
+  snapshot >/tmp/system.before
   apk --no-network --repositories-file /dev/null --allow-untrusted add /packages/cpxy-1.0.0-r9.apk
   for service in cpxy-client cpxy-router cpxy-tsgw; do
     /etc/init.d/$service enabled
@@ -49,9 +54,7 @@ trap 'rm -rf "$work"' EXIT
   [ ! -e /usr/bin/cpxy-dns-split ]
   [ ! -e /lib/apk/packages/cpxy.list ]
   [ -f /etc/config/cpxy ]
-  uci export network >/tmp/network.after
-  uci export dhcp >/tmp/dhcp.after
-  uci export firewall >/tmp/firewall.after
-  for config in network dhcp firewall; do cmp /tmp/$config.before /tmp/$config.after; done
+  snapshot >/tmp/system.after
+  cmp /tmp/system.before /tmp/system.after
   echo "OpenWrt apk install, upgrade, enablement, config preservation and removal: passed"
 '
