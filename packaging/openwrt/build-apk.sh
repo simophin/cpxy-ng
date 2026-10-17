@@ -12,10 +12,14 @@ if [ "$(id -u)" != 0 ]; then
 	exec fakeroot "$0" "$@"
 fi
 arch="$1" version="$2" bindir="$3" outdir="$4"
-case "$arch" in aarch64 | x86_64) ;; *) echo "unsupported apk architecture: $arch" >&2; exit 2 ;; esac
+here="$(cd "$(dirname "$0")" && pwd)"
+arches="$("$here/apk-architectures.sh" --all)"
+if ! printf '%s\n' "$arches" | tr ' ' '\n' | grep -Fqx -- "$arch"; then
+	echo "unsupported apk architecture: $arch" >&2
+	exit 2
+fi
 apk="${APK_TOOL:-apk}"
 "$apk" version --check "$version"
-here="$(cd "$(dirname "$0")" && pwd)"
 bindir="$(cd "$bindir" && pwd)"
 mkdir -p "$outdir"
 outdir="$(cd "$outdir" && pwd)"

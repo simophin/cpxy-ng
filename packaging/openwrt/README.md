@@ -79,15 +79,27 @@ with stand-in binaries. Builds of `main` and tags are published as signed opkg f
 OpenSSL on PATH (and `fakeroot` when not running as root):
 
 ```sh
-packaging/openwrt/build-apk.sh aarch64 1.17.0-r10 bins out
+packaging/openwrt/build-apk.sh aarch64_cortex-a53 1.17.0-r10 bins out
+# Build every label for these same ARM64 binaries, in a separate directory per label:
+packaging/openwrt/build-apk-variants.sh aarch64-unknown-linux-musl 1.17.0-r10 bins out/apk
 APK_TOOL=/path/to/apk python3 packaging/openwrt/test/apk-package.py
 packaging/openwrt/test/apk-roundtrip.sh
 ```
 
-Use `aarch64` or `x86_64`, matching the router's `apk --print-arch`. `APK_TOOL` selects
+Use a label from the router's `/etc/apk/arch`, not `apk --print-arch` (the compiled default).
+The supported ARM64 labels are `aarch64`, `aarch64_generic`, `aarch64_cortex-a53`,
+`aarch64_cortex-a72` and `aarch64_cortex-a76`; x86-64 uses `x86_64`.
+The four OpenWrt-specific ARM64 labels match the [OpenWrt 25.12 package targets](https://downloads.openwrt.org/releases/25.12.0/packages/).
+The plain `aarch64` variant remains available for systems accepting that label.
+`apk-architectures.sh` is the shared list for builder validation and CI fan-out.
+
+CI compiles once per Rust musl target with no CPU-specific tuning. Each ARM64 apk contains
+the same generic static binaries, so the package label does not imply CPU optimisation.
+The existing opkg architectures are unchanged. `APK_TOOL` selects
 the host apk executable; `CPXY_APK_SIGN_KEY` optionally signs the package. The default
 package is unsigned and is verified with the release's SHA256SUMS before local installation.
-CI runs the builder in Alpine 3.23 as root and publishes it separately under
+CI runs the builder in Alpine 3.23 as root, stores the variants in each build artifact's
+`apk/<apk arch>/` subdirectories, and publishes every variant separately under
 `openwrt-apk/<apk arch>/cpxy.apk`. The existing opkg feed remains under `openwrt/`.
 
 The native package includes OpenWrt's `/lib/apk/packages/cpxy.list`, `.conffiles` and
@@ -98,7 +110,8 @@ and a conflict with the legacy `cpxy-router` package. Use a local `apk add` with
 disabled when the dependencies are already present.
 
 `apk-package.py` uses temporary roots and stand-in binaries to check metadata, root
-ownership, config permissions/preservation, offline installation, revision ordering and
+ownership, config permissions/preservation, all variant labels and identical payloads,
+rejection of a generic apk by a Cortex-A53 arch file, offline installation, revision ordering and
 removal with apk-tools itself. `apk-roundtrip.sh` separately runs the hooks in an OpenWrt
 25.12 container, including preservation of disabled services and unrelated network/DHCP/
 firewall configuration. It needs Docker or Podman. Neither test verifies live procd/fw4

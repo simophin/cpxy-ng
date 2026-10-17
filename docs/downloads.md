@@ -19,8 +19,13 @@ One folder per version, and every folder names its files the same:
   android/cpxy-vpn.apk
   openwrt/<opkg arch>/cpxy.ipk               aarch64_cortex-a53, x86_64
   openwrt/<opkg arch>/Packages{,.gz,.sig}    a signed opkg feed
-  openwrt-apk/<apk arch>/cpxy.apk           aarch64, x86_64; native OpenWrt apk v3
+  openwrt-apk/<apk arch>/cpxy.apk           native OpenWrt apk v3 (architectures below)
 ```
+
+Native apk labels are `aarch64`, `aarch64_generic`, `aarch64_cortex-a53`,
+`aarch64_cortex-a72`, `aarch64_cortex-a76` and `x86_64`. Select a label listed in the router's
+`/etc/apk/arch`; `apk --print-arch` can report a different compiled default. The ARM64
+variants package the same generic static binaries with different apk metadata.
 
 Versions before this layout also have `raw/<rust target>/cpxy-*`, the plain binaries.
 
@@ -35,7 +40,7 @@ commit count, so later commits on `main` are newer.
 - `https://<download host>/latest` is the newest complete version's name (it has its
   `SHA256SUMS`).
 - `https://<download host>/latest/<path>` redirects to `<path>` in that version, for example
-  `/latest/openwrt-apk/aarch64/cpxy.apk` or `/latest/android/cpxy-vpn.apk`.
+  `/latest/openwrt-apk/aarch64_cortex-a53/cpxy.apk` or `/latest/android/cpxy-vpn.apk`.
 
 ## Updates
 
@@ -99,5 +104,5 @@ passes it to `apk mkpkg --sign`. No apk signing key or feed is installed on the 
 
 Until `R2_BUCKET` is set, `publish` is skipped and the build is only in the CI run's artifacts.
 
-Nothing is deleted automatically. Each version is about 200MB, so delete old version folders in the R2 dashboard when the bucket grows. Avoid an age-based lifecycle rule: after a quiet spell it would
+Nothing is deleted automatically. Each version is about 480MB with all native apk variants, so delete old version folders in the R2 dashboard when the bucket grows. Avoid an age-based lifecycle rule: after a quiet spell it would
 delete the latest version too.

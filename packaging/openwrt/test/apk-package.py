@@ -65,9 +65,50 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
         run("sh", script, env=env)
     assert hook_log.read_text().splitlines() == ["install:0", "remove:1", "install:1", "remove:0"]
 
-    # Native ARM64 metadata and reproducible unsigned builds.
-    run(HERE / "build-apk.sh", "aarch64", "1.0.0-r10", bins, work / "arm64")
-    assert metadata(work / "arm64/cpxy-1.0.0-r10.apk")["info"]["arch"] == "aarch64"
+    # The release artifact layout keeps each package label separate while using
+    # exactly the same generic binary payload. No additional compilation occurs.
+    expected_arches = {
+        "aarch64-unknown-linux-musl": {"aarch64", "aarch64_generic", "aarch64_cortex-a53", "aarch64_cortex-a72", "aarch64_cortex-a76"},
+        "x86_64-unknown-linux-musl": {"x86_64"},
+    }
+    variants = {}
+    for target, arches in expected_arches.items():
+        out = work / target / "apk"
+        run(HERE / "build-apk-variants.sh", target, "1.0.0-r10", bins, out)
+        assert {path.name for path in out.iterdir()} == arches
+        for arch in arches:
+            package = out / arch / "cpxy-1.0.0-r10.apk"
+            variant = metadata(package)
+            assert variant["info"]["arch"] == arch
+            assert variant["paths"] == data["paths"], arch
+            assert variant["scripts"] == data["scripts"], arch
+            variants[arch] = package
+    for arch in ("arm_cortex-a7", "aarch64_cortex-a99", "aarch64 aarch64_generic", "../x86_64", ""):
+        result = subprocess.run([str(HERE / "build-apk.sh"), arch, "1.0.0-r10", str(bins), str(work / "invalid")], capture_output=True)
+        assert result.returncode == 2, (arch, result.stderr)
+        assert b"unsupported apk architecture" in result.stderr
+    result = subprocess.run([str(HERE / "build-apk-variants.sh"), "arm-unknown-linux-musleabi", "1.0.0-r10", str(bins), str(work / "invalid")], capture_output=True)
+    assert result.returncode == 2
+
+    # An OpenWrt arch file takes precedence over apk's compiled default. Generic
+    # aarch64 must fail on a Cortex-A53 root; the labelled variant must install.
+    armroot = work / "armroot"
+    (armroot / "etc/apk").mkdir(parents=True)
+    (armroot / "etc/apk/arch").write_text("aarch64_cortex-a53\n")
+    armdeps = []
+    for name in ("ip-full", "kmod-tun"):
+        package = work / f"arm-{name}.apk"
+        run(APK, "mkpkg", "--info", f"name:{name}", "--info", "version:1-r0", "--info", "arch:aarch64_cortex-a53", "--output", package)
+        armdeps.append(package)
+    armapk = [APK, "--root", armroot, "--no-network", "--allow-untrusted", "--repositories-file", "/dev/null"]
+    usermode = ["--usermode"] if os.geteuid() != 0 else []
+    result = subprocess.run([str(arg) for arg in [*armapk, "add", *usermode, "--no-scripts", "--initdb", *armdeps, variants["aarch64"]]], capture_output=True)
+    assert result.returncode != 0
+    assert b"uninstallable" in result.stderr, result.stderr
+    run(*armapk, "add", *usermode, "--no-scripts", "--initdb", *armdeps, variants["aarch64_cortex-a53"])
+    assert run(*armapk, "info", "-e", "cpxy=1.0.0-r10").strip() == "cpxy"
+
+    # Reproducible unsigned builds.
     run(HERE / "build-apk.sh", "x86_64", "1.0.0-r10", bins, work / "repeat")
     assert (work / "repeat/cpxy-1.0.0-r10.apk").read_bytes() == packages[1].read_bytes()
 
@@ -109,4 +150,4 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     assert not (root / "etc/init.d/cpxy-router").exists()
     assert not (root / "lib/apk/packages/cpxy.list").exists()
     assert installed_config.read_text() == contents
-print("apk metadata, hooks, signing, reproducibility, offline install, upgrade, config preservation and removal: passed")
+print("apk architecture variants, arch-file selection, metadata, hooks, signing, reproducibility, offline install, upgrade, config preservation and removal: passed")
