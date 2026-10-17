@@ -11,7 +11,7 @@ use client::dns_split::upstream::{
 use client::outbound::ProtocolOutbound;
 use client::protocol_config::Config as ServerConfig;
 use hickory_proto::rr::Name;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -64,11 +64,6 @@ struct CliOptions {
     /// Maximum time to cache a negative answer (no such name, or no records), in seconds
     #[clap(long, env, default_value_t = 300)]
     cache_negative_ttl: u32,
-
-    /// Answer names on the built-in ad blocklist with this address, which the network should
-    /// drop silently. Without it, nothing is blocked.
-    #[clap(long, env)]
-    sinkhole: Option<Ipv4Addr>,
 
     /// The local network's own resolver (e.g. dnsmasq), in the same format as --upstream. It
     /// answers single-label names, names under --local-domain and reverse lookups of private
@@ -133,11 +128,6 @@ async fn main() -> anyhow::Result<()> {
 
     let mut handler = DnsSplitHandler::new(Racer::new(servers, timeout, is_local_region_ip), cache)
         .with_search_domains(options.search_domain);
-    if let Some(sinkhole) = options.sinkhole {
-        let blocklist = &blocklist_data::BASELINE;
-        tracing::info!("Blocking {} domains with {sinkhole}", blocklist.len());
-        handler = handler.with_sinkhole(blocklist, sinkhole);
-    }
     if let Some(spec) = &options.local_server {
         let server = HickoryUpstream::new(spec, tls_config.clone(), timeout, cpxy.clone())
             .await

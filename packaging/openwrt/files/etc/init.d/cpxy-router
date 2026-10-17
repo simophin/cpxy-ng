@@ -133,10 +133,6 @@ _start_dns() {
 	else
 		procd_append_param command --no-cache
 	fi
-	if [ "$CPXY_BLOCK_ADS" = 1 ]; then
-		procd_append_param command --sinkhole "$CPXY_SINKHOLE_ADDR"
-		SINKHOLE=1
-	fi
 	# The server URL holds the key: in the environment, out of the process list. dns_split asks
 	# the servers given with ?via=cpxy through it.
 	cpxy_procd_env "dns-$1" SERVER="$CPXY_SERVER" NO_COLOR=1
@@ -181,13 +177,8 @@ _apply_plan() {
 		fi
 	done
 	cpxy_firewall_sync "$PLAN" || { cpxy_log "firewall update failed"; rm -rf "$PLAN"; return 1; }
-	SINKHOLE=0 ROUTED=0
+	ROUTED=0
 	cpxy_foreach _start_instance
-	if [ "$SINKHOLE" = 1 ]; then
-		ip -4 route replace blackhole "$CPXY_SINKHOLE_NET"
-	else
-		ip -4 route del blackhole "$CPXY_SINKHOLE_NET" 2>/dev/null
-	fi
 	rm -rf "$PLAN"
 	if [ "$ROUTED" = 1 ] && [ "$(uci -q get firewall.@defaults[0].flow_offloading_hw)" = 1 ]; then
 		cpxy_log "warning: hardware flow offloading may bypass the proxy"
@@ -212,7 +203,6 @@ stop_service() {
 		_read_state "$state"
 		cpxy_net_down_routing
 	done
-	ip -4 route del blackhole "$CPXY_SINKHOLE_NET" 2>/dev/null
 	cpxy_firewall_sync "" || cpxy_log "could not remove instance firewall configuration"
 	rm -rf "$CPXY_STATE" "$CPXY_RUN"/dns-*.sqlite*
 }

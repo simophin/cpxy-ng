@@ -29,8 +29,6 @@ data class EngineConfig(
     @SerialName("dns_search_domains") val dnsSearchDomains: List<String> = emptyList(),
     @SerialName("proxy_routes") val proxyRoutes: List<String> = emptyList(),
     val mtu: Int? = null,
-    /** Resolves names on the engine's built-in ad blocklist to an address it drops. */
-    @SerialName("block_ads") val blockAds: Boolean = false,
     @SerialName("http_proxy_port") val httpProxyPort: Int? = null,
     @SerialName("socks_proxy_port") val socksProxyPort: Int? = null,
 )
@@ -55,7 +53,6 @@ fun Profile.engineConfigJson(settings: AppSettings = AppSettings()): String = en
         dnsUpstream = dnsUpstream,
         dnsAlternative = dnsAlternative,
         mtu = TunParameters.MTU,
-        blockAds = true,
         httpProxyPort = settings.httpProxyPort.takeIf { settings.httpProxyEnabled },
         socksProxyPort = settings.socksProxyPort.takeIf { settings.socksProxyEnabled },
     )

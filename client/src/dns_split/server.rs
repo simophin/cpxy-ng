@@ -2,11 +2,9 @@ use super::cache::{DnsCache, unix_now};
 use super::policy::Racer;
 use super::upstream::DnsUpstream;
 use anyhow::Context;
-use blocklist_data::Blocklist;
 use hickory_proto::op::{Edns, Message, MessageType, OpCode, Query, ResponseCode};
-use hickory_proto::rr::rdata::{A, CNAME};
+use hickory_proto::rr::rdata::CNAME;
 use hickory_proto::rr::{Name, RData, Record, RecordType};
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -15,13 +13,10 @@ use tokio::net::{TcpListener, UdpSocket};
 /// The EDNS payload size we advertise, as recommended by DNS Flag Day 2020.
 const EDNS_PAYLOAD: u16 = 1232;
 const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-/// Short, so turning blocking off soon reaches the clients' own caches.
-const SINKHOLE_TTL: u32 = 60;
 
 pub struct DnsSplitHandler {
     racer: Racer,
     cache: Option<Arc<DnsCache>>,
-    sinkhole: Option<Sinkhole>,
     local: Option<LocalNames>,
     search_domains: Vec<Name>,
 }
@@ -44,18 +39,11 @@ fn private_reverse_zones() -> impl Iterator<Item = Name> {
         .map(|zone| Name::from_ascii(zone).expect("valid reverse zone"))
 }
 
-/// Answers blocked names with an address that leads nowhere.
-struct Sinkhole {
-    blocklist: &'static Blocklist,
-    addr: Ipv4Addr,
-}
-
 impl DnsSplitHandler {
     pub fn new(racer: Racer, cache: Option<Arc<DnsCache>>) -> Self {
         Self {
             racer,
             cache,
-            sinkhole: None,
             local: None,
             search_domains: Vec::new(),
         }
@@ -73,13 +61,6 @@ impl DnsSplitHandler {
     pub fn with_local(mut self, server: Arc<dyn DnsUpstream>, mut domains: Vec<Name>) -> Self {
         domains.extend(private_reverse_zones());
         self.local = Some(LocalNames { server, domains });
-        self
-    }
-
-    /// Answers A queries for blocked names with `addr`, and other queries for them with no
-    /// records. Whatever carries the traffic is expected to drop packets sent to `addr`.
-    pub fn with_sinkhole(mut self, blocklist: &'static Blocklist, addr: Ipv4Addr) -> Self {
-        self.sinkhole = Some(Sinkhole { blocklist, addr });
         self
     }
 
@@ -106,20 +87,6 @@ impl DnsSplitHandler {
                 let mut candidate = query.clone();
                 candidate.set_name(name.clone());
                 let response = self.resolve(request, &candidate).await;
-                // A blocked non-A query is deliberately empty; do not search past it.
-                if response.response_code() == ResponseCode::NoError
-                    && response.answers().is_empty()
-                    && self
-                        .sinkhole
-                        .as_ref()
-                        .is_some_and(|s| s.blocklist.is_blocked(&name.to_ascii()))
-                    && !self
-                        .local
-                        .as_ref()
-                        .is_some_and(|local| local.matches(&name))
-                {
-                    return finalize(request, response);
-                }
                 if response.response_code() == ResponseCode::NoError
                     && !response.answers().is_empty()
                 {
@@ -143,19 +110,12 @@ impl DnsSplitHandler {
         finalize(request, self.resolve(request, query).await)
     }
 
-    /// Resolve one exact name, so expanded names share routing, blocking and cache policy.
+    /// Resolve one exact name, so expanded names share routing and cache policy.
     async fn resolve(&self, request: &Message, query: &Query) -> Message {
         if let Some(local) = &self.local
             && local.matches(query.name())
         {
             return local.resolve(request, query).await;
-        }
-
-        if let Some(sinkhole) = &self.sinkhole
-            && sinkhole.blocklist.is_blocked(&query.name().to_ascii())
-        {
-            tracing::info!("Blocked {query}");
-            return sinkhole.answer(query);
         }
 
         if let Some(cache) = &self.cache {
@@ -213,20 +173,6 @@ impl LocalNames {
                 error(ResponseCode::ServFail)
             }
         }
-    }
-}
-
-impl Sinkhole {
-    fn answer(&self, query: &Query) -> Message {
-        let mut message = error(ResponseCode::NoError);
-        if query.query_type() == RecordType::A {
-            message.add_answer(Record::from_rdata(
-                query.name().clone(),
-                SINKHOLE_TTL,
-                RData::A(A(self.addr)),
-            ));
-        }
-        message
     }
 }
 
@@ -364,6 +310,7 @@ mod tests {
     use crate::dns_split::cache::CacheOptions;
     use crate::dns_split::policy::tests::{FakeUpstream, answer, local_ip, query};
     use crate::dns_split::upstream::{DnsUpstream, Group};
+    use hickory_proto::rr::rdata::A;
     use std::net::Ipv4Addr;
     use std::sync::atomic::Ordering;
 
@@ -522,7 +469,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn searched_names_obey_local_routing_and_blocking() {
+    async fn searched_names_obey_local_routing() {
         let upstream = FakeUpstream::new("u", 0, None);
         let local = FakeUpstream::new("l", 0, Some(answer(&[Ipv4Addr::new(192, 168, 1, 2)])));
         let (handler, _) = handler(&[(Group::Upstream, upstream.clone())]).await;
@@ -540,20 +487,6 @@ mod tests {
         );
         assert_eq!(local.calls.load(Ordering::SeqCst), 1);
         assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
-
-        let (handler, _) = self::handler(&[(Group::Upstream, upstream.clone())]).await;
-        let blocklist = Box::leak(Box::new(
-            Blocklist::from_list("||ads.example.com^").unwrap(),
-        ));
-        let handler = handler
-            .with_search_domains(vec![Name::from_ascii("example.com.").unwrap()])
-            .with_sinkhole(blocklist, Ipv4Addr::new(198, 18, 0, 1));
-        let response = handler.handle(&request("ads.", RecordType::A)).await;
-        assert_eq!(response.answers().len(), 2);
-        let response = handler.handle(&request("ads.", RecordType::HTTPS)).await;
-        assert_eq!(response.response_code(), ResponseCode::NoError);
-        assert!(response.answers().is_empty());
-        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -568,41 +501,6 @@ mod tests {
         assert_eq!(response.response_code(), ResponseCode::NoError);
         assert!(response.answers().is_empty());
         assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn blocked_names_are_sinkholed_without_querying() {
-        let upstream = FakeUpstream::new("u", 0, Some(answer(&[Ipv4Addr::new(1, 2, 3, 4)])));
-        let (handler, _) = handler(&[(Group::Upstream, upstream.clone())]).await;
-        let blocklist = Box::leak(Box::new(
-            Blocklist::from_list("||ads.example.com^").unwrap(),
-        ));
-        let sinkhole = Ipv4Addr::new(198, 18, 0, 1);
-        let handler = handler.with_sinkhole(blocklist, sinkhole);
-
-        let response = handler
-            .handle(&request("x.ads.example.com.", RecordType::A))
-            .await;
-        assert_eq!(response.id(), 4242);
-        assert_eq!(response.response_code(), ResponseCode::NoError);
-        let [record] = response.answers() else {
-            panic!("expected one answer, got {:?}", response.answers())
-        };
-        assert_eq!(record.data(), &RData::A(A(sinkhole)));
-
-        let response = handler
-            .handle(&request("ads.example.com.", RecordType::HTTPS))
-            .await;
-        assert_eq!(response.response_code(), ResponseCode::NoError);
-        assert!(response.answers().is_empty());
-        assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
-
-        // Other names still resolve
-        let response = handler
-            .handle(&request("example.com.", RecordType::A))
-            .await;
-        assert_eq!(response.answers().len(), 1);
-        assert_eq!(upstream.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

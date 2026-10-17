@@ -46,8 +46,6 @@ docker run -d --name cpxy-tsgw --restart unless-stopped --network host \
 docker logs -f cpxy-tsgw                    # shows the login link
 ```
 
-The image blocks ads by default (`BLOCK_ADS=1`); add `-e BLOCK_ADS=0` to turn that off.
-
 `--network host` lets Tailscale see the box's real addresses and reach the router over UPnP or
 NAT-PMP, so devices connect directly more often. Behind Docker's own NAT it still works, relayed
 or through the box's NAT like any Tailscale node; then set `TS_PORT` and publish it
@@ -106,7 +104,6 @@ restart.
 | `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. |
 | `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
-| `BLOCK_ADS` | `0`; `1` in the Docker image | `1` answers names on the built-in ad blocklist with an address that goes nowhere, so ads and trackers fail to load on every device using the exit node. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
 | `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
 | `TS_NO_LOGS_NO_SUPPORT` | unset | `true` stops uploading Tailscale's own logs to Tailscale, as for `tailscaled`. |
@@ -200,7 +197,6 @@ the machine in the admin console.
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
 | Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Ask it [through the cpxy server](#choosing-the-servers) with `?via=cpxy`. |
-| A site or app is missing content | The ad blocklist may be in the way: set `BLOCK_ADS=0` and compare. |
 | Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. |
 
 ## Building and testing

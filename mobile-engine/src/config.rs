@@ -9,17 +9,7 @@ pub const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 1);
 pub const TUN_PREFIX_LEN: u8 = 30;
 /// The DNS server the platform hands to the device. It only exists inside the engine.
 pub const DNS_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 2);
-/// Blocked names resolve here. The engine drops whatever is sent to [`is_sinkhole`] addresses
-/// without a reply. OpenWrt uses the same range (`packaging/openwrt`), where it must not be
-/// private: dnsmasq's rebind protection discards answers with private addresses.
-pub const SINKHOLE_ADDR: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 pub const DEFAULT_MTU: u16 = 1500;
-
-/// Whether `ip` is in 198.18.0.0/24, the range kept for blocked names: benchmarking space
-/// (RFC 2544) that is never routed on the internet.
-pub fn is_sinkhole(ip: Ipv4Addr) -> bool {
-    matches!(ip.octets(), [198, 18, 0, _])
-}
 
 /// The engine configuration, as JSON from the app.
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -39,9 +29,6 @@ pub struct Config {
     pub dns_search_domains: Vec<String>,
     #[serde(default)]
     pub mtu: Option<u16>,
-    /// Resolves names on the built-in ad blocklist to [`SINKHOLE_ADDR`].
-    #[serde(default)]
-    pub block_ads: bool,
     /// Optional unauthenticated LAN proxy listeners, bound on all IPv4 interfaces.
     #[serde(default)]
     pub http_proxy_port: Option<u16>,
@@ -57,7 +44,6 @@ pub struct Settings {
     pub dns_alternative: Vec<ServerSpec>,
     pub dns_search_domains: Vec<hickory_proto::rr::Name>,
     pub mtu: u16,
-    pub block_ads: bool,
     pub http_proxy_port: Option<u16>,
     pub socks_proxy_port: Option<u16>,
 }
@@ -99,7 +85,6 @@ impl Config {
                 .map(|value| client::dns_split::search::parse_search_domain(value))
                 .collect::<anyhow::Result<_>>()?,
             mtu,
-            block_ads: self.block_ads,
             http_proxy_port: self.http_proxy_port,
             socks_proxy_port: self.socks_proxy_port,
         })
@@ -184,7 +169,6 @@ mod tests {
         .unwrap();
         let settings = config.settings().unwrap();
         assert_eq!(settings.mtu, 1500);
-        assert!(!settings.block_ads);
         assert_eq!(settings.http_proxy_port, None);
         assert_eq!(settings.socks_proxy_port, None);
     }
@@ -211,15 +195,6 @@ mod tests {
     }
 
     #[test]
-    fn block_ads_is_read() {
-        let config = Config::from_json(
-            r#"{"server": "http://:k@1.2.3.4:80", "dns_upstream": ["1.1.1.1"], "dns_alternative": ["8.8.8.8"], "block_ads": true}"#,
-        )
-        .unwrap();
-        assert!(config.settings().unwrap().block_ads);
-    }
-
-    #[test]
     fn reads_servers_via_cpxy() {
         let config = Config::from_json(
             r#"{"server": "http://:k@1.2.3.4:80", "dns_upstream": ["223.5.5.5"], "dns_alternative": ["tcp://1.1.1.1?via=cpxy", "8.8.8.8"]}"#,
@@ -228,14 +203,6 @@ mod tests {
         let settings = config.settings().unwrap();
         assert_eq!(settings.dns_alternative[0].via, Via::Cpxy);
         assert_eq!(settings.dns_alternative[1].via, Via::Direct);
-    }
-
-    #[test]
-    fn sinkhole_range() {
-        assert!(is_sinkhole(SINKHOLE_ADDR));
-        assert!(is_sinkhole(Ipv4Addr::new(198, 18, 0, 255)));
-        assert!(!is_sinkhole(DNS_ADDR));
-        assert!(!is_sinkhole(Ipv4Addr::new(198, 18, 1, 1)));
     }
 
     #[test]

@@ -1,10 +1,8 @@
 //! The packet engine of the mobile VPN app: reads IP packets from the platform's TUN device and
 //! does what `cpxy-router` does on OpenWrt (see `docs/mobile-vpn-plan.md`):
 //!
-//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. With `block_ads`, names on the
-//!   built-in blocklist resolve to [`config::SINKHOLE_ADDR`], and packets to the sinkhole range
-//!   are dropped without a reply. As a Tailscale exit node ([`start_gateway`]), DNS to any
-//!   address is answered this way.
+//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. As a Tailscale exit node
+//!   ([`start_gateway`]), DNS to any address is answered this way.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - UDP 443 (QUIC) and TCP 853 (DNS over TLS) are refused; other UDP is relayed direct.
@@ -174,8 +172,6 @@ fn start_with_dns(
             upstream: &settings.dns_upstream,
             alternative: &settings.dns_alternative,
             search_domains: &settings.dns_search_domains,
-            // Only referenced here, so cpxy-router does not embed the list.
-            blocklist: settings.block_ads.then_some(&blocklist_data::BASELINE),
             intercept,
         }),
     )
@@ -225,7 +221,6 @@ struct DnsSpecs<'a> {
     upstream: &'a [client::dns_split::spec::ServerSpec],
     alternative: &'a [client::dns_split::spec::ServerSpec],
     search_domains: &'a [hickory_proto::rr::Name],
-    blocklist: Option<&'static blocklist_data::Blocklist>,
     intercept: DnsIntercept,
 }
 
@@ -267,7 +262,6 @@ fn start_inner(
                     specs.alternative,
                     specs.search_domains,
                     &server,
-                    specs.blocklist,
                 ))
                 .map(|handler| DnsService {
                     handler: Arc::new(handler),

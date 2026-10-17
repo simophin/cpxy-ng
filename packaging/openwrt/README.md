@@ -42,7 +42,7 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 |---|---|---|
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
 | `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` a DNS redirect and an IPv6 DNS refusal per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
-| Kernel | per routed instance: a persistent TUN, four rule priorities and a routing table; the ad sinkhole route `198.18.0.0/24` while an instance blocks ads | reload, `stop`, `opkg remove` |
+| Kernel | per routed instance: a persistent TUN, four rule priorities and a routing table | reload, `stop`, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only), DNS caches | `stop`, `opkg remove`, reboot |
 | `/etc/cpxy/tsgw/<name>` | each exit node's Tailscale identity, kept across sysupgrade | deleted by hand |
 

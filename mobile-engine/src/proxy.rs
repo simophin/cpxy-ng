@@ -1,6 +1,6 @@
 //! Optional LAN proxies, and the app's own loopback proxy. Listener and connection tasks live
 //! only as long as the engine.
-use anyhow::{Context, ensure};
+use anyhow::Context;
 use client::dns_split::server::DnsSplitHandler;
 use client::handshaker::Handshaker;
 use client::http_proxy_server::HttpProxyHandshaker;
@@ -157,12 +157,6 @@ impl<O: Outbound + Send + Sync> Outbound for ProxyOutbound<O> {
                 ip,
             };
         }
-        if let OutboundHost::Resolved { ip: Some(ip), .. } = &req.host {
-            ensure!(
-                !crate::config::is_sinkhole(*ip),
-                "Proxy destination is blocked"
-            );
-        }
         self.inner.send(req).await
     }
 }
@@ -306,7 +300,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uses_split_dns_and_rejects_blocked_destinations() {
+    async fn uses_split_dns() {
         use client::dns_split::policy::Racer;
         use client::dns_split::upstream::{DnsUpstream, Group};
         use futures::future::BoxFuture;
@@ -345,37 +339,31 @@ mod tests {
             }
         }
         let inner = Arc::new(Capture(Mutex::new(Vec::new())));
-        for ip in [Ipv4Addr::new(223, 5, 5, 5), crate::config::SINKHOLE_ADDR] {
-            let dns = DnsSplitHandler::new(
-                Racer::new(
-                    vec![(Group::Alternative, Arc::new(Answer(ip)))],
-                    Duration::from_secs(1),
-                    |_| false,
-                ),
-                None,
-            );
-            let outbound = ProxyOutbound {
-                inner: inner.clone(),
-                dns: Some(Arc::new(dns)),
-            };
-            let request = OutboundRequest {
-                host: OutboundHost::Domain("example.com".into()),
-                port: 443,
-                tls: false,
-                initial_plaintext: Vec::new(),
-            };
-            let result = outbound.send(request).await;
-            if crate::config::is_sinkhole(ip) {
-                assert!(result.is_err());
-            } else {
-                assert!(result.is_ok());
-                let requests = inner.0.lock().unwrap();
-                assert!(
-                    matches!(&requests[0].host, OutboundHost::Resolved { domain, ip: Some(resolved) } if domain == "example.com" && *resolved == ip)
-                );
-            }
-        }
-        assert_eq!(inner.0.lock().unwrap().len(), 1);
+        let ip = Ipv4Addr::new(223, 5, 5, 5);
+        let dns = DnsSplitHandler::new(
+            Racer::new(
+                vec![(Group::Alternative, Arc::new(Answer(ip)))],
+                Duration::from_secs(1),
+                |_| false,
+            ),
+            None,
+        );
+        let outbound = ProxyOutbound {
+            inner: inner.clone(),
+            dns: Some(Arc::new(dns)),
+        };
+        let request = OutboundRequest {
+            host: OutboundHost::Domain("example.com".into()),
+            port: 443,
+            tls: false,
+            initial_plaintext: Vec::new(),
+        };
+        assert!(outbound.send(request).await.is_ok());
+        let requests = inner.0.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            matches!(&requests[0].host, OutboundHost::Resolved { domain, ip: Some(resolved) } if domain == "example.com" && *resolved == ip)
+        );
     }
 
     #[tokio::test]

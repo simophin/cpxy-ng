@@ -52,8 +52,6 @@ ENV TS_NO_LOGS_NO_SUPPORT=
 # program's defaults, listed in docs/cpxy-tsgw.md.
 ENV DNS_UPSTREAM=
 ENV DNS_ALTERNATIVE=
-# Answer names on the built-in ad blocklist with an address that goes nowhere; 0 turns it off
-ENV BLOCK_ADS=1
 # The largest packet sent back to clients; Tailscale's MTU is 1280
 ENV MTU=1280
 

@@ -1,8 +1,6 @@
 //! Answers DNS sent to the virtual DNS server with `dns_split`.
 
-use crate::config::SINKHOLE_ADDR;
 use anyhow::Context;
-use blocklist_data::Blocklist;
 use client::dns_split::cache::{CacheOptions, DnsCache};
 use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
@@ -36,7 +34,6 @@ pub async fn handler(
     alternative: &[ServerSpec],
     search_domains: &[hickory_proto::rr::Name],
     server: &ServerConfig,
-    blocklist: Option<&'static Blocklist>,
 ) -> anyhow::Result<DnsSplitHandler> {
     let tls_config = tls_client_config()?;
     let cpxy: Arc<dyn Dialer> =
@@ -59,16 +56,11 @@ pub async fn handler(
     // In memory: the app has no use for answers across restarts, and the cache only lives as
     // long as the tunnel.
     let cache = DnsCache::open_in_memory(CACHE_OPTIONS).await?;
-    let handler = DnsSplitHandler::new(
+    Ok(DnsSplitHandler::new(
         Racer::new(servers, QUERY_TIMEOUT, is_local_region_ip),
         Some(Arc::new(cache)),
     )
-    .with_search_domains(search_domains.to_vec());
-    let Some(blocklist) = blocklist else {
-        return Ok(handler);
-    };
-    tracing::info!("Blocking {} domains", blocklist.len());
-    Ok(handler.with_sinkhole(blocklist, SINKHOLE_ADDR))
+    .with_search_domains(search_domains.to_vec()))
 }
 
 /// Answers each datagram of one UDP flow, concurrently: resolvers often send the A and AAAA
