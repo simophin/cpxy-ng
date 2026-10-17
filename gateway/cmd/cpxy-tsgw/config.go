@@ -105,13 +105,6 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 		return s, fmt.Errorf("invalid TS_PORT: %w", err)
 	}
 	s.port = uint16(port)
-	switch v := get("BLOCK_ADS", "0"); v {
-	case "0", "false", "no":
-	case "1", "true", "yes":
-		s.engine.BlockAds = true
-	default:
-		return s, fmt.Errorf("invalid BLOCK_ADS %q: use 0 or 1", v)
-	}
 	return s, nil
 }
 

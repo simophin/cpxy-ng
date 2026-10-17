@@ -66,8 +66,6 @@ ENV SOCKS5_PROXY_LISTEN=
 # whose answer is used otherwise, here asked through the cpxy server (?via=cpxy)
 ENV DNS_UPSTREAM=223.5.5.5
 ENV DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy
-# Answer names on the built-in ad blocklist with an address that goes nowhere; 0 turns it off
-ENV BLOCK_ADS=1
 # The node's name on the tailnet, and an auth key to log in without opening the link in the log
 ENV TS_HOSTNAME=cpxy-tsgw
 ENV TS_AUTHKEY=

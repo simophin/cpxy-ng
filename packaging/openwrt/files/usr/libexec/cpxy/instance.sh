@@ -11,11 +11,6 @@
 
 CPXY_BIN=/usr/bin
 CPXY_RUN=/tmp/cpxy
-# Names on the ad blocklist resolve here (dns_split --sinkhole); cpxy-router drops the range.
-# Not a private range: dnsmasq's rebind protection would discard those answers. Kept in step
-# with mobile-engine/src/config.rs.
-CPXY_SINKHOLE_ADDR=198.18.0.1
-CPXY_SINKHOLE_NET=198.18.0.0/24
 
 cpxy_log() {
 	logger -t cpxy -p daemon.err "$*"
@@ -101,7 +96,6 @@ cpxy_instance() {
 	# Overseas servers, asked through the instance's cpxy server
 	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative "tcp://1.1.1.1?via=cpxy"
 	cpxy_get_bool CPXY_DNS_CACHE "$name" dns_cache 1
-	cpxy_get_bool CPXY_BLOCK_ADS "$name" block_ads 1
 	cpxy_get CPXY_DNS_LOCAL_DOMAINS "$name" dns_local_domain
 	if [ -z "$CPXY_DNS_LOCAL_DOMAINS" ]; then
 		# dnsmasq's own domains: its DHCP domain and local=/lan/

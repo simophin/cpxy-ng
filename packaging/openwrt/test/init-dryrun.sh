@@ -110,7 +110,6 @@ uci set cpxy.iot=instance
 uci set cpxy.iot.index=2
 uci add_list cpxy.iot.network=iot
 uci set cpxy.iot.tsgw=0
-uci set cpxy.iot.block_ads=0
 uci set cpxy.iot.client_socks5=1
 uci commit cpxy
 
@@ -145,8 +144,7 @@ want 'append command --search-domain corp.example'
 grep -qxF 'DNS_SEARCH_DOMAINS=home.arpa,corp.example' /tmp/cpxy/tsgw-guest.env || fail 'tsgw search domains'
 want 'append command --cache-db /tmp/cpxy/dns-iot.sqlite'
 [ "$(grep -c -- '--local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
-[ "$(grep -c -- '--sinkhole 198.18.0.1' "$LOG")" = 2 ] || fail 'block_ads per instance'
-want 'route -4 route replace blackhole 198.18.0.0/24'
+absent 'append command --sinkhole'
 [ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'source zone lookup'
 [ "$(uci get firewall.cpxy_inst_guest_zone.device)" = cpxy1 ] || fail 'TUN zone'
 [ "$(uci get firewall.cpxy_inst_guest_udp.target)" = REJECT ] || fail 'UDP rejection'
@@ -159,7 +157,7 @@ position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewal
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
-want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy BLOCK_ADS=1'
+want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy PROXY_ROUTES='
 want 'DNS_SEARCH_DOMAINS=home.arpa,corp.example HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
 want 'set file /tmp/cpxy/tsgw-guest.env'
 want 'set file /tmp/cpxy/router-guest.env'
@@ -279,12 +277,6 @@ want 'instance main'
 if uci -q get firewall.cpxy_inst_guest_zone; then fail 'disabled guest zone remains'; fi
 if uci -q get firewall.cpxy_inst_guest_dns1; then fail 'disabled guest DNS redirect remains'; fi
 [ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'main forwarding removed'
-# No instance blocks ads: no sinkhole route
-uci set cpxy.defaults.block_ads=0
-: >"$LOG"
-router reload_service
-want 'route -4 route del blackhole 198.18.0.0/24'
-
 # Interface triggers for every routed network
 procd_add_reload_trigger() { :; }
 procd_add_interface_trigger() { echo "trigger $*" >>"$LOG"; }

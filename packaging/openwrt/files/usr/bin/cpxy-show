@@ -24,7 +24,7 @@ instance $1 (index $CPXY_INDEX)
   dns upstream    $CPXY_DNS_UPSTREAM
   dns alternative $CPXY_DNS_ALTERNATIVE
   local names     $CPXY_DNS_LOCAL_SERVER: single labels, private reverse, $CPXY_DNS_LOCAL_DOMAINS
-  block ads       $(_on "$CPXY_BLOCK_ADS"), dns cache $(_on "$CPXY_DNS_CACHE")
+  dns cache       $(_on "$CPXY_DNS_CACHE")
 EOF
 }
 

@@ -143,7 +143,6 @@ config instance 'guest'
 config instance 'iot'
 	option index '2'
 	list network 'iot'
-	option block_ads '0'
 ```
 
 `cpxy-show` prints what each instance runs with.
@@ -178,7 +177,6 @@ never taken from `defaults`.
 | `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
 | `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
-| `block_ads` | `1` | Answer names on the built-in ad blocklist with an address that goes nowhere (dns_split and tsgw). |
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |
 | `dns_local_server` | `127.0.0.1:53` | The router's own resolver, dnsmasq. |
 | `router_dns` | `1` | Answer all IPv4 DNS from the instance's networks with its dns_split. |
@@ -264,5 +262,4 @@ the details.
 | A network has no internet | The server URL or key is wrong, or the server is unreachable: `logread -e cpxy-router`. |
 | Names do not resolve | `logread -e cpxy-dns-split`: it shows each server it uses, and the errors reaching them or the instance's server. |
 | Local names (`printer.lan`) do not resolve | `dns_local_domain`, and that dnsmasq answers on `dns_local_server`. |
-| A site or app is missing content | The ad blocklist may be in the way: `uci set cpxy.<instance>.block_ads=0`. |
 | The exit node does not appear | It is not logged in or not approved: `logread -e cpxy-tsgw`. |

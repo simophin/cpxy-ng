@@ -17,7 +17,6 @@ DNS_UPSTREAM="223.5.5.5, tcp://119.29.29.29"
 DNS_SEARCH_DOMAINS="home.arpa, corp.example"
 
 MTU=1400
-BLOCK_ADS=1
 `), 0o600)
 	file, err := readConfigFile(path)
 	if err != nil {
@@ -27,7 +26,7 @@ BLOCK_ADS=1
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.engine.Server != "https://:key@example.com" || s.engine.MTU != 1400 || !s.engine.BlockAds {
+	if s.engine.Server != "https://:key@example.com" || s.engine.MTU != 1400 {
 		t.Fatalf("unexpected settings %+v", s)
 	}
 	if want := []string{"223.5.5.5", "tcp://119.29.29.29"}; !reflect.DeepEqual(s.engine.DNSUpstream, want) {
@@ -76,7 +75,6 @@ func TestRejectsBadSettings(t *testing.T) {
 		"no server": {},
 		"bad MTU":   {"SERVER": "http://:k@h", "MTU": "big"},
 		"bad port":  {"SERVER": "http://:k@h", "TS_PORT": "70000"},
-		"bad flag":  {"SERVER": "http://:k@h", "BLOCK_ADS": "maybe"},
 	} {
 		if _, err := loadSettings(file, noEnv); err == nil {
 			t.Errorf("%s: accepted", name)

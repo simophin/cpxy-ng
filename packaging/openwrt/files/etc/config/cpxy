@@ -33,8 +33,6 @@ config defaults 'defaults'
 	# Unset: tcp://1.1.1.1?via=cpxy
 	# list dns_alternative 'https://dns.google/dns-query?ip=8.8.8.8&via=cpxy'
 	option dns_cache '1'
-	# Answer names on the built-in ad blocklist with an address that goes nowhere
-	option block_ads '1'
 	# Names the router itself answers, sent to dns_local_server: single-label names, reverse
 	# lookups of private addresses and these domains. Unset: dnsmasq's 'domain' and 'local'.
 	# list dns_local_domain 'lan'

@@ -28,7 +28,6 @@ type Config struct {
 	DNSAlternative   []string `json:"dns_alternative"`
 	DNSSearchDomains []string `json:"dns_search_domains,omitempty"`
 	MTU              int      `json:"mtu"`
-	BlockAds         bool     `json:"block_ads"`
 }
 
 // maxDNSMessage fits any DNS message.

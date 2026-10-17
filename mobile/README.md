@@ -77,7 +77,7 @@ its proxy host and the selected port. HTTP supports ordinary requests and HTTPS 
 SOCKS5 supports TCP CONNECT, including hostname requests (no UDP ASSOCIATE).
 
 The listeners bind to `0.0.0.0` on all IPv4 interfaces and have no authentication. They run
-only while the VPN engine runs. Proxy hostnames use the profile's DNS split and ad blocking,
+only while the VPN engine runs. Proxy hostnames use the profile's DNS split,
 and destinations use the engine's direct/CN versus cpxy routing. App selection affects local
 Android apps; shared proxy connections use the engine regardless of the selected apps.
 If an enabled port is occupied or cannot be bound, the VPN connection fails with the bind
@@ -140,7 +140,7 @@ also expands single-label queries from VPN traffic and shared HTTP/SOCKS proxy c
 For `printer`, the engine tries `printer.home.arpa`, then `printer.corp.example`, then the bare
 name, stopping at the first successful answer with records. The engine queries names containing
 dots unchanged; Android also applies its own resolver search rules. Expanded names use the
-usual DNS split, cache and ad blocking. AAAA queries still return no records because the
+usual DNS split and cache. AAAA queries still return no records because the
 engine only supports IPv4.
 
 ### Search-domain emulator smoke check
