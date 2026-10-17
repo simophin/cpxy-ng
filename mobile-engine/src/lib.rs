@@ -537,7 +537,7 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
     let request = OutboundRequest {
         host: OutboundHost::Resolved {
             domain: address.clone(),
-            ip: Some(*dst.ip()),
+            ip: Some((*dst.ip()).into()),
         },
         port: dst.port(),
         tls: false,
@@ -820,7 +820,7 @@ mod tests {
                 host, ip, outbound, ..
             } => {
                 assert_eq!(host, "example.com");
-                assert_eq!(ip, Some(Ipv4Addr::LOCALHOST));
+                assert_eq!(ip, Some(Ipv4Addr::LOCALHOST.into()));
                 assert_eq!(outbound, "direct");
             }
             OutboundEvent::Error { error, .. } => panic!("connecting failed: {error}"),

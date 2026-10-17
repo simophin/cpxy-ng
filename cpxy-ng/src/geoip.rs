@@ -14,7 +14,10 @@ pub fn contains_v6(ip: &Ipv6Addr, sorted_serialized_data: &[u8]) -> bool {
 }
 
 /// Each `ENTRY` is a big-endian `ADDR`-byte start and inclusive end.
-fn contains<const ADDR: usize, const ENTRY: usize>(ip: u128, sorted_serialized_data: &[u8]) -> bool {
+fn contains<const ADDR: usize, const ENTRY: usize>(
+    ip: u128,
+    sorted_serialized_data: &[u8],
+) -> bool {
     let (entries, rest) = sorted_serialized_data.as_chunks::<ENTRY>();
     debug_assert!(rest.is_empty());
     let read = |bytes: &[u8]| bytes.iter().fold(0u128, |n, b| (n << 8) | u128::from(*b));

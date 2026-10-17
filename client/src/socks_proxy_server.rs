@@ -31,17 +31,11 @@ impl From<ProxyRequest> for OutboundRequest {
                 tls: false,
                 initial_plaintext: vec![],
             },
-            ProxyRequest::WithIP(SocketAddr::V4(addr)) => Self {
+            ProxyRequest::WithIP(addr) => Self {
                 host: OutboundHost::Resolved {
                     domain: addr.ip().to_string(),
-                    ip: Some(*addr.ip()),
+                    ip: Some(addr.ip()),
                 },
-                port: addr.port(),
-                tls: false,
-                initial_plaintext: vec![],
-            },
-            ProxyRequest::WithIP(addr) => Self {
-                host: OutboundHost::Domain(addr.ip().to_string()),
                 port: addr.port(),
                 tls: false,
                 initial_plaintext: vec![],

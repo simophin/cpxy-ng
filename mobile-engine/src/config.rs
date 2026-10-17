@@ -17,7 +17,7 @@ pub const DEFAULT_MTU: u16 = 1500;
 pub struct Config {
     /// The cpxy server URL with its key, e.g. `https://:key@example.com`.
     pub server: String,
-    /// IPv4 CIDRs forced through the proxy before automatic direct routing.
+    /// CIDRs forced through the proxy before automatic direct routing.
     #[serde(default)]
     pub proxy_routes: Vec<String>,
     /// DNS servers whose answer is used, keeping just its CN addresses, when it has any.
@@ -155,8 +155,14 @@ mod tests {
                 .proxy_routes
                 .contains(Some("223.5.5.5".parse().unwrap()))
         );
-        config.proxy_routes = vec!["::/0".into()];
-        assert!(config.settings().is_err());
+        config.proxy_routes = vec!["2400:3200::/32".into()];
+        assert!(
+            config
+                .settings()
+                .unwrap()
+                .proxy_routes
+                .contains(Some("2400:3200::1".parse().unwrap()))
+        );
         config.proxy_routes = vec!["10.0.0.0/33".into()];
         assert!(config.settings().is_err());
     }

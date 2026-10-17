@@ -3,7 +3,7 @@ use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::{RData, Record};
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,14 +25,14 @@ pub struct Resolution {
 pub struct Racer {
     servers: Vec<(Group, Arc<dyn DnsUpstream>)>,
     timeout: Duration,
-    is_local_ip: fn(Ipv4Addr) -> bool,
+    is_local_ip: fn(IpAddr) -> bool,
 }
 
 impl Racer {
     pub fn new(
         servers: Vec<(Group, Arc<dyn DnsUpstream>)>,
         timeout: Duration,
-        is_local_ip: fn(Ipv4Addr) -> bool,
+        is_local_ip: fn(IpAddr) -> bool,
     ) -> Self {
         Self {
             servers,
@@ -119,21 +119,30 @@ fn is_usable(message: &Message) -> bool {
     )
 }
 
-/// True when the answer has at least one A record in the local region, in which case the A records
-/// outside it are removed. Leaves the message untouched when it returns false.
-pub fn keep_local_region_answers(message: &mut Message, is_local_ip: fn(Ipv4Addr) -> bool) -> bool {
+/// The address of an A or AAAA record.
+pub fn record_ip(record: &Record) -> Option<IpAddr> {
+    match record.data() {
+        RData::A(a) => Some(a.0.into()),
+        RData::AAAA(aaaa) => Some(aaaa.0.into()),
+        _ => None,
+    }
+}
+
+/// True when the answer has at least one A or AAAA record in the local region, in which case the
+/// address records outside it are removed. Leaves the message untouched when it returns false.
+pub fn keep_local_region_answers(message: &mut Message, is_local_ip: fn(IpAddr) -> bool) -> bool {
     if message.response_code() != ResponseCode::NoError {
         return false;
     }
 
-    let is_local_record = |r: &Record| matches!(r.data(), RData::A(a) if is_local_ip(a.0));
+    let is_local_record = |r: &Record| record_ip(r).is_some_and(is_local_ip);
     if !message.answers().iter().any(is_local_record) {
         return false;
     }
 
     message
         .answers_mut()
-        .retain(|r| !matches!(r.data(), RData::A(_)) || is_local_record(r));
+        .retain(|r| record_ip(r).is_none() || is_local_record(r));
     let count = message.answers().len() as u16;
     message.set_answer_count(count);
     true
@@ -144,12 +153,16 @@ pub(crate) mod tests {
     use super::*;
     use futures::future::BoxFuture;
     use hickory_proto::op::{MessageType, Query};
-    use hickory_proto::rr::rdata::{A, CNAME};
+    use hickory_proto::rr::rdata::{A, AAAA, CNAME};
     use hickory_proto::rr::{Name, RecordType};
+    use std::net::{Ipv4Addr, Ipv6Addr};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    pub fn local_ip(ip: Ipv4Addr) -> bool {
-        ip.octets()[0] == 10
+    pub fn local_ip(ip: IpAddr) -> bool {
+        match ip {
+            IpAddr::V4(ip) => ip.octets()[0] == 10,
+            IpAddr::V6(ip) => ip.segments()[0] == 0xfd10,
+        }
     }
 
     pub fn query(name: &str, record_type: RecordType) -> Message {
@@ -167,6 +180,19 @@ pub(crate) mod tests {
                 Name::from_ascii("example.com.").unwrap(),
                 300,
                 RData::A(A(*ip)),
+            ));
+        }
+        message
+    }
+
+    pub fn answer_v6(ips: &[Ipv6Addr]) -> Message {
+        let mut message = query("example.com.", RecordType::AAAA);
+        message.set_message_type(MessageType::Response);
+        for ip in ips {
+            message.add_answer(Record::from_rdata(
+                Name::from_ascii("example.com.").unwrap(),
+                300,
+                RData::AAAA(AAAA(*ip)),
             ));
         }
         message
@@ -319,6 +345,27 @@ pub(crate) mod tests {
         assert!(keep_local_region_answers(&mut message, local_ip));
         assert!(matches!(message.answers()[0].data(), RData::CNAME(_)));
         assert_eq!(a_records(&message), vec![LOCAL]);
+    }
+
+    #[test]
+    fn filtering_classifies_aaaa_records() {
+        let local: Ipv6Addr = "fd10::1".parse().unwrap();
+        let remote: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let mut message = answer_v6(&[remote, local]);
+        assert!(keep_local_region_answers(&mut message, local_ip));
+        assert_eq!(
+            message
+                .answers()
+                .iter()
+                .filter_map(record_ip)
+                .collect::<Vec<_>>(),
+            vec![IpAddr::V6(local)]
+        );
+        assert_eq!(message.answer_count(), 1);
+
+        let mut message = answer_v6(&[remote]);
+        assert!(!keep_local_region_answers(&mut message, local_ip));
+        assert_eq!(message.answers().len(), 1);
     }
 
     #[test]

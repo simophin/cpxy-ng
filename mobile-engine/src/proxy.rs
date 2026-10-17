@@ -9,7 +9,7 @@ use client::socks_proxy_server::SocksProxyHandshaker;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use hickory_proto::op::{Message, Query};
 use hickory_proto::rr::{Name, RData, RecordType};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
@@ -131,7 +131,7 @@ impl<O: Outbound + Send + Sync> Outbound for ProxyOutbound<O> {
         mut req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
         if let OutboundHost::Domain(host) = &req.host {
-            let ip = if let Ok(ip) = host.parse::<Ipv4Addr>() {
+            let ip = if let Ok(ip) = host.parse::<IpAddr>() {
                 Some(ip)
             } else if let Some(dns) = &self.dns {
                 let mut query = Message::new();
@@ -144,7 +144,7 @@ impl<O: Outbound + Send + Sync> Outbound for ProxyOutbound<O> {
                         .answers()
                         .iter()
                         .find_map(|record| match record.data() {
-                            RData::A(a) => Some(a.0),
+                            RData::A(a) => Some(IpAddr::V4(a.0)),
                             _ => None,
                         })
                         .context("Proxy hostname has no IPv4 address")?,

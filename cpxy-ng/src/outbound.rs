@@ -1,15 +1,12 @@
 use std::fmt::{Debug, Formatter};
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Debug, Clone)]
 pub enum OutboundHost {
     Domain(String),
-    Resolved {
-        domain: String,
-        ip: Option<Ipv4Addr>,
-    },
+    Resolved { domain: String, ip: Option<IpAddr> },
 }
 
 impl OutboundHost {

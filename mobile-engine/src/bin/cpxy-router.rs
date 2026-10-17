@@ -7,9 +7,9 @@ fn main() -> anyhow::Result<()> {
 
     #[derive(Parser)]
     struct Options {
-        /// IPv4 CIDRs forced through the proxy (repeatable or comma-separated).
+        /// CIDRs forced through the proxy (repeatable or comma-separated).
         #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
-        proxy_route: Vec<ipnet::Ipv4Net>,
+        proxy_route: Vec<ipnet::IpNet>,
         #[arg(long, default_value = "cpxy0")]
         tun: String,
         /// The engine sizes TCP segments to this and ignores the peer's MSS, so it must not

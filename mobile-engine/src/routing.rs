@@ -2,11 +2,11 @@ use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes};
 use client::protocol_config::Config as ServerConfig;
 use client::stats_server::OutboundEvent;
 use cpxy_ng::either_stream::EitherStream;
-use cpxy_ng::geoip::contains_v4;
+use cpxy_ng::geoip::{contains_v4, contains_v6};
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use geoip_data::CN;
+use geoip_data::{CN, CN6};
 use std::borrow::Cow;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::time::{Instant, SystemTime};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast;
@@ -43,7 +43,7 @@ impl Route {
 /// How connecting went, for [`Router::report`].
 pub struct Outcome {
     route: Route,
-    ip: Option<Ipv4Addr>,
+    ip: Option<IpAddr>,
     port: u16,
     delay_mills: usize,
     request_time_mills: u64,
@@ -64,7 +64,7 @@ impl Router {
         }
     }
 
-    fn route(&self, ip: Option<Ipv4Addr>) -> Route {
+    pub fn route(&self, ip: Option<IpAddr>) -> Route {
         if !self.proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
             Route::Direct
         } else {
@@ -157,8 +157,18 @@ impl Outbound for Router {
     }
 }
 
-pub fn should_route_direct(ip: Ipv4Addr) -> bool {
-    ip.is_private() || ip.is_loopback() || ip.is_link_local() || contains_v4(&ip, CN)
+pub fn should_route_direct(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            ip.is_private() || ip.is_loopback() || ip.is_link_local() || contains_v4(&ip, CN)
+        }
+        IpAddr::V6(ip) => {
+            ip.is_unique_local()
+                || ip.is_loopback()
+                || ip.is_unicast_link_local()
+                || contains_v6(&ip, CN6)
+        }
+    }
 }
 
 #[cfg(test)]

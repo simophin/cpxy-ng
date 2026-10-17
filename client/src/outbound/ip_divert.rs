@@ -1,6 +1,6 @@
 use cpxy_ng::either_stream::EitherStream;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct IPDivertOutbound<O1, O2, F> {
@@ -13,7 +13,7 @@ impl<O1, O2, F> Outbound for IPDivertOutbound<O1, O2, F>
 where
     O1: Outbound + Sync,
     O2: Outbound + Sync,
-    F: Fn(Option<Ipv4Addr>) -> bool + Sync,
+    F: Fn(Option<IpAddr>) -> bool + Sync,
 {
     async fn send(
         &self,

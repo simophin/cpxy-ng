@@ -20,9 +20,9 @@ use tracing::{Instrument, info_span};
 
 #[derive(clap::Parser)]
 struct CliOptions {
-    /// IPv4 CIDRs forced through the main proxy (repeatable or comma-separated).
+    /// CIDRs forced through the main proxy (repeatable or comma-separated).
     #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
-    proxy_route: Vec<ipnet::Ipv4Net>,
+    proxy_route: Vec<ipnet::IpNet>,
 
     /// The cpxy sever host to connect to
     #[clap(env, required = true)]
