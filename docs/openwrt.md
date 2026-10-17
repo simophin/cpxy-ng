@@ -23,9 +23,10 @@ answers local names (`.lan`, DHCP host names) for dns_split.
 ## Before you start
 
 - A router on **OpenWrt 25.12 or newer** (native apk v3, fw4, procd), **OpenWrt 24.10** (opkg), or GL.iNet's stock 4.x firmware (OpenWrt
-  21.02-based, fw3). Tested on a GL-MT3000 with the stock firmware. `apk --print-arch`
-  must show `aarch64` or `x86_64`, or `opkg print-architecture` must list
-  `aarch64_cortex-a53` or `x86_64` on older firmware.
+  21.02-based, fw3). Tested on a GL-MT3000 with the stock firmware. For apk, `/etc/apk/arch`
+  must list `aarch64`, `aarch64_generic`, `aarch64_cortex-a53`, `aarch64_cortex-a72`,
+  `aarch64_cortex-a76` or `x86_64`. On older firmware, `opkg print-architecture` must list
+  `aarch64_cortex-a53` or `x86_64`.
 - SSH access as `root`.
 - A running cpxy server per instance (one can serve several), and its URL with the key:
   `https://:<key>@<host>:<port>` (or `http://`).
@@ -38,8 +39,14 @@ answers local names (`.lan`, DHCP host names) for dns_split.
 
 ### OpenWrt 25.12 or newer: direct apk install
 
-Use the native **OpenWrt** apk, not the Android app or the opkg ipk. Its architecture is
-`apk --print-arch`: `aarch64` for the Cudy TR3600, or `x86_64`.
+Use the native **OpenWrt** apk, not the Android app or the opkg ipk. Read `cat /etc/apk/arch`
+on the router and choose a package with an accepted label: for example,
+`aarch64_cortex-a53` for the Cudy TR3600, or `x86_64` for x86-64 firmware.
+`apk --print-arch` reports apk's compiled default, which can differ from the firmware's
+accepted package architecture. Do not change `/etc/apk/arch` to accommodate a download.
+
+All ARM64 variants contain the same generic static ARM64 binaries. The separate package
+labels let apk match the firmware; they do not indicate CPU-specific compilation.
 
 The controller can download the package and copy it to the router, so the router needs no
 access to the download server or a package repository. Resolve `/latest` once, then download
@@ -49,9 +56,10 @@ exact path before copying. For example, on the controller:
 ```sh
 download=https://cpxy-download.cloudflare-087.workers.dev
 version=$(curl -fsSL "$download/latest")
-curl -fLo cpxy.apk "$download/$version/openwrt-apk/aarch64/cpxy.apk"
+arch=aarch64_cortex-a53 # use the value from the router's /etc/apk/arch
+curl -fLo cpxy.apk "$download/$version/openwrt-apk/$arch/cpxy.apk"
 curl -fLo SHA256SUMS "$download/$version/SHA256SUMS"
-awk '$2 == "openwrt-apk/aarch64/cpxy.apk" { print $1 "  cpxy.apk" }' SHA256SUMS | sha256sum -c -
+awk -v path="openwrt-apk/$arch/cpxy.apk" '$2 == path { print $1 "  cpxy.apk" }' SHA256SUMS | sha256sum -c -
 scp -O cpxy.apk root@192.168.2.1:/tmp/
 ```
 

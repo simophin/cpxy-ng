@@ -147,6 +147,11 @@ test('a version page lists every file under its section, with its checksum', asy
     'openwrt/x86_64/cpxy.ipk',
     'openwrt/x86_64/Packages',
     'openwrt-apk/aarch64/cpxy.apk',
+    'openwrt-apk/aarch64_generic/cpxy.apk',
+    'openwrt-apk/aarch64_cortex-a53/cpxy.apk',
+    'openwrt-apk/aarch64_cortex-a72/cpxy.apk',
+    'openwrt-apk/aarch64_cortex-a76/cpxy.apk',
+    'openwrt-apk/x86_64/cpxy.apk',
     // Older versions also have raw/<rust target>/ binaries
     'raw/x86_64-unknown-linux-musl/cpxy-client',
     'notes.txt',
@@ -164,6 +169,11 @@ test('a version page lists every file under its section, with its checksum', asy
   assert.ok(at.every((i, n) => i > 0 && (n === 0 || i > at[n - 1])), `sections in order: ${at}`);
   assert.match(html, /Package, x86-64/);
   assert.match(html, /Native apk, ARM64/);
+  assert.match(html, /Native apk, ARM64, OpenWrt generic label/);
+  assert.match(html, /Native apk, ARM64 Cortex-A53/);
+  assert.match(html, /Native apk, ARM64 Cortex-A72/);
+  assert.match(html, /Native apk, ARM64 Cortex-A76/);
+  assert.match(html, /Native apk, x86-64/);
   assert.ok(html.indexOf('openwrt-apk/aarch64/cpxy.apk') < html.indexOf('id="checksums"'));
   assert.ok(html.includes('0'.repeat(63) + '1'), 'checksum of the second file');
   assert.match(html, /2\.0 KB/);

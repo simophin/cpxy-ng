@@ -3,10 +3,13 @@
 
 const REPO = 'https://github.com/simophin/cpxy-ng';
 
-/** Names for the opkg architectures under openwrt/. */
-const OPKG_ARCHES = {
-  aarch64: 'ARM64 (apk), such as the Cudy TR3600',
+/** Package architecture labels under openwrt/ and openwrt-apk/. */
+const PACKAGE_ARCHES = {
+  aarch64: 'ARM64, generic aarch64 label',
+  aarch64_generic: 'ARM64, OpenWrt generic label',
   'aarch64_cortex-a53': 'ARM64 Cortex-A53, such as the GL-MT3000',
+  'aarch64_cortex-a72': 'ARM64 Cortex-A72',
+  'aarch64_cortex-a76': 'ARM64 Cortex-A76',
   x86_64: 'x86-64',
 };
 
@@ -45,7 +48,7 @@ export function describeFile(path) {
   if (path === 'android/cpxy-vpn.apk') return { section: 'android', label: 'APK, for Android 8 and later', rank: 0 };
   if (path === 'SHA256SUMS') return { section: 'checksums', label: 'SHA256SUMS', rank: 0 };
   if (parts[0] === 'openwrt' && parts.length === 3) {
-    const arch = OPKG_ARCHES[parts[1]] ?? parts[1];
+    const arch = PACKAGE_ARCHES[parts[1]] ?? parts[1];
     if (parts[2].endsWith('.ipk')) return { section: 'openwrt', label: `Package, ${arch}`, rank: 0, group: parts[1] };
     if (FEED_FILES[parts[2]]) {
       const rank = 1 + Object.keys(FEED_FILES).indexOf(parts[2]);
@@ -53,7 +56,7 @@ export function describeFile(path) {
     }
   }
   if (parts[0] === 'openwrt-apk' && parts.length === 3 && parts[2] === 'cpxy.apk') {
-    return { section: 'openwrt', label: `Native apk, ${OPKG_ARCHES[parts[1]] ?? parts[1]}`, rank: 0, group: `apk-${parts[1]}` };
+    return { section: 'openwrt', label: `Native apk, ${PACKAGE_ARCHES[parts[1]] ?? parts[1]}`, rank: 0, group: `apk-${parts[1]}` };
   }
   return { section: 'other', label: path, rank: 0 };
 }
