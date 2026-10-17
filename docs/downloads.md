@@ -1,8 +1,8 @@
 # Downloads and publishing
 
-Every push to `main` builds everything and publishes it to the download server: the Android app,
-the OpenWrt package and the plain binaries. There are no GitHub releases. Docker images go to GHCR
-as before.
+Every push to `main` publishes the Android app and the OpenWrt packages to the download server.
+There are no GitHub releases. The server, cpxy-tsgw and the client bundle are published as Docker
+images on GHCR instead.
 
 The server is a Cloudflare Worker ([download-worker/](../download-worker)) in front of an R2 bucket.
 It runs at `https://cpxy-download.<account subdomain>.workers.dev`, which is the `DOWNLOAD_URL`
@@ -20,13 +20,9 @@ One folder per version, and every folder names its files the same:
   openwrt/<opkg arch>/cpxy.ipk               aarch64_cortex-a53, x86_64
   openwrt/<opkg arch>/Packages{,.gz,.sig}    a signed opkg feed
   openwrt-apk/<apk arch>/cpxy.apk           aarch64, x86_64; native OpenWrt apk v3
-  raw/<rust target>/cpxy-client              also cpxy-server, cpxy-dns-split (.exe on Windows)
-  raw/<rust target>/cpxy-tsgw                the two Linux musl targets only
 ```
 
-The Rust targets are `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`,
-`x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` and
-`i686-pc-windows-msvc`.
+Versions before this layout also have `raw/<rust target>/cpxy-*`, the plain binaries.
 
 The version is `git describe`: a tag such as `1.17.0` on the tagged commit, and
 `1.17.0-5-gabc1234` five commits after it. Versions are ordered by the tag's numbers, then the
@@ -39,7 +35,7 @@ commit count, so later commits on `main` are newer.
 - `https://<download host>/latest` is the newest complete version's name (it has its
   `SHA256SUMS`).
 - `https://<download host>/latest/<path>` redirects to `<path>` in that version, for example
-  `/latest/raw/x86_64-unknown-linux-musl/cpxy-server` or `/latest/android/cpxy-vpn.apk`.
+  `/latest/openwrt-apk/aarch64/cpxy.apk` or `/latest/android/cpxy-vpn.apk`.
 
 ## Updates
 
@@ -103,6 +99,5 @@ passes it to `apk mkpkg --sign`. No apk signing key or feed is installed on the 
 
 Until `R2_BUCKET` is set, `publish` is skipped and the build is only in the CI run's artifacts.
 
-Nothing is deleted automatically. Each version holds every binary for every platform, so delete
-old version folders in the R2 dashboard when the bucket grows. Avoid an age-based lifecycle rule: after a quiet spell it would
+Nothing is deleted automatically. Each version is about 200MB, so delete old version folders in the R2 dashboard when the bucket grows. Avoid an age-based lifecycle rule: after a quiet spell it would
 delete the latest version too.

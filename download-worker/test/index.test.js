@@ -87,8 +87,8 @@ test('redirects latest paths to the version folder', async () => {
 });
 
 test('serves files', async () => {
-  const bucket = fakeBucket({ '1.17.0/SHA256SUMS': 'sums', '1.17.0/raw/x86_64-unknown-linux-musl/cpxy-server': 'binary' });
-  const response = await get(bucket, '/1.17.0/raw/x86_64-unknown-linux-musl/cpxy-server');
+  const bucket = fakeBucket({ '1.17.0/SHA256SUMS': 'sums', '1.17.0/openwrt-apk/x86_64/cpxy.apk': 'binary' });
+  const response = await get(bucket, '/1.17.0/openwrt-apk/x86_64/cpxy.apk');
   assert.equal(response.status, 200);
   assert.equal(await response.text(), 'binary');
   assert.match(response.headers.get('cache-control'), /immutable/);
@@ -147,9 +147,8 @@ test('a version page lists every file under its section, with its checksum', asy
     'openwrt/x86_64/cpxy.ipk',
     'openwrt/x86_64/Packages',
     'openwrt-apk/aarch64/cpxy.apk',
-    'raw/x86_64-pc-windows-msvc/cpxy-client.exe',
+    // Older versions also have raw/<rust target>/ binaries
     'raw/x86_64-unknown-linux-musl/cpxy-client',
-    'raw/x86_64-unknown-linux-musl/cpxy-tsgw',
     'notes.txt',
   ];
   const files = Object.fromEntries(paths.map((p) => [`1.17.0/${p}`, 'x'.repeat(2048)]));
@@ -160,14 +159,12 @@ test('a version page lists every file under its section, with its checksum', asy
   assert.equal(response.status, 200);
   const html = await response.text();
   for (const p of [...paths, 'SHA256SUMS']) assert.ok(html.includes(`href="/1.17.0/${p}"`), p);
-  const order = ['id="android"', 'id="openwrt"', 'id="cpxy-client"', 'id="cpxy-tsgw"', 'id="checksums"', 'id="other"'];
+  const order = ['id="android"', 'id="openwrt"', 'id="checksums"', 'id="other"'];
   const at = order.map((s) => html.indexOf(s));
   assert.ok(at.every((i, n) => i > 0 && (n === 0 || i > at[n - 1])), `sections in order: ${at}`);
-  assert.match(html, />Windows x64</);
-  assert.match(html, />Linux x86-64</);
   assert.match(html, /Package, x86-64/);
   assert.match(html, /Native apk, ARM64/);
-  assert.ok(html.indexOf('openwrt-apk/aarch64/cpxy.apk') < html.indexOf('id="cpxy-client"'));
+  assert.ok(html.indexOf('openwrt-apk/aarch64/cpxy.apk') < html.indexOf('id="checksums"'));
   assert.ok(html.includes('0'.repeat(63) + '1'), 'checksum of the second file');
   assert.match(html, /2\.0 KB/);
 });

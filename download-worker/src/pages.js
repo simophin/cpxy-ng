@@ -3,16 +3,6 @@
 
 const REPO = 'https://github.com/simophin/cpxy-ng';
 
-/** Names for the Rust targets CI builds under raw/. */
-const TARGETS = {
-  'x86_64-unknown-linux-musl': 'Linux x86-64',
-  'aarch64-unknown-linux-musl': 'Linux ARM64',
-  'x86_64-apple-darwin': 'macOS Intel',
-  'aarch64-apple-darwin': 'macOS Apple silicon',
-  'x86_64-pc-windows-msvc': 'Windows x64',
-  'i686-pc-windows-msvc': 'Windows x86 (32-bit)',
-};
-
 /** Names for the opkg architectures under openwrt/. */
 const OPKG_ARCHES = {
   aarch64: 'ARM64 (apk), such as the Cudy TR3600',
@@ -24,27 +14,6 @@ const FEED_FILES = {
   Packages: 'Feed index',
   'Packages.gz': 'Feed index, compressed',
   'Packages.sig': 'Feed index signature',
-};
-
-const RAW_PROGRAMS = {
-  'cpxy-client': {
-    title: 'cpxy-client',
-    about: 'A local HTTP and SOCKS5 proxy that sends everything through a cpxy server.',
-  },
-  'cpxy-server': {
-    title: 'cpxy-server',
-    about: 'The proxy server the clients, the app and the router connect to.',
-  },
-  'cpxy-dns-split': {
-    title: 'cpxy-dns-split',
-    about:
-      'A DNS forwarder that races upstream and alternative servers, and keeps an answer in the local region when there is one.',
-  },
-  'cpxy-tsgw': {
-    title: 'cpxy-tsgw',
-    about: 'A Tailscale exit node in one static binary, no tailscaled needed. Linux only.',
-    guide: `${REPO}/blob/main/docs/cpxy-tsgw.md`,
-  },
 };
 
 /** The sections of a version page, in order. */
@@ -62,7 +31,6 @@ const SECTIONS = [
       'Proxy, split DNS, LAN routing and a Tailscale exit node for a router. Use the native .apk on OpenWrt 25.12 or newer, or the .ipk on opkg firmware. The apk is a direct download and adds no repository.',
     guide: `${REPO}/blob/main/docs/openwrt.md`,
   },
-  ...Object.entries(RAW_PROGRAMS).map(([id, program]) => ({ id, ...program })),
   {
     id: 'checksums',
     title: 'Checksums',
@@ -86,13 +54,6 @@ export function describeFile(path) {
   }
   if (parts[0] === 'openwrt-apk' && parts.length === 3 && parts[2] === 'cpxy.apk') {
     return { section: 'openwrt', label: `Native apk, ${OPKG_ARCHES[parts[1]] ?? parts[1]}`, rank: 0, group: `apk-${parts[1]}` };
-  }
-  if (parts[0] === 'raw' && parts.length === 3) {
-    const program = parts[2].replace(/\.exe$/, '');
-    const rank = Object.keys(TARGETS).indexOf(parts[1]);
-    if (RAW_PROGRAMS[program]) {
-      return { section: program, label: TARGETS[parts[1]] ?? parts[1], rank: rank < 0 ? Infinity : rank };
-    }
   }
   return { section: 'other', label: path, rank: 0 };
 }

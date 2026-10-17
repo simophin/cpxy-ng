@@ -1,6 +1,6 @@
 # cpxy-ng
 
-**[Downloads](https://cpxy-download.cloudflare-087.workers.dev/)**: the Android app, the OpenWrt package and the binaries of every build ([latest](https://cpxy-download.cloudflare-087.workers.dev/latest/), [how publishing works](docs/downloads.md))
+**[Downloads](https://cpxy-download.cloudflare-087.workers.dev/)**: the Android app and the OpenWrt package of every build ([latest](https://cpxy-download.cloudflare-087.workers.dev/latest/), [how publishing works](docs/downloads.md))
 
 - [OpenWrt user guide](docs/openwrt.md): proxy, split DNS, LAN routing and a Tailscale exit node per network, in one package
 - [OpenWrt packaging](packaging/openwrt/README.md)
