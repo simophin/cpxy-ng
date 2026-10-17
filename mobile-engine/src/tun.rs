@@ -6,7 +6,7 @@
 //! packet with one `recvmmsg`, and writes are queued for a task that sends them with `sendmmsg`.
 //! A burst then costs a few system calls and wake-ups on each side instead of several per packet.
 
-use crate::filter::{Verdict, classify};
+use crate::filter::{Filter, Verdict};
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::pin::Pin;
@@ -33,10 +33,11 @@ pub struct Traffic {
     pub received: AtomicU64,
 }
 
-/// Applies [`classify`] to every packet before the IP stack sees it, and answers refused
-/// packets itself.
+/// Applies a [`Filter`] to every packet before the IP stack sees it, and answers refused packets
+/// itself.
 pub struct TunDevice {
     shared: Arc<Shared>,
+    filter: Filter,
     buf: Vec<u8>,
     /// Notified when the other end of a socket closes; a TUN never does.
     eof: Arc<Notify>,
@@ -58,6 +59,7 @@ impl TunDevice {
     pub fn new(
         fd: OwnedFd,
         mtu: u16,
+        filter: Filter,
         traffic: Arc<Traffic>,
         eof: Arc<Notify>,
         closed: oneshot::Sender<()>,
@@ -74,6 +76,7 @@ impl TunDevice {
             #[cfg(any(target_os = "linux", target_os = "android"))]
             batch: is_socket.then(|| batch::Batch::new(shared.clone(), mtu)),
             shared,
+            filter,
             buf: vec![0; usize::from(mtu) + PACKET_INFO_LEN],
             eof,
         })
@@ -156,7 +159,7 @@ impl AsyncRead for TunDevice {
                 .traffic
                 .sent
                 .fetch_add(packet.len() as u64, Ordering::Relaxed);
-            match classify(packet) {
+            match this.filter.classify(packet) {
                 Verdict::Pass => {
                     let len = packet.len().min(out.remaining());
                     out.put_slice(&packet[..len]);

@@ -7,7 +7,7 @@
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - UDP 443 (QUIC) and TCP 853 (DNS over TLS) are refused; other UDP is relayed direct.
-//! - IPv6 is refused.
+//! - IPv6 is handled like IPv4, or refused, according to the config's [`Ipv6Mode`].
 //!
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
 
@@ -35,6 +35,7 @@ uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
 use client::dns_split::spec::ServerSpec;
+pub use client::ipv6::Ipv6Mode;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
@@ -43,7 +44,7 @@ use ipstack::{
     TcpOptions,
 };
 use routing::Router;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -163,6 +164,7 @@ fn start_with_dns(
         tun,
         settings.server,
         settings.proxy_routes,
+        settings.ipv6,
         settings.mtu,
         tcp_window,
         listener,
@@ -178,6 +180,7 @@ fn start_with_dns(
                 search_domains: &settings.dns_search_domains,
                 local: None,
                 cache: true,
+                ipv6: settings.ipv6,
             },
             intercept: Some(intercept),
             listen: None,
@@ -205,6 +208,7 @@ pub fn start_router(
     tun: OwnedFd,
     server: client::protocol_config::Config,
     proxy_routes: client::outbound::ProxyRoutes,
+    ipv6: Ipv6Mode,
     mtu: u16,
     dns: Option<RouterDns>,
     listener: Arc<dyn EventListener>,
@@ -219,6 +223,7 @@ pub fn start_router(
                 .as_ref()
                 .map(|server| (server, dns.local_domains.as_slice())),
             cache: dns.cache,
+            ipv6,
         },
         intercept: None,
         listen: Some(dns.listen),
@@ -227,6 +232,7 @@ pub fn start_router(
         tun,
         server,
         proxy_routes,
+        ipv6,
         mtu,
         LOCAL_TCP_WINDOW,
         listener,
@@ -245,10 +251,10 @@ enum DnsIntercept {
 }
 
 impl DnsIntercept {
-    fn matches(self, dst: SocketAddrV4) -> bool {
+    fn matches(self, dst: SocketAddr) -> bool {
         dst.port() == DNS_PORT
             && match self {
-                Self::VirtualServer => *dst.ip() == DNS_ADDR,
+                Self::VirtualServer => dst.ip() == DNS_ADDR,
                 Self::AnyServer => true,
             }
     }
@@ -271,7 +277,7 @@ struct DnsService {
 
 impl DnsService {
     /// The handler to answer a flow to `dst` with, if the engine answers it.
-    fn handler_for(dns: Option<Self>, dst: SocketAddrV4) -> Option<Arc<DnsSplitHandler>> {
+    fn handler_for(dns: Option<Self>, dst: SocketAddr) -> Option<Arc<DnsSplitHandler>> {
         dns.filter(|dns| dns.intercept.is_some_and(|i| i.matches(dst)))
             .map(|dns| dns.handler)
     }
@@ -281,6 +287,7 @@ fn start_inner(
     tun: OwnedFd,
     server: client::protocol_config::Config,
     proxy_routes: client::outbound::ProxyRoutes,
+    ipv6: Ipv6Mode,
     mtu: u16,
     tcp_window: u32,
     listener: Arc<dyn EventListener>,
@@ -318,6 +325,7 @@ fn start_inner(
         TunDevice::new(
             tun,
             mtu,
+            filter::Filter::new(ipv6, proxy_routes.clone()),
             traffic.clone(),
             device_eof.clone(),
             device_closed_tx,
@@ -515,20 +523,10 @@ fn mss_for_mtu(mtu: u16) -> u16 {
     mtu.saturating_sub(TCP_IP_HEADERS_LEN)
 }
 
-fn ipv4_dst(addr: SocketAddr) -> Option<SocketAddrV4> {
-    match addr {
-        SocketAddr::V4(addr) => Some(addr),
-        // The filter refuses IPv6 before it reaches the stack.
-        SocketAddr::V6(_) => None,
-    }
-}
-
 /// The connection is reported under its server name once the app's ClientHello names it, or
 /// under its address when no name comes within [`SNI_WAIT`].
 async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<DnsService>) {
-    let Some(dst) = ipv4_dst(flow.peer_addr()) else {
-        return;
-    };
+    let dst = flow.peer_addr();
     if let Some(handler) = DnsService::handler_for(dns, dst) {
         return dns::serve_tcp_flow(flow, handler).await;
     }
@@ -537,7 +535,7 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
     let request = OutboundRequest {
         host: OutboundHost::Resolved {
             domain: address.clone(),
-            ip: Some((*dst.ip()).into()),
+            ip: Some(dst.ip()),
         },
         port: dst.port(),
         tls: false,
@@ -574,9 +572,7 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
 }
 
 async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
-    let Some(dst) = ipv4_dst(flow.peer_addr()) else {
-        return;
-    };
+    let dst = flow.peer_addr();
     if let Some(handler) = DnsService::handler_for(dns, dst) {
         return dns::serve_udp_flow(flow, handler).await;
     }
@@ -586,8 +582,12 @@ async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
 }
 
 /// Relays one UDP flow through its own direct socket until ipstack closes it as idle.
-async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddrV4) -> std::io::Result<()> {
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await?;
+async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddr) -> std::io::Result<()> {
+    let unspecified: IpAddr = match dst {
+        SocketAddr::V4(_) => Ipv4Addr::UNSPECIFIED.into(),
+        SocketAddr::V6(_) => Ipv6Addr::UNSPECIFIED.into(),
+    };
+    let socket = UdpSocket::bind((unspecified, 0)).await?;
     socket.connect(dst).await?;
 
     let mut from_app = vec![0u8; 65535];
@@ -649,16 +649,19 @@ mod tests {
 
     #[test]
     fn dns_interception_depends_on_the_mode() {
-        let virtual_server = SocketAddrV4::new(DNS_ADDR, 53);
-        let public = SocketAddrV4::new(Ipv4Addr::new(8, 8, 8, 8), 53);
-        let other_port = SocketAddrV4::new(Ipv4Addr::new(8, 8, 8, 8), 5353);
+        let virtual_server = SocketAddr::from((DNS_ADDR, 53));
+        let public = SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 53));
+        let other_port = SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 5353));
+        let public_v6: SocketAddr = "[2001:4860:4860::8888]:53".parse().unwrap();
 
         assert!(DnsIntercept::VirtualServer.matches(virtual_server));
         assert!(!DnsIntercept::VirtualServer.matches(public));
         assert!(DnsIntercept::AnyServer.matches(virtual_server));
         assert!(DnsIntercept::AnyServer.matches(public));
         assert!(!DnsIntercept::AnyServer.matches(other_port));
-        assert!(!DnsIntercept::VirtualServer.matches(SocketAddrV4::new(DNS_ADDR, 80)));
+        assert!(!DnsIntercept::VirtualServer.matches(public_v6));
+        assert!(DnsIntercept::AnyServer.matches(public_v6));
+        assert!(!DnsIntercept::VirtualServer.matches(SocketAddr::from((DNS_ADDR, 80))));
     }
 
     #[test]
@@ -716,6 +719,7 @@ mod tests {
             tun.into(),
             "http://:k@127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
+            Ipv6Mode::Full,
             DEFAULT_MTU,
             Some(RouterDns {
                 listen,
@@ -825,6 +829,95 @@ mod tests {
             }
             OutboundEvent::Error { error, .. } => panic!("connecting failed: {error}"),
         }
+        engine.stop();
+    }
+
+    #[test]
+    fn relays_ipv6_unless_it_is_off() {
+        use std::io::Read;
+        use std::os::unix::net::UnixDatagram;
+
+        const APP: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1);
+        let config = |mode: &str| {
+            format!(
+                r#"{{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"], "ipv6": "{mode}"}}"#
+            )
+        };
+        let packet_to = |port: u16, tcp: Option<(u32, Option<u32>)>, payload: &[u8]| {
+            let builder =
+                etherparse::PacketBuilder::ipv6(APP.octets(), Ipv6Addr::LOCALHOST.octets(), 64);
+            let mut packet = Vec::new();
+            match tcp {
+                Some((seq, None)) => builder
+                    .tcp(40000, port, seq, 65535)
+                    .syn()
+                    .write(&mut packet, payload),
+                Some((seq, Some(ack))) => builder
+                    .tcp(40000, port, seq, 65535)
+                    .ack(ack)
+                    .psh()
+                    .write(&mut packet, payload),
+                None => builder.udp(40000, port).write(&mut packet, payload),
+            }
+            .unwrap();
+            packet
+        };
+
+        // Loopback goes direct, to these sockets.
+        let listener = std::net::TcpListener::bind("[::1]:0").unwrap();
+        let tcp_port = listener.local_addr().unwrap().port();
+        let echo = std::net::UdpSocket::bind("[::1]:0").unwrap();
+        echo.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let udp_port = echo.local_addr().unwrap().port();
+
+        let (tun, peer) = UnixDatagram::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let engine = start(tun.into(), &config("direct"), Arc::new(Ignore)).unwrap();
+        let mut buf = [0u8; 2048];
+
+        peer.send(&packet_to(tcp_port, Some((1, None)), &[]))
+            .unwrap();
+        let syn_ack = loop {
+            let n = peer.recv(&mut buf).unwrap();
+            let sliced = etherparse::SlicedPacket::from_ip(&buf[..n]).unwrap();
+            if let Some(etherparse::TransportSlice::Tcp(tcp)) = sliced.transport
+                && tcp.syn()
+                && tcp.ack()
+            {
+                break tcp.sequence_number();
+            }
+        };
+        peer.send(&packet_to(
+            tcp_port,
+            Some((2, Some(syn_ack.wrapping_add(1)))),
+            b"hello",
+        ))
+        .unwrap();
+        let (mut accepted, _) = listener.accept().unwrap();
+        accepted
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut relayed = [0u8; 5];
+        accepted.read_exact(&mut relayed).unwrap();
+        assert_eq!(&relayed, b"hello");
+
+        peer.send(&packet_to(udp_port, None, b"ping")).unwrap();
+        let (n, from) = echo.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"ping");
+        assert!(from.is_ipv6());
+        engine.stop();
+
+        let (tun, peer) = UnixDatagram::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let engine = start(tun.into(), &config("off"), Arc::new(Ignore)).unwrap();
+        peer.send(&packet_to(tcp_port, Some((1, None)), &[]))
+            .unwrap();
+        let n = peer.recv(&mut buf).unwrap();
+        let sliced = etherparse::SlicedPacket::from_ip(&buf[..n]).unwrap();
+        assert!(matches!(
+            sliced.transport,
+            Some(etherparse::TransportSlice::Icmpv6(_))
+        ));
         engine.stop();
     }
 

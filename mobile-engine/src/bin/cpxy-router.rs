@@ -12,6 +12,10 @@ fn main() -> anyhow::Result<()> {
         proxy_route: Vec<ipnet::IpNet>,
         #[arg(long, default_value = "cpxy0")]
         tun: String,
+        /// Which IPv6 to relay: `full` needs a cpxy server that can reach IPv6, `direct` relays
+        /// only what routes direct, and `off` refuses it.
+        #[arg(long, env = "IPV6", value_enum, default_value_t = mobile_engine::Ipv6Mode::Full)]
+        ipv6: mobile_engine::Ipv6Mode,
         /// The engine sizes TCP segments to this and ignores the peer's MSS, so it must not
         /// exceed the smallest MTU on the path back to clients (1280 behind tailscale0).
         #[arg(long, default_value_t = mobile_engine::DEFAULT_MTU)]
@@ -67,6 +71,7 @@ fn main() -> anyhow::Result<()> {
         tun,
         server,
         client::outbound::ProxyRoutes(options.proxy_route),
+        options.ipv6,
         options.mtu,
         dns,
         Arc::new(Listener),

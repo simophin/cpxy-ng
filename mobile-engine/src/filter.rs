@@ -1,6 +1,9 @@
 //! Decides, before the IP stack sees it, what happens to each packet the device sends into the
 //! tunnel. Refused traffic gets an ICMP error back so apps fail fast instead of timing out.
 
+use crate::routing::{Route, route};
+use client::ipv6::Ipv6Mode;
+use client::outbound::ProxyRoutes;
 use etherparse::{Icmpv4Type, Icmpv6Type, PacketBuilder, icmpv4, icmpv6};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -15,9 +18,10 @@ const QUIC_PORT: u16 = 443;
 /// engine answers.
 const DOT_PORT: u16 = 853;
 
+const IPV6_HEADER_LEN: usize = 40;
 /// The most of the offending packet an ICMPv6 error may carry (RFC 4443 §2.4: the error must
 /// fit the minimum IPv6 MTU of 1280 bytes).
-const ICMPV6_MAX_QUOTE: usize = 1280 - 40 - 8;
+const ICMPV6_MAX_QUOTE: usize = 1280 - IPV6_HEADER_LEN - 8;
 const TTL: u8 = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -30,11 +34,78 @@ pub enum Verdict {
     Reply(Vec<u8>),
 }
 
-pub fn classify(packet: &[u8]) -> Verdict {
-    match packet.first().map(|b| b >> 4) {
-        Some(4) => classify_v4(packet),
-        Some(6) => classify_v6(packet),
-        _ => Verdict::Drop,
+pub struct Filter {
+    ipv6: Ipv6Mode,
+    /// Where TCP goes, for [`Ipv6Mode::Direct`].
+    proxy_routes: ProxyRoutes,
+}
+
+impl Filter {
+    pub fn new(ipv6: Ipv6Mode, proxy_routes: ProxyRoutes) -> Self {
+        Self { ipv6, proxy_routes }
+    }
+
+    pub fn classify(&self, packet: &[u8]) -> Verdict {
+        match packet.first().map(|b| b >> 4) {
+            Some(4) => classify_v4(packet),
+            Some(6) => self.classify_v6(packet),
+            _ => Verdict::Drop,
+        }
+    }
+
+    fn classify_v6(&self, packet: &[u8]) -> Verdict {
+        if packet.len() < IPV6_HEADER_LEN {
+            return Verdict::Drop;
+        }
+
+        let next_header = packet[6];
+        let src = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[8..24]).unwrap());
+        let dst = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[24..40]).unwrap());
+        if next_header == PROTO_ICMPV6 || dst.is_multicast() || src.is_unspecified() {
+            return Verdict::Drop;
+        }
+
+        // Refused before the IP stack accepts a TCP connection: once accepted, a connection that
+        // cannot be made fails after the app considers it open, which Happy Eyeballs does not
+        // recover from. UDP is relayed direct, so it never needs the cpxy server.
+        let allowed = match self.ipv6 {
+            Ipv6Mode::Off => false,
+            Ipv6Mode::Direct => {
+                next_header == PROTO_UDP
+                    || route(&self.proxy_routes, Some(dst.into())) == Route::Direct
+            }
+            Ipv6Mode::Full => true,
+        };
+        if !allowed {
+            // "Administratively prohibited" is a hard error for both TCP and UDP sockets (unlike
+            // "no route", which UDP sockets ignore unless they ask for ICMP errors), so apps fall
+            // back to IPv4 at once.
+            let quote = &packet[..packet.len().min(ICMPV6_MAX_QUOTE)];
+            return Verdict::Reply(icmp_error_v6(
+                dst,
+                src,
+                icmpv6::DestUnreachableCode::Prohibited,
+                quote,
+            ));
+        }
+
+        // Extension headers would hide the port; the IP stack drops such packets anyway.
+        if packet.len() < IPV6_HEADER_LEN + 4 {
+            return Verdict::Pass;
+        }
+        let dst_port = u16::from_be_bytes([packet[42], packet[43]]);
+        match (next_header, dst_port) {
+            (PROTO_UDP, QUIC_PORT) | (PROTO_TCP, DOT_PORT) => {
+                let quote = &packet[..packet.len().min(ICMPV6_MAX_QUOTE)];
+                Verdict::Reply(icmp_error_v6(
+                    dst,
+                    src,
+                    icmpv6::DestUnreachableCode::Port,
+                    quote,
+                ))
+            }
+            _ => Verdict::Pass,
+        }
     }
 }
 
@@ -70,25 +141,6 @@ fn classify_v4(packet: &[u8]) -> Verdict {
     }
 }
 
-fn classify_v6(packet: &[u8]) -> Verdict {
-    if packet.len() < 40 {
-        return Verdict::Drop;
-    }
-
-    let next_header = packet[6];
-    let src = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[8..24]).unwrap());
-    let dst = Ipv6Addr::from(<[u8; 16]>::try_from(&packet[24..40]).unwrap());
-    if next_header == PROTO_ICMPV6 || dst.is_multicast() || src.is_unspecified() {
-        return Verdict::Drop;
-    }
-
-    // IPv6 is not supported: the GeoIP data only covers IPv4. "Administratively prohibited" is
-    // a hard error for both TCP and UDP sockets (unlike "no route", which UDP sockets ignore
-    // unless they ask for ICMP errors), so apps fall back to IPv4 at once.
-    let quote = &packet[..packet.len().min(ICMPV6_MAX_QUOTE)];
-    Verdict::Reply(prohibited_v6(dst, src, quote))
-}
-
 fn port_unreachable_v4(from: Ipv4Addr, to: Ipv4Addr, quote: &[u8]) -> Vec<u8> {
     let builder = PacketBuilder::ipv4(from.octets(), to.octets(), TTL).icmpv4(
         Icmpv4Type::DestinationUnreachable(icmpv4::DestUnreachableHeader::Port),
@@ -100,10 +152,14 @@ fn port_unreachable_v4(from: Ipv4Addr, to: Ipv4Addr, quote: &[u8]) -> Vec<u8> {
     out
 }
 
-fn prohibited_v6(from: Ipv6Addr, to: Ipv6Addr, quote: &[u8]) -> Vec<u8> {
-    let builder = PacketBuilder::ipv6(from.octets(), to.octets(), TTL).icmpv6(
-        Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Prohibited),
-    );
+fn icmp_error_v6(
+    from: Ipv6Addr,
+    to: Ipv6Addr,
+    code: icmpv6::DestUnreachableCode,
+    quote: &[u8],
+) -> Vec<u8> {
+    let builder = PacketBuilder::ipv6(from.octets(), to.octets(), TTL)
+        .icmpv6(Icmpv6Type::DestinationUnreachable(code));
     let mut out = Vec::with_capacity(builder.size(quote.len()));
     builder
         .write(&mut out, quote)
@@ -118,6 +174,19 @@ mod tests {
 
     const APP: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 1);
     const REMOTE: Ipv4Addr = Ipv4Addr::new(93, 184, 216, 34);
+    const APP_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1);
+    /// Not in the local region.
+    const REMOTE_V6: Ipv6Addr = Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888);
+    /// AliDNS, in the local region.
+    const LOCAL_V6: Ipv6Addr = Ipv6Addr::new(0x2400, 0x3200, 0, 0, 0, 0, 0, 1);
+
+    fn classify(packet: &[u8]) -> Verdict {
+        Filter::new(Ipv6Mode::Full, ProxyRoutes::default()).classify(packet)
+    }
+
+    fn classify_with(mode: Ipv6Mode, packet: &[u8]) -> Verdict {
+        Filter::new(mode, ProxyRoutes::default()).classify(packet)
+    }
 
     fn udp_v4(dst: Ipv4Addr, port: u16) -> Vec<u8> {
         let builder = PacketBuilder::ipv4(APP.octets(), dst.octets(), 64).udp(40000, port);
@@ -135,10 +204,16 @@ mod tests {
         out
     }
 
-    fn tcp_syn_v6(dst: Ipv6Addr) -> Vec<u8> {
-        let src: Ipv6Addr = "fd00::1".parse().unwrap();
-        let builder = PacketBuilder::ipv6(src.octets(), dst.octets(), 64)
-            .tcp(40000, 443, 1234, 65535)
+    fn udp_v6(dst: Ipv6Addr, port: u16) -> Vec<u8> {
+        let builder = PacketBuilder::ipv6(APP_V6.octets(), dst.octets(), 64).udp(40000, port);
+        let mut out = Vec::new();
+        builder.write(&mut out, b"hello").unwrap();
+        out
+    }
+
+    fn tcp_syn_v6(dst: Ipv6Addr, port: u16) -> Vec<u8> {
+        let builder = PacketBuilder::ipv6(APP_V6.octets(), dst.octets(), 64)
+            .tcp(40000, port, 1234, 65535)
             .syn();
         let mut out = Vec::new();
         builder.write(&mut out, &[]).unwrap();
@@ -152,12 +227,29 @@ mod tests {
         }
     }
 
+    /// The ICMPv6 error in `packet`, checking that it answers `request`.
+    fn icmpv6_error(packet: &[u8], request: &[u8]) -> Icmpv6Type {
+        let sliced = SlicedPacket::from_ip(packet).unwrap();
+        let Some(NetSlice::Ipv6(ip)) = sliced.net else {
+            panic!("not IPv6")
+        };
+        assert_eq!(ip.header().source_addr().octets(), request[24..40]);
+        assert_eq!(ip.header().destination_addr().octets(), request[8..24]);
+        let Some(TransportSlice::Icmpv6(icmp)) = sliced.transport else {
+            panic!("not ICMPv6")
+        };
+        assert_eq!(icmp.payload(), request);
+        icmp.icmp_type()
+    }
+
     #[test]
     fn ordinary_traffic_passes() {
         assert_eq!(classify(&tcp_syn_v4(REMOTE, 443)), Verdict::Pass);
         assert_eq!(classify(&tcp_syn_v4(REMOTE, 80)), Verdict::Pass);
         assert_eq!(classify(&udp_v4(REMOTE, 9999)), Verdict::Pass);
         assert_eq!(classify(&udp_v4(REMOTE, 53)), Verdict::Pass);
+        assert_eq!(classify(&tcp_syn_v6(REMOTE_V6, 443)), Verdict::Pass);
+        assert_eq!(classify(&udp_v6(REMOTE_V6, 53)), Verdict::Pass);
     }
 
     #[test]
@@ -183,6 +275,17 @@ mod tests {
     }
 
     #[test]
+    fn quic_and_dns_over_tls_over_ipv6_get_port_unreachable() {
+        let port_unreachable =
+            Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Port);
+        for request in [udp_v6(REMOTE_V6, 443), tcp_syn_v6(REMOTE_V6, 853)] {
+            let packet = reply(classify(&request));
+            assert_eq!(icmpv6_error(&packet, &request), port_unreachable);
+        }
+        assert_eq!(classify(&udp_v6(REMOTE_V6, 853)), Verdict::Pass);
+    }
+
+    #[test]
     fn dns_over_tls_gets_port_unreachable() {
         reply(classify(&tcp_syn_v4(Ipv4Addr::new(8, 8, 8, 8), 853)));
         // Only TCP: UDP 853 (DNS over QUIC) is relayed like any other UDP
@@ -193,22 +296,35 @@ mod tests {
     }
 
     #[test]
-    fn ipv6_gets_prohibited() {
-        let dst: Ipv6Addr = "2001:db8::1".parse().unwrap();
-        let packet = reply(classify(&tcp_syn_v6(dst)));
+    fn ipv6_gets_prohibited_when_off() {
+        let prohibited =
+            Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Prohibited);
+        for request in [tcp_syn_v6(LOCAL_V6, 443), udp_v6(REMOTE_V6, 9999)] {
+            let packet = reply(classify_with(Ipv6Mode::Off, &request));
+            assert_eq!(icmpv6_error(&packet, &request), prohibited);
+        }
+    }
 
-        let sliced = SlicedPacket::from_ip(&packet).unwrap();
-        let Some(NetSlice::Ipv6(ip)) = sliced.net else {
-            panic!("not IPv6")
-        };
-        assert_eq!(ip.header().source_addr(), dst);
-        let Some(TransportSlice::Icmpv6(icmp)) = sliced.transport else {
-            panic!("not ICMPv6")
-        };
-        assert_eq!(
-            icmp.icmp_type(),
-            Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Prohibited)
-        );
+    #[test]
+    fn direct_ipv6_refuses_tcp_that_would_go_through_the_proxy() {
+        let prohibited =
+            Icmpv6Type::DestinationUnreachable(icmpv6::DestUnreachableCode::Prohibited);
+        let request = tcp_syn_v6(REMOTE_V6, 443);
+        let packet = reply(classify_with(Ipv6Mode::Direct, &request));
+        assert_eq!(icmpv6_error(&packet, &request), prohibited);
+
+        for request in [
+            tcp_syn_v6(LOCAL_V6, 443),
+            tcp_syn_v6(APP_V6, 22),
+            udp_v6(REMOTE_V6, 9999),
+        ] {
+            assert_eq!(classify_with(Ipv6Mode::Direct, &request), Verdict::Pass);
+        }
+
+        // Fixed proxy routes go through the proxy even when the address is local.
+        let routes = ProxyRoutes::parse(&["2400:3200::/32".into()]).unwrap();
+        let filter = Filter::new(Ipv6Mode::Direct, routes);
+        reply(filter.classify(&tcp_syn_v6(LOCAL_V6, 443)));
     }
 
     #[test]
@@ -233,7 +349,11 @@ mod tests {
         .icmpv6_echo_request(1, 1)
         .write(&mut neighbour_solicitation, &[])
         .unwrap();
-        assert_eq!(classify(&neighbour_solicitation), Verdict::Drop);
+        for mode in [Ipv6Mode::Off, Ipv6Mode::Direct, Ipv6Mode::Full] {
+            assert_eq!(classify_with(mode, &neighbour_solicitation), Verdict::Drop);
+            let mdns = udp_v6("ff02::fb".parse().unwrap(), 5353);
+            assert_eq!(classify_with(mode, &mdns), Verdict::Drop);
+        }
     }
 
     #[test]
@@ -242,6 +362,7 @@ mod tests {
         assert_eq!(classify(&[0x00, 0x01]), Verdict::Drop);
         assert_eq!(classify(&[0x45, 0x00]), Verdict::Pass);
         assert_eq!(classify(&[0x60; 20]), Verdict::Drop);
+        assert_eq!(classify(&tcp_syn_v6(REMOTE_V6, 853)[..42]), Verdict::Pass);
         // A non-first fragment of a UDP 443 datagram has no port to look at
         let mut fragment = udp_v4(REMOTE, 443);
         fragment[6] = 0x00;

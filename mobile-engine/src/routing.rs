@@ -63,14 +63,6 @@ impl Router {
         }
     }
 
-    pub fn route(&self, ip: Option<IpAddr>) -> Route {
-        if !self.proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
-            Route::Direct
-        } else {
-            Route::Proxy
-        }
-    }
-
     /// Connects without reporting it.
     pub async fn connect(
         &self,
@@ -83,7 +75,7 @@ impl Router {
             OutboundHost::Domain(_) => None,
             OutboundHost::Resolved { ip, .. } => *ip,
         };
-        let route = self.route(ip);
+        let route = route(&self.proxy_routes, ip);
         let port = req.port;
         let request_time_mills = SystemTime::UNIX_EPOCH
             .elapsed()
@@ -153,6 +145,15 @@ impl Outbound for Router {
         let (outcome, result) = self.connect(req).await;
         self.report(outcome, host);
         result
+    }
+}
+
+/// Where TCP to `ip` goes.
+pub fn route(proxy_routes: &ProxyRoutes, ip: Option<IpAddr>) -> Route {
+    if !proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
+        Route::Direct
+    } else {
+        Route::Proxy
     }
 }
 
