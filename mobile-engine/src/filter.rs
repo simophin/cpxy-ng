@@ -19,6 +19,8 @@ const QUIC_PORT: u16 = 443;
 const DOT_PORT: u16 = 853;
 
 const IPV6_HEADER_LEN: usize = 40;
+const TCP_SYN: u8 = 0x02;
+const TCP_ACK: u8 = 0x10;
 /// The most of the offending packet an ICMPv6 error may carry (RFC 4443 §2.4: the error must
 /// fit the minimum IPv6 MTU of 1280 bytes).
 const ICMPV6_MAX_QUOTE: usize = 1280 - IPV6_HEADER_LEN - 8;
@@ -36,13 +38,19 @@ pub enum Verdict {
 
 pub struct Filter {
     ipv6: Ipv6Mode,
-    /// Where TCP goes, for [`Ipv6Mode::Direct`].
+    /// Where TCP goes.
     proxy_routes: ProxyRoutes,
+    /// Whether the engine's own sockets reach an address.
+    has_route: fn(Ipv6Addr) -> bool,
 }
 
 impl Filter {
     pub fn new(ipv6: Ipv6Mode, proxy_routes: ProxyRoutes) -> Self {
-        Self { ipv6, proxy_routes }
+        Self {
+            ipv6,
+            proxy_routes,
+            has_route,
+        }
     }
 
     pub fn classify(&self, packet: &[u8]) -> Verdict {
@@ -68,14 +76,12 @@ impl Filter {
         // Refused before the IP stack accepts a TCP connection: once accepted, a connection that
         // cannot be made fails after the app considers it open, which Happy Eyeballs does not
         // recover from. UDP is relayed direct, so it never needs the cpxy server.
+        let direct = || route(&self.proxy_routes, Some(dst.into())) == Route::Direct;
         let allowed = match self.ipv6 {
             Ipv6Mode::Off => false,
-            Ipv6Mode::Direct => {
-                next_header == PROTO_UDP
-                    || route(&self.proxy_routes, Some(dst.into())) == Route::Direct
-            }
+            Ipv6Mode::Direct => next_header == PROTO_UDP || direct(),
             Ipv6Mode::Full => true,
-        };
+        } && !(is_tcp_syn_v6(packet) && direct() && !(self.has_route)(dst));
         if !allowed {
             // "Administratively prohibited" is a hard error for both TCP and UDP sockets (unlike
             // "no route", which UDP sockets ignore unless they ask for ICMP errors), so apps fall
@@ -107,6 +113,22 @@ impl Filter {
             _ => Verdict::Pass,
         }
     }
+}
+
+/// The first packet of a TCP connection, without extension headers.
+fn is_tcp_syn_v6(packet: &[u8]) -> bool {
+    packet[6] == PROTO_TCP
+        && packet
+            .get(IPV6_HEADER_LEN + 13)
+            .is_some_and(|flags| flags & (TCP_SYN | TCP_ACK) == TCP_SYN)
+}
+
+/// Whether this host routes to `dst`, as when the network has no IPv6. A connected UDP socket
+/// looks the route up without sending anything.
+fn has_route(dst: Ipv6Addr) -> bool {
+    std::net::UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0))
+        .and_then(|socket| socket.connect((dst, 9)))
+        .is_ok()
 }
 
 fn classify_v4(packet: &[u8]) -> Verdict {
@@ -180,12 +202,20 @@ mod tests {
     /// AliDNS, in the local region.
     const LOCAL_V6: Ipv6Addr = Ipv6Addr::new(0x2400, 0x3200, 0, 0, 0, 0, 0, 1);
 
+    /// A filter on a host that routes everywhere, whatever this one's network.
+    fn routed(mode: Ipv6Mode, proxy_routes: ProxyRoutes) -> Filter {
+        Filter {
+            has_route: |_| true,
+            ..Filter::new(mode, proxy_routes)
+        }
+    }
+
     fn classify(packet: &[u8]) -> Verdict {
-        Filter::new(Ipv6Mode::Full, ProxyRoutes::default()).classify(packet)
+        routed(Ipv6Mode::Full, ProxyRoutes::default()).classify(packet)
     }
 
     fn classify_with(mode: Ipv6Mode, packet: &[u8]) -> Verdict {
-        Filter::new(mode, ProxyRoutes::default()).classify(packet)
+        routed(mode, ProxyRoutes::default()).classify(packet)
     }
 
     fn udp_v4(dst: Ipv4Addr, port: u16) -> Vec<u8> {
@@ -323,8 +353,31 @@ mod tests {
 
         // Fixed proxy routes go through the proxy even when the address is local.
         let routes = ProxyRoutes::parse(&["2400:3200::/32".into()]).unwrap();
-        let filter = Filter::new(Ipv6Mode::Direct, routes);
+        let filter = routed(Ipv6Mode::Direct, routes);
         reply(filter.classify(&tcp_syn_v6(LOCAL_V6, 443)));
+    }
+
+    #[test]
+    fn direct_ipv6_tcp_is_refused_without_a_route() {
+        for mode in [Ipv6Mode::Direct, Ipv6Mode::Full] {
+            let filter = Filter {
+                has_route: |_| false,
+                ..Filter::new(mode, ProxyRoutes::default())
+            };
+            reply(filter.classify(&tcp_syn_v6(LOCAL_V6, 443)));
+            // Only new connections are checked; UDP is relayed regardless.
+            let mut ack = tcp_syn_v6(LOCAL_V6, 443);
+            ack[IPV6_HEADER_LEN + 13] = TCP_ACK;
+            assert_eq!(filter.classify(&ack), Verdict::Pass);
+            assert_eq!(filter.classify(&udp_v6(LOCAL_V6, 9999)), Verdict::Pass);
+        }
+        // Proxied TCP needs only the cpxy server's IPv6.
+        let filter = Filter {
+            has_route: |_| false,
+            ..Filter::new(Ipv6Mode::Full, ProxyRoutes::default())
+        };
+        assert_eq!(filter.classify(&tcp_syn_v6(REMOTE_V6, 443)), Verdict::Pass);
+        assert!(has_route(Ipv6Addr::LOCALHOST));
     }
 
     #[test]

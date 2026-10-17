@@ -87,6 +87,7 @@ them). A change applies when the container is recreated, which restarts both ser
 | `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | tsgw's split DNS: servers whose answer is used, trimmed to its local-region addresses, when it has any. See [choosing the servers](cpxy-tsgw.md#choosing-the-servers). |
 | `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | Servers whose answer is used otherwise. `?via=cpxy` asks a `tcp://`, `tls://` or `https://` server through the cpxy server. |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries from Tailscale clients, comma or space separated. Tries each suffix before the bare name. |
+| `IPV6` | `full` | Which IPv6 from Tailscale clients tsgw relays: `full`, `direct` (only what goes direct, for a cpxy server without IPv6) or `off`. Docker gives containers no IPv6 unless the network enables it; then IPv6 that would go direct is refused, so clients use IPv4 for it. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The exit node's name on the tailnet. |
 | `TS_AUTHKEY` | empty | An auth key for the first login instead of the link in the log. |
 | `TS_PORT` | empty, random | The UDP port WireGuard listens on, only worth setting to forward it. |

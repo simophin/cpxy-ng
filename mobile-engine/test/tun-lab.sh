@@ -212,6 +212,11 @@ except OSError as e: print(e)
 PY
 }
 expect "DNS over TLS (TCP 853) is refused" refused "$(tcp_probe 93.184.216.34 853)"
+# On a network without IPv6, the engine could not connect direct after accepting the connection
+in_phone ip -6 route del default
+expect "without IPv6 on the uplink, direct IPv6 TCP is refused" prohibited "$(tcp_probe 2400:3200::114 8000)"
+mark; check "without IPv6 on the uplink, IPv6 through cpxy still works" fetch "$URL_PROXIED_V6"
+in_phone ip -6 route add default via 2001:db8:2::1
 
 # --- Fail closed: the cpxy server dies ---
 kill "$SERVER_PID"; sleep 0.5
