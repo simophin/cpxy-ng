@@ -74,7 +74,7 @@ _validate_instance() {
 		_validate_network "$iface"
 	done
 	[ "$CPXY_ROUTER_DNS" = 1 ] && dns_port="$(_cpxy_port "$CPXY_DNS_LISTEN")"
-	printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" >"$PLAN/$SECTION"
+	printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" "$CPXY_IPV6" >"$PLAN/$SECTION"
 }
 
 _prepare_plan() {
@@ -101,6 +101,8 @@ _read_state() {
 		read -r LAN_DEVS
 		read -r ZONES
 		read -r DNS_PORT
+		# For cpxy_net_up
+		read -r CPXY_IPV6
 	} <"$1"
 	cpxy_net_select "$TUN" "$TABLE" "$PRIORITY"
 }
@@ -108,7 +110,7 @@ _read_state() {
 _start_worker() {
 	local entry
 	procd_open_instance "${1}_tun"
-	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN"
+	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN" --ipv6 "$CPXY_IPV6"
 	for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
 	if [ "$DNS_PORT" != - ]; then
 		procd_append_param command --dns-listen "$CPXY_DNS_LISTEN"

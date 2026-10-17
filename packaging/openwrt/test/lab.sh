@@ -5,6 +5,9 @@
 #   lan (192.168.8.50) -- router (LAN 192.168.8.1, WAN 192.0.2.2, masquerading) -- inet
 #   inet: a cpxy server on 192.0.2.1:8443 and a web server on 93.184.216.34:8000
 #
+# IPv6 likewise, without NAT: lan 2001:db8:8::50, router 2001:db8:8::1 and 2001:db8:2::2, and the
+# web servers also on 2001:db8:100::34 (not local-region) and 2400:3200::114 (local-region).
+#
 # The router mimics OpenWrt: strict rp_filter, forward policy drop, and the package's real
 # routing code (net.sh), native packet engine and nftables snippet. It does not run fw4 or dnsmasq.
 #
@@ -55,12 +58,17 @@ in_router() { ip netns exec router "$@"; }
 in_lan() { ip netns exec lan "$@"; }
 in_guest() { ip netns exec guest "$@"; }
 
-in_inet sh -c 'ip link set lo up; ip addr add 93.184.216.34/32 dev lo; ip addr add 192.0.2.1/24 dev wan0; ip link set wan0 up
-	ip route add 192.168.8.0/24 via 192.0.2.2'
-in_router sh -c 'ip link set lo up; ip addr add 192.0.2.2/24 dev wan0r; ip addr add 192.168.8.1/24 dev lan0r
-	ip link set wan0r up; ip link set lan0r up; ip route add default via 192.0.2.1
-	sysctl -qw net.ipv4.ip_forward=1 net.ipv4.conf.all.rp_filter=1 net.ipv4.conf.default.rp_filter=1'
-in_lan sh -c 'ip link set lo up; ip addr add 192.168.8.50/24 dev lan0; ip link set lan0 up; ip route add default via 192.168.8.1'
+IPV6_ON='sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0'
+in_inet sh -c "$IPV6_ON"'; ip link set lo up; ip addr add 93.184.216.34/32 dev lo; ip addr add 192.0.2.1/24 dev wan0
+	ip -6 addr add 2001:db8:100::34/128 dev lo; ip -6 addr add 2400:3200::114/128 dev lo
+	ip -6 addr add 2001:db8:2::1/64 dev wan0 nodad; ip link set wan0 up
+	ip route add 192.168.8.0/24 via 192.0.2.2; ip -6 route add 2001:db8:8::/64 via 2001:db8:2::2'
+in_router sh -c "$IPV6_ON"'; ip link set lo up; ip addr add 192.0.2.2/24 dev wan0r; ip addr add 192.168.8.1/24 dev lan0r
+	ip -6 addr add 2001:db8:2::2/64 dev wan0r nodad; ip -6 addr add 2001:db8:8::1/64 dev lan0r nodad
+	ip link set wan0r up; ip link set lan0r up; ip route add default via 192.0.2.1; ip -6 route add default via 2001:db8:2::1
+	sysctl -qw net.ipv4.ip_forward=1 net.ipv4.conf.all.rp_filter=1 net.ipv4.conf.default.rp_filter=1 net.ipv6.conf.all.forwarding=1'
+in_lan sh -c "$IPV6_ON"'; ip link set lo up; ip addr add 192.168.8.50/24 dev lan0; ip -6 addr add 2001:db8:8::50/64 dev lan0 nodad
+	ip link set lan0 up; ip route add default via 192.168.8.1; ip -6 route add default via 2001:db8:8::1'
 
 in_inet sh -c 'ip addr add 192.0.3.2/24 dev up0i; ip link set up0i up; sysctl -qw net.ipv4.ip_forward=1'
 ip netns exec upstream sh -c 'ip link set lo up; ip addr add 192.0.3.1/24 dev up0; ip link set up0 up; ip route add default via 192.0.3.2'
@@ -92,15 +100,18 @@ check "router firewall loads" in_router nft -f "$WORK/fw.nft"
 mkdir "$WORK/www" && echo hello >"$WORK/www/index.html"
 bg ip netns exec inet "$BIN/cpxy-server" --key lab 192.0.2.1:8443 >"$WORK/server.log" 2>&1
 SERVER_PID=$!
-(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 93.184.216.34 2>"$WORK/web.log")
+(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 93.184.216.34 2>>"$WORK/web.log")
+(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 2001:db8:100::34 2>>"$WORK/web.log")
 in_inet ip addr add 114.114.114.114/32 dev lo
-(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 114.114.114.114 2>"$WORK/direct.log")
+(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 114.114.114.114 2>>"$WORK/direct.log")
+(cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 2400:3200::114 2>>"$WORK/direct.log")
 # UDP echo on 443 and 9999: replies with the source address it saw
 bg in_inet python3 -c '
 import selectors, socket
 sel = selectors.DefaultSelector()
-for port in (443, 9999):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("93.184.216.34", port)); sel.register(s, selectors.EVENT_READ)
+for ip in ("93.184.216.34", "2001:db8:100::34"):
+  for port in (443, 9999):
+    s = socket.socket(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_DGRAM); s.bind((ip, port)); sel.register(s, selectors.EVENT_READ)
 while True:
     for key, _ in sel.select():
         _, addr = key.fileobj.recvfrom(64); key.fileobj.sendto(addr[0].encode(), addr)
@@ -108,10 +119,11 @@ while True:
 sleep 1
 
 URL=http://93.184.216.34:8000/index.html
-fetch() { in_lan curl -sS --max-time 5 --noproxy '*' "$URL"; }
+URL_V6='http://[2001:db8:100::34]:8000/index.html'
+fetch() { in_lan curl -gsS --max-time 5 --noproxy '*' "${1:-$URL}"; }
 # Who did the web server see since mark? (192.0.2.2 is the router's WAN address: traffic that went direct)
 mark() { MARK="$(wc -l <"$WORK/web.log")"; }
-seen() { sleep 0.3; tail -n +"$((MARK + 1))" "$WORK/web.log" | grep -o '^[0-9.]*' | sort -u | tr '\n' ' ' | sed 's/ $//'; }
+seen() { sleep 0.3; tail -n +"$((MARK + 1))" "$WORK/web.log" | grep -o '^[0-9a-f.:]*' | sort -u | tr '\n' ' ' | sed 's/ $//'; }
 expect_seen() { # expect_seen <description> <sources>
 	got="$(seen)"
 	if [ "$got" = "$2" ]; then pass "$1 (web server saw: ${got:-nothing})"; else fail "$1 (web server saw: '${got}', wanted '$2')"; fi
@@ -124,9 +136,11 @@ expect_not_direct() {
 # --- Before the service: the LAN reaches the internet directly, through WAN NAT ---
 mark; check "baseline: LAN reaches the web server directly" fetch
 expect_seen "baseline: request arrives from the router's WAN address" 192.0.2.2
+mark; check "baseline: LAN reaches the web server directly over IPv6" fetch "$URL_V6"
+expect_seen "baseline: IPv6 request arrives from the LAN address" 2001:db8:8::50
 
 # --- Start the service pieces exactly as the init script does ---
-in_router sh -c ". '$NET'; cpxy_net_up lan0r"
+in_router sh -c "CPXY_IPV6=full; . '$NET'; cpxy_net_up lan0r"
 check "policy routing installs" in_router ip rule show
 # ip netns exec execs, so $! is the native worker itself.
 bg ip netns exec router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun cpxy0 >"$WORK/tun.log" 2>&1
@@ -142,7 +156,7 @@ got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "request came through cpxy, not the router WAN (web server saw: $got)"
 else fail "request did not go through the proxy (web server saw: '${got}')"; fi
 # A reload runs cpxy_net_up again while native worker keeps running; it must stay attached to cpxy0
-in_router sh -c ". '$NET'; cpxy_net_up lan0r"
+in_router sh -c "CPXY_IPV6=full; . '$NET'; cpxy_net_up lan0r"
 mark; check "reload: LAN still reaches the web server through the proxy" fetch
 got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "reload: still through cpxy"
@@ -150,11 +164,12 @@ else fail "reload: request did not go through the proxy (web server saw: '${got}
 mark; check "router's own traffic still goes out WAN" in_router curl -sS --max-time 5 --noproxy '*' "$URL"
 expect_seen "router traffic is not captured" 192.0.2.2
 check "LAN can still reach the router itself" in_lan ping -c1 -W2 192.168.8.1
-# udp_probe <port>: prints what a UDP datagram from the LAN to the internet echo server got back
+# udp_probe <port> [host]: prints what a UDP datagram from the LAN to the internet echo server got back
 udp_probe() {
-	in_lan sh -c "timeout 3 python3 - $1 <<'PY'
+	in_lan sh -c "timeout 3 python3 - $1 ${2:-93.184.216.34} <<'PY'
 import socket,sys
-s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2); s.connect(('93.184.216.34',int(sys.argv[1]))); s.send(b'x')
+s=socket.socket(socket.AF_INET6 if ':' in sys.argv[2] else socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2)
+s.connect((sys.argv[2],int(sys.argv[1]))); s.send(b'x')
 try: print('reply from', s.recv(64).decode())
 except ConnectionRefusedError: print('refused')
 except socket.timeout: print('timeout')
@@ -170,6 +185,22 @@ got="$(udp_probe 9999)"
 # The shared regional policy opens direct TCP sockets from the router.
 check "local-region TCP is reachable" in_lan curl -sS --max-time 5 --noproxy '*' http://114.114.114.114:8000/index.html
 grep -q '^192.0.2.2 ' "$WORK/direct.log" && pass "local-region TCP goes direct" || fail "local-region TCP was not direct"
+
+# IPv6 takes the same paths, without NAT
+mark; check "LAN reaches the web server through the proxy over IPv6" fetch "$URL_V6"
+got="$(seen)"
+case "$got" in
+'' | *2001:db8:2::2* | *2001:db8:8::50*) fail "IPv6 request did not go through the proxy (web server saw: '${got}')" ;;
+*) pass "IPv6 request came through cpxy (web server saw: $got)" ;;
+esac
+check "local-region TCP over IPv6 is reachable" in_lan curl -gsS --max-time 5 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
+grep -q '^2001:db8:2::2 ' "$WORK/direct.log" && pass "local-region TCP over IPv6 goes direct from the router" ||
+	fail "local-region TCP over IPv6 was not direct"
+got="$(udp_probe 443 2001:db8:100::34)"
+[ "$got" = refused ] && pass "QUIC over IPv6 gets an immediate ICMPv6 refusal" || fail "IPv6 UDP 443 was not refused (got: $got)"
+got="$(udp_probe 9999 2001:db8:100::34)"
+[ "$got" = "reply from 2001:db8:8::50" ] && pass "other UDP over IPv6 is forwarded directly ($got)" ||
+	fail "IPv6 UDP 9999 was not forwarded directly (got: $got)"
 
 # --- A second network selects a genuinely different upstream server. ---
 bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
@@ -222,6 +253,8 @@ check_not "worker never panicked" grep -m3 panicked "$WORK/tun.log"
 in_router sh -c ". '$NET'; cpxy_net_down_routing"
 [ "$(in_router ip -4 rule show | grep -c 910)" = 0 ] && pass "stop: rules removed" || fail "stop: rules remain"
 [ "$(in_router ip -4 route show table 100 | wc -l)" = 0 ] && pass "stop: table 100 empty" || fail "stop: table 100 not empty"
+[ "$(in_router ip -6 rule show | grep -c 910)" = 0 ] && pass "stop: IPv6 rules removed" || fail "stop: IPv6 rules remain"
+[ "$(in_router ip -6 route show table 100 | wc -l)" = 0 ] && pass "stop: IPv6 table 100 empty" || fail "stop: IPv6 table 100 not empty"
 mark; check "stop: LAN reaches the internet directly again" fetch
 expect_seen "stop: direct again via the WAN" 192.0.2.2
 

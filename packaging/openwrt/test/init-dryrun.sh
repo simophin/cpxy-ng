@@ -128,7 +128,7 @@ grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.
 want 'up cpxy0 100 9100 br-lan'
 want 'up cpxy1 101 9110 br-guest'
 want 'up cpxy2 102 9120 br-iot'
-want 'set command /usr/bin/cpxy-router --tun cpxy1'
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full'
 want 'set env SERVER=https://:guest-key@second.example:443 NO_COLOR=1'
 absent '_dns'
 absent 'cpxy-dns-split'
@@ -153,14 +153,17 @@ absent 'append command --sinkhole'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.dest_port)" = 5345 ] || fail 'DNS redirect port'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.target)" = DNAT ] || fail 'DNS redirect target'
 [ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = REJECT ] || fail 'IPv6 DNS refusal'
+[ "$(uci get firewall.cpxy_inst_iot_dns6f_1.dest)" = '*' ] || fail 'forwarded IPv6 DNS refusal'
 position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewall\.$1=" | cut -d: -f1; }
 [ "$(position cpxy_inst_guest_dns6_1)" -lt "$(position visitors_dns)" ] || fail 'IPv6 DNS refusal after an accept rule'
+[ "$(position cpxy_inst_guest_dns6f_1)" -lt "$(position visitors_dns)" ] || fail 'forwarded IPv6 DNS refusal after an accept rule'
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
 want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy PROXY_ROUTES='
 want 'DNS_SEARCH_DOMAINS=home.arpa,corp.example HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
 want 'set file /tmp/cpxy/tsgw-guest.env'
+grep -qxF 'IPV6=full' /tmp/cpxy/tsgw-guest.env || fail 'tsgw IPv6 mode'
 want 'set file /tmp/cpxy/router-guest.env'
 absent 'TS_HOSTNAME=cpxy-iot'
 [ -d /etc/cpxy/tsgw/guest ] || fail 'tsgw state directory'
@@ -171,28 +174,29 @@ uci add_list cpxy.defaults.proxy_route=223.5.5.5/32
 uci add_list cpxy.defaults.proxy_route=10.20.0.0/16
 uci add_list cpxy.guest.proxy_route=192.0.2.0/24
 uci add_list cpxy.guest.proxy_route=198.51.100.0/24
+uci add_list cpxy.guest.proxy_route=2400:3200::/32
 everything reload_service
 want 'HTTP_PROXY_LISTEN=[::]:5000 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16 NO_COLOR=1'
-want 'HTTP_PROXY_LISTEN=[::]:5001 PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24 NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5001 PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32 NO_COLOR=1'
 want 'HTTP_PROXY_LISTEN=[::]:5002 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16 NO_COLOR=1'
 for route in 223.5.5.5/32 10.20.0.0/16; do
 	[ "$(grep -cF -- "append command --proxy-route $route" "$LOG")" = 2 ] || fail 'default routes not inherited by main and iot'
 done
-for route in 192.0.2.0/24 198.51.100.0/24; do
+for route in 192.0.2.0/24 198.51.100.0/24 2400:3200::/32; do
 	[ "$(grep -cF -- "append command --proxy-route $route" "$LOG")" = 1 ] || fail 'guest routes not isolated to guest'
 done
 grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/client-main.env || fail 'client default routes'
-grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24' /tmp/cpxy/client-guest.env || fail 'client instance routes'
+grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32' /tmp/cpxy/client-guest.env || fail 'client instance routes'
 grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/tsgw-main.env || fail 'tsgw default routes'
-grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24' /tmp/cpxy/tsgw-guest.env || fail 'tsgw instance routes'
+grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32' /tmp/cpxy/tsgw-guest.env || fail 'tsgw instance routes'
 absent 'firewall reload'
 absent 'down '
 absent 'up '
 
 # Invalid route reloads preserve the running services and kernel configuration.
-for route in 10.0.0.0/33 256.0.0.0/8 ::/0 1.2.3.4 example.com/24; do
+for route in 10.0.0.0/33 256.0.0.0/8 1.2.3.4 example.com/24 1::2::3/64 2001:db8::/129 ::1; do
 	uci set cpxy.guest.proxy_route="$route"
-	invalid "invalid IPv4 proxy_route '$route'"
+	invalid "invalid proxy_route '$route'"
 done
 
 # Removing both lists clears the worker arguments and persisted proxy environments.
@@ -202,6 +206,19 @@ everything reload_service
 absent 'append command --proxy-route'
 grep -qxF 'PROXY_ROUTES=' /tmp/cpxy/client-main.env || fail 'client routes not cleared'
 grep -qxF 'PROXY_ROUTES=' /tmp/cpxy/tsgw-guest.env || fail 'tsgw routes not cleared'
+
+# Changing an instance's IPv6 mode sets its routing up again and restarts its worker.
+uci set cpxy.guest.ipv6=direct
+: >"$LOG"
+router reload_service
+want 'up cpxy1 101 9110 br-guest'
+absent 'up cpxy0'
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 direct'
+want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 full'
+uci set cpxy.guest.ipv6=on
+invalid "guest: option 'ipv6' must be off, direct or full"
+uci delete cpxy.guest.ipv6
+router reload_service
 
 # Idempotent reload preserves resource ownership and avoids firewall reloads.
 : >"$LOG"
