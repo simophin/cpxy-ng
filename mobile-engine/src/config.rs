@@ -3,11 +3,15 @@ use client::dns_split::spec::ServerSpec;
 use client::ipv6::Ipv6Mode;
 use client::protocol_config::Config as ServerConfig;
 use serde::Deserialize;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// The address the platform gives the TUN interface (a /30).
 pub const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 1);
 pub const TUN_PREFIX_LEN: u8 = 30;
+/// The IPv6 address the platform gives the TUN interface unless IPv6 is off. Unique-local, so
+/// apps prefer IPv4 where a name has both (RFC 6724).
+pub const TUN_ADDR_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xa, 0xe9, 0, 0, 0, 0, 1);
+pub const TUN_PREFIX_LEN_V6: u8 = 64;
 /// The DNS server the platform hands to the device. It only exists inside the engine.
 pub const DNS_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 2);
 pub const DEFAULT_MTU: u16 = 1500;

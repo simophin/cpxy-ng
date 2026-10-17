@@ -96,12 +96,27 @@ reconnect, and confirm only the enabled proxy accepts connections.
 
 ## Fixed proxy routes
 
-Settings → Routing → Proxy routes edits IPv4 CIDRs, one per line. Matching TCP
+Settings → Routing → Proxy routes edits IPv4 and IPv6 CIDRs, one per line. Matching TCP
 destination IPs use the main proxy even when automatic routing would send them
 direct. Hostname requests from shared HTTP/SOCKS listeners are matched after
 resolution. The list applies to every profile; save and reconnect to apply it.
 Clear the editor and save to remove all fixed routes. Invalid entries cannot be
-saved. IPv6 routes are not supported by the current engine.
+saved.
+
+## IPv6
+
+Each profile chooses its IPv6, since it depends on the server:
+
+- **Full** (the default): IPv6 goes direct or through the server like IPv4. The server must reach
+  IPv6, as it connects to the IPv6 addresses itself.
+- **Direct only**: IPv6 that goes direct (CN and private addresses) is relayed; the rest is
+  refused before the app's connection opens, so the app falls back to IPv4 at once, and DNS gives
+  out only the AAAA records that go direct. For a server without IPv6.
+- **Off**: the VPN interface has no IPv6 address, so apps use IPv4 only.
+
+Unless it is off, the interface gets the unique-local `fd00:a:e9::1`, so apps use IPv6 for names
+without IPv4 and prefer IPv4 otherwise. On a network without IPv6, IPv6 that would go direct is
+refused the same way. The traffic log has no flags for IPv6 addresses.
 
 ## Android TV and keyboard smoke check
 
@@ -140,8 +155,8 @@ also expands single-label queries from VPN traffic and shared HTTP/SOCKS proxy c
 For `printer`, the engine tries `printer.home.arpa`, then `printer.corp.example`, then the bare
 name, stopping at the first successful answer with records. The engine queries names containing
 dots unchanged; Android also applies its own resolver search rules. Expanded names use the
-usual DNS split and cache. AAAA queries still return no records because the
-engine only supports IPv4.
+usual DNS split and cache. AAAA queries are answered according to the profile's
+IPv6 (see [IPv6](#ipv6)).
 
 ### Search-domain emulator smoke check
 

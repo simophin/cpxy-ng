@@ -4,6 +4,7 @@ import dev.fanchao.cpxy.vpn.ui.formatBytes
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -27,7 +28,8 @@ class ProfileTest {
                     "server": "https://:key@example.com",
                     "dns_upstream": ["223.5.5.5", "tcp://119.29.29.29"],
                     "dns_alternative": ["https://dns.google/dns-query?ip=8.8.8.8"],
-                    "mtu": 1500
+                    "mtu": 1500,
+                    "ipv6": "full"
                 }
                 """
             ) as JsonObject,
@@ -58,6 +60,22 @@ class ProfileTest {
         val domains = listOf("home.arpa", "corp.example")
         val config = Json.decodeFromString<EngineConfig>(profile.engineConfigJson(AppSettings(dnsSearchDomains = domains)))
         assertEquals(domains, config.dnsSearchDomains)
+    }
+
+    @Test
+    fun engineConfigIncludesTheIpv6Mode() {
+        for ((mode, name) in listOf(Ipv6Mode.Full to "full", Ipv6Mode.Direct to "direct", Ipv6Mode.Off to "off")) {
+            val json = Json.parseToJsonElement(profile.copy(ipv6 = mode).engineConfigJson()).jsonObject
+            assertEquals(name, json["ipv6"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun profilesSavedBeforeIpv6UseFullIpv6() {
+        val saved = Json.decodeFromString<Profile>(
+            "{\"id\":\"1\",\"name\":\"Home\",\"server\":\"https://:k@h\",\"dnsUpstream\":[],\"dnsAlternative\":[]}",
+        )
+        assertEquals(Ipv6Mode.Full, saved.ipv6)
     }
 
     @Test

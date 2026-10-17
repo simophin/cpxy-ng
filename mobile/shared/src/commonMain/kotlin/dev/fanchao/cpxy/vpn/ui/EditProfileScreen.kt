@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -19,7 +21,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -33,9 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.fanchao.cpxy.vpn.Ipv6Mode
 import dev.fanchao.cpxy.vpn.Profile
 import dev.fanchao.cpxy.vpn.ProfileField
 import dev.fanchao.cpxy.vpn.ProfileRepository
@@ -94,6 +101,7 @@ private fun EditProfileForm(
     var server by remember(initial.id) { mutableStateOf(initial.server) }
     var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
     var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
+    var ipv6 by remember(initial.id) { mutableStateOf(initial.ipv6) }
     var showErrors by remember(initial.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -103,6 +111,7 @@ private fun EditProfileForm(
         server = server.trim(),
         dnsUpstream = parseServerList(dnsUpstream),
         dnsAlternative = parseServerList(dnsAlternative),
+        ipv6 = ipv6,
     )
     val errors = if (showErrors) profile.validationErrors() else emptyMap()
 
@@ -183,6 +192,21 @@ private fun EditProfileForm(
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
             )
+            Text("IPv6", style = MaterialTheme.typography.titleSmall)
+            Column(Modifier.selectableGroup()) {
+                for (mode in Ipv6Mode.entries) {
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth().selectable(
+                            selected = ipv6 == mode,
+                            role = Role.RadioButton,
+                            onClick = { ipv6 = mode },
+                        ),
+                        leadingContent = { RadioButton(selected = ipv6 == mode, onClick = null) },
+                        headlineContent = { Text(mode.title) },
+                        supportingContent = { Text(mode.description) },
+                    )
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(onClick = ::save) {
                     Text("Save")
@@ -191,6 +215,20 @@ private fun EditProfileForm(
         }
     }
 }
+
+private val Ipv6Mode.title: String
+    get() = when (this) {
+        Ipv6Mode.Full -> "Full"
+        Ipv6Mode.Direct -> "Direct only"
+        Ipv6Mode.Off -> "Off"
+    }
+
+private val Ipv6Mode.description: String
+    get() = when (this) {
+        Ipv6Mode.Full -> "IPv6 goes direct or through the server, like IPv4. The server must reach IPv6."
+        Ipv6Mode.Direct -> "Only IPv6 that goes direct, such as to CN sites. For a server without IPv6."
+        Ipv6Mode.Off -> "Apps use IPv4 only."
+    }
 
 @Composable
 private fun Field(

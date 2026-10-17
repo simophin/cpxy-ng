@@ -27,7 +27,9 @@ mod sni;
 mod tun;
 
 pub use client::stats_server::OutboundEvent;
-pub use config::{Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_PREFIX_LEN};
+pub use config::{
+    Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_ADDR_V6, TUN_PREFIX_LEN, TUN_PREFIX_LEN_V6,
+};
 pub use connection_log::{ConnectionPage, ConnectionRecord};
 pub use ffi::{ConnectionEvent, Engine, EngineError, start_engine};
 

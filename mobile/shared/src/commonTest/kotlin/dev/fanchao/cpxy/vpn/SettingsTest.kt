@@ -102,10 +102,20 @@ class SettingsTest {
 
     @Test
     fun routeListRejectsInvalidCidrs() {
-        for (route in listOf("::/0", "1.2.3.4", "256.0.0.0/8", "1.2.3.4/33", "01.2.3.4/24", "name/8")) {
-            assertFailsWith<IllegalArgumentException> { AppSettings(proxyRoutes = listOf(route)) }
+        for (
+            route in listOf(
+                "1.2.3.4", "256.0.0.0/8", "1.2.3.4/33", "01.2.3.4/24", "name/8",
+                "::1", "1::2::3/64", "2001:db8::/129", "12345::/16", ":1::/64", "1:2:3:4:5:6:7/64", "g::/8",
+            )
+        ) {
+            assertFailsWith<IllegalArgumentException>(route) { AppSettings(proxyRoutes = listOf(route)) }
         }
-        AppSettings(proxyRoutes = listOf("0.0.0.0/0", "255.255.255.255/32", "10.0.0.1/24"))
+        AppSettings(
+            proxyRoutes = listOf(
+                "0.0.0.0/0", "255.255.255.255/32", "10.0.0.1/24",
+                "::/0", "2400:3200::/32", "1:2:3:4:5:6:7:8/128", "FD00::1/64", "1::/16",
+            ),
+        )
     }
 
     @Test

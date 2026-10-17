@@ -33,7 +33,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.isDnsSearchDomain
 import dev.fanchao.cpxy.vpn.parseDnsSearchDomains
-import dev.fanchao.cpxy.vpn.isIpv4Cidr
+import dev.fanchao.cpxy.vpn.isProxyRoute
 import dev.fanchao.cpxy.vpn.parseProxyRoutes
 import dev.fanchao.cpxy.vpn.AppFilter
 import dev.fanchao.cpxy.vpn.AppSettings
@@ -306,7 +306,7 @@ private fun ProxyRoutesSetting(routes: List<String>, onSave: (List<String>) -> U
     )
     if (editing) {
         val parsed = parseProxyRoutes(text)
-        val invalid = parsed.firstOrNull { !isIpv4Cidr(it) }
+        val invalid = parsed.firstOrNull { !isProxyRoute(it) }
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text("Proxy routes") },
@@ -314,13 +314,13 @@ private fun ProxyRoutesSetting(routes: List<String>, onSave: (List<String>) -> U
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("IPv4 CIDRs, one per line") },
-                    placeholder = { Text("203.0.113.0/24\n223.5.5.5/32") },
+                    label = { Text("CIDRs, one per line") },
+                    placeholder = { Text("203.0.113.0/24\n223.5.5.5/32\n2001:db8::/32") },
                     minLines = 5,
                     maxLines = 10,
                     isError = invalid != null,
                     supportingText = {
-                        Text(if (invalid != null) "Invalid IPv4 CIDR: $invalid" else
+                        Text(if (invalid != null) "Invalid CIDR: $invalid" else
                             "Matching destination IPs, including resolved names, always use the main proxy. " +
                             "Changes apply the next time the VPN connects. Clear the list to remove fixed routes.")
                     },

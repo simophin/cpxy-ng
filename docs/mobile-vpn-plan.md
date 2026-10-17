@@ -14,11 +14,14 @@ on the router (see [packaging/openwrt/README.md](../packaging/openwrt/README.md)
    servers' answer.
    Servers given with `?via=cpxy`, a new profile's alternative servers among them, are asked through
    the cpxy server.
-2. **Traffic split.** TCP to CN (and private) IPv4 addresses goes direct; everything else goes
+2. **Traffic split.** TCP to CN (and private) addresses goes direct; everything else goes
    through the cpxy server.
 3. **UDP.** UDP 443 (QUIC) is refused so browsers fall back to TCP through the proxy. All other UDP
    goes direct.
-4. IPv6 is refused, so apps fall back to IPv4 (the GeoIP data is IPv4 only).
+4. **IPv6**, chosen per profile, since it depends on the server: `full` handles it like IPv4;
+   `direct` relays only what goes direct and refuses the rest, for a server without IPv6; `off`
+   refuses it all, so apps fall back to IPv4. AAAA answers follow the same choice, and with
+   `full` a name whose IPv4 is in CN gets no IPv6 addresses outside it, so it still goes direct.
 
 Decisions already made:
 
@@ -41,7 +44,7 @@ Decisions already made:
 | `client::outbound` (`IPDivertOutbound`, `DirectOutbound`, `ProtocolOutbound`, `StatReportingOutbound`) | Reused. Compose them like `cn_outbound` but without the AI/Tailscale branches: private, loopback, link-local or CN → direct, else proxy. |
 | tun2proxy (TUN → SOCKS5) | Replaced by `ipstack`: each TCP flow from the TUN goes straight into the `Outbound`. |
 | Firewall rejects UDP 443; other UDP leaves via WAN | Done in the engine: UDP 443 is answered with ICMP port unreachable, other UDP is relayed through direct sockets. |
-| IPv6 refused | Route `::/0` into the TUN; the engine answers with ICMPv6 administratively prohibited. On Android the TUN has no IPv6 address, so apps do not try IPv6 at all and the route only keeps it off the underlying network. |
+| IPv6 | Route `::/0` into the TUN either way. Unless the profile's IPv6 is off, the TUN gets the unique-local `fd00:a:e9::1/64`, so apps use IPv6 where a name has no IPv4 and prefer IPv4 otherwise (RFC 6724). What the engine refuses gets ICMPv6 administratively prohibited before the connection is accepted, as does direct TCP when the underlying network has no IPv6. Off, the TUN has no IPv6 address, so apps do not try IPv6 at all. |
 | Fail closed when the proxy dies | The TUN stays up while the engine runs; a proxy failure fails the connection, never sends it direct. |
 
 ### Avoiding routing loops
@@ -78,7 +81,7 @@ tunnel.
   with the `dns-split` feature and on `ipstack`.
 - `crate-type = ["cdylib", "staticlib", "rlib"]`: `.so` for Android, xcframework for iOS.
 - Refusals are decided per packet in `filter.rs`, in front of ipstack, which cannot write raw
-  packets back. UDP 443 and TCP 853 get ICMP port unreachable. IPv6 gets ICMPv6
+  packets back. UDP 443 and TCP 853 get ICMP port unreachable. Refused IPv6 gets ICMPv6
   *administratively prohibited*, not *no route*: Linux UDP sockets ignore the soft no-route error
   unless they ask for ICMP errors, so UDP apps would wait for a timeout. ICMP, multicast and
   broadcast are dropped silently.
@@ -153,7 +156,7 @@ tunnel.
 ### Phase 0: engine, tested on Linux (done)
 
 - `mobile-engine` crate: ipstack loop, TCP → outbound, DNS hook, UDP 443 drop, UDP relay, IPv6
-  reject.
+  by mode.
 - Unit tests for the routing decisions.
 - A Linux integration test: open a real TUN in a network namespace, run the engine against a local
   `server` binary, and check CN-direct, proxied TCP, DNS split, QUIC refusal and direct UDP. Model it
@@ -169,7 +172,8 @@ mkdir -p bins && cp target/release/server bins/cpxy-server && cp target/release/
 mobile-engine/test/tun-lab.sh bins
 ```
 
-Besides the checks above it covers DNS over TCP, TCP 853 and IPv6 refusals, 16 parallel 4 MB
+Besides the checks above it covers DNS over TCP, TCP 853 refusals, IPv6 routing, DNS and refusals in
+the `full` and `direct` modes, 16 parallel 4 MB
 downloads, fail-closed when the server dies, and a clean stop. It runs in CI on pull requests, main and releases (Phase 2).
 
 ### Phase 1: Android MVP (done)
