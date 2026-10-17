@@ -218,8 +218,8 @@ gateway/build.sh test                             # the Go tests, linked to the 
 
 `Dockerfile.tsgw` builds the same static binary inside the `cargo-zigbuild` image, with Go added,
 into an image from `scratch` that declares every setting and its default;
-`.github/workflows/docker-publish-tsgw.yml` publishes it from `main`. CI also publishes the bare
-binaries to the [download server](downloads.md).
+CI (`.github/workflows/ci.yml`) publishes it from `main`, and also publishes the bare binaries to the
+[download server](downloads.md).
 
 `gateway/internal/e2e` tests a built binary on a real tailnet: it creates ephemeral auth keys with
 the Tailscale API, runs cpxy-tsgw, approves its exit node, joins a client that uses it, checks that

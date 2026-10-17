@@ -1,6 +1,7 @@
-# Deployed by .github/workflows/download-worker.yml, which fills in the bucket from the repository
-# variable R2_BUCKET. Served at https://cpxy-download.<account subdomain>.workers.dev, which is the
-# DOWNLOAD_URL repository variable.
+# Deployed by the deploy_download_worker job in .github/workflows/ci.yml, which fills in the bucket
+# from the repository variable R2_BUCKET. Served at
+# https://cpxy-download.<account subdomain>.workers.dev, which is the DOWNLOAD_URL repository
+# variable.
 name = "cpxy-download"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
