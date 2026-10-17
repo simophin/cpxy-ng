@@ -1,6 +1,6 @@
 # cpxy on OpenWrt / GL.iNet: packaging
 
-One package, `cpxy`, built from this repository without the OpenWrt SDK. How to install and
+One package, `cpxy`, in opkg `.ipk` and native OpenWrt apk v3 formats, built without the OpenWrt SDK. How to install and
 configure it is in the [user guide](../../docs/openwrt.md); this page covers what it contains,
 what it changes on the router and how it is built and tested.
 
@@ -72,6 +72,40 @@ CI builds the package for `aarch64_cortex-a53` (GL-MT3000) and `x86_64` on `main
 and on demand (`gh workflow run ci.yml --ref <branch>`); pull requests run the packaging tests
 with stand-in binaries. Builds of `main` and tags are published as signed opkg feeds
 (`make-feed.sh`, tested by `test/feed.sh`); see [docs/downloads.md](../../docs/downloads.md).
+
+### Native apk v3 (OpenWrt 25.12+)
+
+`build-apk.sh` takes the same four binaries as the ipk builder. With apk-tools 3 and
+OpenSSL on PATH (and `fakeroot` when not running as root):
+
+```sh
+packaging/openwrt/build-apk.sh aarch64 1.17.0-r10 bins out
+APK_TOOL=/path/to/apk python3 packaging/openwrt/test/apk-package.py
+packaging/openwrt/test/apk-roundtrip.sh
+```
+
+Use `aarch64` or `x86_64`, matching the router's `apk --print-arch`. `APK_TOOL` selects
+the host apk executable; `CPXY_APK_SIGN_KEY` optionally signs the package. The default
+package is unsigned and is verified with the release's SHA256SUMS before local installation.
+CI runs the builder in Alpine 3.23 as root and publishes it separately under
+`openwrt-apk/<apk arch>/cpxy.apk`. The existing opkg feed remains under `openwrt/`.
+
+The native package includes OpenWrt's `/lib/apk/packages/cpxy.list`, `.conffiles` and
+`.conffiles_static`. Its hooks call OpenWrt's `default_postinst` / `default_prerm` with
+`pkgname=cpxy`, using `PKG_UPGRADE=1` for upgrades so disabled services remain disabled.
+The apk adds no repository, opkg key, or apk trust key. It declares `ip-full`, `kmod-tun`
+and a conflict with the legacy `cpxy-router` package. Use a local `apk add` with networking
+disabled when the dependencies are already present.
+
+`apk-package.py` uses temporary roots and stand-in binaries to check metadata, root
+ownership, config permissions/preservation, offline installation, revision ordering and
+removal with apk-tools itself. `apk-roundtrip.sh` separately runs the hooks in an OpenWrt
+25.12 container, including preservation of disabled services and unrelated network/DHCP/
+firewall configuration. It needs Docker or Podman. Neither test verifies live procd/fw4
+or traffic on physical hardware.
+
+The builder follows [apk-tools' mkpkg format](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/doc/apk-mkpkg.8.scd)
+and [OpenWrt's native package metadata/hooks](https://github.com/openwrt/openwrt/blob/main/include/package-pack.mk).
 
 `lab.sh` needs `cpxy-router` and `cpxy-server` for the host, plus `iproute2`, `nft`, `curl` and
 `python3`; the container tests need podman or docker. None of them runs the real fw3/fw4, procd or

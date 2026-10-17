@@ -274,9 +274,11 @@ jobs:
           # GL-MT3000 (mediatek/filogic); confirm with `opkg print-architecture` on the router
           - rust: aarch64-unknown-linux-musl
             opkg_arch: aarch64_cortex-a53
+            apk_arch: aarch64
           # OpenWrt x86 images, for testing in a VM
           - rust: x86_64-unknown-linux-musl
             opkg_arch: x86_64
+            apk_arch: x86_64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -320,6 +322,10 @@ jobs:
           cp executables/cpxy-dns-split executables/cpxy-client executables/cpxy-tsgw bins/
           cp target/${{ matrix.target.rust }}/release/cpxy-router bins/cpxy-router
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
+          docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
+            apk add --no-cache openssl
+            packaging/openwrt/build-apk.sh "$1" "$2" bins openwrt-package
+          ' sh '${{ matrix.target.apk_arch }}' '${{ needs.version.outputs.ipk_version }}'
           ls -l openwrt-package bins
 
       - name: Test install and removal on OpenWrt 24.10
@@ -429,10 +435,18 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends shellcheck
           # OpenWrt's ash has `local`
-          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/make-feed.sh \
+          shellcheck -s sh -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/build-apk.sh packaging/openwrt/make-feed.sh \
             packaging/openwrt/test/*.sh packaging/common/net.sh packaging/openwrt/files/usr/libexec/cpxy/*.sh \
             packaging/openwrt/files/usr/bin/cpxy-show packaging/openwrt/files/etc/init.d/* \
-            packaging/openwrt/control/postinst packaging/openwrt/control/prerm packaging/openwrt/control/postrm
+            packaging/openwrt/control/postinst packaging/openwrt/control/prerm packaging/openwrt/control/postrm packaging/openwrt/apk/*
+      - name: Test native apk metadata and offline package lifecycle
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
+            apk add --no-cache python3 openssl
+            python3 packaging/openwrt/test/apk-package.py
+          '
+      - name: Test native apk hooks on OpenWrt 25.12
+        run: packaging/openwrt/test/apk-roundtrip.sh
       - name: Build package from stand-in binaries and test install and removal
         run: |
           mkdir bins
@@ -519,6 +533,7 @@ jobs:
   # per version:
   #   <version>/android/cpxy-vpn.apk
   #   <version>/openwrt/<opkg arch>/{cpxy.ipk,Packages,Packages.gz,Packages.sig}
+  #   <version>/openwrt-apk/<apk arch>/cpxy.apk
   #   <version>/raw/<rust target>/cpxy-*
   #   <version>/SHA256SUMS
   # Needs the R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and OPKG_FEED_KEY secrets, and the
@@ -571,6 +586,9 @@ jobs:
             mkdir -p "$out/openwrt/$arch"
             cp "$dir"/*.ipk "$out/openwrt/$arch/cpxy.ipk"
             packaging/openwrt/make-feed.sh "$out/openwrt/$arch" "$key"
+            case "$arch" in aarch64_cortex-a53) apk_arch=aarch64 ;; x86_64) apk_arch=x86_64 ;; *) exit 1 ;; esac
+            mkdir -p "$out/openwrt-apk/$apk_arch"
+            cp "$dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy.apk"
           done
           rm "$key"
           (cd "$out" && find . -type f | sed 's|^\./||' | sort | xargs sha256sum >SHA256SUMS)

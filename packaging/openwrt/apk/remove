@@ -1,0 +1,11 @@
+#!/bin/sh
+[ -s "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
+. "${IPKG_INSTROOT}/lib/functions.sh"
+export pkgname=cpxy
+# On upgrade stop workers but keep enablement. On removal also disable them.
+default_prerm
+if [ -z "$IPKG_INSTROOT" ] && [ "$PKG_UPGRADE" != 1 ]; then
+	. /usr/libexec/cpxy/firewall.sh
+	cpxy_firewall_clear
+	uci commit firewall
+fi

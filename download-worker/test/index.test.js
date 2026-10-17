@@ -146,6 +146,7 @@ test('a version page lists every file under its section, with its checksum', asy
     'android/cpxy-vpn.apk',
     'openwrt/x86_64/cpxy.ipk',
     'openwrt/x86_64/Packages',
+    'openwrt-apk/aarch64/cpxy.apk',
     'raw/x86_64-pc-windows-msvc/cpxy-client.exe',
     'raw/x86_64-unknown-linux-musl/cpxy-client',
     'raw/x86_64-unknown-linux-musl/cpxy-tsgw',
@@ -165,6 +166,8 @@ test('a version page lists every file under its section, with its checksum', asy
   assert.match(html, />Windows x64</);
   assert.match(html, />Linux x86-64</);
   assert.match(html, /Package, x86-64/);
+  assert.match(html, /Native apk, ARM64/);
+  assert.ok(html.indexOf('openwrt-apk/aarch64/cpxy.apk') < html.indexOf('id="cpxy-client"'));
   assert.ok(html.includes('0'.repeat(63) + '1'), 'checksum of the second file');
   assert.match(html, /2\.0 KB/);
 });
