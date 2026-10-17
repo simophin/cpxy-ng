@@ -51,7 +51,6 @@ trap 'rm -rf "$work"' EXIT
     [ ! -e /usr/bin/$service ]
     for link in /etc/rc.d/*$service; do [ ! -e "$link" ]; done
   done
-  [ ! -e ]
   [ ! -e /lib/apk/packages/cpxy.list ]
   [ -f /etc/config/cpxy ]
   snapshot >/tmp/system.after
