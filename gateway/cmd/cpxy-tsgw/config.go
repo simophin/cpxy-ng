@@ -19,6 +19,8 @@ const (
 	defaultDNSUpstream = "223.5.5.5"
 	// Asked through the cpxy server, so neither poisoned nor blocked
 	defaultDNSAlternative = "tcp://1.1.1.1?via=cpxy"
+	// Proxied IPv6 needs a cpxy server that reaches IPv6; "direct" relays only what goes direct.
+	defaultIPv6 = "full"
 )
 
 // settings are read from KEY=value pairs: the environment (systemd's EnvironmentFile), over an
@@ -79,6 +81,7 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 			DNSUpstream:      splitList(get("DNS_UPSTREAM", defaultDNSUpstream)),
 			DNSAlternative:   splitList(get("DNS_ALTERNATIVE", defaultDNSAlternative)),
 			DNSSearchDomains: splitList(get("DNS_SEARCH_DOMAINS", "")),
+			IPv6:             get("IPV6", defaultIPv6),
 		},
 		// Not HOSTNAME, which shells and containers set to the machine's name.
 		hostname: get("TS_HOSTNAME", defaultHostname),
@@ -90,10 +93,14 @@ func loadSettings(file map[string]string, lookup func(string) (string, bool)) (s
 		return s, errors.New("SERVER is required: the cpxy server URL with its key")
 	}
 	for _, route := range s.engine.ProxyRoutes {
-		prefix, err := netip.ParsePrefix(route)
-		if err != nil || !prefix.Addr().Is4() {
-			return s, fmt.Errorf("invalid IPv4 proxy route CIDR: %s", route)
+		if _, err := netip.ParsePrefix(route); err != nil {
+			return s, fmt.Errorf("invalid proxy route CIDR: %s", route)
 		}
+	}
+	switch s.engine.IPv6 {
+	case "off", "direct", "full":
+	default:
+		return s, fmt.Errorf("invalid IPV6 %q: expected off, direct or full", s.engine.IPv6)
 	}
 	mtu, err := strconv.Atoi(get("MTU", strconv.Itoa(defaultMTU)))
 	if err != nil {

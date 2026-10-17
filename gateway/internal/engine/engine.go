@@ -28,6 +28,8 @@ type Config struct {
 	DNSAlternative   []string `json:"dns_alternative"`
 	DNSSearchDomains []string `json:"dns_search_domains,omitempty"`
 	MTU              int      `json:"mtu"`
+	// IPv6 is which IPv6 to relay: off, direct or full (the engine's default when empty).
+	IPv6 string `json:"ipv6,omitempty"`
 }
 
 // maxDNSMessage fits any DNS message.
