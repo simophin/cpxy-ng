@@ -104,16 +104,13 @@ impl<O: Outbound + Send + Sync + 'static> Dialer for OutboundDialer<O> {
         let outbound = self.0.clone();
         Box::pin(async move {
             let (host, port) = match destination {
-                Destination::Addr(SocketAddr::V4(addr)) => (
+                Destination::Addr(addr) => (
                     OutboundHost::Resolved {
                         domain: addr.ip().to_string(),
-                        ip: Some(*addr.ip()),
+                        ip: Some(addr.ip()),
                     },
                     addr.port(),
                 ),
-                Destination::Addr(addr) => {
-                    (OutboundHost::Domain(addr.ip().to_string()), addr.port())
-                }
                 Destination::Name { host, port } => (OutboundHost::Domain(host), port),
             };
             let stream = outbound
@@ -381,7 +378,7 @@ mod tests {
     /// `server` instead.
     struct FakeCpxy {
         server: SocketAddr,
-        requests: std::sync::Mutex<Vec<(String, Option<Ipv4Addr>, u16)>>,
+        requests: std::sync::Mutex<Vec<(String, Option<std::net::IpAddr>, u16)>>,
     }
 
     impl Outbound for FakeCpxy {
@@ -438,7 +435,11 @@ mod tests {
         );
         assert_eq!(
             *cpxy.requests.lock().unwrap(),
-            vec![("1.1.1.1".to_string(), Some(Ipv4Addr::new(1, 1, 1, 1)), 53)]
+            vec![(
+                "1.1.1.1".to_string(),
+                Some(Ipv4Addr::new(1, 1, 1, 1).into()),
+                53
+            )]
         );
     }
 

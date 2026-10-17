@@ -87,8 +87,14 @@ class CpxyVpnService : VpnService() {
                 .addDnsServer(TunParameters.DNS_SERVER)
                 .apply { settings.dnsSearchDomains.forEach { addSearchDomain(it) } }
                 .addRoute("0.0.0.0", 0)
-                // No IPv6 address, so apps do not use IPv6; the route keeps it off the
-                // underlying network.
+                // Without an IPv6 address apps do not use IPv6; the route keeps it off the
+                // underlying network either way. On a network without IPv6, the engine refuses
+                // what would go direct, so apps fall back to IPv4.
+                .apply {
+                    if (profile.ipv6 != Ipv6Mode.Off) {
+                        addAddress(TunParameters.ADDRESS_V6, TunParameters.PREFIX_LENGTH_V6)
+                    }
+                }
                 .addRoute("::", 0)
                 .route(settings.routing(ownPackage = packageName))
                 .setConfigureIntent(mainActivityIntent())

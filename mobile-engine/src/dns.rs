@@ -11,6 +11,7 @@ use client::dns_split::spec::ServerSpec;
 use client::dns_split::upstream::{
     Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
 };
+use client::ipv6::Ipv6Mode;
 use client::outbound::ProtocolOutbound;
 use client::protocol_config::Config as ServerConfig;
 use futures::StreamExt;
@@ -43,6 +44,7 @@ pub struct Specs<'a> {
     /// [`DnsSplitHandler::with_local`].
     pub local: Option<(&'a ServerSpec, &'a [Name])>,
     pub cache: bool,
+    pub ipv6: Ipv6Mode,
 }
 
 /// Servers given with `?via=cpxy` are reached through `server`, without the routing that
@@ -82,7 +84,8 @@ pub async fn handler(specs: &Specs<'_>, server: &ServerConfig) -> anyhow::Result
         Racer::new(servers, QUERY_TIMEOUT, is_local_region_ip),
         cache,
     )
-    .with_search_domains(specs.search_domains.to_vec());
+    .with_search_domains(specs.search_domains.to_vec())
+    .with_ipv6(specs.ipv6);
     if let Some((spec, domains)) = specs.local {
         let server = new_upstream(spec)
             .await

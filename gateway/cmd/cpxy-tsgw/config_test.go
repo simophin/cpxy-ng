@@ -52,7 +52,7 @@ func TestEnvironmentOverridesTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.engine.Server != "http://:a@1.2.3.4" || s.stateDir != "/var/lib/cpxy-tsgw" || s.engine.MTU != defaultMTU {
+	if s.engine.Server != "http://:a@1.2.3.4" || s.stateDir != "/var/lib/cpxy-tsgw" || s.engine.MTU != defaultMTU || s.engine.IPv6 != "full" {
 		t.Fatalf("unexpected settings %+v", s)
 	}
 }
@@ -75,6 +75,7 @@ func TestRejectsBadSettings(t *testing.T) {
 		"no server": {},
 		"bad MTU":   {"SERVER": "http://:k@h", "MTU": "big"},
 		"bad port":  {"SERVER": "http://:k@h", "TS_PORT": "70000"},
+		"bad IPv6":  {"SERVER": "http://:k@h", "IPV6": "on"},
 	} {
 		if _, err := loadSettings(file, noEnv); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -82,12 +83,21 @@ func TestRejectsBadSettings(t *testing.T) {
 	}
 }
 
+func TestIPv6Mode(t *testing.T) {
+	for _, mode := range []string{"off", "direct", "full"} {
+		s, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "IPV6": mode}, noEnv)
+		if err != nil || s.engine.IPv6 != mode {
+			t.Errorf("IPV6=%s: %v %+v", mode, err, s.engine)
+		}
+	}
+}
+
 func TestProxyRoutes(t *testing.T) {
-	s, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "PROXY_ROUTES": "223.5.5.5/32, 10.0.0.0/8"}, noEnv)
-	if err != nil || !reflect.DeepEqual(s.engine.ProxyRoutes, []string{"223.5.5.5/32", "10.0.0.0/8"}) {
+	s, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "PROXY_ROUTES": "223.5.5.5/32, 10.0.0.0/8, 2400:3200::/32"}, noEnv)
+	if err != nil || !reflect.DeepEqual(s.engine.ProxyRoutes, []string{"223.5.5.5/32", "10.0.0.0/8", "2400:3200::/32"}) {
 		t.Fatalf("proxy routes: %v %+v", err, s.engine.ProxyRoutes)
 	}
-	for _, route := range []string{"::/0", "10.0.0.0/33", "example.com/24", "1.2.3.4"} {
+	for _, route := range []string{"10.0.0.0/33", "::/129", "example.com/24", "1.2.3.4"} {
 		if _, err := loadSettings(map[string]string{"SERVER": "http://:k@h", "PROXY_ROUTES": route}, noEnv); err == nil {
 			t.Errorf("accepted invalid route %q", route)
 		}

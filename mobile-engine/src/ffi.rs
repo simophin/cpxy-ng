@@ -168,7 +168,7 @@ mod tests {
     fn converts_outbound_events() {
         let event: ConnectionEvent = OutboundEvent::Error {
             host: "one.one.one.one".into(),
-            ip: Some(Ipv4Addr::new(1, 0, 0, 1)),
+            ip: Some(Ipv4Addr::new(1, 0, 0, 1).into()),
             port: 443,
             outbound: Cow::Borrowed("proxy"),
             delay_mills: 12,

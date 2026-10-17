@@ -36,7 +36,7 @@ data class AppSettings(
     val httpProxyPort: Int = 8080,
     val socksProxyEnabled: Boolean = false,
     val socksProxyPort: Int = 1080,
-    /** IPv4 CIDRs forced through the main proxy for every profile. */
+    /** IPv4 and IPv6 CIDRs forced through the main proxy for every profile. */
     val proxyRoutes: List<String> = emptyList(),
     /** Ordered search suffixes for all profiles. */
     val dnsSearchDomains: List<String> = emptyList(),
@@ -47,7 +47,7 @@ data class AppSettings(
 ) {
     init {
         require(dnsSearchDomains.all(::isDnsSearchDomain)) { "Search domains must be DNS hostname suffixes" }
-        require(proxyRoutes.all(::isIpv4Cidr)) { "Routes must be IPv4 CIDRs, such as 203.0.113.0/24" }
+        require(proxyRoutes.all(::isProxyRoute)) { "Routes must be CIDRs, such as 203.0.113.0/24 or 2001:db8::/32" }
         require(httpProxyPort in 1..65535 && socksProxyPort in 1..65535) { "Ports must be between 1 and 65535" }
         require(!httpProxyEnabled || !socksProxyEnabled || httpProxyPort != socksProxyPort) { "HTTP and SOCKS ports must be different" }
     }
@@ -126,6 +126,24 @@ fun isIpv4Cidr(value: String): Boolean {
             (it.length == 1 || it[0] != '0') && it.toIntOrNull() in 0..255
     }
 }
+
+/** Validate literal IPv6 CIDRs, such as 2001:db8::/32, without performing DNS lookups. */
+fun isIpv6Cidr(value: String): Boolean {
+    val parts = value.split('/')
+    if (parts.size != 2) return false
+    val prefix = parts[1]
+    if (prefix.isEmpty() || prefix.any { it !in '0'..'9' } || prefix.toIntOrNull() !in 0..128) return false
+    // At most one "::", standing for one or more zero groups
+    val halves = parts[0].split("::")
+    if (halves.size > 2) return false
+    val groups = halves.flatMap { if (it.isEmpty()) emptyList() else it.split(':') }
+    val hex = { char: Char -> char in '0'..'9' || char in 'a'..'f' || char in 'A'..'F' }
+    if (groups.any { it.isEmpty() || it.length > 4 || !it.all(hex) }) return false
+    return if (halves.size == 2) groups.size <= 7 else groups.size == 8
+}
+
+/** A proxy route: an IPv4 or IPv6 CIDR. */
+fun isProxyRoute(value: String): Boolean = isIpv4Cidr(value) || isIpv6Cidr(value)
 
 /** One CIDR per line; blank lines are ignored and duplicates are removed. */
 fun parseProxyRoutes(text: String): List<String> =

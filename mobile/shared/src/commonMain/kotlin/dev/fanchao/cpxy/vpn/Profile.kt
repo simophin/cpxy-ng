@@ -15,7 +15,25 @@ data class Profile(
     val dnsUpstream: List<String>,
     /** DNS servers whose answer is used otherwise. */
     val dnsAlternative: List<String>,
+    /** Which IPv6 to relay, depending on whether [server] reaches IPv6. */
+    val ipv6: Ipv6Mode = Ipv6Mode.Full,
 )
+
+/** Which IPv6 the engine relays, mirroring `client/src/ipv6.rs`. */
+@Serializable
+enum class Ipv6Mode {
+    /** Like IPv4, direct or through the server, which must reach IPv6. */
+    @SerialName("full")
+    Full,
+
+    /** Only what goes direct, for a server without IPv6. */
+    @SerialName("direct")
+    Direct,
+
+    /** None: apps use IPv4. */
+    @SerialName("off")
+    Off,
+}
 
 /**
  * The engine configuration, mirroring `mobile-engine/src/config.rs`. The engine rejects unknown
@@ -31,12 +49,17 @@ data class EngineConfig(
     val mtu: Int? = null,
     @SerialName("http_proxy_port") val httpProxyPort: Int? = null,
     @SerialName("socks_proxy_port") val socksProxyPort: Int? = null,
+    val ipv6: Ipv6Mode,
 )
 
 /** The TUN parameters the platform sets up, mirroring `mobile-engine/src/config.rs`. */
 object TunParameters {
     const val ADDRESS = "10.233.0.1"
     const val PREFIX_LENGTH = 30
+
+    /** Given unless IPv6 is off. Unique-local, so apps prefer IPv4 where a name has both. */
+    const val ADDRESS_V6 = "fd00:a:e9::1"
+    const val PREFIX_LENGTH_V6 = 64
 
     /** Only exists inside the engine, which answers it with the DNS split. */
     const val DNS_SERVER = "10.233.0.2"
@@ -55,6 +78,7 @@ fun Profile.engineConfigJson(settings: AppSettings = AppSettings()): String = en
         mtu = TunParameters.MTU,
         httpProxyPort = settings.httpProxyPort.takeIf { settings.httpProxyEnabled },
         socksProxyPort = settings.socksProxyPort.takeIf { settings.socksProxyEnabled },
+        ipv6 = ipv6,
     )
 )
 

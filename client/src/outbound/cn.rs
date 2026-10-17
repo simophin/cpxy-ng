@@ -1,19 +1,19 @@
 use crate::outbound::{
     DirectOutbound, IPDivertOutbound, ProtocolOutbound, ProxyRoutes, ResolvingIPOutbound,
-    SiteDivertOutbound, StatReportingOutbound,
+    SiteDivertOutbound, StatReportingOutbound, is_private,
 };
 use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
-use cpxy_ng::geoip::contains_v4;
+use cpxy_ng::geoip::{contains_v4, contains_v6};
 use cpxy_ng::outbound::Outbound;
-use geoip_data::CN;
+use geoip_data::{CN, CN6};
 use hickory_resolver::Resolver;
 use hickory_resolver::config::{NameServerConfig, ResolverConfig};
 use hickory_resolver::name_server::TokioConnectionProvider;
 use hickory_resolver::proto::xfer::Protocol;
-use ipnet::Ipv4Net;
+use ipnet::{Ipv4Net, Ipv6Net};
 use std::borrow::Cow;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -84,15 +84,18 @@ pub fn cn_outbound(
 }
 
 const TAILSCALE_NETWORK: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(100, 0, 0, 0), 8);
+const TAILSCALE_NETWORK_V6: Ipv6Net =
+    Ipv6Net::new_assert(Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 0), 48);
 
-fn ip_should_route_direct(ip: Option<Ipv4Addr>) -> bool {
+fn ip_should_route_direct(ip: Option<IpAddr>) -> bool {
     match ip {
         Some(ip) => {
-            ip.is_private()
-                || ip.is_loopback()
-                || ip.is_link_local()
-                || TAILSCALE_NETWORK.contains(&ip)
-                || contains_v4(&ip, CN)
+            is_private(ip)
+                || ip_should_route_tailscale(Some(ip))
+                || match ip {
+                    IpAddr::V4(ip) => contains_v4(&ip, CN),
+                    IpAddr::V6(ip) => contains_v6(&ip, CN6),
+                }
         }
         _ => true,
     }
@@ -102,9 +105,10 @@ fn site_should_route_ai(domain: &str) -> bool {
     domain.contains("openai.com") || domain.contains("gemini") || domain.contains("anthropic")
 }
 
-fn ip_should_route_tailscale(ip: Option<Ipv4Addr>) -> bool {
+fn ip_should_route_tailscale(ip: Option<IpAddr>) -> bool {
     match ip {
-        Some(ip) => TAILSCALE_NETWORK.contains(&ip),
+        Some(IpAddr::V4(ip)) => TAILSCALE_NETWORK.contains(&ip),
+        Some(IpAddr::V6(ip)) => TAILSCALE_NETWORK_V6.contains(&ip),
         _ => false,
     }
 }

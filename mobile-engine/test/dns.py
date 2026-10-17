@@ -1,7 +1,8 @@
 """Minimal DNS server and client for tun-lab.sh, using only the standard library.
 
-  dns.py serve <ip> <delay ms> <name>=<ipv4>...   answer A queries for these names, NXDOMAIN otherwise
-  dns.py query <server> <name> [udp|tcp] [A|AAAA] print the rcode and the A records of the answer
+  dns.py serve <ip> <delay ms> <name>=<ip>...     answer A and AAAA queries for these names with
+                                                  their IPv4 and IPv6 addresses, NXDOMAIN otherwise
+  dns.py query <server> <name> [udp|tcp] [A|AAAA] print the rcode and the addresses of the answer
 """
 import socket
 import struct
@@ -27,11 +28,13 @@ def answer(query, records):
     name, qtype, end = parse_question(query)
     ips = records.get(name)
     rcode = 3 if ips is None else 0
-    answers = b""
-    if ips and qtype == TYPES["A"]:
-        for ip in ips:
-            answers += struct.pack("!HHHIH", 0xC00C, 1, 1, 60, 4) + socket.inet_aton(ip)
-    count = len(answers) // 16
+    family = {TYPES["A"]: socket.AF_INET, TYPES["AAAA"]: socket.AF_INET6}.get(qtype)
+    answers, count = b"", 0
+    for ip in ips or []:
+        if family and (":" in ip) == (family == socket.AF_INET6):
+            rdata = socket.inet_pton(family, ip)
+            answers += struct.pack("!HHHIH", 0xC00C, qtype, 1, 60, len(rdata)) + rdata
+            count += 1
     header = struct.pack("!HHHHHH", struct.unpack("!H", query[:2])[0], 0x8180 | rcode, 1, count, 0, 0)
     return header + query[12:end] + answers
 
@@ -102,8 +105,9 @@ def query(server, name, transport="udp", qtype="A"):
         pos += 2 if reply[pos] & 0xC0 else reply.index(0, pos) - pos + 1
         rtype, _, _, rdlen = struct.unpack("!HHIH", reply[pos : pos + 10])
         pos += 10
-        if rtype == 1:
-            ips.append(socket.inet_ntoa(reply[pos : pos + rdlen]))
+        if rtype in (1, 28):
+            family = socket.AF_INET if rtype == 1 else socket.AF_INET6
+            ips.append(socket.inet_ntop(family, reply[pos : pos + rdlen]))
         pos += rdlen
     print(RCODES.get(rcode, rcode), *ips)
 

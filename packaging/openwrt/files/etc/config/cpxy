@@ -8,8 +8,13 @@
 config defaults 'defaults'
 	# REQUIRED, here or in each instance: https://:<key>@<host>:<port> (or http://)
 	option server ''
-	# Force matching IPv4 TCP destinations through the proxy (repeatable).
+	# Force matching TCP destinations through the proxy (repeatable, IPv4 or IPv6).
 	# list proxy_route '223.5.5.5/32'
+
+	# IPv6 from the networks and Tailscale clients: 'full' routes it like IPv4, which needs a
+	# server that reaches IPv6; 'direct' only what goes direct (local-region and private
+	# addresses), for a server that does not; 'off' refuses it, so clients use IPv4.
+	option ipv6 'full'
 
 	# The components every instance runs (1) or not (0)
 	option client '1'

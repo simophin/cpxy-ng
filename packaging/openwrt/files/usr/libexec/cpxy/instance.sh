@@ -72,6 +72,25 @@ _cpxy_ipv4_cidr() {
 		}'
 }
 
+_cpxy_ipv6_cidr() {
+	printf '%s\n' "$1" | awk -F / '
+		NF != 2 || $2 !~ /^[0-9]+$/ || $2 > 128 || (length($2) > 1 && substr($2, 1, 1) == "0") { exit 1 }
+		{
+			addr = $1
+			if (addr !~ /^[0-9A-Fa-f:]+$/ || addr ~ /:::/ || addr ~ /^:[^:]/ || addr ~ /[^:]:$/) exit 1
+			rest = addr
+			doubles = gsub(/::/, "", rest)
+			if (doubles > 1) exit 1
+			n = split(addr, part, ":")
+			groups = 0
+			for (i = 1; i <= n; i++) {
+				if (length(part[i]) > 4) exit 1
+				if (part[i] != "") groups++
+			}
+			if (doubles ? groups > 7 : groups != 8) exit 1
+		}'
+}
+
 # cpxy_instance <name>: loads one instance's settings into CPXY_* variables.
 cpxy_instance() {
 	local i name="$1" domain
@@ -85,6 +104,7 @@ cpxy_instance() {
 	cpxy_get_bool CPXY_CLIENT "$name" client 1
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
 	cpxy_get_bool CPXY_TSGW "$name" tsgw 1
+	cpxy_get CPXY_IPV6 "$name" ipv6 full
 
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
 	cpxy_get_bool CPXY_SOCKS5 "$name" client_socks5 0
@@ -178,8 +198,12 @@ _cpxy_validate_instance() {
 	_cpxy_claim index "$CPXY_INDEX" "$1"
 	cpxy_instance "$1"
 	for entry in $CPXY_PROXY_ROUTES; do
-		_cpxy_ipv4_cidr "$entry" || _cpxy_invalid "$1: invalid IPv4 proxy_route '$entry'"
+		_cpxy_ipv4_cidr "$entry" || _cpxy_ipv6_cidr "$entry" || _cpxy_invalid "$1: invalid proxy_route '$entry'"
 	done
+	case "$CPXY_IPV6" in
+	off | direct | full) ;;
+	*) _cpxy_invalid "$1: option 'ipv6' must be off, direct or full" ;;
+	esac
 
 	if [ "$CPXY_CLIENT$CPXY_ROUTER$CPXY_TSGW" != 000 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"

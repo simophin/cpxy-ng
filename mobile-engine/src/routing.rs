@@ -1,12 +1,11 @@
-use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes};
+use client::dns_split::is_local_region_ip;
+use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes, is_private};
 use client::protocol_config::Config as ServerConfig;
 use client::stats_server::OutboundEvent;
 use cpxy_ng::either_stream::EitherStream;
-use cpxy_ng::geoip::contains_v4;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use geoip_data::CN;
 use std::borrow::Cow;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::time::{Instant, SystemTime};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast;
@@ -43,7 +42,7 @@ impl Route {
 /// How connecting went, for [`Router::report`].
 pub struct Outcome {
     route: Route,
-    ip: Option<Ipv4Addr>,
+    ip: Option<IpAddr>,
     port: u16,
     delay_mills: usize,
     request_time_mills: u64,
@@ -64,14 +63,6 @@ impl Router {
         }
     }
 
-    fn route(&self, ip: Option<Ipv4Addr>) -> Route {
-        if !self.proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
-            Route::Direct
-        } else {
-            Route::Proxy
-        }
-    }
-
     /// Connects without reporting it.
     pub async fn connect(
         &self,
@@ -84,7 +75,7 @@ impl Router {
             OutboundHost::Domain(_) => None,
             OutboundHost::Resolved { ip, .. } => *ip,
         };
-        let route = self.route(ip);
+        let route = route(&self.proxy_routes, ip);
         let port = req.port;
         let request_time_mills = SystemTime::UNIX_EPOCH
             .elapsed()
@@ -157,8 +148,17 @@ impl Outbound for Router {
     }
 }
 
-pub fn should_route_direct(ip: Ipv4Addr) -> bool {
-    ip.is_private() || ip.is_loopback() || ip.is_link_local() || contains_v4(&ip, CN)
+/// Where TCP to `ip` goes.
+pub fn route(proxy_routes: &ProxyRoutes, ip: Option<IpAddr>) -> Route {
+    if !proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
+        Route::Direct
+    } else {
+        Route::Proxy
+    }
+}
+
+pub fn should_route_direct(ip: IpAddr) -> bool {
+    is_private(ip) || is_local_region_ip(ip)
 }
 
 #[cfg(test)]

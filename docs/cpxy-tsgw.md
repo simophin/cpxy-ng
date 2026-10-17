@@ -104,6 +104,7 @@ restart.
 | `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. |
 | `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
+| `IPV6` | `full` | Which IPv6 from clients to relay: `full` handles it like IPv4, which needs a cpxy server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` none. The box itself needs IPv6 for any of it. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
 | `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
 | `TS_NO_LOGS_NO_SUPPORT` | unset | `true` stops uploading Tailscale's own logs to Tailscale, as for `tailscaled`. |
@@ -166,9 +167,13 @@ through the server, and check the reported public IP is the server's.
 
 - **It fails closed.** If the packet engine stops, cpxy-tsgw exits (and Docker or your init system
   restarts it); clients' traffic is not sent out directly meanwhile.
-- **Only TCP goes through the server, over IPv4.** QUIC is refused so apps fall back to TCP. Other
-  UDP (video calls, games) goes out directly from the box. IPv6 from clients is refused, and AAAA
-  queries get no answers, so apps use IPv4.
+- **Only TCP goes through the server.** QUIC is refused so apps fall back to TCP. Other UDP
+  (video calls, games) goes out directly from the box.
+- **IPv6 follows `IPV6`.** With `full`, IPv6 is routed like IPv4, and a name whose IPv4 is in the
+  local region gets no IPv6 addresses outside it, so it still goes direct. With `direct`, AAAA
+  queries are answered only with addresses that go direct, and IPv6 that would go through the
+  server is refused, so apps use IPv4 for it. With `off`, all IPv6 is refused and AAAA queries get
+  no answers.
 - **Local-region destinations go direct** from the box, and so do private addresses. Tailscale
   itself keeps clients off the box's own LAN, as for any exit node.
 - **The peer API serves only DNS.** Taildrop to this node and the peer API's debug pages are not

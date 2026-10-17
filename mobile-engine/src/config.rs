@@ -1,12 +1,17 @@
 use anyhow::{Context, ensure};
 use client::dns_split::spec::ServerSpec;
+use client::ipv6::Ipv6Mode;
 use client::protocol_config::Config as ServerConfig;
 use serde::Deserialize;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// The address the platform gives the TUN interface (a /30).
 pub const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 1);
 pub const TUN_PREFIX_LEN: u8 = 30;
+/// The IPv6 address the platform gives the TUN interface unless IPv6 is off. Unique-local, so
+/// apps prefer IPv4 where a name has both (RFC 6724).
+pub const TUN_ADDR_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xa, 0xe9, 0, 0, 0, 0, 1);
+pub const TUN_PREFIX_LEN_V6: u8 = 64;
 /// The DNS server the platform hands to the device. It only exists inside the engine.
 pub const DNS_ADDR: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 2);
 pub const DEFAULT_MTU: u16 = 1500;
@@ -17,7 +22,7 @@ pub const DEFAULT_MTU: u16 = 1500;
 pub struct Config {
     /// The cpxy server URL with its key, e.g. `https://:key@example.com`.
     pub server: String,
-    /// IPv4 CIDRs forced through the proxy before automatic direct routing.
+    /// CIDRs forced through the proxy before automatic direct routing.
     #[serde(default)]
     pub proxy_routes: Vec<String>,
     /// DNS servers whose answer is used, keeping just its CN addresses, when it has any.
@@ -34,6 +39,9 @@ pub struct Config {
     pub http_proxy_port: Option<u16>,
     #[serde(default)]
     pub socks_proxy_port: Option<u16>,
+    /// Which IPv6 to relay; `full` needs a cpxy server that can reach IPv6.
+    #[serde(default)]
+    pub ipv6: Ipv6Mode,
 }
 
 /// A config that has been checked and parsed.
@@ -46,6 +54,7 @@ pub struct Settings {
     pub mtu: u16,
     pub http_proxy_port: Option<u16>,
     pub socks_proxy_port: Option<u16>,
+    pub ipv6: Ipv6Mode,
 }
 
 impl Config {
@@ -87,6 +96,7 @@ impl Config {
             mtu,
             http_proxy_port: self.http_proxy_port,
             socks_proxy_port: self.socks_proxy_port,
+            ipv6: self.ipv6,
         })
     }
 }
@@ -155,8 +165,14 @@ mod tests {
                 .proxy_routes
                 .contains(Some("223.5.5.5".parse().unwrap()))
         );
-        config.proxy_routes = vec!["::/0".into()];
-        assert!(config.settings().is_err());
+        config.proxy_routes = vec!["2400:3200::/32".into()];
+        assert!(
+            config
+                .settings()
+                .unwrap()
+                .proxy_routes
+                .contains(Some("2400:3200::1".parse().unwrap()))
+        );
         config.proxy_routes = vec!["10.0.0.0/33".into()];
         assert!(config.settings().is_err());
     }
@@ -171,6 +187,19 @@ mod tests {
         assert_eq!(settings.mtu, 1500);
         assert_eq!(settings.http_proxy_port, None);
         assert_eq!(settings.socks_proxy_port, None);
+        assert_eq!(settings.ipv6, Ipv6Mode::Full);
+    }
+
+    #[test]
+    fn reads_the_ipv6_mode() {
+        let mode = |value: &str| {
+            Config::from_json(&format!(r#"{{"server":"http://:k@1.2.3.4", "dns_upstream":["1.1.1.1"], "dns_alternative":["8.8.8.8"], "ipv6":{value}}}"#))
+                .map(|c| c.ipv6)
+        };
+        assert_eq!(mode(r#""off""#).unwrap(), Ipv6Mode::Off);
+        assert_eq!(mode(r#""direct""#).unwrap(), Ipv6Mode::Direct);
+        assert_eq!(mode(r#""full""#).unwrap(), Ipv6Mode::Full);
+        assert!(mode(r#""on""#).is_err());
     }
 
     #[test]

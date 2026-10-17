@@ -40,7 +40,7 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 | Where | Change | Removed by |
 |---|---|---|
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
-| `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` a DNS redirect and an IPv6 DNS refusal per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
+| `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` a DNS redirect and IPv6 DNS refusals (to the router and forwarded) per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
 | Kernel | per routed instance: a persistent TUN, four rule priorities and a routing table | reload, `stop`, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
 | `/etc/cpxy/tsgw/<name>` | each exit node's Tailscale identity, kept across sysupgrade | deleted by hand |
@@ -124,7 +124,7 @@ dnsmasq, so the redirect, the services and local names are verified on a router.
 
 ## Fixed proxy routes
 
-Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 CIDR) to an instance
+Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 or IPv6 CIDR) to an instance
 or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and
 `cpxy-tsgw` to apply. Matching TCP destination IPs always use the main proxy,
 overriding automatic direct/CN routing. An empty list preserves automatic

@@ -173,6 +173,8 @@ never taken from `defaults`.
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy and exit node. |
 | `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy. |
+| `ipv6` | `full` | IPv6 from the networks and Tailscale clients. `full` routes it like IPv4, which needs a server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` refuses it, so devices use IPv4. The router's WAN needs IPv6, and its networks IPv6 addresses (OpenWrt hands them out by default). |
+| `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |
 | `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. |
 | `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
 | `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
@@ -199,7 +201,7 @@ now. An instance without `dns_alternative` asks the same servers through its ser
 
 With `router_dns` on, the firewall sends every IPv4 DNS query from the instance's networks (to
 the router or to any other server) to the instance's dns_split, and refuses IPv6 DNS so devices
-use IPv4. dns_split asks `dns_upstream` and `dns_alternative` at once and uses the upstream
+ask over IPv4; dns_split answers AAAA queries there according to `ipv6`. dns_split asks `dns_upstream` and `dns_alternative` at once and uses the upstream
 answer only when it has addresses in the local region, keeping just those, so a tampered answer
 can never send a blocked site direct.
 
@@ -247,8 +249,12 @@ the details.
 
 - **TCP fails closed.** If a packet engine stops, its networks' TCP stops rather than going out
   directly, until procd restarts it.
-- **Only TCP goes through the server, over IPv4.** QUIC is refused so browsers fall back to TCP.
-  Other UDP (calls, games) goes out directly. IPv6 from the networks is refused.
+- **Only TCP goes through the server.** QUIC is refused so browsers fall back to TCP. Other UDP
+  (calls, games) goes out directly.
+- **IPv6 follows `ipv6`.** With `full`, a name whose IPv4 is in the local region gets no IPv6
+  addresses outside it, so it still goes direct. With `direct`, AAAA queries are answered only with
+  addresses that go direct, and IPv6 that would go through the server is refused, so devices use
+  IPv4 for it.
 - **Only the networks' devices are proxied**, not the router itself.
 - **Hardware flow offloading** (a GL.iNet option) may bypass the tunnel; cpxy-router warns when
   it is on and an instance routes networks.

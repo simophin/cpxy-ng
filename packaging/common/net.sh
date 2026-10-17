@@ -8,7 +8,10 @@
 #
 # cpxy has no UDP path. UDP 443 (QUIC, HTTP/3) is sent to cpxy0 too (prio 9101), where the firewall
 # refuses it, so browsers fall back to TCP through the proxy instead of revealing the WAN address.
-# All other IPv4 UDP (WebRTC, games, VoIP, DNS to outside resolvers) goes out the WAN (prio 9102).
+# All other UDP (WebRTC, games, VoIP, DNS to outside resolvers) goes out the WAN (prio 9102).
+#
+# IPv6 takes the same path unless CPXY_IPV6 is off (or unset); then LAN IPv6 meets table 100's
+# `unreachable default`, so clients fall back to IPv4.
 #
 # cpxy0 is created persistently here; the worker attaches by name and leaves routing alone.
 # Router-originated outbound sockets therefore use the ordinary WAN routing table.
@@ -37,7 +40,7 @@ _cpxy_flush_rules() {
 # Also run on every reload (a config change, a LAN interface coming up) while cpxy-router keeps
 # running, so an existing cpxy0 is kept: a new device would leave cpxy-router attached to the old one.
 cpxy_net_up() {
-	local dev fam
+	local dev fam families=-4
 
 	# Idempotent: rules and routes start from a clean slate
 	_cpxy_net_down_rules
@@ -52,11 +55,13 @@ cpxy_net_up() {
 			ip $fam rule add priority "$CPXY_PRIO_TUN" iif "$dev" lookup "$CPXY_TABLE" || return 1
 		done
 	done
-	# IPv4 only: IPv6 from the LAN stays refused so clients fall back to IPv4
-	ip -4 route replace default dev "$CPXY_TUN" table "$CPXY_TABLE" metric 10 || return 1
-	for dev in "$@"; do
-		ip -4 rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto udp dport 443 lookup "$CPXY_TABLE" || return 1
-		ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
+	[ "${CPXY_IPV6:-off}" = off ] || families="-4 -6"
+	for fam in $families; do
+		ip $fam route replace default dev "$CPXY_TUN" table "$CPXY_TABLE" metric 10 || return 1
+		for dev in "$@"; do
+			ip $fam rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto udp dport 443 lookup "$CPXY_TABLE" || return 1
+			ip $fam rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
+		done
 	done
 }
 

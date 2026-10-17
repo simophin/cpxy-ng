@@ -1,13 +1,13 @@
-use ipnet::Ipv4Net;
-use std::net::Ipv4Addr;
+use ipnet::IpNet;
+use std::net::IpAddr;
 use std::str::FromStr;
 
-/// Explicit IPv4 networks that must use the main proxy, before automatic routing rules.
+/// Explicit networks that must use the main proxy, before automatic routing rules.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ProxyRoutes(pub Vec<Ipv4Net>);
+pub struct ProxyRoutes(pub Vec<IpNet>);
 
 impl ProxyRoutes {
-    pub fn contains(&self, ip: Option<Ipv4Addr>) -> bool {
+    pub fn contains(&self, ip: Option<IpAddr>) -> bool {
         ip.is_some_and(|ip| self.0.iter().any(|net| net.contains(&ip)))
     }
 
@@ -19,9 +19,9 @@ impl ProxyRoutes {
             .map(Self)
     }
 
-    pub fn parse_network(route: &str) -> anyhow::Result<Ipv4Net> {
-        Ipv4Net::from_str(route.trim())
-            .map_err(|_| anyhow::anyhow!("Invalid IPv4 proxy route CIDR: {route}"))
+    pub fn parse_network(route: &str) -> anyhow::Result<IpNet> {
+        IpNet::from_str(route.trim())
+            .map_err(|_| anyhow::anyhow!("Invalid proxy route CIDR: {route}"))
     }
 }
 
@@ -31,12 +31,29 @@ mod tests {
 
     #[test]
     fn matches_network_boundaries_and_host_routes() {
-        let routes = ProxyRoutes::parse(&["10.2.3.99/24".into(), "223.5.5.5/32".into()]).unwrap();
-        for ip in ["10.2.3.0", "10.2.3.255", "223.5.5.5"] {
-            assert!(routes.contains(Some(ip.parse().unwrap())));
+        let routes = ProxyRoutes::parse(&[
+            "10.2.3.99/24".into(),
+            "223.5.5.5/32".into(),
+            "2400:3200::1/32".into(),
+        ])
+        .unwrap();
+        for ip in [
+            "10.2.3.0",
+            "10.2.3.255",
+            "223.5.5.5",
+            "2400:3200::",
+            "2400:3200:ffff::1",
+        ] {
+            assert!(routes.contains(Some(ip.parse().unwrap())), "{ip}");
         }
-        for ip in ["10.2.2.255", "10.2.4.0", "223.5.5.6"] {
-            assert!(!routes.contains(Some(ip.parse().unwrap())));
+        for ip in [
+            "10.2.2.255",
+            "10.2.4.0",
+            "223.5.5.6",
+            "2400:3201::",
+            "::ffff:10.2.3.1",
+        ] {
+            assert!(!routes.contains(Some(ip.parse().unwrap())), "{ip}");
         }
         assert!(!routes.contains(None));
         assert!(!ProxyRoutes::default().contains(Some("10.2.3.4".parse().unwrap())));
@@ -45,11 +62,21 @@ mod tests {
                 .unwrap()
                 .contains(Some("255.255.255.255".parse().unwrap()))
         );
+        let all_v6 = ProxyRoutes::parse(&["::/0".into()]).unwrap();
+        assert!(all_v6.contains(Some("2001:db8::1".parse().unwrap())));
+        assert!(!all_v6.contains(Some("1.2.3.4".parse().unwrap())));
     }
 
     #[test]
-    fn rejects_invalid_or_unsupported_routes() {
-        for route in ["example.com/24", "10.0.0.1", "10.0.0.0/33", "::/0", ""] {
+    fn rejects_invalid_routes() {
+        for route in [
+            "example.com/24",
+            "10.0.0.1",
+            "10.0.0.0/33",
+            "::1",
+            "::/129",
+            "",
+        ] {
             assert!(ProxyRoutes::parse(&[route.into()]).is_err(), "{route}");
         }
     }
