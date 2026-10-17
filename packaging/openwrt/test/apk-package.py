@@ -90,12 +90,14 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     root = work / "root"
     root.mkdir()
     apk = [APK, "--root", root, "--arch", "x86_64", "--no-network", "--allow-untrusted", "--repositories-file", "/dev/null"]
-    run(*apk, "add", "--usermode", "--no-scripts", "--initdb", *deps, packages[0])
+    # apk refuses --usermode as root (CI containers), but needs it otherwise.
+    usermode = ["--usermode"] if os.geteuid() != 0 else []
+    run(*apk, "add", *usermode, "--no-scripts", "--initdb", *deps, packages[0])
     assert run(*apk, "info", "-e", "cpxy=1.0.0-r9").strip() == "cpxy"
     installed_config = root / "etc/config/cpxy"
     contents = installed_config.read_text() + "\n# user configuration\n"
     installed_config.write_text(contents)
-    run(*apk, "add", "--usermode", "--no-scripts", packages[1])
+    run(*apk, "add", *usermode, "--no-scripts", packages[1])
     assert run(*apk, "info", "-e", "cpxy=1.0.0-r10").strip() == "cpxy"
     assert installed_config.read_text() == contents
     expected_hash = (root / "lib/apk/packages/cpxy.conffiles_static").read_text().split()[1]
