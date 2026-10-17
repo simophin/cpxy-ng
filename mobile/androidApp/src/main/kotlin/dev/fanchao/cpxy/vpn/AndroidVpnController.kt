@@ -23,10 +23,8 @@ class AndroidVpnController(private val context: Context) : VpnController {
     @Volatile
     internal var engine: Engine? = null
 
-    /** Read on first use, off the main thread: the data is a few megabytes. */
-    private val countries by lazy {
-        CountryLookup(context.assets.open("country.dat").use { it.readBytes() })
-    }
+    /** Mapped on first use, which is off the main thread. */
+    private val countries by lazy { context.bundledCountries() }
 
     override val state: StateFlow<VpnState> = mutableState.asStateFlow()
     override val traffic: StateFlow<Traffic> = mutableTraffic.asStateFlow()

@@ -1,11 +1,22 @@
 package dev.fanchao.cpxy.vpn
 
+/** The bytes [CountryLookup] searches, read in place, such as a memory-mapped file. */
+interface CountryData {
+    val size: Int
+    operator fun get(index: Int): Byte
+}
+
 /**
  * Finds the country of IPv4 addresses in [data]: non-overlapping ranges sorted by start, each as
  * a big-endian 4 bytes start, 4 bytes inclusive end and 2 ASCII bytes ISO 3166-1 alpha-2 code.
  * The Android app bundles them as the `country.dat` asset (see `geoip-data/SOURCE.md`).
  */
-class CountryLookup(private val data: ByteArray) {
+class CountryLookup(private val data: CountryData) {
+    constructor(data: ByteArray) : this(object : CountryData {
+        override val size get() = data.size
+        override fun get(index: Int) = data[index]
+    })
+
     init {
         require(data.size % ENTRY_SIZE == 0) { "Invalid data length ${data.size}" }
     }
@@ -23,7 +34,8 @@ class CountryLookup(private val data: ByteArray) {
         if (low == 0) return null
         val entry = (low - 1) * ENTRY_SIZE
         if (address > readUInt(entry + 4)) return null
-        return data.decodeToString(entry + 8, entry + ENTRY_SIZE)
+        return charArrayOf(data[entry + 8].toInt().toChar(), data[entry + 9].toInt().toChar())
+            .concatToString()
     }
 
     private fun readUInt(offset: Int): UInt =
