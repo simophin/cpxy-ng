@@ -41,6 +41,11 @@ impl Racer {
         }
     }
 
+    /// Whether an address is in the local region.
+    pub fn is_local_ip(&self, ip: IpAddr) -> bool {
+        (self.is_local_ip)(ip)
+    }
+
     pub async fn resolve(&self, request: &Message) -> Option<Resolution> {
         let mut pending: FuturesUnordered<_> = self
             .servers
@@ -161,7 +166,7 @@ pub(crate) mod tests {
     pub fn local_ip(ip: IpAddr) -> bool {
         match ip {
             IpAddr::V4(ip) => ip.octets()[0] == 10,
-            IpAddr::V6(ip) => ip.segments()[0] == 0xfd10,
+            IpAddr::V6(ip) => ip.segments()[0] == 0x2400,
         }
     }
 
@@ -349,7 +354,7 @@ pub(crate) mod tests {
 
     #[test]
     fn filtering_classifies_aaaa_records() {
-        let local: Ipv6Addr = "fd10::1".parse().unwrap();
+        let local: Ipv6Addr = "2400::1".parse().unwrap();
         let remote: Ipv6Addr = "2001:db8::1".parse().unwrap();
         let mut message = answer_v6(&[remote, local]);
         assert!(keep_local_region_answers(&mut message, local_ip));

@@ -1,6 +1,8 @@
 use super::cache::{DnsCache, unix_now};
-use super::policy::Racer;
+use super::policy::{Racer, record_ip};
 use super::upstream::DnsUpstream;
+use crate::ipv6::Ipv6Mode;
+use crate::outbound::is_private;
 use anyhow::Context;
 use hickory_proto::op::{Edns, Message, MessageType, OpCode, Query, ResponseCode};
 use hickory_proto::rr::rdata::CNAME;
@@ -19,6 +21,7 @@ pub struct DnsSplitHandler {
     cache: Option<Arc<DnsCache>>,
     local: Option<LocalNames>,
     search_domains: Vec<Name>,
+    ipv6: Ipv6Mode,
 }
 
 /// Names only the local network knows, answered by its own resolver instead of the split.
@@ -46,7 +49,14 @@ impl DnsSplitHandler {
             cache,
             local: None,
             search_domains: Vec::new(),
+            ipv6: Ipv6Mode::Off,
         }
+    }
+
+    /// Which AAAA records to hand out; [`Ipv6Mode::Off`], which answers none, by default.
+    pub fn with_ipv6(mut self, mode: Ipv6Mode) -> Self {
+        self.ipv6 = mode;
+        self
     }
 
     /// Ordered suffixes to try for single-label queries before the original name.
@@ -73,8 +83,8 @@ impl DnsSplitHandler {
             return finalize(request, error(ResponseCode::FormErr));
         };
 
-        // IPv6 is not supported: answer AAAA with no records so clients fall back to IPv4.
-        if query.query_type() == RecordType::AAAA {
+        // Without IPv6, answer AAAA with no records so clients use IPv4.
+        if query.query_type() == RecordType::AAAA && self.ipv6 == Ipv6Mode::Off {
             return finalize(request, error(ResponseCode::NoError));
         }
 
@@ -118,6 +128,46 @@ impl DnsSplitHandler {
             return local.resolve(request, query).await;
         }
 
+        if query.query_type() != RecordType::AAAA {
+            return self.resolve_split(request, query).await;
+        }
+        match self.ipv6 {
+            Ipv6Mode::Off => error(ResponseCode::NoError),
+            // The other addresses would be refused.
+            Ipv6Mode::Direct => {
+                let mut response = self.resolve_split(request, query).await;
+                retain_addresses(&mut response, |ip| {
+                    is_private(ip) || self.racer.is_local_ip(ip)
+                });
+                response
+            }
+            Ipv6Mode::Full => {
+                let response = self.resolve_split(request, query).await;
+                let has_local = |m: &Message| {
+                    m.answers()
+                        .iter()
+                        .filter_map(record_ip)
+                        .any(|ip| self.racer.is_local_ip(ip))
+                };
+                if response.answers().iter().any(|r| record_ip(r).is_some())
+                    && !has_local(&response)
+                {
+                    // Apps prefer IPv6, so a name with local-region IPv4 but only other IPv6
+                    // addresses would go through the proxy instead of direct.
+                    let mut a_query = query.clone();
+                    a_query.set_query_type(RecordType::A);
+                    if has_local(&self.resolve_split(request, &a_query).await) {
+                        tracing::debug!("Dropping AAAA records of {query}: its IPv4 is local");
+                        return error(ResponseCode::NoError);
+                    }
+                }
+                response
+            }
+        }
+    }
+
+    /// Resolve one exact name with the split, through the cache.
+    async fn resolve_split(&self, request: &Message, query: &Query) -> Message {
         if let Some(cache) = &self.cache {
             match cache.get(query, unix_now()).await {
                 Ok(Some(cached)) => {
@@ -189,6 +239,15 @@ fn upstream_request(request: &Message, query: &Query) -> Message {
     edns.set_max_payload(EDNS_PAYLOAD);
     upstream_request.set_edns(edns);
     upstream_request
+}
+
+/// Removes the A and AAAA records whose address fails `keep`.
+fn retain_addresses(message: &mut Message, keep: impl Fn(std::net::IpAddr) -> bool) {
+    message
+        .answers_mut()
+        .retain(|r| record_ip(r).is_none_or(&keep));
+    let count = message.answers().len() as u16;
+    message.set_answer_count(count);
 }
 
 fn error(code: ResponseCode) -> Message {
@@ -308,7 +367,7 @@ pub async fn serve_tcp_connection(
 mod tests {
     use super::*;
     use crate::dns_split::cache::CacheOptions;
-    use crate::dns_split::policy::tests::{FakeUpstream, answer, local_ip, query};
+    use crate::dns_split::policy::tests::{FakeUpstream, answer, answer_v6, local_ip, query};
     use crate::dns_split::upstream::{DnsUpstream, Group};
     use hickory_proto::rr::rdata::A;
     use std::net::Ipv4Addr;
@@ -489,8 +548,128 @@ mod tests {
         assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
     }
 
+    /// Answers each record type with its own response, and counts the queries of each.
+    struct TypedUpstream {
+        answers: std::collections::HashMap<RecordType, Message>,
+        calls: std::sync::Mutex<Vec<RecordType>>,
+    }
+
+    impl TypedUpstream {
+        fn new(answers: impl IntoIterator<Item = (RecordType, Message)>) -> Arc<Self> {
+            Arc::new(Self {
+                answers: answers.into_iter().collect(),
+                calls: Default::default(),
+            })
+        }
+    }
+
+    impl DnsUpstream for TypedUpstream {
+        fn name(&self) -> &str {
+            "typed"
+        }
+        fn query(
+            &self,
+            request: Message,
+        ) -> futures::future::BoxFuture<'_, anyhow::Result<Message>> {
+            let record_type = request.queries()[0].query_type();
+            self.calls.lock().unwrap().push(record_type);
+            let response = self.answers.get(&record_type).cloned();
+            Box::pin(async move { response.ok_or_else(|| anyhow::anyhow!("no answer")) })
+        }
+    }
+
+    fn ipv6_handler(upstream: Arc<TypedUpstream>, mode: Ipv6Mode) -> DnsSplitHandler {
+        let racer = Racer::new(
+            vec![(Group::Alternative, upstream as Arc<dyn DnsUpstream>)],
+            Duration::from_secs(1),
+            local_ip,
+        );
+        DnsSplitHandler::new(racer, None).with_ipv6(mode)
+    }
+
+    fn addresses(response: &Message) -> Vec<std::net::IpAddr> {
+        response.answers().iter().filter_map(record_ip).collect()
+    }
+
+    const LOCAL_V6: &str = "2400::1";
+    const PRIVATE_V6: &str = "fd00::5";
+    const REMOTE_V6: &str = "2001:db8::1";
+
+    fn v6(ips: &[&str]) -> Message {
+        answer_v6(&ips.iter().map(|ip| ip.parse().unwrap()).collect::<Vec<_>>())
+    }
+
     #[tokio::test]
-    async fn aaaa_is_answered_without_querying() {
+    async fn direct_ipv6_keeps_only_aaaa_records_that_route_direct() {
+        // Private addresses are not in the local region, so the split keeps them only in answers
+        // without local-region addresses.
+        for (answer, kept) in [
+            (&[LOCAL_V6, REMOTE_V6][..], LOCAL_V6),
+            (&[REMOTE_V6, PRIVATE_V6][..], PRIVATE_V6),
+        ] {
+            let upstream = TypedUpstream::new([(RecordType::AAAA, v6(answer))]);
+            let handler = ipv6_handler(upstream, Ipv6Mode::Direct);
+            let response = handler
+                .handle(&request("example.com.", RecordType::AAAA))
+                .await;
+            assert_eq!(
+                addresses(&response),
+                [kept.parse::<std::net::IpAddr>().unwrap()]
+            );
+            assert_eq!(response.answer_count(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn full_ipv6_keeps_other_aaaa_records_of_names_without_local_ipv4() {
+        let upstream = TypedUpstream::new([
+            (RecordType::AAAA, v6(&[REMOTE_V6])),
+            (RecordType::A, answer(&[Ipv4Addr::new(8, 8, 8, 8)])),
+        ]);
+        let handler = ipv6_handler(upstream.clone(), Ipv6Mode::Full);
+        let response = handler
+            .handle(&request("example.com.", RecordType::AAAA))
+            .await;
+        assert_eq!(
+            addresses(&response),
+            [REMOTE_V6.parse::<std::net::IpAddr>().unwrap()]
+        );
+        assert_eq!(
+            *upstream.calls.lock().unwrap(),
+            [RecordType::AAAA, RecordType::A]
+        );
+    }
+
+    #[tokio::test]
+    async fn full_ipv6_drops_other_aaaa_records_of_names_with_local_ipv4() {
+        let upstream = TypedUpstream::new([
+            (RecordType::AAAA, v6(&[REMOTE_V6])),
+            (RecordType::A, answer(&[Ipv4Addr::new(10, 0, 0, 1)])),
+        ]);
+        let handler = ipv6_handler(upstream, Ipv6Mode::Full);
+        let response = handler
+            .handle(&request("example.com.", RecordType::AAAA))
+            .await;
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+        assert!(response.answers().is_empty());
+    }
+
+    #[tokio::test]
+    async fn full_ipv6_keeps_local_aaaa_records_without_asking_for_ipv4() {
+        let upstream = TypedUpstream::new([(RecordType::AAAA, v6(&[LOCAL_V6, REMOTE_V6]))]);
+        let handler = ipv6_handler(upstream.clone(), Ipv6Mode::Full);
+        let response = handler
+            .handle(&request("example.com.", RecordType::AAAA))
+            .await;
+        assert_eq!(
+            addresses(&response),
+            [LOCAL_V6.parse::<std::net::IpAddr>().unwrap()]
+        );
+        assert_eq!(*upstream.calls.lock().unwrap(), [RecordType::AAAA]);
+    }
+
+    #[tokio::test]
+    async fn aaaa_is_answered_without_querying_when_ipv6_is_off() {
         let upstream = FakeUpstream::new("u", 0, Some(answer(&[])));
         let (handler, _) = handler(&[(Group::Upstream, upstream.clone())]).await;
 

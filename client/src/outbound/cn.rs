@@ -1,6 +1,6 @@
 use crate::outbound::{
     DirectOutbound, IPDivertOutbound, ProtocolOutbound, ProxyRoutes, ResolvingIPOutbound,
-    SiteDivertOutbound, StatReportingOutbound,
+    SiteDivertOutbound, StatReportingOutbound, is_private,
 };
 use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
@@ -89,18 +89,13 @@ const TAILSCALE_NETWORK_V6: Ipv6Net =
 
 fn ip_should_route_direct(ip: Option<IpAddr>) -> bool {
     match ip {
-        Some(IpAddr::V4(ip)) => {
-            ip.is_private()
-                || ip.is_loopback()
-                || ip.is_link_local()
-                || TAILSCALE_NETWORK.contains(&ip)
-                || contains_v4(&ip, CN)
-        }
-        Some(IpAddr::V6(ip)) => {
-            ip.is_unique_local()
-                || ip.is_loopback()
-                || ip.is_unicast_link_local()
-                || contains_v6(&ip, CN6)
+        Some(ip) => {
+            is_private(ip)
+                || ip_should_route_tailscale(Some(ip))
+                || match ip {
+                    IpAddr::V4(ip) => contains_v4(&ip, CN),
+                    IpAddr::V6(ip) => contains_v6(&ip, CN6),
+                }
         }
         _ => true,
     }

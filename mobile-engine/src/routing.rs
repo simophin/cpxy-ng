@@ -1,10 +1,9 @@
-use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes};
+use client::dns_split::is_local_region_ip;
+use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes, is_private};
 use client::protocol_config::Config as ServerConfig;
 use client::stats_server::OutboundEvent;
 use cpxy_ng::either_stream::EitherStream;
-use cpxy_ng::geoip::{contains_v4, contains_v6};
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use geoip_data::{CN, CN6};
 use std::borrow::Cow;
 use std::net::IpAddr;
 use std::time::{Instant, SystemTime};
@@ -158,17 +157,7 @@ impl Outbound for Router {
 }
 
 pub fn should_route_direct(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            ip.is_private() || ip.is_loopback() || ip.is_link_local() || contains_v4(&ip, CN)
-        }
-        IpAddr::V6(ip) => {
-            ip.is_unique_local()
-                || ip.is_loopback()
-                || ip.is_unicast_link_local()
-                || contains_v6(&ip, CN6)
-        }
-    }
+    is_private(ip) || is_local_region_ip(ip)
 }
 
 #[cfg(test)]
