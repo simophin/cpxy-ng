@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     work = Path(directory)
     bins = work / "bins"
     bins.mkdir()
-    for name in ("cpxy-client", "cpxy-router", "cpxy-dns-split", "cpxy-tsgw"):
+    for name in ("cpxy-client", "cpxy-router", "cpxy-tsgw"):
         (bins / name).write_text("#!/bin/sh\nexit 0\n")
     packages = []
     for version in ("1.0.0-r9", "1.0.0-r10"):

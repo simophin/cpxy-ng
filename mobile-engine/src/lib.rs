@@ -2,7 +2,8 @@
 //! does what `cpxy-router` does on OpenWrt (see `docs/mobile-vpn-plan.md`):
 //!
 //! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. As a Tailscale exit node
-//!   ([`start_gateway`]), DNS to any address is answered this way.
+//!   ([`start_gateway`]), DNS to any address is answered this way. A router ([`start_router`])
+//!   answers it on its own sockets instead.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - UDP 443 (QUIC) and TCP 853 (DNS over TLS) are refused; other UDP is relayed direct.
@@ -33,8 +34,10 @@ pub use ffi::{ConnectionEvent, Engine, EngineError, start_engine};
 uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
+use client::dns_split::spec::ServerSpec;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
+use hickory_proto::rr::Name;
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
     TcpOptions,
@@ -169,23 +172,57 @@ fn start_with_dns(
             local_http: local_proxy,
         },
         Some(DnsSpecs {
-            upstream: &settings.dns_upstream,
-            alternative: &settings.dns_alternative,
-            search_domains: &settings.dns_search_domains,
-            intercept,
+            split: dns::Specs {
+                upstream: &settings.dns_upstream,
+                alternative: &settings.dns_alternative,
+                search_domains: &settings.dns_search_domains,
+                local: None,
+                cache: true,
+            },
+            intercept: Some(intercept),
+            listen: None,
         }),
     )
 }
 
-/// Starts the shared packet engine for a router. DNS stays with dnsmasq/dns_split;
-/// no synthetic DNS address is intercepted and no SOCKS listener is needed.
+/// The DNS a router answers on its own sockets, where its firewall redirects its networks' DNS.
+/// It never reaches the TUN.
+pub struct RouterDns {
+    pub listen: SocketAddr,
+    pub upstream: Vec<ServerSpec>,
+    pub alternative: Vec<ServerSpec>,
+    pub search_domains: Vec<Name>,
+    /// The router's own resolver (dnsmasq), for single-label names, names under
+    /// `local_domains` and reverse lookups of private addresses.
+    pub local_server: Option<ServerSpec>,
+    pub local_domains: Vec<Name>,
+    pub cache: bool,
+}
+
+/// Starts the shared packet engine for a router, which answers DNS on `dns.listen` rather than
+/// from the TUN. No SOCKS listener is needed.
 pub fn start_router(
     tun: OwnedFd,
     server: client::protocol_config::Config,
     proxy_routes: client::outbound::ProxyRoutes,
     mtu: u16,
+    dns: Option<RouterDns>,
     listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
+    let dns_specs = dns.as_ref().map(|dns| DnsSpecs {
+        split: dns::Specs {
+            upstream: &dns.upstream,
+            alternative: &dns.alternative,
+            search_domains: &dns.search_domains,
+            local: dns
+                .local_server
+                .as_ref()
+                .map(|server| (server, dns.local_domains.as_slice())),
+            cache: dns.cache,
+        },
+        intercept: None,
+        listen: Some(dns.listen),
+    });
     start_inner(
         tun,
         server,
@@ -194,7 +231,7 @@ pub fn start_router(
         LOCAL_TCP_WINDOW,
         listener,
         proxy::Ports::default(),
-        None,
+        dns_specs,
     )
 }
 
@@ -218,23 +255,24 @@ impl DnsIntercept {
 }
 
 struct DnsSpecs<'a> {
-    upstream: &'a [client::dns_split::spec::ServerSpec],
-    alternative: &'a [client::dns_split::spec::ServerSpec],
-    search_domains: &'a [hickory_proto::rr::Name],
-    intercept: DnsIntercept,
+    split: dns::Specs<'a>,
+    /// The DNS from the TUN that is answered; `None` relays it all.
+    intercept: Option<DnsIntercept>,
+    /// Where to answer DNS on the engine's own sockets.
+    listen: Option<SocketAddr>,
 }
 
 /// The DNS the engine answers, and how.
 #[derive(Clone)]
 struct DnsService {
     handler: Arc<DnsSplitHandler>,
-    intercept: DnsIntercept,
+    intercept: Option<DnsIntercept>,
 }
 
 impl DnsService {
     /// The handler to answer a flow to `dst` with, if the engine answers it.
     fn handler_for(dns: Option<Self>, dst: SocketAddrV4) -> Option<Arc<DnsSplitHandler>> {
-        dns.filter(|dns| dns.intercept.matches(dst))
+        dns.filter(|dns| dns.intercept.is_some_and(|i| i.matches(dst)))
             .map(|dns| dns.handler)
     }
 }
@@ -255,14 +293,10 @@ fn start_inner(
         .enable_all()
         .build()?;
     let dns = dns_specs
+        .as_ref()
         .map(|specs| {
             runtime
-                .block_on(dns::handler(
-                    specs.upstream,
-                    specs.alternative,
-                    specs.search_domains,
-                    &server,
-                ))
+                .block_on(dns::handler(&specs.split, &server))
                 .map(|handler| DnsService {
                     handler: Arc::new(handler),
                     intercept: specs.intercept,
@@ -271,6 +305,10 @@ fn start_inner(
         .transpose()?;
     // Bind before reporting success, so an occupied port fails the connection visibly.
     let proxies = runtime.block_on(proxy::Listeners::bind(proxy_ports))?;
+    let dns_listeners = dns_specs
+        .and_then(|specs| specs.listen)
+        .map(|addr| runtime.block_on(dns::Listeners::bind(addr)))
+        .transpose()?;
     let local_proxy_port = proxies.local_http_port();
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
@@ -300,6 +338,7 @@ fn start_inner(
         router,
         dns,
         proxies,
+        dns_listeners,
         shutdown_rx,
     ));
     tracing::info!("Engine started");
@@ -410,6 +449,7 @@ async fn run(
     router: Arc<Router>,
     dns: Option<DnsService>,
     proxies: proxy::Listeners,
+    dns_listeners: Option<dns::Listeners>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut tcp_config = TcpConfig::default();
@@ -424,8 +464,11 @@ async fn run(
         .udp_timeout(UDP_IDLE_TIMEOUT)
         .with_tcp_config(tcp_config);
     let mut stack = IpStack::new(config, device);
-    let mut proxy_tasks =
+    let mut listener_tasks =
         proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
+    if let (Some(listeners), Some(dns)) = (dns_listeners, &dns) {
+        listeners.spawn(dns.handler.clone(), &mut listener_tasks);
+    }
     let mut flows = JoinSet::new();
 
     loop {
@@ -433,8 +476,8 @@ async fn run(
             stream = stack.accept() => stream,
             // Reap the flows that ended.
             Some(_) = flows.join_next() => continue,
-            Some(result) = proxy_tasks.join_next() => {
-                tracing::error!(?result, "Proxy listener stopped");
+            Some(result) = listener_tasks.join_next() => {
+                tracing::error!(?result, "Proxy or DNS listener stopped");
                 break;
             }
             _ = &mut shutdown => break,
@@ -463,7 +506,7 @@ async fn run(
     // once the runtime shuts down, so the flows must end first. Dropping the stack aborts the task
     // that owns the device.
     drop(stack);
-    proxy_tasks.shutdown().await;
+    listener_tasks.shutdown().await;
     flows.shutdown().await;
     let _ = device_closed.await;
 }
@@ -655,6 +698,66 @@ mod tests {
         assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).is_err());
         // A subsequent connection can bind the saved port again.
         std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).unwrap();
+    }
+
+    #[test]
+    fn router_answers_dns_on_its_listen_address_until_stopped() {
+        use hickory_proto::op::Query;
+        use hickory_proto::rr::RecordType;
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixDatagram;
+
+        let reserved = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let listen = reserved.local_addr().unwrap();
+        drop(reserved);
+        let (tun, _peer) = UnixDatagram::pair().unwrap();
+        let spec = |s: &str| s.parse::<ServerSpec>().unwrap();
+        let engine = start_router(
+            tun.into(),
+            "http://:k@127.0.0.1:1".parse().unwrap(),
+            client::outbound::ProxyRoutes(Vec::new()),
+            DEFAULT_MTU,
+            Some(RouterDns {
+                listen,
+                upstream: vec![spec("127.0.0.1")],
+                alternative: vec![spec("127.0.0.1")],
+                search_domains: Vec::new(),
+                local_server: Some(spec("127.0.0.1")),
+                local_domains: vec![Name::from_ascii("lan").unwrap()],
+                cache: true,
+            }),
+            Arc::new(Ignore),
+        )
+        .unwrap();
+
+        // AAAA is answered without asking any server.
+        let mut query = Message::new();
+        query.set_id(7).add_query(Query::query(
+            Name::from_ascii("example.com.").unwrap(),
+            RecordType::AAAA,
+        ));
+        let query = query.to_vec().unwrap();
+
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        udp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        udp.send_to(&query, listen).unwrap();
+        let mut buf = [0; 512];
+        let n = udp.recv(&mut buf).unwrap();
+        assert_eq!(Message::from_vec(&buf[..n]).unwrap().id(), 7);
+
+        let mut tcp = std::net::TcpStream::connect(listen).unwrap();
+        tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        tcp.write_all(&(query.len() as u16).to_be_bytes()).unwrap();
+        tcp.write_all(&query).unwrap();
+        let mut len = [0; 2];
+        tcp.read_exact(&mut len).unwrap();
+        let mut reply = vec![0; u16::from_be_bytes(len).into()];
+        tcp.read_exact(&mut reply).unwrap();
+        assert_eq!(Message::from_vec(&reply).unwrap().id(), 7);
+
+        engine.stop();
+        std::net::UdpSocket::bind(listen).unwrap();
+        std::net::TcpListener::bind(listen).unwrap();
     }
 
     #[test]

@@ -194,8 +194,8 @@ jobs:
         run: ./gradlew :shared:allTests
         working-directory: mobile
 
-  # Builds the static router binaries (the shared packet engine as a native router client, plus the
-  # client and dns-split) and packages them with cpxy-tsgw.
+  # Builds the static router binaries (the shared packet engine as a native router client, which
+  # also answers DNS, plus the client) and packages them with cpxy-tsgw.
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
@@ -238,8 +238,8 @@ jobs:
       - name: Build router executables
         run: >
           cross build --release --locked --target ${{ matrix.target.rust }}
-          -p mobile-engine -p client -p server --features client/dns-split
-          --bin cpxy-router --bin standalone --bin dns_split --bin server
+          -p mobile-engine -p client -p server
+          --bin cpxy-router --bin standalone --bin server
 
       - name: Build package
         env:
@@ -251,7 +251,6 @@ jobs:
           cp executables/cpxy-tsgw bins/
           cp "$RELEASE/cpxy-router" bins/cpxy-router
           cp "$RELEASE/standalone" bins/cpxy-client
-          cp "$RELEASE/dns_split" bins/cpxy-dns-split
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
           docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
             apk add --no-cache openssl
@@ -382,7 +381,7 @@ jobs:
       - name: Build package from stand-in binaries and test install and removal
         run: |
           mkdir bins
-          for b in cpxy-router cpxy-dns-split cpxy-client cpxy-tsgw; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
+          for b in cpxy-router cpxy-client cpxy-tsgw; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
           chmod +x bins/*
           packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
           packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
