@@ -13,7 +13,8 @@ on:
   workflow_dispatch:
 
 # PRs run tests, including the mobile TUN lab; APK and per-platform builds run on main and tags,
-# and the publish job puts them on the download server (download-worker/).
+# and the publish job puts them on the download server (download-worker/). Main also publishes the
+# Docker images to ghcr.io and deploys the download server.
 # PR runs are cancelled when superseded. Everything else shares a single
 # group so only one build runs at a time (a newer pending run replaces an
 # older pending one, but a running build is never cancelled).
@@ -376,7 +377,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends shellcheck
           shellcheck -s sh -S warning -e SC3043 gateway/build.sh
 
-  # The static binaries; the Docker image is built by docker-publish-tsgw.yml.
+  # The static binaries; publish_docker builds the Docker image.
   build_tsgw:
     name: Build cpxy-tsgw (${{ matrix.target.rust }})
     if: github.event_name != 'pull_request'
@@ -474,7 +475,7 @@ jobs:
         working-directory: download-worker
 
   # The bundle image (Dockerfile.bundle), built for this runner and tested against a real cpxy
-  # server; docker-publish-bundle.yml publishes it.
+  # server; build_docker_bundle and publish_docker_bundle publish it.
   test_docker_bundle:
     name: Test Docker bundle (${{ matrix.arch }})
     strategy:
@@ -619,3 +620,224 @@ jobs:
         run: |
           curl -fsS "${DOWNLOAD_URL%/}/$VERSION/SHA256SUMS" | diff - "out/$VERSION/SHA256SUMS"
           echo "Published ${DOWNLOAD_URL%/}/$VERSION/" >>"$GITHUB_STEP_SUMMARY"
+
+  # The cpxy (Dockerfile) and cpxy-tsgw (Dockerfile.tsgw) images, from main. Both Dockerfiles
+  # cross-compile on the build host, so one runner builds both platforms.
+  publish_docker:
+    name: Publish Docker image (${{ matrix.image.name }})
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [test, test_tsgw]
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: cpxy
+            suffix: ''
+            file: ./Dockerfile
+          - name: cpxy-tsgw
+            suffix: -tsgw
+            file: ./Dockerfile.tsgw
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # For the identity challenge with sigstore/fulcio
+      id-token: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}${{ matrix.image.suffix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 #v4.1.1
+        with:
+          cosign-release: 'v2.2.4'
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Log into ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.image.file }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,scope=${{ matrix.image.name }},mode=max
+
+      # Writes to the public Rekor transparency log only when the repository is public
+      - name: Sign the image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+
+  # The bundle image (Dockerfile.bundle), from main. Each architecture builds on its own runner and
+  # pushes its image by digest only; publish_docker_bundle tags the two as one image.
+  build_docker_bundle:
+    name: Build Docker bundle (${{ matrix.arch }})
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test_docker_bundle
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runs_on: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs_on }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}-bundle
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log into ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile.bundle
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=bundle-${{ matrix.arch }}
+          cache-to: type=gha,scope=bundle-${{ matrix.arch }},mode=max
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p digests
+          touch "digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle-digest-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish_docker_bundle:
+    name: Publish Docker bundle
+    needs: build_docker_bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # For the identity challenge with sigstore/fulcio
+      id-token: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}-bundle
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: bundle-digest-*
+          merge-multiple: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 #v4.1.1
+        with:
+          cosign-release: 'v2.2.4'
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log into ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+
+      - name: Create the multi-arch image
+        working-directory: digests
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
+
+      # Writes to the public Rekor transparency log only when the repository is public
+      - name: Sign the image
+        env:
+          TAG: ${{ steps.meta.outputs.version }}
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          cosign sign --yes "$IMAGE@$digest"
+
+  # Deploys download-worker/, which serves the R2 bucket the publish job uploads to, at
+  # https://cpxy-download.<account subdomain>.workers.dev, from every main build: a superseded
+  # pending run is dropped, so deploying only on changes could miss one. Needs the
+  # CLOUDFLARE_API_TOKEN secret (Account: Workers Scripts Edit) and the CLOUDFLARE_ACCOUNT_ID and
+  # R2_BUCKET repository variables; skipped without R2_BUCKET.
+  deploy_download_worker:
+    name: Deploy the download worker
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.R2_BUCKET != ''
+    needs: test_download_worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fill in the bucket
+        working-directory: download-worker
+        env:
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+        run: |
+          sed -i "s|@R2_BUCKET@|$R2_BUCKET|" wrangler.toml
+          cat wrangler.toml
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: download-worker
+          # The action's default is Wrangler 3, which is out of date
+          wranglerVersion: '4.151.0'
