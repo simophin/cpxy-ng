@@ -1,8 +1,8 @@
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
-const SOURCE_PATH: &str = "data/geoip.dat";
-const EXPECTED_SHA256: &str = "150dba0a921e014d6284b4fdb14803aca9e585e6cad41022e9be0f07ee454683";
+const SOURCE_PATH: &str = "data/cn.dat";
+const EXPECTED_SHA256: &str = "e7059375cb244a9391df14b90782c34c10325321275d48cfe8e357649da17140";
 
 fn main() {
     let manifest_dir = PathBuf::from(
@@ -22,7 +22,7 @@ fn main() {
     );
 
     let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo must provide OUT_DIR"))
-        .join("geoip.dat");
+        .join("cn.dat");
     std::fs::write(&output, bytes)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", output.display()));
 }

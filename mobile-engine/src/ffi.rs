@@ -3,9 +3,6 @@
 
 use crate::connection_log::{self, ConnectionLog, ConnectionPage};
 use crate::{EngineHandle, EventListener, OutboundEvent, TrafficStats};
-use cpxy_ng::geoip::find_country_code_v4;
-use geoip_data::GEOIP;
-use std::net::Ipv4Addr;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::Arc;
 
@@ -31,15 +28,6 @@ pub struct ConnectionEvent {
     pub time_millis: u64,
     /// Set when connecting failed.
     pub error: Option<String>,
-    /// The ISO 3166-1 alpha-2 code of the country `ip` is in, when known.
-    pub country_code: Option<String>,
-}
-
-fn country_code_of(ip: Ipv4Addr) -> Option<String> {
-    find_country_code_v4(&ip, GEOIP)
-        .ok()
-        .flatten()
-        .map(str::to_owned)
 }
 
 impl From<OutboundEvent> for ConnectionEvent {
@@ -53,7 +41,6 @@ impl From<OutboundEvent> for ConnectionEvent {
                 delay_mills,
                 request_time_mills,
             } => Self {
-                country_code: ip.and_then(country_code_of),
                 ip: ip.map(|ip| ip.to_string()),
                 host,
                 port,
@@ -71,7 +58,6 @@ impl From<OutboundEvent> for ConnectionEvent {
                 request_time_mills,
                 error,
             } => Self {
-                country_code: ip.and_then(country_code_of),
                 ip: ip.map(|ip| ip.to_string()),
                 host,
                 port,
@@ -176,6 +162,7 @@ fn init_logging() {
 mod tests {
     use super::*;
     use std::borrow::Cow;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn converts_outbound_events() {
@@ -199,16 +186,8 @@ mod tests {
                 delay_millis: 12,
                 time_millis: 34,
                 error: Some("refused".into()),
-                country_code: Some("AU".into()),
             }
         );
-    }
-
-    #[test]
-    fn looks_up_country_codes() {
-        assert_eq!(country_code_of([1, 0, 1, 1].into()).as_deref(), Some("CN"));
-        assert_eq!(country_code_of([8, 8, 8, 8].into()).as_deref(), Some("US"));
-        assert_eq!(country_code_of([192, 168, 1, 1].into()), None);
     }
 
     #[test]

@@ -2,9 +2,9 @@ use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes};
 use client::protocol_config::Config as ServerConfig;
 use client::stats_server::OutboundEvent;
 use cpxy_ng::either_stream::EitherStream;
-use cpxy_ng::geoip::find_country_code_v4;
+use cpxy_ng::geoip::contains_v4;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use geoip_data::GEOIP;
+use geoip_data::CN;
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::time::{Instant, SystemTime};
@@ -158,10 +158,7 @@ impl Outbound for Router {
 }
 
 pub fn should_route_direct(ip: Ipv4Addr) -> bool {
-    ip.is_private()
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || matches!(find_country_code_v4(&ip, GEOIP), Ok(Some("CN")))
+    ip.is_private() || ip.is_loopback() || ip.is_link_local() || contains_v4(&ip, CN)
 }
 
 #[cfg(test)]
