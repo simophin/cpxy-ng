@@ -1,10 +1,12 @@
-//! Answers DNS sent to the virtual DNS server with `dns_split`.
+//! Answers DNS sent to the virtual DNS server, or to a router's DNS sockets, with `dns_split`.
 
 use anyhow::Context;
-use client::dns_split::cache::{CacheOptions, DnsCache};
+use client::dns_split::cache::{CacheOptions, DnsCache, purge_expired_every};
 use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
-use client::dns_split::server::{DnsSplitHandler, encode_udp, serve_tcp_connection};
+use client::dns_split::server::{
+    DnsSplitHandler, encode_udp, serve_tcp, serve_tcp_connection, serve_udp,
+};
 use client::dns_split::spec::ServerSpec;
 use client::dns_split::upstream::{
     Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
@@ -14,9 +16,13 @@ use client::protocol_config::Config as ServerConfig;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use hickory_proto::op::Message;
+use hickory_proto::rr::Name;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, UdpSocket};
+use tokio::task::JoinSet;
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Clients usually send each query from a fresh port, so a UDP flow is done once it goes quiet.
@@ -26,41 +32,94 @@ const CACHE_OPTIONS: CacheOptions = CacheOptions {
     max_ttl: 86400,
     negative_ttl: 300,
 };
+const PURGE_INTERVAL: Duration = Duration::from_secs(300);
+
+/// The servers `dns_split` asks, and how it answers.
+pub struct Specs<'a> {
+    pub upstream: &'a [ServerSpec],
+    pub alternative: &'a [ServerSpec],
+    pub search_domains: &'a [Name],
+    /// The network's own resolver and the domains only it knows, as in
+    /// [`DnsSplitHandler::with_local`].
+    pub local: Option<(&'a ServerSpec, &'a [Name])>,
+    pub cache: bool,
+}
 
 /// Servers given with `?via=cpxy` are reached through `server`, without the routing that
-/// decides between direct and the cpxy server for the device's flows.
-pub async fn handler(
-    upstream: &[ServerSpec],
-    alternative: &[ServerSpec],
-    search_domains: &[hickory_proto::rr::Name],
-    server: &ServerConfig,
-) -> anyhow::Result<DnsSplitHandler> {
+/// decides between direct and the cpxy server for the device's flows. Must run on the engine's
+/// runtime, which then purges the cache's expired answers.
+pub async fn handler(specs: &Specs<'_>, server: &ServerConfig) -> anyhow::Result<DnsSplitHandler> {
     let tls_config = tls_client_config()?;
     let cpxy: Arc<dyn Dialer> =
         Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(server.clone()))));
+    let new_upstream = async |spec: &ServerSpec| {
+        HickoryUpstream::new(spec, tls_config.clone(), QUERY_TIMEOUT, Some(cpxy.clone())).await
+    };
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
-    for (group, specs) in [
-        (Group::Upstream, upstream),
-        (Group::Alternative, alternative),
+    for (group, group_specs) in [
+        (Group::Upstream, specs.upstream),
+        (Group::Alternative, specs.alternative),
     ] {
-        for spec in specs {
-            let server =
-                HickoryUpstream::new(spec, tls_config.clone(), QUERY_TIMEOUT, Some(cpxy.clone()))
-                    .await
-                    .with_context(|| format!("Error setting up {group} DNS server {spec}"))?;
+        for spec in group_specs {
+            let server = new_upstream(spec)
+                .await
+                .with_context(|| format!("Error setting up {group} DNS server {spec}"))?;
             tracing::info!("Using {group} DNS server {}", server.name());
             servers.push((group, Arc::new(server)));
         }
     }
 
-    // In memory: the app has no use for answers across restarts, and the cache only lives as
-    // long as the tunnel.
-    let cache = DnsCache::open_in_memory(CACHE_OPTIONS).await?;
-    Ok(DnsSplitHandler::new(
+    // In memory: answers are not kept across restarts, and the cache only lives as long as the
+    // engine.
+    let cache = if specs.cache {
+        let cache = Arc::new(DnsCache::open_in_memory(CACHE_OPTIONS).await?);
+        tokio::spawn(purge_expired_every(cache.clone(), PURGE_INTERVAL));
+        Some(cache)
+    } else {
+        None
+    };
+    let mut handler = DnsSplitHandler::new(
         Racer::new(servers, QUERY_TIMEOUT, is_local_region_ip),
-        Some(Arc::new(cache)),
+        cache,
     )
-    .with_search_domains(search_domains.to_vec()))
+    .with_search_domains(specs.search_domains.to_vec());
+    if let Some((spec, domains)) = specs.local {
+        let server = new_upstream(spec)
+            .await
+            .with_context(|| format!("Error setting up local DNS server {spec}"))?;
+        tracing::info!("Using local DNS server {} for local names", server.name());
+        let domains = domains.iter().map(|domain| {
+            let mut domain = domain.clone();
+            domain.set_fqdn(true);
+            domain
+        });
+        handler = handler.with_local(Arc::new(server), domains.collect());
+    }
+    Ok(handler)
+}
+
+/// A router's DNS sockets: UDP and TCP on one address.
+pub(crate) struct Listeners {
+    udp: UdpSocket,
+    tcp: TcpListener,
+}
+
+impl Listeners {
+    pub async fn bind(addr: SocketAddr) -> anyhow::Result<Self> {
+        let udp = UdpSocket::bind(addr)
+            .await
+            .with_context(|| format!("Cannot bind DNS on UDP {addr}"))?;
+        let tcp = TcpListener::bind(addr)
+            .await
+            .with_context(|| format!("Cannot bind DNS on TCP {addr}"))?;
+        tracing::info!("Answering DNS on {addr}");
+        Ok(Self { udp, tcp })
+    }
+
+    pub fn spawn(self, handler: Arc<DnsSplitHandler>, tasks: &mut JoinSet<anyhow::Result<()>>) {
+        tasks.spawn(serve_udp(self.udp, handler.clone()));
+        tasks.spawn(serve_tcp(self.tcp, handler));
+    }
 }
 
 /// Answers each datagram of one UDP flow, concurrently: resolvers often send the A and AAAA

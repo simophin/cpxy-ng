@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use client::dns_split::cache::{CacheOptions, DnsCache, unix_now};
+use client::dns_split::cache::{CacheOptions, DnsCache, purge_expired_every};
 use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
 use client::dns_split::server::{DnsSplitHandler, serve_tcp, serve_udp};
@@ -122,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
             .await?,
         );
         tracing::info!("Caching answers in {}", options.cache_db.display());
-        tokio::spawn(purge_expired(cache.clone()));
+        tokio::spawn(purge_expired_every(cache.clone(), PURGE_INTERVAL));
         Some(cache)
     };
 
@@ -156,17 +156,6 @@ async fn main() -> anyhow::Result<()> {
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("Shutting down");
             Ok(())
-        }
-    }
-}
-
-async fn purge_expired(cache: Arc<DnsCache>) {
-    loop {
-        tokio::time::sleep(PURGE_INTERVAL).await;
-        match cache.purge_expired(unix_now()).await {
-            Ok(0) => {}
-            Ok(n) => tracing::debug!("Purged {n} expired cache entries"),
-            Err(e) => tracing::warn!("Error purging DNS cache: {e:?}"),
         }
     }
 }

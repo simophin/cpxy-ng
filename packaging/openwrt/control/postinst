@@ -5,6 +5,8 @@
 # boot links and generated files
 rm -f "${IPKG_INSTROOT}"/etc/rc.d/[SK][0-9][0-9]cpxy-smartdns
 [ -n "${IPKG_INSTROOT}" ] || rm -f /tmp/cpxy/smartdns-*.conf
+# cpxy-router answers DNS itself now; the separate cpxy-dns-split's settings held the server key
+[ -n "${IPKG_INSTROOT}" ] || rm -f /tmp/cpxy/dns-*.env
 rmdir "${IPKG_INSTROOT}/usr/share/doc/cpxy" 2>/dev/null
 # Enables and starts the cpxy-* services; they wait until a server is configured
 default_postinst "$0" "$@"

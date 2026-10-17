@@ -16,6 +16,30 @@ fn main() -> anyhow::Result<()> {
         /// exceed the smallest MTU on the path back to clients (1280 behind tailscale0).
         #[arg(long, default_value_t = mobile_engine::DEFAULT_MTU)]
         mtu: u16,
+        /// Answer DNS with dns_split on this address, for both UDP and TCP. The other --dns
+        /// options need it.
+        #[arg(long, requires_all = ["dns_upstream", "dns_alternative"])]
+        dns_listen: Option<std::net::SocketAddr>,
+        /// Upstream DNS server: an IP, udp://, tcp://, tls:// or https:// URL. Repeatable.
+        #[arg(long, value_delimiter = ',', requires = "dns_listen")]
+        dns_upstream: Vec<client::dns_split::spec::ServerSpec>,
+        /// Alternative DNS server, in the same format as --dns-upstream. Repeatable.
+        #[arg(long, value_delimiter = ',', requires = "dns_listen")]
+        dns_alternative: Vec<client::dns_split::spec::ServerSpec>,
+        /// Suffix to try for single-label names, in order, before the bare name. Repeatable.
+        #[arg(long, value_delimiter = ',', requires = "dns_listen", value_parser = client::dns_split::search::parse_search_domain)]
+        dns_search_domain: Vec<hickory_proto::rr::Name>,
+        /// The router's own resolver (dnsmasq), in the same format as --dns-upstream. It answers
+        /// single-label names, names under --dns-local-domain and reverse lookups of private
+        /// addresses, which are not split or cached.
+        #[arg(long, requires = "dns_listen")]
+        dns_local_server: Option<client::dns_split::spec::ServerSpec>,
+        /// A domain only the local resolver knows, e.g. `lan`. Repeatable.
+        #[arg(long, value_delimiter = ',', requires = "dns_local_server")]
+        dns_local_domain: Vec<hickory_proto::rr::Name>,
+        /// Disable the in-memory DNS answer cache
+        #[arg(long, requires = "dns_listen")]
+        no_dns_cache: bool,
         // Keep the secret out of process arguments and parser diagnostics.
     }
     struct Listener;
@@ -28,12 +52,23 @@ fn main() -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("SERVER is required"))?
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid SERVER URL"))?;
+    // dns_split asks the servers given with ?via=cpxy through the same server.
+    let dns = options.dns_listen.map(|listen| mobile_engine::RouterDns {
+        listen,
+        upstream: options.dns_upstream,
+        alternative: options.dns_alternative,
+        search_domains: options.dns_search_domain,
+        local_server: options.dns_local_server,
+        local_domains: options.dns_local_domain,
+        cache: !options.no_dns_cache,
+    });
     let tun = mobile_engine::linux::create_tun(&options.tun)?;
     let engine = mobile_engine::start_router(
         tun,
         server,
         client::outbound::ProxyRoutes(options.proxy_route),
         options.mtu,
+        dns,
         Arc::new(Listener),
     )?;
     let result = tokio::runtime::Builder::new_current_thread()

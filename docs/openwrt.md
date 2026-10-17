@@ -215,8 +215,8 @@ Names dnsmasq answers specially outside those domains (an `address=/name/` entry
 `console.gl-inet.com`) are resolved publicly for redirected networks; add their domains to
 `dns_local_domain` to keep dnsmasq's answer.
 
-While an instance's dns_split is down, its networks have no DNS until procd restarts it, just as
-their TCP stops while the packet engine is down.
+dns_split runs inside the instance's `cpxy-router`, so while that is down or restarting, its
+networks have neither TCP nor DNS until procd starts it again.
 
 ### Tailscale
 
@@ -260,6 +260,6 @@ the details.
 | Nothing starts | `cpxy-show` names what is missing or clashing. |
 | A network's devices are not proxied | `logread -e cpxy` for "has no device yet"; check `network` against `uci show network`. |
 | A network has no internet | The server URL or key is wrong, or the server is unreachable: `logread -e cpxy-router`. |
-| Names do not resolve | `logread -e cpxy-dns-split`: it shows each server it uses, and the errors reaching them or the instance's server. |
+| Names do not resolve | `logread -e cpxy-router`: it shows each DNS server it uses, and the errors reaching them or the instance's server. |
 | Local names (`printer.lan`) do not resolve | `dns_local_domain`, and that dnsmasq answers on `dns_local_server`. |
 | The exit node does not appear | It is not logged in or not approved: `logread -e cpxy-tsgw`. |

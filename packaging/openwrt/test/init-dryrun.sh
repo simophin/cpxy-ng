@@ -111,6 +111,7 @@ uci set cpxy.iot.index=2
 uci add_list cpxy.iot.network=iot
 uci set cpxy.iot.tsgw=0
 uci set cpxy.iot.client_socks5=1
+uci set cpxy.iot.dns_cache=0
 uci commit cpxy
 
 everything start_service
@@ -123,27 +124,27 @@ want 'HTTP_PROXY_LISTEN=[::]:5002 PROXY_ROUTES= NO_COLOR=1 SOCKS5_PROXY_LISTEN=[
 want 'set file /tmp/cpxy/client-guest.env'
 grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
-# cpxy-router: a worker and a dns_split per instance
+# cpxy-router: one worker per instance, which also answers its DNS
 want 'up cpxy0 100 9100 br-lan'
 want 'up cpxy1 101 9110 br-guest'
 want 'up cpxy2 102 9120 br-iot'
 want 'set command /usr/bin/cpxy-router --tun cpxy1'
 want 'set env SERVER=https://:guest-key@second.example:443 NO_COLOR=1'
-want 'instance guest_dns'
-want 'set command /usr/bin/cpxy-dns-split --listen 0.0.0.0:5345'
-want 'append command --alternative tcp://1.1.1.1?via=cpxy'
-absent 'append command --alternative tcp://8.8.8.8'
-# dns_split asks those through its instance's server, whose key stays out of the process list
-want 'set file /tmp/cpxy/dns-guest.env'
-grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/dns-guest.env || fail 'dns_split server'
+absent '_dns'
+absent 'cpxy-dns-split'
+want 'append command --dns-listen 0.0.0.0:5345'
+want 'append command --dns-alternative tcp://1.1.1.1?via=cpxy'
+absent 'append command --dns-alternative tcp://8.8.8.8'
+# The worker asks those through its instance's server, whose key stays out of the process list
+grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/router-guest.env || fail 'router server'
 absent 'append command --server'
-want 'append command --local-server 127.0.0.1:53'
-want 'append command --local-domain lan'
-want 'append command --search-domain home.arpa'
-want 'append command --search-domain corp.example'
+want 'append command --dns-local-server 127.0.0.1:53'
+want 'append command --dns-local-domain lan'
+want 'append command --dns-search-domain home.arpa'
+want 'append command --dns-search-domain corp.example'
 grep -qxF 'DNS_SEARCH_DOMAINS=home.arpa,corp.example' /tmp/cpxy/tsgw-guest.env || fail 'tsgw search domains'
-want 'append command --cache-db /tmp/cpxy/dns-iot.sqlite'
-[ "$(grep -c -- '--local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
+[ "$(grep -c -- '--no-dns-cache' "$LOG")" = 1 ] || fail 'dns_cache off for iot only'
+[ "$(grep -c -- '--dns-local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
 absent 'append command --sinkhole'
 [ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'source zone lookup'
 [ "$(uci get firewall.cpxy_inst_guest_zone.device)" = cpxy1 ] || fail 'TUN zone'
@@ -246,7 +247,10 @@ uci add_list cpxy.main.network=lan
 if service cpxy-router reload_service 2>/tmp/err; then fail 'zone shared with an unmanaged network accepted'; fi
 grep -qF "also holds network 'extra'" /tmp/err || fail 'missing error: zone holds another network'
 uci set cpxy.main.router_dns=0
+: >"$LOG"
 router reload_service
+want 'set command /usr/bin/cpxy-router --tun cpxy0'
+[ "$(grep -c -- '--dns-listen' "$LOG")" = 2 ] || fail 'router_dns 0 still answers DNS'
 uci set cpxy.main.router_dns=1
 uci add_list cpxy.main.network=extra
 uci add_list cpxy.guest.network=extra

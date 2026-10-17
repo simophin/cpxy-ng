@@ -7,8 +7,7 @@ what it changes on the router and how it is built and tested.
 | Installed as | Built from | Role, per instance |
 |---|---|---|
 | `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP (and SOCKS5) proxy through the instance's server |
-| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | The networks' TCP from `cpxy<i>` to the server (local region: direct) |
-| `/usr/bin/cpxy-dns-split` | `client` crate, `dns_split` | The networks' DNS; overseas servers asked through the instance's server |
+| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | The networks' TCP from `cpxy<i>` to the server (local region: direct), and their DNS with dns_split (overseas servers asked through the server) |
 | `/usr/bin/cpxy-tsgw` | `gateway/` (Go, linked to the engine) | Tailscale exit node |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
@@ -43,7 +42,7 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
 | `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` a DNS redirect and an IPv6 DNS refusal per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
 | Kernel | per routed instance: a persistent TUN, four rule priorities and a routing table | reload, `stop`, `opkg remove` |
-| `/tmp/cpxy` | saved resource assignments, the services' settings (root only), DNS caches | `stop`, `opkg remove`, reboot |
+| `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
 | `/etc/cpxy/tsgw/<name>` | each exit node's Tailscale identity, kept across sysupgrade | deleted by hand |
 
 `/etc/config/dhcp` and `/etc/config/network` are never edited. Firewall source zones are found
@@ -55,9 +54,8 @@ redirected. Firewall UCI commits normalise that file and drop comments, as LuCI 
 ```sh
 cargo build --release --locked -p mobile-engine --bin cpxy-router
 cargo build --release --locked -p client --bin standalone
-cargo build --release --locked -p client --features dns-split --bin dns_split
 gateway/build.sh aarch64-unknown-linux-musl bins/cpxy-tsgw
-# Copy the Rust binaries into bins/ as cpxy-router, cpxy-client and cpxy-dns-split, then:
+# Copy the Rust binaries into bins/ as cpxy-router and cpxy-client, then:
 packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container

@@ -3,13 +3,12 @@
 #
 # usage: build-ipk.sh <opkg arch> <version> <bin dir> <out dir>
 #   <opkg arch>  what `opkg print-architecture` shows on the router, e.g. aarch64_cortex-a53
-#   <bin dir>    holds, for that architecture: cpxy-router, cpxy-dns-split, cpxy-client and
-#                cpxy-tsgw
+#   <bin dir>    holds, for that architecture: cpxy-router, cpxy-client and cpxy-tsgw
 # CPXY_FEED_URL  optional: the feed's base URL (https://<host>), which the package then lists in
 #                /etc/opkg/cpxy.conf so `opkg update && opkg upgrade cpxy` finds newer versions
 set -eu
 
-[ $# -eq 4 ] || { sed -n '2,10p' "$0" >&2; exit 2; }
+[ $# -eq 4 ] || { sed -n '2,8p' "$0" >&2; exit 2; }
 arch="$1" version="$2" bindir="$3" outdir="$4"
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -22,7 +21,7 @@ bindir="$(cd "$bindir" && pwd)"
 outdir="$(cd "$outdir" && pwd)"
 cp -R "$here/files/." "$work/data/"
 cp "$here/../common/net.sh" "$work/data/usr/libexec/cpxy/net.sh"
-for bin in cpxy-router cpxy-dns-split cpxy-client cpxy-tsgw; do
+for bin in cpxy-router cpxy-client cpxy-tsgw; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
 chmod 0755 "$work/data/etc/init.d/"*

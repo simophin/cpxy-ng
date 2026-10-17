@@ -5,7 +5,8 @@ use hickory_proto::rr::{RData, Record};
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy)]
 pub struct CacheOptions {
@@ -136,6 +137,18 @@ impl DnsCache {
             .execute(&self.pool)
             .await?
             .rows_affected())
+    }
+}
+
+/// Purges expired answers every `interval`, forever.
+pub async fn purge_expired_every(cache: Arc<DnsCache>, interval: Duration) {
+    loop {
+        tokio::time::sleep(interval).await;
+        match cache.purge_expired(unix_now()).await {
+            Ok(0) => {}
+            Ok(n) => tracing::debug!("Purged {n} expired cache entries"),
+            Err(e) => tracing::warn!("Error purging DNS cache: {e:?}"),
+        }
     }
 }
 
