@@ -224,6 +224,7 @@ dependencies = [
  "axum-core",
  "base64 0.22.1",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http",
  "http-body",
@@ -239,6 +240,7 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_path_to_error",
+ "serde_urlencoded",
  "sha1 0.10.7",
  "sync_wrapper",
  "tokio",
@@ -1608,6 +1610,7 @@ name = "mobile-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "client",
  "cpxy-ng",
@@ -1623,6 +1626,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "uniffi",
