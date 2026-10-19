@@ -129,3 +129,22 @@ For example, through the SSH tunnel:
 curl http://127.0.0.1:3010/api/traffic
 curl 'http://127.0.0.1:3010/api/connections?limit=20'
 ```
+
+## Development checks
+
+`cargo test --locked -p mobile-engine` covers the shared history, HTTP contract and CLI.
+On Linux, the routing lab (`packaging/openwrt/test/lab.sh`) also checks the API against real
+TUN traffic and worker restarts; `packaging/openwrt/test/init-dryrun.sh` checks OpenWrt settings.
+
+The browser regression test uses Node 22 or newer and an installed Chrome, with no npm packages:
+
+```sh
+node --test mobile-engine/test/traffic-ui.mjs
+# If Chrome is not in its default location:
+CHROME_BIN=/path/to/chrome node --test mobile-engine/test/traffic-ui.mjs
+```
+
+It starts a loopback fixture server and an isolated headless browser, then checks following,
+pagination, history limits, eviction/restart recovery, retries, hidden tabs, safe text rendering,
+and phone layout. CI runs it alongside the engine tests. Test fixtures are not bundled into
+the router or served by its API.

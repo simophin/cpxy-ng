@@ -130,7 +130,7 @@ async fn response_headers(request: axum::extract::Request, next: Next) -> Respon
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert("content-security-policy", HeaderValue::from_static(
-        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
     ));
     headers.insert(
         "x-content-type-options",

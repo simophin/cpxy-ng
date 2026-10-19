@@ -20,7 +20,8 @@ label { margin-left: auto; cursor: pointer; white-space: nowrap; }
 input { accent-color: var(--accent); }
 #message { padding: 12px 0; color: var(--muted); font-size: .9rem; }
 #message:empty { display: none; }
-ol { list-style: none; margin: 0; padding: 0; overflow-anchor: none; }
+ol { list-style: none; margin: 0; padding: 0; height: max(240px, calc(100dvh - 350px)); max-height: 720px; overflow-y: auto; overflow-anchor: none; scrollbar-gutter: stable; }
+ol:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 li { border-bottom: 1px solid var(--line); padding: 12px 0; align-items: flex-start; }
 time { width: 70px; flex-shrink: 0; font-size: .8rem; padding-top: 3px; font-variant-numeric: tabular-nums; }
 .destination { flex: 1; min-width: 0; overflow-wrap: anywhere; }

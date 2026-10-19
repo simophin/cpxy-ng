@@ -47,8 +47,9 @@ function element(tag, text, className) {
 
 function render() {
   const fragment = document.createDocumentFragment();
-  for (const { event } of records) {
+  for (const { seq, event } of records) {
     const row = element("li", undefined, event.error === null ? "" : "failed");
+    row.dataset.seq = seq;
     const date = new Date(event.time_millis);
     const time = element("time", date.toLocaleTimeString(undefined, { hour12: false }));
     time.dateTime = date.toISOString();
@@ -74,10 +75,12 @@ async function latest() {
   adoptSession(page.session);
   records = page.records;
   oldestSeq = page.oldest_seq;
+  return true;
 }
 
 async function newer() {
   if (!records.length) return latest();
+  let changed = false;
   // Limit each poll's work so a busy router cannot monopolize the browser.
   for (let pageNumber = 0; pageNumber < 5; pageNumber++) {
     const since = records[records.length - 1].seq + 1;
@@ -88,9 +91,11 @@ async function newer() {
     }
     oldestSeq = page.oldest_seq;
     records.push(...page.records);
+    changed ||= page.records.length > 0;
     if (records.length > MAX_ROWS) records.splice(0, records.length - MAX_ROWS);
     if (page.records.length < PAGE_SIZE) break;
   }
+  return changed;
 }
 
 async function update(mode = "poll") {
@@ -98,6 +103,7 @@ async function update(mode = "poll") {
   clearTimeout(timer);
   busy = true;
   ui.older.disabled = true;
+  ui.latest.disabled = true;
   try {
     const stats = await get("/api/traffic");
     const restarted = adoptSession(stats.session);
@@ -121,21 +127,20 @@ async function update(mode = "poll") {
       await latest();
       changed = true;
     } else if (ui.follow.checked) {
-      await newer();
-      changed = true;
+      changed = await newer();
     }
     // Preserve the viewed connection when prepending or refreshing while browsing history.
-    const anchorIndex = mode === "older" ? Array.from(ui.connections.children).findIndex(row => row.getBoundingClientRect().bottom > 0) : -1;
+    const anchorIndex = mode === "older" ? Array.from(ui.connections.children).findIndex(row => row.getBoundingClientRect().bottom > ui.connections.getBoundingClientRect().top) : -1;
     const anchor = anchorIndex >= 0 ? ui.connections.children[anchorIndex] : null;
     const top = anchor?.getBoundingClientRect().top;
     const anchorSeq = anchor?.dataset.seq;
     if (changed) {
       render();
-      records.forEach((record, index) => { ui.connections.children[index].dataset.seq = record.seq; });
       if (anchorSeq) {
         const index = records.findIndex(record => String(record.seq) === anchorSeq);
-        if (index >= 0) window.scrollBy(0, ui.connections.children[index].getBoundingClientRect().top - top);
-      } else if (ui.follow.checked) window.scrollTo(0, document.body.scrollHeight);
+        if (index >= 0) ui.connections.scrollTop += ui.connections.children[index].getBoundingClientRect().top - top;
+        else ui.connections.scrollTop = 0;
+      } else if (ui.follow.checked) ui.connections.scrollTop = ui.connections.scrollHeight;
     }
   } catch (error) {
     if (!document.hidden) {
@@ -144,6 +149,7 @@ async function update(mode = "poll") {
     }
   } finally {
     busy = false;
+    ui.latest.disabled = false;
     ui.older.disabled = !records.length || records[0].seq <= oldestSeq;
     if (!document.hidden) timer = setTimeout(() => update(), POLL_MS);
   }
@@ -165,8 +171,8 @@ ui.follow.addEventListener("change", () => {
   notice = "";
   if (ui.follow.checked) update("latest");
 });
-window.addEventListener("scroll", () => {
-  if (document.documentElement.scrollHeight - window.innerHeight - window.scrollY > 100) ui.follow.checked = false;
+ui.connections.addEventListener("scroll", () => {
+  if (ui.connections.scrollHeight - ui.connections.clientHeight - ui.connections.scrollTop > 100) ui.follow.checked = false;
 }, { passive: true });
 document.addEventListener("visibilitychange", () => {
   clearTimeout(timer);

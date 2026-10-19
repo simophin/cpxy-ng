@@ -154,6 +154,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test engine
         run: cargo test --locked -p mobile-engine
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Test offline traffic UI in Chrome
+        run: node --test mobile-engine/test/traffic-ui.mjs
       - name: Build Linux lab executables
         run: cargo build --release --locked -p server -p mobile-engine
       - name: Prepare namespace lab
