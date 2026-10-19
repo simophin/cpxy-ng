@@ -169,6 +169,31 @@ absent 'TS_HOSTNAME=cpxy-iot'
 [ -d /etc/cpxy/tsgw/guest ] || fail 'tsgw state directory'
 absent 'TS_AUTHKEY'
 
+# Monitoring is opt-in, uses one port per instance, and never changes routing on reload.
+absent 'append command --api-listen'
+uci set cpxy.defaults.router_api=1
+uci set cpxy.iot.router_api=0
+uci set cpxy.guest.router_api_listen='[::1]:3021'
+everything reload_service
+want 'append command --api-listen 127.0.0.1:3010'
+want 'append command --api-listen [::1]:3021'
+[ "$(grep -c -- '--api-listen' "$LOG")" = 2 ] || fail 'API enable override'
+absent 'up '
+absent 'down '
+uci set cpxy.guest.router_api_listen=127.0.0.1:5000
+invalid 'tcp 5000 is already used'
+for address in bad 127.0.0.1:0 127.0.0.1:65536 999.0.0.1:3011 ::1:3011; do
+	uci set cpxy.guest.router_api_listen="$address"
+	invalid 'router_api_listen must be an IPv4:port or [IPv6]:port address'
+done
+uci delete cpxy.guest.router_api_listen
+everything reload_service
+want 'append command --api-listen 127.0.0.1:3011'
+uci delete cpxy.defaults.router_api
+uci delete cpxy.iot.router_api
+everything reload_service
+absent 'append command --api-listen'
+
 # Fixed routes inherit defaults, while an instance's list replaces them.
 uci add_list cpxy.defaults.proxy_route=223.5.5.5/32
 uci add_list cpxy.defaults.proxy_route=10.20.0.0/16

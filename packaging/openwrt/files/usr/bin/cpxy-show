@@ -20,6 +20,7 @@ instance $1 (index $CPXY_INDEX)
   client          $(_on "$CPXY_CLIENT"): HTTP $CPXY_HTTP_LISTEN$([ "$CPXY_SOCKS5" = 1 ] && echo ", SOCKS5 $CPXY_SOCKS5_LISTEN")
   router          $(_on "$routed"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$((CPXY_PRIORITY + 3))
   router DNS      $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
+  router traffic  $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_API" || echo off): $CPXY_ROUTER_API_LISTEN
   tsgw            $(_on "$CPXY_TSGW"): $CPXY_TSGW_HOSTNAME, UDP $CPXY_TSGW_PORT, state $CPXY_TSGW_STATE_DIR$([ "$CPXY_TSGW_PROXY" = 1 ] && echo ", via $CPXY_PROXY")
   dns upstream    $CPXY_DNS_UPSTREAM
   dns alternative $CPXY_DNS_ALTERNATIVE
