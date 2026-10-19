@@ -68,6 +68,10 @@ has it as a secret), and with the debug key otherwise. The two cannot update eac
 
 The engine logs to logcat with the tag `cpxy-engine`.
 
+The recent TCP connection history lives in the Rust engine and is shared with
+[cpxy-router's optional offline traffic API and browser page](../docs/router-traffic.md).
+Android reads the same bounded history through UniFFI; it does not start an HTTP listener.
+
 ## Share the VPN connection over Wi-Fi
 
 In Settings → Share connection, enable HTTP proxy and/or SOCKS5 proxy and choose their ports

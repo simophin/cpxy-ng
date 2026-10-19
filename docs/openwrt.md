@@ -154,6 +154,7 @@ The `index` gives each instance its own ports, devices and routing numbers:
 | `client_http_listen` | `[::]:5000+i` | 5000 | 5001 | 5002 |
 | `client_socks5_listen` (with `client_socks5 1`) | `[::]:1080+i` | 1080 | 1081 | 1082 |
 | `dns_listen` (dns_split) | `0.0.0.0:5335+10i` | 5335 | 5345 | 5355 |
+| `router_api_listen` (with `router_api 1`) | `127.0.0.1:3010+i` | 3010 | 3011 | 3012 |
 | `tun` | `cpxy<i>` | cpxy0 | cpxy1 | cpxy2 |
 | `routing_table` | `100+i` | 100 | 101 | 102 |
 | `rule_priority` (and the next 3) | `9100+10i` | 9100 | 9110 | 9120 |
@@ -182,6 +183,7 @@ never taken from `defaults`.
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |
 | `dns_local_server` | `127.0.0.1:53` | The router's own resolver, dnsmasq. |
 | `router_dns` | `1` | Answer all IPv4 DNS from the instance's networks with its dns_split. |
+| `router_api` | `0` | Enable the offline traffic page and read-only API, on `router_api_listen`. No authentication; loopback by default. See [traffic monitoring](router-traffic.md). |
 | `tsgw_authkey` | none | A Tailscale auth key, to log in without the link. |
 | `tsgw_control_url` | Tailscale's | A different coordination server, e.g. Headscale. One whose certificate is not from Let's Encrypt also needs `opkg install ca-bundle`. |
 | `tsgw_mtu` | `1280` | The largest packet sent back to Tailscale clients. |
@@ -231,6 +233,18 @@ Each instance with `tsgw` on is its own machine on your tailnet, `cpxy-<name>`. 
 The login is kept in `/etc/cpxy/tsgw/<name>`, across reboots and firmware upgrades. Phones then
 pick `cpxy-<name>` as exit node in the Tailscale app. [The cpxy-tsgw guide](cpxy-tsgw.md) has
 the details.
+
+### Traffic view
+
+Enable the embedded browser page for an instance with `uci set cpxy.main.router_api=1`,
+`uci commit cpxy`, then `/etc/init.d/cpxy-router reload`. From your computer, run
+`ssh -N -L 3010:127.0.0.1:3010 root@192.168.2.1` and open **http://127.0.0.1:3010/**.
+Each instance has its own port (`3010+index`) and history. The page works entirely offline,
+showing recent TCP connections and tunnel byte totals. It has no authentication; keep the
+listener on loopback or a trusted management interface.
+
+See the [traffic API and browser guide](router-traffic.md) for direct LAN access, pagination,
+and what traffic the worker records.
 
 ## Day-to-day use
 

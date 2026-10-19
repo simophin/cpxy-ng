@@ -111,6 +111,7 @@ _start_worker() {
 	local entry
 	procd_open_instance "${1}_tun"
 	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN" --ipv6 "$CPXY_IPV6"
+	[ "$CPXY_ROUTER_API" = 0 ] || procd_append_param command --api-listen "$CPXY_ROUTER_API_LISTEN"
 	for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
 	if [ "$DNS_PORT" != - ]; then
 		procd_append_param command --dns-listen "$CPXY_DNS_LISTEN"

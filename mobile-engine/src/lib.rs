@@ -24,20 +24,23 @@ pub mod linux;
 mod proxy;
 mod routing;
 mod sni;
+#[cfg(any(target_os = "linux", test))]
+pub mod traffic_api;
 mod tun;
 
 pub use client::stats_server::OutboundEvent;
 pub use config::{
     Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_ADDR_V6, TUN_PREFIX_LEN, TUN_PREFIX_LEN_V6,
 };
-pub use connection_log::{ConnectionPage, ConnectionRecord};
-pub use ffi::{ConnectionEvent, Engine, EngineError, start_engine};
+pub use connection_log::{ConnectionEvent, ConnectionPage, ConnectionRecord};
+pub use ffi::{Engine, EngineError, start_engine};
 
 uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
 use client::dns_split::spec::ServerSpec;
 pub use client::ipv6::Ipv6Mode;
+use connection_log::ConnectionLog;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
@@ -91,7 +94,12 @@ pub trait EventListener: Send + Sync {
     fn on_outbound_event(&self, event: OutboundEvent);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, uniffi::Record)]
+/// Use `()` when no callback is needed; connection history is still recorded.
+impl EventListener for () {
+    fn on_outbound_event(&self, _: OutboundEvent) {}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, uniffi::Record)]
 pub struct TrafficStats {
     /// IP bytes from the device into the tunnel.
     pub sent: u64,
@@ -100,6 +108,7 @@ pub struct TrafficStats {
 }
 
 pub struct EngineHandle {
+    connections: Arc<ConnectionLog>,
     running: Mutex<Option<Running>>,
     traffic: Arc<Traffic>,
     /// Answers [`EngineHandle::resolve_dns`]; `None` when the engine leaves DNS alone.
@@ -337,7 +346,8 @@ fn start_inner(
     let (events_tx, events_rx) = broadcast::channel(256);
     let router = Arc::new(Router::new(server, proxy_routes, events_tx));
     let (shutdown, shutdown_rx) = oneshot::channel();
-    runtime.spawn(forward_events(events_rx, listener));
+    let connections = Arc::new(ConnectionLog::new(connection_log::CAPACITY));
+    runtime.spawn(forward_events(events_rx, listener, connections.clone()));
     let resolver = dns.as_ref().map(|dns| dns.handler.clone());
     let stopped = runtime.spawn(run(
         device,
@@ -354,6 +364,7 @@ fn start_inner(
     tracing::info!("Engine started");
 
     Ok(EngineHandle {
+        connections,
         running: Mutex::new(Some(Running {
             runtime,
             shutdown,
@@ -399,6 +410,17 @@ impl EngineHandle {
         self.local_proxy_port
     }
 
+    /// The oldest `limit` connections from `since` (inclusive), oldest first.
+    /// `oldest_seq` identifies records already evicted from the bounded history.
+    pub fn connections_since(&self, since: u64, limit: u32) -> ConnectionPage {
+        self.connections.since(since, limit as usize)
+    }
+
+    /// The newest `limit` connections before `before` (exclusive), or the latest page.
+    pub fn connections_before(&self, before: Option<u64>, limit: u32) -> ConnectionPage {
+        self.connections.before(before, limit as usize)
+    }
+
     pub fn traffic(&self) -> TrafficStats {
         TrafficStats {
             sent: self.traffic.sent.load(Ordering::Relaxed),
@@ -438,10 +460,14 @@ impl Drop for EngineHandle {
 async fn forward_events(
     mut events: broadcast::Receiver<OutboundEvent>,
     listener: Arc<dyn EventListener>,
+    connections: Arc<ConnectionLog>,
 ) {
     loop {
         match events.recv().await {
-            Ok(event) => listener.on_outbound_event(event),
+            Ok(event) => {
+                connections.push(event.clone().into());
+                listener.on_outbound_event(event);
+            }
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 tracing::debug!("Listener fell behind, skipped {n} events")
             }
@@ -617,6 +643,30 @@ mod tests {
     struct Ignore;
     impl EventListener for Ignore {
         fn on_outbound_event(&self, _: OutboundEvent) {}
+    }
+
+    #[tokio::test]
+    async fn records_events_even_without_a_callback() {
+        let log = Arc::new(ConnectionLog::new(2));
+        let (sender, receiver) = broadcast::channel(2);
+        let task = tokio::spawn(forward_events(receiver, Arc::new(()), log.clone()));
+        sender
+            .send(OutboundEvent::Connected {
+                host: "example.com".into(),
+                ip: None,
+                port: 443,
+                outbound: "proxy".into(),
+                delay_mills: 12,
+                request_time_mills: 34,
+            })
+            .ok()
+            .unwrap();
+        drop(sender);
+        task.await.unwrap();
+        let page = log.before(None, 10);
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].event.host, "example.com");
+        assert_eq!(page.records[0].event.delay_millis, 12);
     }
 
     fn is_open(fd: i32) -> bool {
@@ -831,6 +881,11 @@ mod tests {
             }
             OutboundEvent::Error { error, .. } => panic!("connecting failed: {error}"),
         }
+        let page = engine.connections_before(None, 10);
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].event.host, "example.com");
+        assert_eq!(page.records[0].event.outbound, "direct");
+        assert_eq!(engine.connections_since(page.records[0].seq, 10), page);
         engine.stop();
     }
 

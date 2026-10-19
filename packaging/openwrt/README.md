@@ -27,6 +27,12 @@ device ── DNS (IPv4, any server) ─► firewall redirect ─► dns_split �
        └─ UDP 443 (QUIC) ─► cpxy<i> ─► rejected; other UDP ─► WAN
 ```
 
+The router binary also embeds an optional offline traffic page and read-only HTTP API.
+Enable `router_api` per instance (off by default); `router_api_listen` defaults to
+`127.0.0.1:3010+index`. No separate web package or downloaded assets are needed. The API port is
+checked for conflicts with other instances and components. It adds no firewall accept rule.
+See the [traffic guide](../../docs/router-traffic.md) for access and the API contract.
+
 ## No loops through the router's own DNS
 
 dnsmasq is not changed, so the router's own lookups (the cpxy servers' names, opkg, NTP) never

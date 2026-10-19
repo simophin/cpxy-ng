@@ -46,6 +46,10 @@ config defaults 'defaults'
 	# cpxy-router: 1 answers all IPv4 DNS from the instance's networks with its dns_split
 	option router_dns '1'
 
+	# Optional offline traffic page and read-only API. No authentication; defaults to loopback.
+	# Reach it with an SSH tunnel, or set router_api_listen in an instance to a management IP.
+	option router_api '0'
+
 	# cpxy-tsgw: log in with the link in `logread -e cpxy-tsgw`, or once with an auth key
 	option tsgw_authkey ''
 	# A different coordination server, e.g. Headscale. One whose certificate is not from
@@ -68,6 +72,7 @@ config instance 'main'
 	#   tun 'cpxy<i>'                          routing_table '100+i'
 	#   rule_priority '9100+10i' (uses 4)      client_http_listen '[::]:5000+i'
 	#   client_socks5_listen '[::]:1080+i'     dns_listen '0.0.0.0:5335+10i'
+	#   router_api_listen '127.0.0.1:3010+i'
 	#   tsgw_port '41700+i'                    tsgw_hostname 'cpxy-<name>'
 	#   tsgw_state_dir '/etc/cpxy/tsgw/<name>'
 

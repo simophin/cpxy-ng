@@ -1,9 +1,68 @@
-//! The recent connections, kept for the app to page through.
+//! The shared engine connection records and bounded, paged history.
 
-use crate::ffi::ConnectionEvent;
+use crate::OutboundEvent;
+use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// A TCP flow connected through an outbound, or failing to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, uniffi::Record)]
+pub struct ConnectionEvent {
+    /// The server name the app asked for, or the address when it named none.
+    pub host: String,
+    /// The address connected to, when known.
+    pub ip: Option<String>,
+    pub port: u16,
+    /// `direct` or `proxy`.
+    pub outbound: String,
+    /// How long connecting took.
+    pub delay_millis: u64,
+    /// When the flow was opened, in milliseconds since the Unix epoch.
+    pub time_millis: u64,
+    /// Set when connecting failed.
+    pub error: Option<String>,
+}
+
+impl From<OutboundEvent> for ConnectionEvent {
+    fn from(event: OutboundEvent) -> Self {
+        match event {
+            OutboundEvent::Connected {
+                host,
+                ip,
+                port,
+                outbound,
+                delay_mills,
+                request_time_mills,
+            } => Self {
+                ip: ip.map(|ip| ip.to_string()),
+                host,
+                port,
+                outbound: outbound.into_owned(),
+                delay_millis: delay_mills as u64,
+                time_millis: request_time_mills,
+                error: None,
+            },
+            OutboundEvent::Error {
+                host,
+                ip,
+                port,
+                outbound,
+                delay_mills,
+                request_time_mills,
+                error,
+            } => Self {
+                ip: ip.map(|ip| ip.to_string()),
+                host,
+                port,
+                outbound: outbound.into_owned(),
+                delay_millis: delay_mills as u64,
+                time_millis: request_time_mills,
+                error: Some(error),
+            },
+        }
+    }
+}
 
 /// How many connections are kept; the oldest are dropped beyond it.
 pub const CAPACITY: usize = 10_000;
@@ -12,14 +71,14 @@ pub const CAPACITY: usize = 10_000;
 /// sequence number the app has seen.
 static NEXT_SEQ: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, uniffi::Record)]
 pub struct ConnectionRecord {
     /// Increases with every connection; unique within the process.
     pub seq: u64,
     pub event: ConnectionEvent,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, uniffi::Record)]
 pub struct ConnectionPage {
     /// Oldest first.
     pub records: Vec<ConnectionRecord>,
@@ -80,6 +139,34 @@ fn page(records: &VecDeque<ConnectionRecord>, start: usize, end: usize) -> Conne
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::borrow::Cow;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn converts_outbound_events() {
+        let event: ConnectionEvent = OutboundEvent::Error {
+            host: "one.one.one.one".into(),
+            ip: Some(Ipv4Addr::new(1, 0, 0, 1).into()),
+            port: 443,
+            outbound: Cow::Borrowed("proxy"),
+            delay_mills: 12,
+            request_time_mills: 34,
+            error: "refused".into(),
+        }
+        .into();
+        assert_eq!(
+            event,
+            ConnectionEvent {
+                host: "one.one.one.one".into(),
+                ip: Some("1.0.0.1".into()),
+                port: 443,
+                outbound: "proxy".into(),
+                delay_millis: 12,
+                time_millis: 34,
+                error: Some("refused".into()),
+            }
+        );
+    }
 
     fn event(port: u16) -> ConnectionEvent {
         ConnectionEvent {

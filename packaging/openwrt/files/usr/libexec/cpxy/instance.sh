@@ -47,6 +47,16 @@ _cpxy_own() {
 
 _cpxy_port() { echo "${1##*:}"; }
 
+# API listeners accept numeric IPv4 or bracketed IPv6 addresses, just like Rust SocketAddr.
+_cpxy_api_address() {
+	local host="${1%:*}" port="${1##*:}"
+	_cpxy_uint "$port" 1 65535 || return 1
+	case "$host" in
+	\[*\]) host="${host#\[}"; host="${host%\]}"; _cpxy_ipv6_cidr "$host/128" ;;
+	*) _cpxy_ipv4_cidr "$host/32" ;;
+	esac
+}
+
 # Where a local client reaches a listener: its own address, or loopback for a wildcard one.
 _cpxy_connect_addr() {
 	local host="${1%:*}"
@@ -128,6 +138,8 @@ cpxy_instance() {
 	fi
 	cpxy_get CPXY_DNS_LOCAL_SERVER "$name" dns_local_server 127.0.0.1:53
 
+	cpxy_get_bool CPXY_ROUTER_API "$name" router_api 0
+	_cpxy_own CPXY_ROUTER_API_LISTEN "$name" router_api_listen "127.0.0.1:$((3010 + i))"
 	cpxy_get_bool CPXY_ROUTER_DNS "$name" router_dns 1
 	_cpxy_own CPXY_TUN "$name" tun "cpxy$i"
 	_cpxy_own CPXY_TABLE "$name" routing_table "$((100 + i))"
@@ -220,6 +232,10 @@ _cpxy_validate_instance() {
 				_cpxy_invalid "$1: DNS server '$entry' goes through the cpxy server, which carries tcp://, tls:// and https:// only" ;;
 			esac
 		done
+	fi
+	if [ "$CPXY_ROUTER" = 1 ] && [ "$CPXY_ROUTER_API" = 1 ]; then
+		_cpxy_api_address "$CPXY_ROUTER_API_LISTEN" || _cpxy_invalid "$1: router_api_listen must be an IPv4:port or [IPv6]:port address, port 1..65535"
+		_cpxy_claim tcp "$(_cpxy_port "$CPXY_ROUTER_API_LISTEN")" "$1 router_api_listen"
 	fi
 	if [ "$CPXY_ROUTER" = 1 ] && [ "$CPXY_ROUTER_DNS" = 1 ]; then
 		case "$(_cpxy_port "$CPXY_DNS_LISTEN")" in
