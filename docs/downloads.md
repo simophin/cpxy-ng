@@ -104,5 +104,7 @@ passes it to `apk mkpkg --sign`. No apk signing key or feed is installed on the 
 
 Until `R2_BUCKET` is set, `publish` is skipped and the build is only in the CI run's artifacts.
 
-Nothing is deleted automatically. Each version is about 480MB with all native apk variants, so delete old version folders in the R2 dashboard when the bucket grows. Avoid an age-based lifecycle rule: after a quiet spell it would
-delete the latest version too.
+After each upload, `publish` deletes all but the newest 20 builds between releases (`KEEP_BUILDS`
+in the workflow), such as `1.17.0-22-g705a674`. Release folders such as `1.17.0` are never
+deleted. Avoid an age-based lifecycle rule: after a quiet spell it would delete the latest version
+too.
