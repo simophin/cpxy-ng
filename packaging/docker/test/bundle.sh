@@ -79,8 +79,10 @@ fi
 grep -q "HTTP_PROXY_LISTEN must be host:port" "$work/refused.log" || { cat "$work/refused.log" >&2; fail "no reason given"; }
 
 echo "== two containers on host network"
+# RUST_LOG=info makes the client log its connections, which by default it does only on errors, so
+# its prefixed lines can be checked.
 docker run -d --name cpxy-test-a --network host -v cpxy-test-a:/var/lib/cpxy-tsgw \
-	-e SERVER="http://:$key@127.0.0.1:3000" -e TS_HOSTNAME=cpxy-test-a \
+	-e SERVER="http://:$key@127.0.0.1:3000" -e TS_HOSTNAME=cpxy-test-a -e RUST_LOG=info \
 	"$image" >/dev/null
 docker run -d --name cpxy-test-b --network host -v cpxy-test-b:/var/lib/cpxy-tsgw \
 	-e SERVER="http://:$key@127.0.0.1:3000" -e TS_HOSTNAME=cpxy-test-b \

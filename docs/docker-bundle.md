@@ -92,7 +92,6 @@ them). A change applies when the container is recreated, which restarts both ser
 | `TS_AUTHKEY` | empty | An auth key for the first login instead of the link in the log. |
 | `TS_PORT` | empty, random | The UDP port WireGuard listens on, only worth setting to forward it. |
 | `CONTROL_URL` | empty, Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). |
-| `TS_NO_LOGS_NO_SUPPORT` | empty | `true` stops uploading Tailscale's own logs to Tailscale. |
 | `MTU` | `1280` | The largest packet tsgw sends back to clients; Tailscale's MTU is 1280. |
 
 The wiring between the services is not a setting: tsgw always uses this container's proxy. Bad

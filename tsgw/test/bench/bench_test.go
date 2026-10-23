@@ -6,27 +6,27 @@
 //
 // It only runs with CPXY_TSGW_BENCH=1:
 //
-//	CPXY_TSGW_BIN          the binary, default target/release/cpxy-tsgw (gateway/build.sh)
+//	CPXY_TSGW_BIN          the binary, default target/release/cpxy-tsgw (cargo build --release -p cpxy-tsgw)
 //	CPXY_TSGW_BENCH_MB     MB per transfer, default 200
 //	CPXY_TSGW_BENCH_RUNS   transfers per direction, default 3
 //	CPXY_TSGW_BENCH_PARALLEL  connections sharing each transfer, default 1
 //	CPXY_TSGW_BENCH_HOST   the address of this host to serve on, default the first private
 //	                       IPv4 address of an interface (an exit node refuses loopback)
-//	CPXY_TSGW_BENCH_PPROF  a directory: also take a Go CPU profile of the gateway during one
-//	                       more download and one more upload, saved there
 //	CPXY_TSGW_BENCH_HOLD   seconds to keep running after the transfers, e.g. to attach a profiler
 //	CPXY_TSGW_BENCH_BY_LENGTH=1  downloads stop at the size rather than the end of the stream,
 //	                       for builds before the engine sent the FIN reliably
 //	CPXY_TSGW_BENCH_LOG    where to save the gateway's output
-//	CPXY_TSGW_BENCH_GW_<name>=<value>  sets <name> for the gateway only, e.g. GOMAXPROCS
+//	CPXY_TSGW_BENCH_GW_<name>=<value>  sets <name> for the gateway only, e.g. TCP_WINDOW
 //
-//	CPXY_TSGW_BENCH=1 go test -v -count=1 -timeout 30m ./internal/bench
+//	CPXY_TSGW_BENCH=1 go test -v -count=1 -timeout 30m ./bench
 package bench
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -95,19 +95,12 @@ func TestThroughput(t *testing.T) {
 		"SERVER=http://:unused@127.0.0.1:9",
 		"DNS_UPSTREAM=127.0.0.1", "DNS_ALTERNATIVE=127.0.0.1",
 		"CONTROL_URL="+control.BaseURL(), "TS_HOSTNAME=bench-gw", "STATE_DIR="+t.TempDir(),
-		"TS_NO_LOGS_NO_SUPPORT=true",
 		// An exit node refuses private addresses; route this one explicitly.
 		"CPXY_TSGW_EXTRA_ROUTES="+host+"/32")
 	for _, kv := range os.Environ() {
 		if rest, ok := strings.CutPrefix(kv, "CPXY_TSGW_BENCH_GW_"); ok {
 			gw.Env = append(gw.Env, rest)
 		}
-	}
-	pprofDir := os.Getenv("CPXY_TSGW_BENCH_PPROF")
-	pprofAddr := ""
-	if pprofDir != "" {
-		pprofAddr = freeAddr(t)
-		gw.Env = append(gw.Env, "CPXY_TSGW_PPROF="+pprofAddr)
 	}
 	var out io.Writer = gwLogs
 	if path := os.Getenv("CPXY_TSGW_BENCH_LOG"); path != "" {
@@ -219,20 +212,6 @@ func TestThroughput(t *testing.T) {
 			})
 			t.Logf("%s %d: %s", name, i+1, r.line(size))
 		}
-		if pprofDir != "" {
-			profile := filepath.Join(pprofDir, name+".pprof")
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				saveProfile(t, pprofAddr, profile, 10)
-			}()
-			deadline := time.Now().Add(10 * time.Second)
-			for time.Now().Before(deadline) {
-				transfer(ctx, t, client, addr, dir, size/4)
-			}
-			<-done
-			t.Logf("%s profile: %s", name, profile)
-		}
 	}
 	if hold := envInt(t, "CPXY_TSGW_BENCH_HOLD", 0); hold > 0 {
 		t.Logf("holding for %ds: the client dials %s", hold, addr)
@@ -257,19 +236,21 @@ func runDERP(t *testing.T) *tailcfg.DERPMap {
 		d.Close()
 		stunCleanup()
 	})
+	// Trusted by its hash, which tailscale-rs accepts without its test-only insecure mode.
+	certHash := sha256.Sum256(srv.Certificate().Raw)
 	return &tailcfg.DERPMap{Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{1: {
 		RegionID:   1,
 		RegionCode: "bench",
 		Nodes: []*tailcfg.DERPNode{{
-			Name:             "b1",
-			RegionID:         1,
-			HostName:         "127.0.0.1",
-			IPv4:             "127.0.0.1",
-			IPv6:             "none",
-			STUNPort:         stunAddr.Port,
-			DERPPort:         srv.Listener.Addr().(*net.TCPAddr).Port,
-			InsecureForTests: true,
-			STUNTestIP:       "127.0.0.1",
+			Name:       "b1",
+			RegionID:   1,
+			HostName:   "127.0.0.1",
+			IPv4:       "127.0.0.1",
+			IPv6:       "none",
+			STUNPort:   stunAddr.Port,
+			DERPPort:   srv.Listener.Addr().(*net.TCPAddr).Port,
+			CertName:   "sha256-raw:" + hex.EncodeToString(certHash[:]),
+			STUNTestIP: "127.0.0.1",
 		}},
 	}}}
 }
@@ -373,14 +354,14 @@ type result struct {
 
 func (r result) line(size int64) string {
 	secs := r.elapsed.Seconds()
-	return fmt.Sprintf("%6.1f MB/s  gateway CPU %5.1f%% of a core (engine threads %5.1f%%, Go %5.1f%%), %.1f CPU-ms/MB, peak RSS %.1f MB; client CPU %5.1f%%",
+	return fmt.Sprintf("%6.1f MB/s  gateway CPU %5.1f%% of a core (engine threads %5.1f%%, Tailscale %5.1f%%), %.1f CPU-ms/MB, peak RSS %.1f MB; client CPU %5.1f%%",
 		float64(size)/mb/secs, 100*r.cpu.Seconds()/secs, 100*r.engineCPU.Seconds()/secs,
 		100*(r.cpu-r.engineCPU).Seconds()/secs, float64(r.cpu.Milliseconds())/(float64(size)/mb),
 		float64(r.peakRSS)/mb, 100*r.clientCPU.Seconds()/secs)
 }
 
 // measure runs f while sampling the gateway's RSS, and the CPU it used meanwhile, split between
-// the engine's threads (named cpxy-engine) and Go's.
+// the engine's threads (named cpxy-engine) and the rest's (Tailscale).
 func (m *monitor) measure(f func() time.Duration) result {
 	total0, engine0 := threadCPU(m.pid)
 	client0 := statCPU("/proc/self/stat")
@@ -452,22 +433,6 @@ func rss(pid int) int64 {
 	return 0
 }
 
-func saveProfile(t *testing.T, addr, path string, seconds int) {
-	resp, err := http.Get(fmt.Sprintf("http://%s/debug/pprof/profile?seconds=%d", addr, seconds))
-	if err != nil {
-		t.Errorf("profile: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-	f, err := os.Create(path)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	defer f.Close()
-	io.Copy(f, resp.Body)
-}
-
 func privateAddr(t *testing.T) string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -481,15 +446,6 @@ func privateAddr(t *testing.T) string {
 	}
 	t.Fatal("no private IPv4 address on this host; set CPXY_TSGW_BENCH_HOST")
 	return ""
-}
-
-func freeAddr(t *testing.T) string {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().String()
 }
 
 func envInt(t *testing.T, key string, def int) int {

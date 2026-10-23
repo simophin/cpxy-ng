@@ -3,7 +3,7 @@
 //
 //	TS_API_KEY         a Tailscale API access token (devices and auth keys)
 //	CPXY_TSGW_SERVER   the cpxy server URL with its key, the gateway's SERVER
-//	CPXY_TSGW_BIN      the binary, default target/release/cpxy-tsgw (gateway/build.sh)
+//	CPXY_TSGW_BIN      the binary, default target/release/cpxy-tsgw (cargo build --release -p cpxy-tsgw)
 //	CPXY_TSGW_E2E_LOCAL_URL  a local-region (CN) page showing the caller's address, default
 //	                   http://ip.3322.net/
 //	CPXY_TSGW_E2E_LOG  where to save the gateway's output

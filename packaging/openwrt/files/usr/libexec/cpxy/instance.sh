@@ -154,7 +154,6 @@ cpxy_instance() {
 	cpxy_get CPXY_TSGW_CONTROL_URL "$name" tsgw_control_url
 	cpxy_get CPXY_TSGW_MTU "$name" tsgw_mtu 1280
 	cpxy_get_bool CPXY_TSGW_PROXY "$name" tsgw_proxy 1
-	cpxy_get_bool CPXY_TSGW_NO_LOGS "$name" tsgw_no_logs_no_support 0
 	cpxy_get_bool CPXY_TSGW_VERBOSE "$name" tsgw_verbose 0
 }
 

@@ -5,11 +5,11 @@
 # between the nodes) is delayed; the gateway's own TCP leg to the server is not.
 #
 # usage: delayed.sh <delay, e.g. 10ms> [go test arguments]
-#   e.g. CPXY_TSGW_BENCH_MB=50 internal/bench/delayed.sh 10ms -run TestThroughput
+#   e.g. CPXY_TSGW_BENCH_MB=50 bench/delayed.sh 10ms -run TestThroughput
 set -eu
 delay="$1"
 shift
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 export CPXY_TSGW_BENCH=1 CPXY_TSGW_BENCH_HOST=10.9.9.9 DELAY="$delay"
 exec unshare --map-root-user --net sh -euc '
 	ip link set lo up
@@ -20,5 +20,5 @@ exec unshare --map-root-user --net sh -euc '
 	ip link add bench0 type dummy
 	ip addr add 10.9.9.9/32 dev bench0
 	ip link set bench0 up
-	exec go test -v -count=1 -timeout 30m ./internal/bench "$@"
+	exec go test -v -count=1 -timeout 30m ./bench "$@"
 ' sh "$@"

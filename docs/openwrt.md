@@ -185,10 +185,10 @@ never taken from `defaults`.
 | `router_dns` | `1` | Answer all IPv4 DNS from the instance's networks with its dns_split. |
 | `router_api` | `0` | Enable the offline traffic page and read-only API, on `router_api_listen`. No authentication; loopback by default. See [traffic monitoring](router-traffic.md). |
 | `tsgw_authkey` | none | A Tailscale auth key, to log in without the link. |
-| `tsgw_control_url` | Tailscale's | A different coordination server, e.g. Headscale. One whose certificate is not from Let's Encrypt also needs `opkg install ca-bundle`. |
+| `tsgw_control_url` | Tailscale's | A different coordination server, e.g. Headscale. Its certificate must be from a public CA, such as Let's Encrypt: cpxy-tsgw trusts the roots built into it, not the router's. |
 | `tsgw_mtu` | `1280` | The largest packet sent back to Tailscale clients. |
 | `tsgw_proxy` | `1` | Reach Tailscale's coordination and relay (DERP) servers through the instance's proxy. |
-| `tsgw_no_logs_no_support`, `tsgw_verbose` | `0` | Stop uploading Tailscale's logs; more logging. |
+| `tsgw_verbose` | `0` | More logging. |
 
 A DNS server entry (`dns_upstream`, `dns_alternative`) is a plain IP, or a `udp://`, `tcp://`,
 `tls://` or `https://` URL; `tls://` and `https://` accept `?ip=<addr>`. `tcp://`, `tls://` and

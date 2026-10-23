@@ -1,11 +1,9 @@
-module github.com/simophin/cpxy-ng/gateway
+module github.com/simophin/cpxy-ng/tsgw/test
 
 go 1.27.1
 
 require (
-	github.com/tailscale/wireguard-go v0.0.0-20260928213032-417aef361226
 	golang.org/x/net v0.59.0
-	golang.org/x/sys v0.49.0
 	tailscale.com v1.104.1
 )
 
@@ -43,6 +41,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20260917222731-e0ed2d0d0fea // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20260928213032-417aef361226 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
@@ -50,6 +49,7 @@ require (
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.16.0 // indirect

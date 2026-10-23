@@ -8,7 +8,7 @@ what it changes on the router and how it is built and tested.
 |---|---|---|
 | `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP (and SOCKS5) proxy through the instance's server |
 | `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | The networks' TCP from `cpxy<i>` to the server (local region: direct), and their DNS with dns_split (overseas servers asked through the server) |
-| `/usr/bin/cpxy-tsgw` | `gateway/` (Go, linked to the engine) | Tailscale exit node |
+| `/usr/bin/cpxy-tsgw` | `tsgw/` (tailscale-rs, with the shared packet engine) | Tailscale exit node |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
 Each binary is a procd instance named after its cpxy instance, under one init script per program:
@@ -58,10 +58,9 @@ redirected. Firewall UCI commits normalise that file and drop comments, as LuCI 
 ## Build and test
 
 ```sh
-cargo build --release --locked -p mobile-engine --bin cpxy-router
-cargo build --release --locked -p client --bin standalone
-gateway/build.sh aarch64-unknown-linux-musl bins/cpxy-tsgw
-# Copy the Rust binaries into bins/ as cpxy-router and cpxy-client, then:
+cross build --release --locked --target aarch64-unknown-linux-musl \
+  -p mobile-engine -p client -p cpxy-tsgw --bin cpxy-router --bin standalone --bin cpxy-tsgw
+# Copy the binaries into bins/ as cpxy-router, cpxy-client and cpxy-tsgw, then:
 packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container

@@ -42,6 +42,9 @@ pub struct Config {
     /// Which IPv6 to relay; `full` needs a cpxy server that can reach IPv6.
     #[serde(default)]
     pub ipv6: Ipv6Mode,
+    /// The TCP window towards the device, in bytes, instead of the engine's default for its mode.
+    #[serde(default)]
+    pub tcp_window: Option<u32>,
 }
 
 /// A config that has been checked and parsed.
@@ -55,6 +58,7 @@ pub struct Settings {
     pub http_proxy_port: Option<u16>,
     pub socks_proxy_port: Option<u16>,
     pub ipv6: Ipv6Mode,
+    pub tcp_window: Option<u32>,
 }
 
 impl Config {
@@ -73,6 +77,11 @@ impl Config {
         };
         let mtu = self.mtu.unwrap_or(DEFAULT_MTU);
         ensure!((1280..=9000).contains(&mtu), "MTU {mtu} is out of range");
+        ensure!(
+            self.tcp_window
+                .is_none_or(|w| (16 << 10..=16 << 20).contains(&w)),
+            "TCP window must be between 16 KiB and 16 MiB"
+        );
 
         ensure!(
             self.http_proxy_port != Some(0) && self.socks_proxy_port != Some(0),
@@ -97,6 +106,7 @@ impl Config {
             http_proxy_port: self.http_proxy_port,
             socks_proxy_port: self.socks_proxy_port,
             ipv6: self.ipv6,
+            tcp_window: self.tcp_window,
         })
     }
 }
