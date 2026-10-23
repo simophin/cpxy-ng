@@ -8,6 +8,7 @@
 //
 //	CPXY_TSGW_BIN          the binary, default target/release/cpxy-tsgw (cargo build --release -p cpxy-tsgw)
 //	CPXY_TSGW_BENCH_MB     MB per transfer, default 200
+//	CPXY_TSGW_BENCH_UPLOAD_MB  MB per upload, defaults to CPXY_TSGW_BENCH_MB
 //	CPXY_TSGW_BENCH_RUNS   transfers per direction, default 3
 //	CPXY_TSGW_BENCH_PARALLEL  connections sharing each transfer, default 1
 //	CPXY_TSGW_BENCH_HOST   the address of this host to serve on, default the first private
@@ -196,21 +197,25 @@ func TestThroughput(t *testing.T) {
 	mon := &monitor{pid: gw.Process.Pid}
 	t.Logf("idle: RSS %.1f MB", float64(rss(mon.pid))/mb)
 	for _, dir := range []byte{'D', 'U'} {
+		transferSize := size
+		if dir == 'U' {
+			transferSize = int64(envInt(t, "CPXY_TSGW_BENCH_UPLOAD_MB", int(size/mb))) * mb
+		}
 		name := map[byte]string{'D': "download", 'U': "upload"}[dir]
 		for i := range runs {
 			r := mon.measure(func() time.Duration {
 				if parallel == 1 {
-					return transfer(ctx, t, client, addr, dir, size)
+					return transfer(ctx, t, client, addr, dir, transferSize)
 				}
 				start := time.Now()
 				var wg sync.WaitGroup
 				for range parallel {
-					wg.Go(func() { transfer(ctx, t, client, addr, dir, size/int64(parallel)) })
+					wg.Go(func() { transfer(ctx, t, client, addr, dir, transferSize/int64(parallel)) })
 				}
 				wg.Wait()
 				return time.Since(start)
 			})
-			t.Logf("%s %d: %s", name, i+1, r.line(size))
+			t.Logf("%s %d: %s", name, i+1, r.line(transferSize))
 		}
 	}
 	if hold := envInt(t, "CPXY_TSGW_BENCH_HOLD", 0); hold > 0 {
