@@ -461,3 +461,36 @@ fn profile_idle_socket_polling() {
         );
     }
 }
+
+#[tokio::test]
+async fn simultaneous_megabyte_transfers_and_half_closes() {
+    for dst in ["203.0.113.71:8080", "[2001:db8:1234::71]:8080"] {
+        let mut lab = Lab::new(1500);
+        let (app, flow) = lab.connect(dst.parse().unwrap(), 41000).await;
+        let (mut app_read, mut app_write) = tokio::io::split(app);
+        let (mut flow_read, mut flow_write) = tokio::io::split(flow);
+        let to_stack = vec![0x31; 1_000_000];
+        let to_app = vec![0x72; 1_000_000];
+        let mut at_stack = Vec::new();
+        let mut at_app = Vec::new();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            tokio::try_join!(
+                async {
+                    app_write.write_all(&to_stack).await?;
+                    app_write.shutdown().await
+                },
+                async {
+                    flow_write.write_all(&to_app).await?;
+                    flow_write.shutdown().await
+                },
+                async { app_read.read_to_end(&mut at_app).await.map(|_| ()) },
+                async { flow_read.read_to_end(&mut at_stack).await.map(|_| ()) },
+            )
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(at_stack, to_stack);
+        assert_eq!(at_app, to_app);
+    }
+}

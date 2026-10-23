@@ -3,7 +3,7 @@
 Status: Phase 0/2 measurements running on `cn-baise`. Phase 1 and Phase 2 integration
 pass complete Linux engine suites and the real-TUN lab. Phase 3 recovery fixes
 implemented and tested in the fork; engine integration validation underway.
-Phase 4 receiver SACK is under review; sender SACK is not published upstream.
+Phase 4 receiver SACK is adopted and tested; sender SACK is not published upstream.
 Phase 5 remains outside this PR's requested scope.
 
 ## Why
@@ -337,7 +337,9 @@ fork, and get the plan agreed before writing it.
 - Phase 4: upstream #1195 is open. Its author JPDye has no public sender-SACK
   branch or PR as of 2026-10-23. Receiver work has been cherry-picked through
   `2f038a3` (preserving original authorship); the reset adaptation preserves
-  `set_min_rto`. Unit tests pass (725). Sender-side RFC 6675 remains pending;
+  `set_min_rto`. The engine pins `01bf32a` after 726 unit tests, all three
+  netsim tests, and ten packet-level engine tests pass. Simultaneous 1 MB transfers
+  and half-closes pass for both IPv4 and IPv6. Sender-side RFC 6675 remains pending;
   no competing sender implementation has been written.
 
 ## Measurements
