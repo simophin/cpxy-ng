@@ -22,7 +22,7 @@ cpxy-ng = { path = "../cpxy-ng" }
 ipnet = "2"
 geoip-data = { path = "../geoip-data" }
 ipstack = { git = "https://github.com/simophin/ipstack", rev = "49720c1a1effacee1073d419452432629ef64297" } # narrowlink/ipstack 1.0.2-dev (window scaling), plus ACKs for duplicate segments and slice copies of received data
-smoltcp = { git = "https://github.com/simophin/smoltcp", rev = "01bf32a8934bd81e4a6f18ad40648ed940cc3147", optional = true, default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
+smoltcp = { git = "https://github.com/simophin/smoltcp", rev = "478752b7befcfff3d59ad0d1d088dd6a939a7ab1", optional = true, default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 etherparse = { version = "0.21", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }
 tracing = "0"
