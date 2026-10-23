@@ -154,6 +154,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test engine
         run: cargo test --locked -p mobile-engine
+      - name: Test smoltcp engine
+        run: cargo test --locked -p mobile-engine --features smoltcp
       - uses: actions/setup-node@v7
         with:
           node-version: '24'

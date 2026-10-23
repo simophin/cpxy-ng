@@ -1,7 +1,8 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: not started. Work through the phases in order and update this file
-(status line, decisions, measured numbers) as you go.
+Status: Phase 0 measurements running on `cn-baise`; Phase 1 implemented (nine
+packet-level tests pass locally), Linux CI pending. Phase 2 integration next.
+Phases 3–4 pending. Phase 5 remains outside this PR's requested scope.
 
 ## Why
 
@@ -286,6 +287,37 @@ fork, and get the plan agreed before writing it.
 - Two smoltcp versions in `Cargo.lock` (ours from git, tailscale-rs's from crates.io) is
   expected.
 
+## Implementation log
+
+- Phase 1: `simophin/smoltcp:cpxy` starts at upstream main
+  `24bda3b4f982625d8453d4360172557d24921c76`. The engine pins that revision without
+  patching crates.io; tailscale-rs retains its own smoltcp.
+- Added the optional `mobile-engine/smoltcp` module; the default engine still uses
+  ipstack. Its tests use a second smoltcp interface over in-memory packet channels.
+  Nine tests cover IPv4/IPv6, 1 MB transfers in each direction with 8 KiB buffers,
+  per-family MSS at MTUs 1280/1500, half-close, reset/drop, tuple isolation,
+  retransmitted SYNs, 1,000 graceful closes and TimeWait reaping, UDP pairs/replies/
+  idle expiry, paused-time TCP expiry, shutdown wakeups and device backpressure.
+- The driver polls ingress while writes are blocked. Queues between smoltcp and
+  the device and per-flow UDP receive queues are bounded. Each blocked UDP writer
+  has its own waker. Invalid/unconsumed SYN listeners are removed after polling,
+  avoiding a stray listener intercepting an existing tuple's retransmitted SYN.
+- `cargo test -p mobile-engine --features smoltcp netstack::`: 9 passed on macOS.
+  Broader macOS runs (outside the sandbox, skipping the three documented hangs)
+  have the same two existing failures with and without the feature:
+  `relays_ipv6_unless_it_is_off` and `router_answers_dns_on_its_listen_address_until_stopped`.
+  Linux CI runs both complete suites.
+
 ## Measurements
 
-(Filled in by phases 0, 2 and 3.)
+Host: `cn-baise`, Linux 6.12.111, Rust 1.97.1, Go 1.27.1. The offline benchmark
+uses unprivileged user/network namespaces and netem on WireGuard UDP only;
+27 ms one-way delay, 200 MB download, 100 MB upload, one transfer per direction
+per configuration. No live tailnet credentials are needed for this benchmark.
+CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
+
+| Stack | Buffer | Loss | Download MB/s | CPU-ms/MB | Upload MB/s | CPU-ms/MB |
+|---|---:|---:|---:|---:|---:|---:|
+| ipstack | 256 KiB | 0% | 4.7 | 70.7 | 4.6 | 125.6 |
+
+Further phase 0/2/3 measurements will be recorded here as they finish.

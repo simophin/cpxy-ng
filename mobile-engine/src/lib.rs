@@ -19,6 +19,8 @@ mod dns;
 mod ffi;
 mod filter;
 mod fin;
+#[cfg(feature = "smoltcp")]
+mod netstack;
 #[cfg(target_os = "linux")]
 pub mod linux;
 mod proxy;

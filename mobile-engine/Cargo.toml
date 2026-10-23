@@ -7,6 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
+smoltcp = ["dep:smoltcp", "dep:rand"]
 # Builds `uniffi-bindgen`, which generates the Kotlin and Swift bindings.
 bindgen = ["uniffi/cli"]
 
@@ -15,11 +16,13 @@ name = "uniffi-bindgen"
 required-features = ["bindgen"]
 
 [dependencies]
+rand = { version = "0.8", optional = true }
 client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
 ipnet = "2"
 geoip-data = { path = "../geoip-data" }
 ipstack = { git = "https://github.com/simophin/ipstack", rev = "49720c1a1effacee1073d419452432629ef64297" } # narrowlink/ipstack 1.0.2-dev (window scaling), plus ACKs for duplicate segments and slice copies of received data
+smoltcp = { git = "https://github.com/simophin/smoltcp", rev = "24bda3b4f982625d8453d4360172557d24921c76", optional = true, default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 etherparse = { version = "0.21", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }
 tracing = "0"
@@ -43,6 +46,7 @@ tokio = { version = "1", default-features = false, features = ["signal"] }
 tracing-subscriber = "0"
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 clap = { version = "4", features = ["derive", "env"] }
 # Exercise the HTTP contract in-process, without opening sockets.
 axum = { version = "0.8", default-features = false, features = ["json", "query", "http1", "tokio"] }
