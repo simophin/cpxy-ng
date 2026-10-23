@@ -251,10 +251,13 @@ from `main`, and ships the binaries in the OpenWrt packages on the [download ser
   Socket-buffer requests are subject to the host's limits, and Linux's actual
   buffer sizes differ from the gateway's fixed per-flow allocation.
 
-  Stack diagnostics are available with `RUST_LOG=warn,smoltcp::socket::tcp=debug`
+  Stack diagnostics are available with `RUST_LOG=warn,cpxy_tsgw=info,smoltcp::socket::tcp=debug`
   (`trace` also includes individual packets). For the offline benchmark, use
   `CPXY_TSGW_BENCH_GW_RUST_LOG` to restrict this to the gateway and
-  `CPXY_TSGW_BENCH_LOG` to save its output. Diagnostic logging can affect timing.
+  `CPXY_TSGW_BENCH_LOG` to save its output. Keep `cpxy_tsgw=info`: the harness
+  waits for its readiness/approval messages. For TCP sequence numbers, windows
+  and SACK blocks, also enable `mobile_engine::netstack::wire=trace`; payload
+  contents are omitted. Diagnostic logging can affect timing.
 
 - `e2e` tests on a real tailnet: it creates ephemeral auth keys with the Tailscale API, runs
   cpxy-tsgw, approves its exit node, joins a client that uses it, checks that a site abroad sees

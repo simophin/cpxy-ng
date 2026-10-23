@@ -1,14 +1,15 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: Phases 0–4 are implemented and tested, including the approved bounded
-sender SACK and the recovery-entry correction in fork `d64e86d`. **The
-performance acceptance gate remains unmet.** The corrected 256 KiB build moves
-4.1/4.5 MB/s on the clean download/upload, but only 0.9 MB/s on the 0.5% loss
-download against ipstack's 2.3 MB/s. Per the stop rule, the corrected matrix is
-not expanded after that failure. Earlier revisions' full-size 1% downloads and
-lossy uploads also miss their deadlines; short diagnostics are recorded
-separately. Keep the 256 KiB gateway default. Continuation details are in
-[the handoff](smoltcp-netstack-handoff.md); Phase 5 is outside this request.
+Status: Phases 0–4 are implemented and tested. The engine now pins `40ba802`,
+which also fixes CUBIC's undercounting of delayed/cumulative ACK bytes.
+**Performance acceptance is still unmet:** the latest full 200 MB download at
+0.5% loss reaches 1.8 MB/s versus ipstack's recorded 2.3 MB/s (the previous
+`d64e86d` sample was 0.9 MB/s). Seeded simulations confirm an improvement, but
+single gateway samples do not establish an exact speedup. Packet traces also
+show that offload settings change the loss model and timeout behavior. See
+[the focused investigation](#focused-performance-investigation-2026-10-24).
+Keep the 256 KiB gateway default; Phase 5 is outside this request. Current
+continuation details are in [the handoff](smoltcp-netstack-handoff.md).
 
 ## Why
 
@@ -416,6 +417,7 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | smoltcp sender SACK (`478752b`) | 1 MiB | 1% | timeout: 134.7/200 MB in 300 s | — | timeout: 41.7/100 MB in 120 s | — |
 | smoltcp SACK entry fix (`d64e86d`) | 256 KiB | 0% | 4.1 | 49.5 | 4.5 | 101.0 |
 | smoltcp SACK entry fix (`d64e86d`) | 256 KiB | 0.5% | 0.9 | 141.8 | not repeated | — |
+| smoltcp CUBIC ACK fix (`40ba802`) | 256 KiB | 0.5% | 1.8 | 86.2 | not repeated | — |
 
 Lossy baseline uploads timed out at 100 MB. A timeout alone does not distinguish
 slow congestion-controlled delivery from the known gateway receive-path stall;
@@ -573,7 +575,7 @@ not establish a throughput ceiling for all compliant stacks or waive the
 existing comparison with ipstack. The performance gate remains unmet.
 
 The fork's `log` feature now routes stack diagnostics through the gateway's
-existing subscriber. With `CPXY_TSGW_BENCH_GW_RUST_LOG=warn,smoltcp::socket::tcp=debug`
+existing subscriber. With `CPXY_TSGW_BENCH_GW_RUST_LOG=warn,cpxy_tsgw=info,smoltcp::socket::tcp=debug`
 and `CPXY_TSGW_BENCH_LOG`, four short 20 MB measurements on `478752b` completed:
 
 | Loss | Download MB/s | Upload MB/s | Download RTO messages | Upload RTO messages |
@@ -690,3 +692,104 @@ The implementation and its validation are present; performance acceptance and
 rollout remain blocked by the recorded gate. Raw logs are
 `measurements/sack-window-262144-*`; no task-owned build, gateway or benchmark
 process remains running.
+
+
+### Focused performance investigation (2026-10-24)
+
+The user requested targeted fixes and an early flag if closing the remaining
+gap requires substantial transport work. One straightforward bug is fixed;
+no RACK/TLP or new congestion controller was implemented.
+
+**CUBIC ACK accounting.** Fork `40ba802` fixes `W_est`: the Reno-friendly
+estimate must count all newly cumulatively acknowledged bytes, as specified
+in [RFC 9438 section 4.3](https://www.rfc-editor.org/rfc/rfc9438.html#section-4.3).
+It previously capped an ACK at one MSS, suppressing growth when one ACK covers
+multiple segments. Only the estimate changes; the existing slow-start cap and
+loss response remain. The new regression fails before the fix. All 743 fork
+unit tests, three netsim cases, no-std check and formatting pass. Native Linux
+passes 61 engine tests (one profiler ignored). All applicable CI checks pass
+on code commit `adc1a4e`, including TUN labs and both Docker architectures:
+[run 39993119344](https://github.com/simophin/cpxy-ng/actions/runs/39993119344).
+
+Paired 10 MB SACK simulations, 54 ms RTT, 256 KiB buffer, fixed seeds:
+
+| Loss | Seed | Before bytes/s | After bytes/s | Change |
+|---:|---:|---:|---:|---:|
+| 0.5% | 1 | 466,910 | 535,884 | +14.8% |
+| 0.5% | 2 | 376,921 | 433,958 | +15.1% |
+| 0.5% | 3 | 472,607 | 549,389 | +16.2% |
+| 1% | 1 | 320,351 | 438,406 | +36.9% |
+| 1% | 2 | 294,530 | 347,565 | +18.0% |
+| 1% | 3 | 227,800 | 280,407 | +23.1% |
+
+The full-size gateway sample with tracing disabled completes its 200 MB
+0.5% download at 1.8 MB/s, 86.2 CPU-ms/MB and 27.3 MB peak RSS, versus the
+previous revision's 0.9 MB/s, 141.8 CPU-ms/MB and 27.0 MB. This is promising,
+but one random-loss sample per revision cannot isolate the exact causal gain.
+It still misses the 2.3 MB/s ipstack gate. The log is
+`measurements/cubic-ack-262144-0.5%-D.log`.
+
+**What the packet trace establishes.** Opt-in
+`mobile_engine::netstack::wire=trace` records TCP sequence/ACK numbers, window,
+flags, payload length and options, without payload contents. The completed
+20 MB/1% run takes about 24 seconds of bulk transfer time (32 seconds including
+setup) at roughly 0.8 MB/s. Its bulk flow has eight RTOs, each after about
+200 ms without cumulative progress, with 6–56 KB outstanding. The next outgoing
+TCP packet confirms each RTO belongs to this flow; the missing cumulative
+frontier had not previously been retransmitted. There are also two warm-up
+RTOs, which must not be attributed to the bulk flow. RTT samples are roughly
+55–62 ms and the observed bulk RTO floor is 200 ms, not the old one-second
+minimum. Only 78 of 16,629 emitted bulk packets have a nonzero payload below
+100 bytes; tiny writes are not pervasive in this sample.
+
+ACK aggregation is substantial: 589 of 598 advancing bulk ACKs cover more
+than one MSS. Some ACK jumps include gap repair; they are not all ordinary
+delayed ACKs. These observations explain why counting only one MSS per ACK
+can matter, but do not identify the location of every lost packet/ACK.
+
+**Offload/loss-model control.** Linux 6.12 netem makes its random-loss decision
+on the incoming skb before any optional GSO split used for corruption (see
+[the kernel implementation](https://github.com/torvalds/linux/blob/v6.12/net/sched/sch_netem.c)).
+Both Tailscale implementations use UDP batching/GSO, so the original fixture
+can lose batches rather than independent WireGuard datagrams. `delayed.sh`
+now exposes `NETEM_OFFLOADS=off`, disabling loopback TSO/GSO/GRO and UDP
+segmentation inside the namespace; it requires ethtool. The default is
+`preserve`, keeping historical comparisons intact. Always record and match
+this setting when comparing stacks; do not combine either model's results.
+
+In a separate offload-disabled 20 MB/1% run, the bulk flow has zero RTOs and
+2,468 advancing ACKs, but still takes about 24.7 seconds and remains near
+0.8 MB/s. These are short, unseeded diagnostic samples with tracing enabled,
+not a new full-size acceptance matrix. The change in timeout behavior is
+consistent with batching affecting loss. It does not prove every remaining
+loss is independent or that RACK/TLP would have no benefit. It does show that
+eliminating the observed timeouts did not automatically recover throughput.
+
+Raw gateway traces: `cubic-ack-1pct-wire-final.log` and
+`cubic-ack-1pct-wire-split.log`; transfer logs use `trace-final` / `trace-split`.
+Two preceding setup failures are preserved and excluded: one hid the readiness
+message, the other never observed tailnet route approval. A local deterministic
+10 MB/1% simulation takes 22.8 seconds with three 200 ms RTO events; it also
+does not establish timeouts as the sole throughput limit.
+
+**Decision checkpoint.** Keep the ACK-accounting fix and the current defaults.
+The remaining gap is not demonstrated to have another small, safe fix. A full
+[RACK/TLP implementation](https://www.rfc-editor.org/rfc/rfc8985.html) requires
+per-segment transmission timing and additional loss/probe state, and its
+payoff is not established by these samples. Do not start that project merely
+to satisfy parity with a sender that has no congestion control.
+
+The next lower-cost decision is to choose the requirement and reference:
+
+- If congestion control is the priority, compare against kernel CUBIC under
+  matched offload/loss/bandwidth conditions and decide whether the tradeoff
+  relative to fixed-window ipstack is acceptable.
+- If matching ipstack under random loss is non-negotiable, keep ipstack in
+  production and evaluate a mature alternative/reference before extending this
+  fork. A Linux BBR reference is a candidate, not a claimed fix; official
+  [BBR implementations](https://github.com/google/bbr) exist for Linux/QUIC.
+  `cn-baise` exposes only Reno and CUBIC, so BBR cannot be tested there within
+  the regular-user constraint. A different prepared host would be needed.
+
+No congestion policy, default buffer or platform rollout was changed by this
+investigation. The next transport/architecture route should be chosen explicitly.
