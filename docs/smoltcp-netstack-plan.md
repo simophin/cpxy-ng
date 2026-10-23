@@ -1,13 +1,14 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: Phases 0–4 are implemented and tested, including the bounded
-sender-side SACK the user approved on 2026-10-23 (fork `478752b`). The
-loss-performance gate is still unmet: with sender SACK the 0.5% downloads now
-complete (1.2 MB/s at 256 KiB, 1.5 MB/s at 1 MiB, from a censored ~0.6 MB/s),
-but ipstack's fixed window still moves 2.3 MB/s there, and the 1% downloads and
-every lossy upload still miss their deadlines. Continuation details are in
-[the handoff](smoltcp-netstack-handoff.md). Phase 5 remains outside the
-requested scope.
+Status: Phases 0–4 are implemented and tested, including the approved bounded
+sender SACK and the recovery-entry correction in fork `d64e86d`. **The
+performance acceptance gate remains unmet.** The corrected 256 KiB build moves
+4.1/4.5 MB/s on the clean download/upload, but only 0.9 MB/s on the 0.5% loss
+download against ipstack's 2.3 MB/s. Per the stop rule, the corrected matrix is
+not expanded after that failure. Earlier revisions' full-size 1% downloads and
+lossy uploads also miss their deadlines; short diagnostics are recorded
+separately. Keep the 256 KiB gateway default. Continuation details are in
+[the handoff](smoltcp-netstack-handoff.md); Phase 5 is outside this request.
 
 ## Why
 
@@ -342,8 +343,8 @@ fork, and get the plan agreed before writing it.
   `2f038a3` (preserving original authorship); the reset adaptation preserves
   `set_min_rto`. The engine pins `01bf32a` after 726 unit tests, all three
   netsim tests, and ten packet-level engine tests pass. Simultaneous 1 MB transfers
-  and half-closes pass for both IPv4 and IPv6. Sender-side RFC 6675 remains pending;
-  no competing sender implementation has been written.
+  and half-closes pass for both IPv4 and IPv6. At that checkpoint, sender-side
+  RFC 6675 was still pending; the approved fallback follows below.
 - Phase 4, sender side: fork commit `478752b` implements the approved bounded
   RFC 6675 recovery in `src/socket/tcp/sack.rs` and `src/socket/tcp.rs`. Each
   socket keeps at most 32 sorted, merged SACKed ranges (264 bytes) plus the
@@ -351,8 +352,9 @@ fork, and get the plan agreed before writing it.
   from the cumulative ACK. In recovery with SACK negotiated, `IsLost`, `SetPipe`
   and `NextSeg` replace NewReno: lost holes are retransmitted first, then new
   data, then not-yet-lost holes below the highest SACKed octet, then one rescue
-  of an unretransmitted tail per episode; cwnd stays at ssthresh (no duplicate-ACK
-  inflation, no partial-ACK deflation) until the recovery point is acknowledged.
+  of an unretransmitted tail per episode. It suppresses further duplicate-ACK
+  inflation and partial-ACK deflation until the recovery point is acknowledged;
+  the initial three-MSS allowance was corrected subsequently in `d64e86d`.
   Blocks are validated against the negotiated capability and `[SND.UNA, SND.MAX]`
   with wrap-safe comparisons; a timeout clears the scoreboard and the cursor
   resends the flight, cutting segments at ranges reported after the timeout.
@@ -372,6 +374,15 @@ fork, and get the plan agreed before writing it.
   more aggressive (higher aggregate, more tail drops, lower fairness). The
   engine pins `478752b`; its ten packet-level tests, the native Linux suites (61
   with the feature, 51 default) and the real-TUN lab pass.
+- Continuation: fork `d64e86d` corrects recovery entry to use `cwnd = ssthresh`
+  for negotiated SACK, per [RFC 6675 section 5 step 4](https://www.rfc-editor.org/rfc/rfc6675.html#section-5). `478752b` suppressed
+  subsequent duplicate-ACK inflation but inadvertently retained NewReno's initial
+  three-MSS allowance; its earlier description of cwnd staying at ssthresh was
+  inaccurate. A separate controller hook preserves the existing NewReno path
+  for peers without SACK. Reno/CUBIC packet regressions fail against the previous
+  entry behavior, including sequence wrap; pipe-budget and zero-window fixtures
+  now reflect the reduced budget. All 742 fork unit tests, three netsim cases,
+  formatting and the no-std configuration pass. The engine pins `d64e86d`.
 
 ## Measurements
 
@@ -403,6 +414,8 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | smoltcp sender SACK (`478752b`) | 1 MiB | 0.5% | 1.5 | 96.2 | timeout: 55.9/100 MB in 120 s | — |
 | smoltcp sender SACK (`478752b`) | 256 KiB | 1% | timeout: 140.2/200 MB in 300 s | — | timeout: 39.2/100 MB in 120 s | — |
 | smoltcp sender SACK (`478752b`) | 1 MiB | 1% | timeout: 134.7/200 MB in 300 s | — | timeout: 41.7/100 MB in 120 s | — |
+| smoltcp SACK entry fix (`d64e86d`) | 256 KiB | 0% | 4.1 | 49.5 | 4.5 | 101.0 |
+| smoltcp SACK entry fix (`d64e86d`) | 256 KiB | 0.5% | 0.9 | 141.8 | not repeated | — |
 
 Lossy baseline uploads timed out at 100 MB. A timeout alone does not distinguish
 slow congestion-controlled delivery from the known gateway receive-path stall;
@@ -455,10 +468,10 @@ managed before its deadline, and the 1 MiB figure is within 10% of ipstack's
 1 MiB download measured 8.4 MB/s against 10.6 MB/s for the recovery build on a
 single run each). The gate is still unmet: ipstack's uncontrolled 256 KiB window
 moves 2.3 MB/s at 0.5%, the 1% downloads deliver about 0.47 MB/s and miss the
-300 s deadline (ipstack completed at 1.4 MB/s), and every lossy upload, where the
-Linux kernel is the sender and smoltcp the receiver, moves 0.33–0.47 MB/s and
-misses its 120 s deadline (ipstack's lossy uploads also timed out). Keep the
-256 KiB default and do not recommend rollout.
+300 s deadline (ipstack completed at 1.4 MB/s), and every lossy upload, where
+Tailscale's gVisor CUBIC stack is the sender and smoltcp the receiver, moves
+0.33–0.47 MB/s and misses its 120 s deadline (ipstack's lossy uploads also timed
+out). Keep the 256 KiB default and do not recommend rollout.
 
 ### Bounded sender-SACK proposal (approved 2026-10-23, implemented in `478752b`)
 
@@ -489,7 +502,7 @@ log for the two deliberate departures from the RFC text.
 
 ### Sender SACK in simulation: faster repair, not more throughput
 
-The fork's netsim (54 ms RTT, 25 MB/s bottleneck, 256 KiB buffers, random
+The fork's `478752b` netsim (54 ms RTT, 25 MB/s bottleneck, 256 KiB buffers, random
 loss on data and ACKs, CUBIC with 200 ms minimum RTO) runs each case with SACK
 negotiated (RFC 6675) and without (NewReno), on the same seeds, 10 MB per run:
 
@@ -511,27 +524,78 @@ negotiated (RFC 6675) and without (NewReno), on the same seeds, 10 MB per run:
 Reproduce with `NETSIM_LOSS=0.01 NETSIM_SEED=2 cargo test --release --features
 _netsim,socket-tcp-cubic --test netsim netsim_cubic_loss_exploration --
 --ignored --nocapture` in the fork (`NETSIM_BYTES`, `NETSIM_RTT_MS`,
-`NETSIM_BUFFER` and `NETSIM_SACK=0|1` also apply).
+`NETSIM_BUFFER` and `NETSIM_SACK=0|1` also apply). These numeric samples predate
+the SACK recovery-entry correction in `d64e86d`.
 
-SACK does what it is for: every hole in a window is repaired within one round
-trip, timeouts are no more frequent, and the no-controller single-flow
-snapshots improve under loss. It does not raise CUBIC's throughput under
-random loss, and is 0-20% slower than NewReno on the same seeds. The traces
-show why. NewReno's episodes last one round trip per hole, and RFC 5681's
-duplicate-ACK inflation lets the sender keep filling the pipe during them; when
-the next loss arrives right after an episode ends, the new ssthresh is computed
-from a flight that the inflated window had grown (in one trace, in-flight data
-at the second cut was 100 KB where the un-inflated window was 41 KB). RFC 6675
-forbids that inflation, so its episodes end after one round trip and each loss
-costs the full 30% cut. Under random, non-congestive loss the less compliant
-behaviour sends more; under real congestion it would overshoot. Keeping the
-spec behaviour is deliberate; the gateway's problem is CUBIC's response to
-random loss, which no recovery mechanism changes.
+The deterministic packet tests repair multiple holes within the same round
+trip without waiting for RTO. In these simulation samples, SACK does not raise
+CUBIC throughput relative to NewReno, and the table does not show a consistent
+increase in timeout frequency either. The saved traces attribute part of the
+throughput difference to recovery duration and window accounting: NewReno's
+duplicate-ACK inflation keeps more data in flight during longer episodes. That
+inflation is allowed for NewReno under RFC 5681; RFC 6675 uses SetPipe instead.
+This comparison does not make NewReno noncompliant or establish the complete
+cause of the gateway's deficit. In particular, the later real-gateway traces
+also identify retransmission timeouts. Keep the RFC 6675 entry-window correction
+and the existing NewReno fallback rather than changing congestion policy to
+improve one random-loss fixture.
 
-The remaining inefficiency is the RFC's own: a rescue or a new episode's first
-retransmission can resend a segment whose repair is still in flight (about 12
+One remaining inefficiency in these traces is that a rescue or a new episode's
+first retransmission can resend a segment whose repair is still in flight (about 12
 to 16 duplicate segments per 10 MB at 1% loss, each answered by a challenge
 ACK). That costs well under 1% of the transfer and is left as is.
+
+### Continuation: kernel reference and timeout diagnostics (2026-10-24)
+
+`tsgw/test/bench/kernel.sh` runs kernel CUBIC in an unprivileged user/network
+namespace. It sets loopback MTU 1280, disables TSO/GSO/GRO before applying netem
+to all loopback packets, and records iperf3 JSON plus offload/qdisc diagnostics.
+Each sample below lasts 30 seconds at 54 ms RTT, with a 256 KiB socket-buffer
+request. Linux reports actual send/receive buffer sizes of 425,984 bytes.
+This isolates TCP's reaction to loss; it does not reproduce the gateway's
+WireGuard encryption, relay, gVisor peer or fixed memory allocation.
+
+| Loss | Reverse MB/s | Forward MB/s | Reverse retransmits | Forward retransmits |
+|---:|---:|---:|---:|---:|
+| 0% | 3.801 | 3.820 | 0 | 0 |
+| 0.5% | 0.716 | 0.763 | 88 | 104 |
+| 1% | 0.376 | 0.366 | 127 | 80 |
+
+The 1 MiB request is unsupported: iperf3 reports `socket buffer size not set
+correctly`. The host's `rmem_max`/`wmem_max` are 212,992 bytes and cannot be raised
+from an unprivileged network namespace. The host settings were left unchanged.
+Reproduce with `tsgw/test/bench/kernel.sh 27ms 0.5% 262144 30 -R`; raw results
+are `measurements/kernel-*.json` and `kernel-*.log` on the Linux workspace.
+The first 10-second probe had aggregation enabled and is excluded from this table.
+
+These samples show a substantial loss penalty for kernel CUBIC too. They do
+not establish a throughput ceiling for all compliant stacks or waive the
+existing comparison with ipstack. The performance gate remains unmet.
+
+The fork's `log` feature now routes stack diagnostics through the gateway's
+existing subscriber. With `CPXY_TSGW_BENCH_GW_RUST_LOG=warn,smoltcp::socket::tcp=debug`
+and `CPXY_TSGW_BENCH_LOG`, four short 20 MB measurements on `478752b` completed:
+
+| Loss | Download MB/s | Upload MB/s | Download RTO messages | Upload RTO messages |
+|---:|---:|---:|---:|---:|
+| 0.5% | 2.3 | 0.6 | 2 | 1 |
+| 1% | 0.4 | 0.3 | 13 | 1 |
+
+Counts include warm-up/control flows, so they are diagnostic counts, not an
+exact per-transfer loss rate. None of the four gateway logs contains an
+`assembler: too many holes` message. The four-range receiver limit therefore
+does not explain these upload samples; it was not increased. All short uploads
+finish, which distinguishes these samples from a permanent upload stall but
+does not rule out the separate long-running receive-path problem. The upload
+sender is the test client's **gVisor** stack, configured to CUBIC by
+`tailscale.com/wgengine/netstack`, rather than Linux TCP. Logging overhead,
+random losses and the shorter size prevent treating these as replacements for
+the full-size matrix. Raw logs are `measurements/debug4-*`.
+
+The 1% download does encounter retransmission timeouts, so attributing its
+entire deficit to CUBIC's congestion response was too strong. Distinguishing
+lost tail packets, lost repairs and ACK loss needs packet traces; no RACK/TLP
+or congestion-policy changes are included in Phases 1–4.
 
 
 ### CPU profile: established idle connections
@@ -576,3 +640,53 @@ profile_idle_socket_polling -- --ignored --nocapture`.
 - The final debug build filled the host filesystem. Only this task's disposable
   `target/debug` cache was cleared (about 4.8 GiB); release artifacts and measured
   binaries were preserved. Final native tests were rerun in release mode.
+
+
+### Corrected SACK recovery entry: final validation (`d64e86d`)
+
+The fork passes 742 unit tests, all three netsim cases, the no-std check and
+formatting. The Reno/CUBIC entry-window regression checks both fail with the
+old hook and pass with the correction. Native Linux engine validation passes
+61 tests (one manual profiler ignored); the real-TUN lab passes again, including
+16 parallel 4 MB downloads, IPv4/IPv6 routing, DNS split, refusals, fail-closed
+behavior and ordered shutdown.
+
+`TestStateFromGo` passes in a fresh user/network namespace with the corrected
+binary. The first no-delay 20 MB smoke attempt downloads at 67.2 MB/s but its
+upload stalls and reaches Go's four-minute hard deadline before the original
+300-second transfer watchdog. The task-owned orphan gateway was terminated;
+no host service was changed. The upload retry uses a 30-second transfer deadline
+and passes at 74.7 MB/s. Both attempts are preserved as `sack-window-smoke.log`
+and `sack-window-smoke-retry.log`. This is not evidence that the separate,
+known receive-path stall has been fixed.
+
+CI on code commit `80f24e6` passes every applicable check, including the gateway,
+workspace tests, both engine/TUN configurations, mobile shared UI, packaging
+and both Docker architectures: [run 39987822560](https://github.com/simophin/cpxy-ng/actions/runs/39987822560).
+
+The final full-size gate samples use the same 54 ms RTT, 256 KiB buffer,
+200 MB download / 100 MB upload fixture, with debug logging disabled:
+
+| Loss | Direction | MB/s | CPU-ms/MB | Peak RSS MB |
+|---:|---|---:|---:|---:|
+| 0% | Download | 4.1 | 49.5 | 27.3 |
+| 0% | Upload | 4.5 | 101.0 | 25.3 |
+| 0.5% | Download | 0.9 | 141.8 | 27.0 |
+
+The 0.5% download completes in roughly 211 seconds of measured transfer time
+(217 seconds including test setup), but remains clearly worse than ipstack's
+2.3 MB/s. It also falls below the older `478752b` sample's 1.2 MB/s; one random
+sample per revision cannot isolate the cause of that difference. The recovery
+entry correction is for RFC 6675 correctness, not a demonstrated throughput
+improvement. The zero-loss results meet the 20% throughput gate and use less
+CPU than ipstack at the same buffer size.
+
+Per the Phase 2 stop rule, do not expand the corrected pin's larger-buffer/loss
+matrix after this failure. Kernel references show that random loss penalizes
+kernel CUBIC too, and gateway traces identify retransmission timeouts; neither
+proves the whole deficit is unavoidable. No congestion-policy change, receiver
+capacity increase or default-buffer change is justified by these measurements.
+The implementation and its validation are present; performance acceptance and
+rollout remain blocked by the recorded gate. Raw logs are
+`measurements/sack-window-262144-*`; no task-owned build, gateway or benchmark
+process remains running.
