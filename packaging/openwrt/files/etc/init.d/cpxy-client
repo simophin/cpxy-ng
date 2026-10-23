@@ -16,7 +16,9 @@ _start_instance() {
 	procd_open_instance "$name"
 	procd_set_param command "$CPXY_BIN/cpxy-client"
 	# The server URL holds the key: in the environment, out of the process list
-	set -- CONFIG="$CPXY_SERVER" HTTP_PROXY_LISTEN="$CPXY_HTTP_LISTEN" PROXY_ROUTES="$(echo $CPXY_PROXY_ROUTES | tr ' ' ,)" NO_COLOR=1
+	set -- CONFIG="$CPXY_SERVER" HTTP_PROXY_LISTEN="$CPXY_HTTP_LISTEN" NO_COLOR=1
+	# An empty PROXY_ROUTES is an invalid route to cpxy-client, so it is set only with routes
+	[ -n "$CPXY_PROXY_ROUTES" ] && set -- "$@" PROXY_ROUTES="$(echo $CPXY_PROXY_ROUTES | tr ' ' ,)"
 	[ "$CPXY_SOCKS5" = 1 ] && set -- "$@" SOCKS5_PROXY_LISTEN="$CPXY_SOCKS5_LISTEN"
 	cpxy_procd_env "client-$name" "$@"
 	procd_set_param respawn 3600 5 0

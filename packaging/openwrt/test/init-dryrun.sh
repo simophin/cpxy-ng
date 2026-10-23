@@ -117,9 +117,11 @@ uci commit cpxy
 everything start_service
 # cpxy-client
 want 'set command /usr/bin/cpxy-client'
-want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 PROXY_ROUTES= NO_COLOR=1'
-want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 PROXY_ROUTES= NO_COLOR=1'
-want 'HTTP_PROXY_LISTEN=[::]:5002 PROXY_ROUTES= NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
+want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1'
+want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
+# Without routes, PROXY_ROUTES is left unset: cpxy-client rejects an empty one
+absent 'PROXY_ROUTES'
 # procd restarts an instance when this file changes, not when only its environment does
 want 'set file /tmp/cpxy/client-guest.env'
 grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
@@ -160,7 +162,7 @@ position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewal
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
-want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy PROXY_ROUTES='
+want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy IPV6=full'
 want 'DNS_SEARCH_DOMAINS=home.arpa,corp.example HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
 want 'set file /tmp/cpxy/tsgw-guest.env'
 grep -qxF 'IPV6=full' /tmp/cpxy/tsgw-guest.env || fail 'tsgw IPv6 mode'
@@ -201,9 +203,9 @@ uci add_list cpxy.guest.proxy_route=192.0.2.0/24
 uci add_list cpxy.guest.proxy_route=198.51.100.0/24
 uci add_list cpxy.guest.proxy_route=2400:3200::/32
 everything reload_service
-want 'HTTP_PROXY_LISTEN=[::]:5000 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16 NO_COLOR=1'
-want 'HTTP_PROXY_LISTEN=[::]:5001 PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32 NO_COLOR=1'
-want 'HTTP_PROXY_LISTEN=[::]:5002 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16 NO_COLOR=1'
+want 'HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16'
+want 'HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32'
+want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16'
 for route in 223.5.5.5/32 10.20.0.0/16; do
 	[ "$(grep -cF -- "append command --proxy-route $route" "$LOG")" = 2 ] || fail 'default routes not inherited by main and iot'
 done
