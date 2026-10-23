@@ -14,7 +14,7 @@ libc = "0.2"
 mobile-engine = { path = "../mobile-engine" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-tailscale = { package = "geiserx_tailscale", git = "https://github.com/simophin/tailscale-rs", rev = "a0bac02d69ed54ca4216a691d28ca7d11fa6bb34" } # GeiserX/tailscale-rs 0.58.2, plus Config::external_forwarder, batched sends on Linux and HTTPS_PROXY
+tailscale = { package = "geiserx_tailscale", git = "https://github.com/simophin/tailscale-rs", rev = "95575355640b318a9140a1979505eca6c0710035" } # GeiserX/tailscale-rs 0.58.2, plus Config::external_forwarder, batched sends on Linux and HTTPS_PROXY
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0"
 tracing-subscriber = { version = "0", features = ["env-filter"] }

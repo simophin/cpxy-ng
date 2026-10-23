@@ -1346,7 +1346,7 @@ dependencies = [
 [[package]]
 name = "geiserx_tailscale"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_control",
  "geiserx_ts_keys",
@@ -1370,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_array256"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_bitset",
  "heapless",
@@ -1381,7 +1381,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_bart"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "cfg-if",
  "geiserx_ts_array256",
@@ -1394,7 +1394,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_bart_packetfilter"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_array256",
  "geiserx_ts_bart",
@@ -1408,7 +1408,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_bitset"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "cfg-if",
  "static_assertions",
@@ -1417,7 +1417,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_capabilityversion"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "serde",
 ]
@@ -1425,7 +1425,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_control"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "chrono",
@@ -1467,7 +1467,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_control_noise"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -1491,7 +1491,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_control_serde"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1510,7 +1510,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_dataplane"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "etherparse 0.19.0",
  "geiserx_ts_bart",
@@ -1529,7 +1529,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_derp"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "crypto_box",
@@ -1555,7 +1555,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_disco_protocol"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "aead",
  "crypto_box",
@@ -1569,12 +1569,12 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_dns_wire"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 
 [[package]]
 name = "geiserx_ts_dynbitset"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_bitset",
  "smallvec",
@@ -1583,7 +1583,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_forwarder"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "etherparse 0.19.0",
@@ -1598,7 +1598,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_hexdump"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "heapless",
 ]
@@ -1606,7 +1606,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_http_util"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -1627,7 +1627,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_keys"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "crypto_box",
  "ed25519-dalek",
@@ -1642,7 +1642,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_magicsock"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_capabilityversion",
  "geiserx_ts_disco_protocol",
@@ -1663,7 +1663,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_metrics"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "portable-atomic",
 ]
@@ -1671,7 +1671,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_netcheck"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_control",
  "geiserx_ts_derp",
@@ -1685,7 +1685,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_netstack_smoltcp"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1698,7 +1698,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_netstack_smoltcp_core"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "flume 0.12.0",
@@ -1711,7 +1711,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_netstack_smoltcp_socket"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "geiserx_ts_netstack_smoltcp_core",
@@ -1722,7 +1722,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_nodecapability"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "cfg-if",
  "serde",
@@ -1732,7 +1732,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_overlay_router"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_bart",
  "geiserx_ts_packet",
@@ -1744,7 +1744,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_packet"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "bytes",
  "crypto_box",
@@ -1754,7 +1754,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_packetfilter"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "hashbrown 0.17.1",
  "ipnet",
@@ -1765,7 +1765,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_packetfilter_serde"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_nodecapability",
  "geiserx_ts_peercapability",
@@ -1778,7 +1778,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_packetfilter_state"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_packetfilter",
  "geiserx_ts_packetfilter_serde",
@@ -1788,7 +1788,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_peercapability"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "serde",
  "url",
@@ -1797,7 +1797,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_portmapper"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "getrandom 0.4.3",
  "if-addrs",
@@ -1811,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_runtime"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -1853,12 +1853,12 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_time"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 
 [[package]]
 name = "geiserx_ts_tka"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "argon2",
  "blake2 0.10.6",
@@ -1870,7 +1870,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_tls_util"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "ring",
  "rustls-pemfile",
@@ -1885,7 +1885,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_transport"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_packet",
 ]
@@ -1893,7 +1893,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_tunnel"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "aead",
  "blake2 0.10.6",
@@ -1913,7 +1913,7 @@ dependencies = [
 [[package]]
 name = "geiserx_ts_underlay_router"
 version = "0.58.2"
-source = "git+https://github.com/simophin/tailscale-rs?rev=a0bac02d69ed54ca4216a691d28ca7d11fa6bb34#a0bac02d69ed54ca4216a691d28ca7d11fa6bb34"
+source = "git+https://github.com/simophin/tailscale-rs?rev=95575355640b318a9140a1979505eca6c0710035#95575355640b318a9140a1979505eca6c0710035"
 dependencies = [
  "geiserx_ts_packet",
  "geiserx_ts_transport",
