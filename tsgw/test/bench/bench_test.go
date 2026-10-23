@@ -8,6 +8,9 @@
 //
 //	CPXY_TSGW_BIN          the binary, default target/release/cpxy-tsgw (cargo build --release -p cpxy-tsgw)
 //	CPXY_TSGW_BENCH_MB     MB per transfer, default 200
+//	CPXY_TSGW_BENCH_UPLOAD_MB  MB per upload, defaults to CPXY_TSGW_BENCH_MB
+//	CPXY_TSGW_BENCH_DIRECTIONS  D, U or DU (default), to isolate a stalled direction
+//	CPXY_TSGW_BENCH_TIMEOUT_SECONDS  timeout per transfer, default 300
 //	CPXY_TSGW_BENCH_RUNS   transfers per direction, default 3
 //	CPXY_TSGW_BENCH_PARALLEL  connections sharing each transfer, default 1
 //	CPXY_TSGW_BENCH_HOST   the address of this host to serve on, default the first private
@@ -68,6 +71,13 @@ func TestThroughput(t *testing.T) {
 	size := int64(envInt(t, "CPXY_TSGW_BENCH_MB", 200)) * mb
 	runs := envInt(t, "CPXY_TSGW_BENCH_RUNS", 3)
 	parallel := envInt(t, "CPXY_TSGW_BENCH_PARALLEL", 1)
+	directions := os.Getenv("CPXY_TSGW_BENCH_DIRECTIONS")
+	if directions == "" {
+		directions = "DU"
+	}
+	if directions != "D" && directions != "U" && directions != "DU" {
+		t.Fatal("CPXY_TSGW_BENCH_DIRECTIONS must be D, U or DU")
+	}
 	host := os.Getenv("CPXY_TSGW_BENCH_HOST")
 	if host == "" {
 		host = privateAddr(t)
@@ -117,7 +127,14 @@ func TestThroughput(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		gw.Process.Signal(syscall.SIGTERM)
-		gw.Wait()
+		done := make(chan struct{})
+		go func() { gw.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			gw.Process.Kill()
+			<-done
+		}
 		if t.Failed() || os.Getenv("CPXY_TSGW_BENCH_VERBOSE") == "1" {
 			t.Logf("gateway output:\n%s", gwLogs.String())
 		}
@@ -196,21 +213,28 @@ func TestThroughput(t *testing.T) {
 	mon := &monitor{pid: gw.Process.Pid}
 	t.Logf("idle: RSS %.1f MB", float64(rss(mon.pid))/mb)
 	for _, dir := range []byte{'D', 'U'} {
+		if !strings.ContainsRune(directions, rune(dir)) {
+			continue
+		}
+		transferSize := size
+		if dir == 'U' {
+			transferSize = int64(envInt(t, "CPXY_TSGW_BENCH_UPLOAD_MB", int(size/mb))) * mb
+		}
 		name := map[byte]string{'D': "download", 'U': "upload"}[dir]
 		for i := range runs {
 			r := mon.measure(func() time.Duration {
 				if parallel == 1 {
-					return transfer(ctx, t, client, addr, dir, size)
+					return transfer(ctx, t, client, addr, dir, transferSize)
 				}
 				start := time.Now()
 				var wg sync.WaitGroup
 				for range parallel {
-					wg.Go(func() { transfer(ctx, t, client, addr, dir, size/int64(parallel)) })
+					wg.Go(func() { transfer(ctx, t, client, addr, dir, transferSize/int64(parallel)) })
 				}
 				wg.Wait()
 				return time.Since(start)
 			})
-			t.Logf("%s %d: %s", name, i+1, r.line(size))
+			t.Logf("%s %d: %s", name, i+1, r.line(transferSize))
 		}
 	}
 	if hold := envInt(t, "CPXY_TSGW_BENCH_HOLD", 0); hold > 0 {
@@ -300,7 +324,7 @@ func (zeros) Read(p []byte) (int, error) {
 
 // transfer moves size bytes through the client node and returns how long it took.
 func transfer(ctx context.Context, t *testing.T, client *tsnet.Server, addr string, dir byte, size int64) time.Duration {
-	return transferWithin(ctx, t, client, addr, dir, size, 5*time.Minute)
+	return transferWithin(ctx, t, client, addr, dir, size, time.Duration(envInt(t, "CPXY_TSGW_BENCH_TIMEOUT_SECONDS", 300))*time.Second)
 }
 
 func transferWithin(ctx context.Context, t *testing.T, client *tsnet.Server, addr string, dir byte, size int64, timeout time.Duration) time.Duration {
@@ -311,6 +335,10 @@ func transferWithin(ctx context.Context, t *testing.T, client *tsnet.Server, add
 	}
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(timeout))
+	// Some userspace TCP connections do not interrupt a blocked write on a deadline.
+	// Closing it also bounds a stalled upload, allowing cleanup and the next benchmark.
+	watchdog := time.AfterFunc(timeout, func() { c.Close() })
+	defer watchdog.Stop()
 	var req [9]byte
 	req[0] = dir
 	binary.BigEndian.PutUint64(req[1:], uint64(size))
@@ -329,8 +357,8 @@ func transferWithin(ctx context.Context, t *testing.T, client *tsnet.Server, add
 			t.Fatalf("downloaded %d of %d bytes: %v", n, size, err)
 		}
 	case 'U':
-		if _, err := io.CopyN(c, zeros{}, size); err != nil {
-			t.Fatalf("upload: %v", err)
+		if n, err := io.CopyN(c, zeros{}, size); err != nil {
+			t.Fatalf("uploaded %d of %d bytes: %v", n, size, err)
 		}
 		var ack [1]byte
 		if _, err := io.ReadFull(c, ack[:]); err != nil {

@@ -154,6 +154,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test engine
         run: cargo test --locked -p mobile-engine
+      - name: Test smoltcp engine
+        run: cargo test --locked -p mobile-engine --features smoltcp
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -175,6 +177,12 @@ jobs:
         run: |
           cp target/release/cpxy-router bins/
           packaging/openwrt/test/lab.sh bins
+      - name: Build smoltcp Linux lab engine
+        run: |
+          cargo build --release --locked -p mobile-engine --features smoltcp
+          cp target/release/mobile-engine-linux bins/
+      - name: Test smoltcp TUN routing, DNS split, refusals and fail-closed behaviour
+        run: mobile-engine/test/tun-lab.sh bins
 
   test_mobile_shared:
     name: Test mobile shared UI
@@ -231,10 +239,14 @@ jobs:
 
       # The server is only for the routing test
       - name: Build router executables
-        run: >
-          cross build --release --locked --target ${{ matrix.target.rust }}
-          -p mobile-engine -p client -p server -p cpxy-tsgw
-          --bin cpxy-router --bin standalone --bin server --bin cpxy-tsgw
+        # Separate invocations keep the gateway's smoltcp feature out of the router
+        # until the mobile/router migration in phase 5.
+        run: |
+          cross build --release --locked --target ${{ matrix.target.rust }} \
+            -p mobile-engine -p client -p server \
+            --bin cpxy-router --bin standalone --bin server
+          cross build --release --locked --target ${{ matrix.target.rust }} \
+            -p cpxy-tsgw --bin cpxy-tsgw
 
       - name: Build package
         env:

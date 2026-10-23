@@ -108,7 +108,7 @@ restart.
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
 | `IPV6` | `full` | Which IPv6 from clients to relay: `full` handles it like IPv4, which needs a cpxy server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` none. The box itself needs IPv6 for any of it. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
-| `TCP_WINDOW` | `262144` (256 KiB) | Bytes of a client's TCP connection in flight at once. A larger window helps only on a clean, fast path: the packet engine has no congestion control, so a window past what the path between client and box holds (bandwidth x round trip) loses throughput. Across China at 50 ms, 256 KiB moved 4-5 MB/s and 1 MiB 1 MB/s. |
+| `TCP_WINDOW` | `262144` (256 KiB) | TCP buffer bytes per direction for each client connection. CUBIC congestion control adapts the bytes in flight to the path; this setting caps buffering and the receive window. Larger buffers can help fast paths with a long round trip, at a memory cost of twice this size per connection. |
 | `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
 
 DNS servers are a plain IP (with an optional `:port`), or a `udp://`, `tcp://`, `tls://` or
@@ -212,7 +212,7 @@ the machine in the admin console.
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
 | Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Ask it [through the cpxy server](#choosing-the-servers) with `?via=cpxy`. |
-| Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. On a direct path, try another `TCP_WINDOW`. |
+| Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. On a direct path, a larger `TCP_WINDOW` can help if the buffer limits throughput over a long round trip. Packet loss and retransmission stalls can limit it even with a large buffer. |
 
 ## Building and testing
 
@@ -242,6 +242,22 @@ from `main`, and ships the binaries in the OpenWrt packages on the [download ser
   CPXY_TSGW_BENCH=1 go -C tsgw/test test -count=1 -v ./bench
   CPXY_TSGW_BENCH=1 CPXY_TSGW_BENCH_MB=1000 go -C tsgw/test test -count=1 -v -run TestThroughput ./bench
   ```
+
+  On Linux, `tsgw/test/bench/kernel.sh 27ms 0.5% 256K 30` runs a kernel CUBIC
+  reference with the same RTT and MTU, using iperf3. It needs iproute2, ethtool
+  and unprivileged user/network namespaces; it changes only its namespace.
+  Packet aggregation is disabled so netem drops individual packets. Save stdout
+  as JSON and stderr as the offload/qdisc diagnostics; add `-R` for reverse traffic.
+  Socket-buffer requests are subject to the host's limits, and Linux's actual
+  buffer sizes differ from the gateway's fixed per-flow allocation.
+
+  Stack diagnostics are available with `RUST_LOG=warn,cpxy_tsgw=info,smoltcp::socket::tcp=debug`
+  (`trace` also includes individual packets). For the offline benchmark, use
+  `CPXY_TSGW_BENCH_GW_RUST_LOG` to restrict this to the gateway and
+  `CPXY_TSGW_BENCH_LOG` to save its output. Keep `cpxy_tsgw=info`: the harness
+  waits for its readiness/approval messages. For TCP sequence numbers, windows
+  and SACK blocks, also enable `mobile_engine::netstack::wire=trace`; payload
+  contents are omitted. Diagnostic logging can affect timing.
 
 - `e2e` tests on a real tailnet: it creates ephemeral auth keys with the Tailscale API, runs
   cpxy-tsgw, approves its exit node, joins a client that uses it, checks that a site abroad sees

@@ -18,9 +18,12 @@ mod connection_log;
 mod dns;
 mod ffi;
 mod filter;
+#[cfg(not(feature = "smoltcp"))]
 mod fin;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(feature = "smoltcp")]
+mod netstack;
 mod proxy;
 mod routing;
 mod sni;
@@ -44,10 +47,13 @@ use connection_log::ConnectionLog;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
+#[cfg(not(feature = "smoltcp"))]
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
     TcpOptions,
 };
+#[cfg(feature = "smoltcp")]
+use netstack::{Flow as IpStackStream, TcpFlow as IpStackTcpStream, UdpFlow as IpStackUdpStream};
 use routing::Router;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::OwnedFd;
@@ -72,6 +78,7 @@ const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const DNS_PORT: u16 = 53;
 /// IPv6 and TCP headers without options. The MSS counts payload only (RFC 6691), and ipstack
 /// advertises one MSS for both IP versions, so it allows for the larger IPv6 header.
+#[cfg(any(not(feature = "smoltcp"), test))]
 const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
 /// The most a TCP flow has in flight towards the device, and buffers from it before the outbound
 /// side reads it, which is also the window it advertises; a flow moves at most this much per
@@ -79,10 +86,9 @@ const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
 ///
 /// On a phone or a router the apps are a millisecond away, and memory is tight.
 const LOCAL_TCP_WINDOW: u32 = 64 << 10;
-/// An exit node's clients are a network away: 256 KiB is 12 MB/s at 20 ms, or 2.5 MB/s at 100 ms.
-/// ipstack has no congestion control, so a window larger than the path's bandwidth-delay product
-/// floods its bottleneck, and loss recovery then costs far more than the window gains: across
-/// China at 54 ms, a 5 MB/s path moved 4-5 MB/s with 256 KiB but 1 MB/s with 1 MiB.
+/// Per-direction buffer for an exit node's TCP flows. With smoltcp, CUBIC controls the bytes
+/// in flight; this fixed buffer still caps throughput over a long round trip. The gateway's
+/// memory budget is separate from the small local window used on mobile and routers.
 const GATEWAY_TCP_WINDOW: u32 = 256 << 10;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -491,18 +497,32 @@ async fn run(
     dns_listeners: Option<dns::Listeners>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
-    let mut tcp_config = TcpConfig::default();
-    tcp_config.timeout = TCP_IDLE_TIMEOUT;
-    tcp_config.max_unacked_bytes = tcp_window;
-    tcp_config.read_buffer_size = tcp_window as usize;
-    // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
-    tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
-    let mut config = IpStackConfig::default();
-    config
-        .mtu_unchecked(mtu)
-        .udp_timeout(UDP_IDLE_TIMEOUT)
-        .with_tcp_config(tcp_config);
-    let mut stack = IpStack::new(config, device);
+    #[cfg(not(feature = "smoltcp"))]
+    let mut stack = {
+        let mut tcp_config = TcpConfig::default();
+        tcp_config.timeout = TCP_IDLE_TIMEOUT;
+        tcp_config.max_unacked_bytes = tcp_window;
+        tcp_config.read_buffer_size = tcp_window as usize;
+        // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
+        tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
+        let mut config = IpStackConfig::default();
+        config
+            .mtu_unchecked(mtu)
+            .udp_timeout(UDP_IDLE_TIMEOUT)
+            .with_tcp_config(tcp_config);
+        IpStack::new(config, device)
+    };
+    #[cfg(feature = "smoltcp")]
+    let mut stack = netstack::Stack::new(
+        netstack::Config {
+            mtu,
+            tcp_buffer: tcp_window as usize,
+            tcp_idle_timeout: TCP_IDLE_TIMEOUT,
+            udp_idle_timeout: UDP_IDLE_TIMEOUT,
+            min_rto: Duration::from_millis(200),
+        },
+        device,
+    );
     let mut listener_tasks =
         proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
     if let (Some(listeners), Some(dns)) = (dns_listeners, &dns) {
@@ -533,6 +553,7 @@ async fn run(
                 flows.spawn(handle_udp(udp, dns.clone()));
             }
             // ICMP and anything else the filter let through: not relayed.
+            #[cfg(not(feature = "smoltcp"))]
             Ok(IpStackStream::UnknownTransport(_) | IpStackStream::UnknownNetwork(_)) => {}
             Err(e) => {
                 tracing::error!("IP stack stopped: {e}");
@@ -550,6 +571,7 @@ async fn run(
     let _ = device_closed.await;
 }
 
+#[cfg(any(not(feature = "smoltcp"), test))]
 fn mss_for_mtu(mtu: u16) -> u16 {
     mtu.saturating_sub(TCP_IP_HEADERS_LEN)
 }
@@ -575,7 +597,9 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
     // The app's first bytes wait in the flow while connecting, and the tap reads the server name
     // from them as they are relayed, so connecting never waits for it.
     let (name_tx, mut name_rx) = oneshot::channel();
-    let mut flow = sni::SniTap::new(fin::FinRetry::new(flow), name_tx);
+    #[cfg(not(feature = "smoltcp"))]
+    let flow = fin::FinRetry::new(flow);
+    let mut flow = sni::SniTap::new(flow, name_tx);
     let (outcome, upstream) = router.connect(request).await;
     let mut upstream = match upstream {
         Ok(upstream) => upstream,
@@ -612,7 +636,7 @@ async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
     }
 }
 
-/// Relays one UDP flow through its own direct socket until ipstack closes it as idle.
+/// Relays one UDP flow through its own direct socket until the stack closes it as idle.
 async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddr) -> std::io::Result<()> {
     let unspecified: IpAddr = match dst {
         SocketAddr::V4(_) => Ipv4Addr::UNSPECIFIED.into(),
@@ -774,7 +798,7 @@ mod tests {
             tun.into(),
             "http://:k@127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
-            Ipv6Mode::Full,
+            Ipv6Mode::Off,
             DEFAULT_MTU,
             Some(RouterDns {
                 listen,
@@ -1008,15 +1032,41 @@ mod tests {
             builder.write(&mut packet, &[]).unwrap();
             packet
         };
-        // SAFETY: writing our own buffer to the peer socket.
-        let sent = unsafe { libc::write(_peer.as_raw_fd(), syn.as_ptr() as *const _, syn.len()) };
-        assert_eq!(sent, syn.len() as isize);
-        let _accepted = listener.accept().unwrap();
-
+        let peer = std::os::unix::net::UnixDatagram::from(_peer);
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        peer.send(&syn).unwrap();
+        // smoltcp exposes a flow only after the three-way handshake. Keep this a real
+        // established flow when testing ordered shutdown, with either TCP stack.
+        let mut packet = [0; 2048];
+        let n = peer.recv(&mut packet).unwrap();
+        let sliced = etherparse::SlicedPacket::from_ip(&packet[..n]).unwrap();
+        let Some(etherparse::TransportSlice::Tcp(tcp)) = sliced.transport else {
+            panic!("SYN-ACK");
+        };
+        assert!(tcp.syn() && tcp.ack());
+        let builder = etherparse::PacketBuilder::ipv4(TUN_ADDR.octets(), [127, 0, 0, 1], 64)
+            .tcp(40000, port, 2, 65535)
+            .ack(tcp.sequence_number().wrapping_add(1));
+        let mut ack = Vec::new();
+        builder.write(&mut ack, &[]).unwrap();
+        peer.send(&ack).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let _accepted = loop {
+            match listener.accept() {
+                Ok(accepted) => break accepted,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "upstream connection timed out"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => panic!("upstream accept: {e}"),
+            }
+        };
         engine.stop();
         // Checked through the peer, not the descriptor number, which other tests may reuse at once.
-        // SAFETY: writing our own buffer to the peer socket.
-        let sent = unsafe { libc::write(_peer.as_raw_fd(), syn.as_ptr() as *const _, syn.len()) };
-        assert!(sent < 0, "the TUN descriptor is still open");
+        assert!(peer.send(&syn).is_err(), "the TUN descriptor is still open");
     }
 }
