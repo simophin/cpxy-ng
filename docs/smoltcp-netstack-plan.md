@@ -1,10 +1,13 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: Phase 0 baseline complete. Phase 1–3 implementation and Phase 4 receiver
-SACK are committed and tested, but the loss-performance gate is unmet. The user
-approved the bounded sender-SACK proposal on 2026-10-23; it is not implemented.
-Continuation details are in [the handoff](smoltcp-netstack-handoff.md).
-Phase 5 remains outside the requested scope.
+Status: Phases 0–4 are implemented and tested, including the bounded
+sender-side SACK the user approved on 2026-10-23 (fork `478752b`). The
+loss-performance gate is still unmet: with sender SACK the 0.5% downloads now
+complete (1.2 MB/s at 256 KiB, 1.5 MB/s at 1 MiB, from a censored ~0.6 MB/s),
+but ipstack's fixed window still moves 2.3 MB/s there, and the 1% downloads and
+every lossy upload still miss their deadlines. Continuation details are in
+[the handoff](smoltcp-netstack-handoff.md). Phase 5 remains outside the
+requested scope.
 
 ## Why
 
@@ -341,6 +344,34 @@ fork, and get the plan agreed before writing it.
   netsim tests, and ten packet-level engine tests pass. Simultaneous 1 MB transfers
   and half-closes pass for both IPv4 and IPv6. Sender-side RFC 6675 remains pending;
   no competing sender implementation has been written.
+- Phase 4, sender side: fork commit `478752b` implements the approved bounded
+  RFC 6675 recovery in `src/socket/tcp/sack.rs` and `src/socket/tcp.rs`. Each
+  socket keeps at most 32 sorted, merged SACKed ranges (264 bytes) plus the
+  `HighRxt` and `RescueRxt` marks; a full scoreboard forgets the ranges farthest
+  from the cumulative ACK. In recovery with SACK negotiated, `IsLost`, `SetPipe`
+  and `NextSeg` replace NewReno: lost holes are retransmitted first, then new
+  data, then not-yet-lost holes below the highest SACKed octet, then one rescue
+  of an unretransmitted tail per episode; cwnd stays at ssthresh (no duplicate-ACK
+  inflation, no partial-ACK deflation) until the recovery point is acknowledged.
+  Blocks are validated against the negotiated capability and `[SND.UNA, SND.MAX]`
+  with wrap-safe comparisons; a timeout clears the scoreboard and the cursor
+  resends the flight, cutting segments at ranges reported after the timeout.
+  Retransmissions never exceed the advertised window. Two departures from the
+  RFC text avoid duplicate retransmissions seen in simulation: rule 4 rescues
+  only data not already retransmitted in the episode, and `HighRxt` survives the
+  end of an episode. Thirteen new unit tests cover the proposal's list (multiple
+  holes before the timer, no resend of SACKed data, loss detection before three
+  duplicates, reordering, duplicate/overlapping/invalid blocks, sequence wrap,
+  scoreboard overflow, reneging and timeouts, zero windows, the rescued tail,
+  peers without SACK, simultaneous bidirectional loss); the fork passes 742 tests
+  in the default CI feature set, the IPv6-only and no-std sets, and all three
+  netsim cases. The `netsim` snapshots change because the no-controller flows now
+  recover with SACK: single-flow throughput under random loss rises (for example
+  32 KiB buffers at 5% loss, 101 to 150 KB/s), while the no-controller multi-flow
+  case, which has no congestion window to bound RFC 6675's retransmissions, gets
+  more aggressive (higher aggregate, more tail drops, lower fairness). The
+  engine pins `478752b`; its ten packet-level tests, the native Linux suites (61
+  with the feature, 51 default) and the real-TUN lab pass.
 
 ## Measurements
 
@@ -366,6 +397,12 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | smoltcp Phase 3 (`8774bfc`) | 1 MiB | 0% | 10.6 | 33.5 | 6.2 | 91.5 |
 | smoltcp Phase 3 (`8774bfc`) | 4 MiB | 0% | 8.7 | 36.5 | timeout | — |
 | smoltcp Phase 3 (`8774bfc`) | 256 KiB | 0.5% | timeout: 186.4/200 MB in 300 s | — | not repeated | — |
+| smoltcp sender SACK (`478752b`) | 256 KiB | 0% | 4.2 | 48.0 | 4.5 | 99.9 |
+| smoltcp sender SACK (`478752b`) | 1 MiB | 0% | 8.4 | 39.0 | 5.2 | 93.1 |
+| smoltcp sender SACK (`478752b`) | 256 KiB | 0.5% | 1.2 | 119.2 | timeout: 53.6/100 MB in 120 s | — |
+| smoltcp sender SACK (`478752b`) | 1 MiB | 0.5% | 1.5 | 96.2 | timeout: 55.9/100 MB in 120 s | — |
+| smoltcp sender SACK (`478752b`) | 256 KiB | 1% | timeout: 140.2/200 MB in 300 s | — | timeout: 39.2/100 MB in 120 s | — |
+| smoltcp sender SACK (`478752b`) | 1 MiB | 1% | timeout: 134.7/200 MB in 300 s | — | timeout: 41.7/100 MB in 120 s | — |
 
 Lossy baseline uploads timed out at 100 MB. A timeout alone does not distinguish
 slow congestion-controlled delivery from the known gateway receive-path stall;
@@ -406,14 +443,28 @@ CPU to 33.5 CPU-ms/MB, but the 0.5% loss gate still fails: 186,435,425 of
 over unpatched smoltcp. The remaining recovery loss matrix is not expanded after
 this failure. Four MiB is slower than 1 MiB on the clean download and its upload
 also times out. Keep the 256 KiB default and do not recommend rollout while this
-gate is unmet. Receiver SACK passes the native engine suite and TUN lab; sender
-SACK is approved for implementation in the fork but has not been started.
+gate is unmet. Receiver SACK passes the native engine suite and TUN lab.
 
-### Bounded sender-SACK proposal (approved, not implemented)
+### Sender SACK gate checkpoint
 
-Approved by the user on 2026-10-23 after Phase 3 missed the loss gate and
-upstream sender work remained unpublished. Implementation has not started;
-the next agent should carry out this agreed fallback:
+Sender SACK (`478752b`, measured 2026-10-24 with the same fixture) completes
+the 0.5% downloads that every earlier smoltcp build censored: 1.2 MB/s at
+256 KiB and 1.5 MB/s at 1 MiB, about double the ~0.62 MB/s the recovery build
+managed before its deadline, and the 1 MiB figure is within 10% of ipstack's
+1.6 MB/s at that buffer. Zero-loss numbers are unchanged within noise (the
+1 MiB download measured 8.4 MB/s against 10.6 MB/s for the recovery build on a
+single run each). The gate is still unmet: ipstack's uncontrolled 256 KiB window
+moves 2.3 MB/s at 0.5%, the 1% downloads deliver about 0.47 MB/s and miss the
+300 s deadline (ipstack completed at 1.4 MB/s), and every lossy upload, where the
+Linux kernel is the sender and smoltcp the receiver, moves 0.33–0.47 MB/s and
+misses its 120 s deadline (ipstack's lossy uploads also timed out). Keep the
+256 KiB default and do not recommend rollout.
+
+### Bounded sender-SACK proposal (approved 2026-10-23, implemented in `478752b`)
+
+Approved by the user after Phase 3 missed the loss gate and upstream sender
+work remained unpublished; implemented as described, see the implementation
+log for the two deliberate departures from the RFC text.
 
 - A fixed-capacity scoreboard of 32 sorted, merged sequence ranges per socket,
   plus bounded retransmission bookkeeping (under 1 KiB of socket metadata).
@@ -436,9 +487,51 @@ the next agent should carry out this agreed fallback:
 - Re-run the real-TUN lab and the same buffer/loss matrix, measuring CPU and
   memory as well as throughput. Adopt only after meeting the recorded gate.
 
-The user explicitly approved implementing this bounded sender-SACK fallback in
-the fork. It remains unimplemented because the user then requested a handoff;
-no additional approval is needed to start this agreed work.
+### Sender SACK in simulation: faster repair, not more throughput
+
+The fork's netsim (54 ms RTT, 25 MB/s bottleneck, 256 KiB buffers, random
+loss on data and ACKs, CUBIC with 200 ms minimum RTO) runs each case with SACK
+negotiated (RFC 6675) and without (NewReno), on the same seeds, 10 MB per run:
+
+| Loss | Seed | NewReno KB/s | SACK KB/s | NewReno episodes / RTOs | SACK episodes / RTOs |
+|---:|---:|---:|---:|---:|---:|
+| 0.5% | 1 | 482 | 478 | 40 / 0 | 39 / 0 |
+| 0.5% | 2 | 437 | 369 | 48 / 0 | 46 / 1 |
+| 0.5% | 3 | 542 | 459 | 41 / 1 | 43 / 0 |
+| 0.5% | 4 | 362 | 356 | 48 / 0 | 49 / 0 |
+| 0.5% | 5 | 458 | 435 | 41 / 0 | 38 / 0 |
+| 0.5% | 6 | 613 | 503 | 34 / 0 | 38 / 0 |
+| 1% | 1 | 442 | 353 | 59 / 0 | 75 / 1 |
+| 1% | 2 | 340 | 313 | 68 / 1 | 71 / 2 |
+| 1% | 3 | 285 | 253 | 90 / 3 | 99 / 1 |
+| 1% | 4 | 302 | 280 | 83 / 1 | 86 / 1 |
+| 1% | 5 | 269 | 271 | 87 / 0 | 88 / 1 |
+| 1% | 6 | 275 | 269 | 83 / 1 | 88 / 1 |
+
+Reproduce with `NETSIM_LOSS=0.01 NETSIM_SEED=2 cargo test --release --features
+_netsim,socket-tcp-cubic --test netsim netsim_cubic_loss_exploration --
+--ignored --nocapture` in the fork (`NETSIM_BYTES`, `NETSIM_RTT_MS`,
+`NETSIM_BUFFER` and `NETSIM_SACK=0|1` also apply).
+
+SACK does what it is for: every hole in a window is repaired within one round
+trip, timeouts are no more frequent, and the no-controller single-flow
+snapshots improve under loss. It does not raise CUBIC's throughput under
+random loss, and is 0-20% slower than NewReno on the same seeds. The traces
+show why. NewReno's episodes last one round trip per hole, and RFC 5681's
+duplicate-ACK inflation lets the sender keep filling the pipe during them; when
+the next loss arrives right after an episode ends, the new ssthresh is computed
+from a flight that the inflated window had grown (in one trace, in-flight data
+at the second cut was 100 KB where the un-inflated window was 41 KB). RFC 6675
+forbids that inflation, so its episodes end after one round trip and each loss
+costs the full 30% cut. Under random, non-congestive loss the less compliant
+behaviour sends more; under real congestion it would overshoot. Keeping the
+spec behaviour is deliberate; the gateway's problem is CUBIC's response to
+random loss, which no recovery mechanism changes.
+
+The remaining inefficiency is the RFC's own: a rescue or a new episode's first
+retransmission can resend a segment whose repair is still in flight (about 12
+to 16 duplicate segments per 10 MB at 1% loss, each answered by a challenge
+ACK). That costs well under 1% of the transfer and is left as is.
 
 
 ### CPU profile: established idle connections

@@ -1,101 +1,115 @@
 # PR 135 continuation handoff
 
-The user requested Phases 1–4 on the existing PR, with incremental commits and
-pushes. They have now asked to tie up and hand off to another agent. All changes
-are on `simophin/cpxy-ng:smoltcp-netstack-plan` / PR 135.
+The user asked for Phases 1–4 on the existing PR with incremental commits and
+pushes, then on 2026-10-24 asked to wind down and hand off. All changes are on
+`simophin/cpxy-ng:smoltcp-netstack-plan` / PR 135; the PR description has not
+been updated for the sender-SACK work yet.
 
-## Next work and authorization
+## State
 
-**The user explicitly approved the bounded sender-SACK implementation** on
-2026-10-23, choosing “Approve the bounded sender-SACK implementation.” They then
-requested this handoff before implementation began. Do not ask for approval again.
-Implement the [agreed 32-range RFC 6675 proposal](smoltcp-netstack-plan.md#bounded-sender-sack-proposal-approved-not-implemented)
-in `simophin/smoltcp:cpxy`, with regressions, then pin its revision here and measure.
-No sender scoreboard code has been written yet.
+Phases 0–4 are implemented and tested. The approved bounded sender-side SACK is
+in fork commit `478752b` (`simophin/smoltcp`, branch `cpxy`, pushed) and the
+engine pins it (`ca00224` on the PR branch). Details, the full measurement table
+and the simulation analysis are in [the plan](smoltcp-netstack-plan.md).
 
-The current implementation fails the loss-performance gate: Phase 3 receives
-186.4/200 MB in 300 seconds at 0.5% loss and 54 ms RTT (~0.62 MB/s over that
-interval), versus ipstack's completed 2.3 MB/s transfer. The full table and CPU
-profile are in the plan. Do not claim the migration is ready for rollout. Keep
-the gateway's 256 KiB default until measurements support changing it. Remaining
-loss matrices were stopped at the documented gate, rather than silently passed.
-The loss-only fixture has no bandwidth bottleneck; distinguish CUBIC's response
-to random loss from loss-recovery defects when interpreting results.
+**The loss-performance gate is still unmet; do not claim the migration is
+ready for rollout.** Sender SACK made the 0.5% downloads complete (1.2 MB/s at
+256 KiB, 1.5 MB/s at 1 MiB; earlier builds were censored at ~0.6 MB/s) but
+ipstack's uncontrolled window still does 2.3 MB/s at 256 KiB, the 1% downloads
+deliver ~0.47 MB/s and miss the 300 s deadline, and every lossy upload (kernel
+sender, smoltcp receiver) moves 0.33–0.47 MB/s and misses its 120 s deadline.
+Keep the gateway's 256 KiB default.
+
+What the simulation showed: RFC 6675 recovery repairs every hole in a window
+within one round trip and does not add timeouts, but it is 0–20% slower than
+NewReno under random loss in the fork's netsim because NewReno's duplicate-ACK
+inflation (forbidden by RFC 6675) keeps its pipe fuller during its longer
+episodes and leaks into the next episode's ssthresh. The spec behaviour was kept
+on purpose. The gateway's problem is CUBIC's response to random loss, not loss
+recovery.
+
+## Open questions and suggested next steps
+
+1. **Kernel TCP reference (not run).** To show what any compliant stack can do
+   on this fixture, run iperf3 (installed on `cn-baise`) in its own namespace
+   with netem on all of `lo`, socket buffers capped like the gateway's:
+   `unshare --map-root-user --net sh -euc 'ip link set lo up; tc qdisc add dev
+   lo root netem delay 27ms loss 0.5% limit 100000; iperf3 -s -D -1; sleep 0.5;
+   iperf3 -c 127.0.0.1 -w 256K -t 60 -f M'`, also with `-R`, `-w 1M`, and 0% and
+   1% loss. If kernel-to-kernel is near 1.2–1.5 MB/s at 0.5%, the download side
+   is at its ceiling and the gate (parity with uncontrolled ipstack) cannot be
+   met by congestion-controlled TCP; the user then decides whether the gate or
+   the congestion response changes. Do not run it while another measurement is
+   running.
+2. **Uploads (smoltcp as receiver).** Unmeasured suspects: the reassembler holds
+   `ASSEMBLER_MAX_SEGMENT_COUNT = 4` contiguous ranges (three holes); with a
+   kernel sender pushing ~180 segments per window at 1% loss, a fourth hole makes
+   smoltcp drop the segment (`assembler: too many holes`). smoltcp exposes
+   `assembler-max-segment-count-32` as a cargo feature; adding it to the
+   `smoltcp` dependency features in `mobile-engine/Cargo.toml` is a one-line
+   experiment, untested. Also compare `set_ack_delay(None)` as the plan suggests.
+   Check the gateway log in the failed upload runs for the assembler message
+   before changing anything.
+3. **1% downloads.** ~0.47 MB/s is below the 1/√2 scaling from 0.5%, which
+   suggests timeouts; count `retransmitting after rto` with the engine's log at
+   debug level before tuning anything.
+4. The remaining RFC 6675 inefficiency, a rescue or a new episode's first
+   retransmission resending a repair still in flight (12–16 segments per 10 MB
+   at 1% in netsim), costs under 1% and was left alone.
+5. Update the PR description (title and body still describe receiver SACK as
+   the latest work) and let CI run on `ca00224`; it has not been checked.
 
 ## Code and repositories
 
-- `mobile-engine/src/netstack/`: feature-gated async TCP/UDP adapter. Ten packet
-  tests cover IPv4/IPv6, MSS, 1 MB transfers, simultaneous half-closes, resets,
-  tuple isolation, duplicate SYNs, 1,000 closes, UDP expiry and backpressure.
-  One additional ignored test profiles established idle connections.
-- tsgw enables `mobile-engine/smoltcp`; mobile/router defaults retain ipstack.
-  Packaging builds gateway and router separately to avoid feature unification.
-- The engine pins fork revision `01bf32a8934bd81e4a6f18ad40648ed940cc3147`.
-  It includes NewReno (`da00976`), #1221 ACK sequencing (`8774bfc`), upstream
-  receiver SACK from #1195 (original authorship retained), and reset/RTO tests.
-- Local fork checkout: `/private/tmp/cpxy-smoltcp`, branch `cpxy`, clean and pushed.
-  Independent review branches `cpxy-newreno` and `cpxy-rto-ack` are also pushed.
-  The latter has a separate local worktree at `/private/tmp/cpxy-smoltcp-rto-upstream`.
-- Upstream has no published sender-SACK branch/PR from the receiver-work author.
-  Its contribution policy requires human-authored submissions, so no generated
-  upstream PRs were opened. Keep the new work in the user's fork.
-- GitHub identity: inspect the canonical repository `.envrc`; use
-  `GH_CONFIG_DIR=$HOME/.config/gh/personal`, verify login `simophin` before writes,
-  and override Git credentials with that environment's `gh auth git-credential`.
-  Do not use the work account or a work-account fork.
+- `mobile-engine/src/netstack/`: feature-gated async TCP/UDP adapter, ten packet
+  tests plus one ignored idle-socket profiler. tsgw enables `mobile-engine/smoltcp`;
+  mobile/router defaults retain ipstack; packaging builds gateway and router
+  separately to avoid feature unification.
+- Fork `simophin/smoltcp:cpxy` at `478752b`: NewReno (`da00976`), #1221 ACK
+  sequencing (`8774bfc`), upstream receiver SACK from #1195 (original authorship
+  retained), and the sender SACK scoreboard (`src/socket/tcp/sack.rs`, changes in
+  `src/socket/tcp.rs`, tests in both, `tests/netsim.rs` runs the CUBIC loss case
+  with and without SACK and has an ignored env-driven exploration test).
+  Local checkout `/private/tmp/cpxy-smoltcp`, clean and pushed; `target/ci-*`
+  subdirectories there are disposable build caches from the CI feature sets.
+  Review branches `cpxy-newreno` and `cpxy-rto-ack` are unchanged.
+- Upstream's contribution policy requires human-authored submissions; nothing
+  generated was submitted upstream.
+- GitHub identity for writes: `GH_CONFIG_DIR=$HOME/.config/gh/personal`, login
+  `simophin`, push over HTTPS with `-c credential.helper='!gh auth
+  git-credential'` (see the memory note; SSH authenticates as the work account).
 
 ## Validation at handoff
 
-- Fork: 726 unit tests and all three netsim cases pass.
-- Final native receiver-SACK engine: 61 passed, one manual profiler ignored;
-  real-TUN lab passes. Default Linux engine previously passed 51 tests.
-- `go vet ./...` and benchmark formatting pass. The no-delay 20 MB gateway
-  throughput smoke test passes at ~74 MB/s in each direction.
-- The following native `TestStateFromGo` fails with `Address already in use`
-  when launching the gateway. No cause established; retry in an isolated user/
-  network namespace. Do not change unrelated services or call this a stack bug.
-- CI run `39952887957` on `4b53f15` passed all checks, including engine/TUN,
-  gateway/state import, workspace tests and both Docker architectures. The final
-  handoff/benchmark-diagnostic commit will trigger a new run.
-- macOS's existing packet-info/TUN tests have known hangs. Use Linux for full
-  engine/TUN validation; the plan records the local skips and fixture corrections.
+- Fork: 258 TCP-module tests (5 scoreboard, 10 sender-SACK) and 742 tests in the
+  `default,socket-tcp-reno,socket-tcp-cubic` set (`--lib --tests`; examples do
+  not build on macOS), IPv6-only set, no-std check, all three netsim tests with
+  updated snapshots, `cargo fmt`; clippy has one pre-existing warning.
+- Engine: ten netstack tests on macOS; native Linux 61 (feature) and 51
+  (default) library tests; real-TUN lab passes with the feature.
+- Benchmark matrix for `478752b` complete (12 runs, logs `measurements/sack-*.log`,
+  summary `measurements/sack-matrix.log`); no measurement process left running.
+- CI for `ca00224` was not checked.
 
 ## Linux workspace and tools
 
-Use `ssh cn-baise` as the regular user; no host root/sudo is permitted or needed.
-The login shell is fish, so wrap scripted commands in `sh -c` when appropriate.
+Use `ssh cn-baise` as the regular user; no root. The login shell is fish, wrap
+commands in `sh -c`. A separate systemd/podman cpxy gateway container runs on
+the host (`cpxy-tsgw`, `cpxy-client` under `conmon`); it is not this task's and
+likely explains the earlier `Address already in use` in `TestStateFromGo`.
 
-Workspace: `$HOME/Temp/cpxy-pr135`. Its source is now the receiver-SACK revision.
-Use `RUSTUP_TOOLCHAIN=1.97.1` (installed already; default Rust is older) and add
-`$HOME/.cargo/bin`, `$HOME/Temp/tsgw-dev/go/bin` and `/usr/sbin` to `PATH`.
-Go is 1.27.1. The host supports unprivileged user/network namespaces, TUN,
-netem, nftables and own-process perf. No live Tailscale API key was used.
+Workspace `$HOME/Temp/cpxy-pr135` is an rsync copy of the PR branch at
+`ca00224` (not a git repository; sync with `rsync -az --delete --exclude target
+--exclude .git --exclude node_modules --exclude measurements --exclude .claude`).
+Use `RUSTUP_TOOLCHAIN=1.97.1`, add `$HOME/.cargo/bin`, `$HOME/Temp/tsgw-dev/go/bin`
+and `/usr/sbin` to `PATH`, unset the proxy variables, `GOPROXY=https://goproxy.cn,direct`.
+Disk is at ~3.4 GiB free; do not add debug builds. Release builds used
+`CARGO_PROFILE_RELEASE_DEBUG=1 CARGO_PROFILE_RELEASE_STRIP=false`.
 
-The login environment has stale localhost proxy settings. For Go preparation,
-unset upper/lowercase `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`, and use
-`GOPROXY=https://goproxy.cn,direct` if dependencies need downloading. Fetch/
-compile Go dependencies before entering a fresh network namespace (no DNS there).
-
-`measurements/` contains raw logs, perf data/report and preserved binaries:
-
-- `cpxy-tsgw-ipstack`: original baseline.
-- `cpxy-tsgw-phase2`: unpatched fork revision `24bda3b`.
-- `cpxy-tsgw-phase3`: recovery revision `8774bfc`, with profiling symbols.
-- `cpxy-tsgw-phase4`: receiver SACK revision `01bf32a`.
-
-Helpers in `$HOME/Temp/`: `pr135-measure.sh` (matrix runner), `pr135-perf.sh`
-(profile capture), and earlier baseline/next-stage scripts. Inspect before reuse;
-they contain this workspace's absolute paths and intentionally skip existing logs.
-The matrix runner supports label, binary, window list, optional loss list and
-optional direction list. Do not compile while taking measurements on the same host.
-Some original combined logs include discarded/control-startup-failed attempts;
-use the plan's table and valid separate-direction reruns as the source of truth.
-
-The host filesystem filled while creating duplicate debug artifacts. Only this
-task's `target/debug` was cleared; do not clear other user workspaces. Release
-artifacts remain. Release validation used `CARGO_PROFILE_RELEASE_DEBUG=1` and
-`CARGO_PROFILE_RELEASE_STRIP=false`; about 3.6 GiB remained at the last check.
-Prefer `cargo test --release --lib` or manage this task's build caches to avoid
-recreating large debug cdylib/staticlib artifacts.
-
-No test/gateway/perf/build processes from this task remain running at handoff.
+`measurements/` binaries: `cpxy-tsgw-ipstack`, `-phase2` (`24bda3b`), `-phase3`
+(`8774bfc`), `-phase4` (`01bf32a`), `-sack` (`478752b`). `bins/` holds the lab
+`cpxy-server` and feature-enabled `mobile-engine-linux`. Helpers in `$HOME/Temp/`:
+`pr135-measure.sh <label> <binary> "<windows>" ["<losses>"] ["<dirs>"]` skips
+existing logs; `pr135-perf.sh` captures a profile. Do not compile while
+measuring. Uploads use a 120 s limit and downloads 300 s; a timeout is a
+censored measurement, and the logs state the bytes transferred.
