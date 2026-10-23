@@ -1,6 +1,6 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: not started. Work through the phases in order, one PR per phase, and update this file
+Status: not started. Work through the phases in order and update this file
 (status line, decisions, measured numbers) as you go.
 
 ## Why
@@ -48,7 +48,7 @@ spent 14-19% of download time stalled in 1 s timeouts; with bounded sender SACK,
 - **Fork smoltcp** as `simophin/smoltcp`, branch `cpxy`, based on upstream `main` (it needs
   #1211). Depend on it by git rev in `mobile-engine/Cargo.toml`, like ipstack. Do **not** add a
   `[patch.crates-io]`: tailscale-rs keeps its crates.io smoltcp 0.14, and the two copies are
-  separate crates. Every patch we carry should also go upstream as a PR.
+  separate crates.
 - **Our own glue, in-tree** (`mobile-engine/src/netstack/`), not the `netstack-smoltcp` crate.
   That crate is on smoltcp 0.12 without congestion control, and we need per-socket settings and
   close/reset behaviour that match what the engine relies on. Read it and
@@ -181,7 +181,7 @@ ipstack gave one `IpStackUdpStream` per (source, destination) with an idle timeo
 - Record the table in this file under **Measurements**. This is what every later phase is
   compared against.
 
-Done when: the script change is merged and the baseline table is in this file.
+Done when: the script takes a loss rate and the baseline table is in this file.
 
 ### Phase 1: fork smoltcp, write the glue with tests
 
@@ -230,9 +230,8 @@ at 256 KiB. If it is clearly worse, stop and write down why before going on.
 
 ### Phase 3: smoltcp patches in our fork
 
-Each patch: a commit in `simophin/smoltcp` `cpxy` with tests in smoltcp's own style (unit
-tests in `src/socket/tcp.rs`, and the netsim test, `tests/netsim.rs`, for throughput under
-loss), opened upstream as a PR too, then the rev bumped in `mobile-engine/Cargo.toml`.
+Each patch comes with tests in smoltcp's own style (unit tests in `src/socket/tcp.rs`, and the
+netsim test, `tests/netsim.rs`, for throughput under loss).
 
 1. **NewReno partial ACKs (RFC 6582).** On entering fast recovery, record `recover =
    remote_last_seq` (highest sequence sent). An ACK of new data below `recover` is a partial
@@ -247,8 +246,7 @@ loss), opened upstream as a PR too, then the rev bumped in `mobile-engine/Cargo.
    `tcp_output.c` does. Reproduce the issue's two-peer case first as a failing test.
 3. Measure again as in phase 2 and record the numbers.
 
-Done when: both patches are in our fork with tests, upstream PRs are open, and the numbers are
-recorded.
+Done when: both patches are in our fork with tests and the numbers are recorded.
 
 ### Phase 4: SACK
 
