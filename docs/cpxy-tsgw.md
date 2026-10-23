@@ -243,6 +243,19 @@ from `main`, and ships the binaries in the OpenWrt packages on the [download ser
   CPXY_TSGW_BENCH=1 CPXY_TSGW_BENCH_MB=1000 go -C tsgw/test test -count=1 -v -run TestThroughput ./bench
   ```
 
+  On Linux, `tsgw/test/bench/kernel.sh 27ms 0.5% 256K 30` runs a kernel CUBIC
+  reference with the same RTT and MTU, using iperf3. It needs iproute2, ethtool
+  and unprivileged user/network namespaces; it changes only its namespace.
+  Packet aggregation is disabled so netem drops individual packets. Save stdout
+  as JSON and stderr as the offload/qdisc diagnostics; add `-R` for reverse traffic.
+  Socket-buffer requests are subject to the host's limits, and Linux's actual
+  buffer sizes differ from the gateway's fixed per-flow allocation.
+
+  Stack diagnostics are available with `RUST_LOG=warn,smoltcp::socket::tcp=debug`
+  (`trace` also includes individual packets). For the offline benchmark, use
+  `CPXY_TSGW_BENCH_GW_RUST_LOG` to restrict this to the gateway and
+  `CPXY_TSGW_BENCH_LOG` to save its output. Diagnostic logging can affect timing.
+
 - `e2e` tests on a real tailnet: it creates ephemeral auth keys with the Tailscale API, runs
   cpxy-tsgw, approves its exit node, joins a client that uses it, checks that a site abroad sees
   the cpxy server's address and a local-region one this host's, that DNS is answered over the peer
