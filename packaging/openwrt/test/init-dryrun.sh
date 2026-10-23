@@ -231,8 +231,9 @@ uci delete cpxy.defaults.proxy_route
 uci delete cpxy.guest.proxy_route
 everything reload_service
 absent 'append command --proxy-route'
-grep -qxF 'PROXY_ROUTES=' /tmp/cpxy/client-main.env || fail 'client routes not cleared'
-grep -qxF 'PROXY_ROUTES=' /tmp/cpxy/tsgw-guest.env || fail 'tsgw routes not cleared'
+absent 'PROXY_ROUTES'
+if grep -q '^PROXY_ROUTES' /tmp/cpxy/client-main.env; then fail 'client routes not cleared'; fi
+if grep -q '^PROXY_ROUTES' /tmp/cpxy/tsgw-guest.env; then fail 'tsgw routes not cleared'; fi
 
 # Changing an instance's IPv6 mode sets its routing up again and restarts its worker.
 uci set cpxy.guest.ipv6=direct
