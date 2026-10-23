@@ -204,7 +204,7 @@ jobs:
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
-    needs: [version, build_tsgw]
+    needs: [version]
     strategy:
       matrix:
         target:
@@ -229,22 +229,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download cpxy-tsgw
-        uses: actions/download-artifact@v8
-        with:
-          name: tsgw-${{ matrix.target.rust }}
-          path: executables
-
-      # Artifacts don't keep file modes
-      - name: Make cpxy-tsgw executable
-        run: chmod +x executables/cpxy-tsgw
-
       # The server is only for the routing test
       - name: Build router executables
         run: >
           cross build --release --locked --target ${{ matrix.target.rust }}
-          -p mobile-engine -p client -p server
-          --bin cpxy-router --bin standalone --bin server
+          -p mobile-engine -p client -p server -p cpxy-tsgw
+          --bin cpxy-router --bin standalone --bin server --bin cpxy-tsgw
 
       - name: Build package
         env:
@@ -253,7 +243,7 @@ jobs:
           RELEASE: target/${{ matrix.target.rust }}/release
         run: |
           mkdir -p bins
-          cp executables/cpxy-tsgw bins/
+          cp "$RELEASE/cpxy-tsgw" bins/cpxy-tsgw
           cp "$RELEASE/cpxy-router" bins/cpxy-router
           cp "$RELEASE/standalone" bins/cpxy-client
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
@@ -284,7 +274,10 @@ jobs:
           path: openwrt-package
           if-no-files-found: error
 
-  # cpxy-tsgw: the Go Tailscale exit node linked to the Rust packet engine (gateway/).
+  # cpxy-tsgw (tsgw/): its unit tests run with the workspace's in `test`. This runs the binary on
+  # a Tailscale control server and DERP in the test process (tsgw/test/bench), with no internet:
+  # a node keeps the identity the Go cpxy-tsgw left in its state, and packets cross the exit node
+  # both ways.
   test_tsgw:
     name: Test cpxy-tsgw
     runs-on: ubuntu-latest
@@ -296,70 +289,22 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-go@v7
         with:
-          go-version-file: gateway/go.mod
-          cache-dependency-path: gateway/go.sum
-      - name: Check formatting and vet
-        working-directory: gateway
+          go-version-file: tsgw/test/go.mod
+          cache-dependency-path: tsgw/test/go.sum
+      - name: Build
+        run: cargo build --release --locked -p cpxy-tsgw
+      - name: Check the test harness's formatting and vet it
+        working-directory: tsgw/test
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
           go vet ./...
-      # Links the Go tests against the engine; the end-to-end test skips without its secrets.
-      - name: Test
-        run: gateway/build.sh test
-      - name: Lint scripts
-        run: |
-          sudo apt-get install -y --no-install-recommends shellcheck
-          shellcheck -s sh -S warning -e SC3043 gateway/build.sh
-
-  # The static binaries the OpenWrt package ships; publish_docker builds the Docker image's own.
-  build_tsgw:
-    name: Build cpxy-tsgw (${{ matrix.target.rust }})
-    if: github.event_name != 'pull_request'
-    needs: test_tsgw
-    strategy:
-      matrix:
-        target:
-          - rust: x86_64-unknown-linux-musl
-          - rust: aarch64-unknown-linux-musl
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target.rust }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: tsgw-${{ matrix.target.rust }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: gateway/go.mod
-          cache-dependency-path: gateway/go.sum
-      # zig cc compiles the engine's C dependencies and links the static binary.
-      # Fetched directly: mlugg/setup-zig still runs on the deprecated Node.js 20.
-      - name: Install Zig
+      - name: Test the state carried over from Go, and the packet path
+        working-directory: tsgw/test
         env:
-          ZIG_VERSION: 0.15.2
-          ZIG_SHA256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
-        run: |
-          curl -fsSL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
-          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
-          mkdir -p "$RUNNER_TOOL_CACHE/zig"
-          tar -C "$RUNNER_TOOL_CACHE/zig" --strip-components=1 -xJf zig.tar.xz
-          rm zig.tar.xz
-          echo "$RUNNER_TOOL_CACHE/zig" >>"$GITHUB_PATH"
-          "$RUNNER_TOOL_CACHE/zig/zig" version
-
-      - name: Build static binary
-        run: |
-          gateway/build.sh ${{ matrix.target.rust }} artifacts/cpxy-tsgw
-          file artifacts/*
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v7
-        with:
-          name: tsgw-${{ matrix.target.rust }}
-          path: artifacts
-          if-no-files-found: error
+          CPXY_TSGW_BENCH: 1
+          CPXY_TSGW_BENCH_MB: 20
+          CPXY_TSGW_BENCH_RUNS: 1
+        run: go test -count=1 -timeout 10m -v ./bench
 
   test_openwrt_packaging:
     name: Test OpenWrt packaging
@@ -485,7 +430,6 @@ jobs:
       - test
       - test_openwrt_packaging
       - test_tsgw
-      - build_tsgw
       - test_download_worker
     if: >-
       github.event_name != 'pull_request' && vars.R2_BUCKET != '' &&

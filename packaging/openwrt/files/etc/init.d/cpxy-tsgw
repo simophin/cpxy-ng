@@ -30,7 +30,6 @@ _start_instance() {
 	[ -n "$CPXY_DNS_SEARCH_DOMAINS" ] && set -- "$@" DNS_SEARCH_DOMAINS="$(echo $CPXY_DNS_SEARCH_DOMAINS | tr ' ' ,)"
 	[ -n "$CPXY_TSGW_AUTHKEY" ] && set -- "$@" TS_AUTHKEY="$CPXY_TSGW_AUTHKEY"
 	[ -n "$CPXY_TSGW_CONTROL_URL" ] && set -- "$@" CONTROL_URL="$CPXY_TSGW_CONTROL_URL"
-	[ "$CPXY_TSGW_NO_LOGS" = 1 ] && set -- "$@" TS_NO_LOGS_NO_SUPPORT=true
 	[ "$CPXY_TSGW_PROXY" = 1 ] && set -- "$@" HTTPS_PROXY="$CPXY_PROXY" HTTP_PROXY="$CPXY_PROXY"
 	cpxy_procd_env "tsgw-$name" "$@"
 	procd_set_param respawn 3600 5 0

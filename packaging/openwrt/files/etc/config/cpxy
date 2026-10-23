@@ -52,13 +52,11 @@ config defaults 'defaults'
 
 	# cpxy-tsgw: log in with the link in `logread -e cpxy-tsgw`, or once with an auth key
 	option tsgw_authkey ''
-	# A different coordination server, e.g. Headscale. One whose certificate is not from
-	# Let's Encrypt also needs: opkg install ca-bundle
+	# A different coordination server, e.g. Headscale, with a certificate from a public CA
 	option tsgw_control_url ''
 	option tsgw_mtu '1280'
 	# 1 reaches Tailscale's coordination and relay (DERP) servers through the instance's proxy
 	option tsgw_proxy '1'
-	option tsgw_no_logs_no_support '0'
 	option tsgw_verbose '0'
 
 config instance 'main'

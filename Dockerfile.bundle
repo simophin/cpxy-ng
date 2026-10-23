@@ -3,32 +3,25 @@
 # One container per bundle: the cpxy client's HTTP proxy, and cpxy-tsgw (a Tailscale exit node)
 # using it. s6-overlay starts and supervises the two; docs/docker-bundle.md explains the settings.
 
-# Run Cargo, rustc and Go on the BuildKit host instead of emulating the target CPU, as
+# Run Cargo and rustc on the BuildKit host instead of emulating the target CPU, as
 # Dockerfile.tsgw does.
 FROM --platform=$BUILDPLATFORM ghcr.io/rust-cross/cargo-zigbuild:0.23.3 AS builder
 
-ARG BUILDARCH
 ARG TARGETARCH
-# The version gateway/go.mod asks for.
-ARG GO_VERSION=1.27.1
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${BUILDARCH}.tar.gz" | tar -C /usr/local -xz
-ENV PATH=/usr/local/go/bin:$PATH
 
 WORKDIR /usr/src/app
 COPY . .
 
 RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
     --mount=type=cache,id=bundle-target-${TARGETARCH},target=/usr/src/app/target \
-    --mount=type=cache,id=go-mod,target=/root/go/pkg/mod \
-    --mount=type=cache,id=go-build-${TARGETARCH},target=/root/.cache/go-build \
     case "$TARGETARCH" in \
         amd64) rust_target=x86_64-unknown-linux-musl ;; \
         arm64) rust_target=aarch64-unknown-linux-musl ;; \
         *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac && \
     mkdir -p /out/state && \
-    gateway/build.sh "$rust_target" /out/cpxy-tsgw && \
-    cargo zigbuild --release --locked --target "$rust_target" -p client --bin standalone && \
+    cargo zigbuild --release --locked --target "$rust_target" -p cpxy-tsgw -p client --bin cpxy-tsgw --bin standalone && \
+    cp "target/$rust_target/release/cpxy-tsgw" /out/cpxy-tsgw && \
     cp "target/$rust_target/release/standalone" /out/cpxy-client
 
 # s6-overlay's release archives, pinned by checksum, unpacked on the build host.
@@ -74,8 +67,6 @@ ENV TS_AUTHKEY=
 ENV TS_PORT=
 # A different coordination server, e.g. Headscale; empty means Tailscale's
 ENV CONTROL_URL=
-# Set to true to stop uploading Tailscale's own logs to Tailscale
-ENV TS_NO_LOGS_NO_SUPPORT=
 # The largest packet sent back to clients; Tailscale's MTU is 1280
 ENV MTU=1280
 

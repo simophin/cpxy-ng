@@ -4,13 +4,14 @@
 node in the Tailscale app and get cpxy routing and split DNS, with no cpxy app on the device.
 
 It runs entirely in user space: it is its own Tailscale node (built on
-[tsnet](https://tailscale.com/kb/1244/tsnet)), so it needs no `tailscaled`, no TUN device, no
-routing or firewall changes, no IP forwarding and no root. Inside it, the packets clients send to
+[tailscale-rs](https://github.com/simophin/tailscale-rs), a Rust implementation of Tailscale), so
+it needs no `tailscaled`, no TUN device, no routing or firewall changes, no IP forwarding and no
+root. Inside it, the packets clients send to
 the internet go to the same packet engine and `dns_split` resolver as the mobile app and the
 [OpenWrt package](openwrt.md), which also includes cpxy-tsgw.
 
 ```text
-phone ── Tailscale ──► cpxy-tsgw (tsnet: WireGuard, NAT traversal, DERP)
+phone ── Tailscale ──► cpxy-tsgw (tailscale-rs: WireGuard, NAT traversal, DERP)
                          ├─ TCP ────────► packet engine ► cpxy server
                          │                         (local-region destinations: direct)
                          ├─ UDP 443 (QUIC) ► refused, so apps fall back to TCP
@@ -52,8 +53,8 @@ or through the box's NAT like any Tailscale node; then set `TS_PORT` and publish
 (`-p 41641:41641/udp`) for direct connections. Nothing in the container
 needs root, so `--user` with a volume it can write works too.
 
-**The binary.** The `tsgw-<target>` artifact of a CI run on `main`, or one built with
-`gateway/build.sh` (below), runs on any Linux, as any user. Give it the settings in its environment, or in
+**The binary.** One built with Cargo ([below](#building-and-testing)) runs on any Linux, as any
+user; the musl builds are static. Give it the settings in its environment, or in
 a `KEY=value` file passed with `--config`, and a `STATE_DIR` it can write:
 
 ```sh
@@ -99,23 +100,24 @@ restart.
 | `SERVER` | none, **required** | The cpxy server URL, including the key. Never a command-line flag, so it stays out of `ps`. |
 | `TS_HOSTNAME` | `cpxy-tsgw` | The node's name on the tailnet. Also `--hostname`. |
 | `TS_AUTHKEY` | none | An auth key for the first login instead of the link in the log. |
-| `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; Tailscale also asks the router itself over UPnP, NAT-PMP or PCP when it can. |
-| `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net). Also `--control-url`. |
+| `TS_PORT` | random | The UDP port WireGuard listens on. Set it to forward that port on your router, so devices connect directly more often; cpxy-tsgw also asks the router itself over NAT-PMP or PCP when it can. |
+| `CONTROL_URL` | Tailscale's | A different coordination server, e.g. [Headscale](https://headscale.net), with a certificate from a public CA (cpxy-tsgw trusts the roots built into it, not the system's), or `http://`. Also `--control-url`. |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | unset | An `http://` proxy to reach Tailscale's coordination and DERP servers through, as for `tailscaled`. The [Docker bundle](docker-bundle.md) and the OpenWrt package point it at their cpxy client. Clients' traffic never uses it. |
 | `DNS_UPSTREAM` | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. |
 | `DNS_ALTERNATIVE` | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the cpxy server (see [Choosing the servers](#choosing-the-servers)). |
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
 | `IPV6` | `full` | Which IPv6 from clients to relay: `full` handles it like IPv4, which needs a cpxy server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` none. The box itself needs IPv6 for any of it. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
+| `TCP_WINDOW` | `262144` (256 KiB) | Bytes of a client's TCP connection in flight at once. A larger window helps only on a clean, fast path: the packet engine has no congestion control, so a window past what the path between client and box holds (bandwidth x round trip) loses throughput. Across China at 50 ms, 256 KiB moved 4-5 MB/s and 1 MiB 1 MB/s. |
 | `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
-| `TS_NO_LOGS_NO_SUPPORT` | unset | `true` stops uploading Tailscale's own logs to Tailscale, as for `tailscaled`. |
 
 DNS servers are a plain IP (with an optional `:port`), or a `udp://`, `tcp://`, `tls://` or
 `https://` URL; `tls://` and `https://` accept `?ip=<addr>` so no lookup is needed at startup.
 `tcp://`, `tls://` and `https://` accept `?via=cpxy` to connect through the cpxy server; the cpxy
 server then looks up a hostname without `?ip=` itself.
 
-`--verbose` adds Tailscale's own debug output to the log, including each DNS query clients send
-over the peer API (`peerapi: exitdns: ...`).
+`--verbose` adds Tailscale's own output to the log, and each DNS query clients send over the peer
+API (`exitdns: <name>`). `RUST_LOG` sets the levels in full, e.g. `RUST_LOG=info,ts_magicsock=debug`.
 
 ## DNS
 
@@ -123,7 +125,8 @@ Clients using an exit node send their DNS to it in two ways, and both get split 
 
 - The Tailscale app sends it as DNS over HTTPS to the exit node's peer API. `tailscaled` would
   answer it from the box's `/etc/resolv.conf`; cpxy-tsgw answers it with `dns_split`, applying
-  Tailscale's own checks on who may ask.
+  Tailscale's own checks on who may ask. The tailnet's own (MagicDNS) names are answered from the
+  tailnet.
 - DNS that apps send to a server of their own (UDP or TCP port 53, to any address) reaches the
   exit node as packets, and the engine answers it the same way.
 
@@ -179,7 +182,11 @@ through the server, and check the reported public IP is the server's.
 - **The peer API serves only DNS.** Taildrop to this node and the peer API's debug pages are not
   available; nothing else needs them on an exit node.
 - **Only clients' traffic is proxied.** The box's own traffic, cpxy-tsgw's connection to the cpxy
-  server and to Tailscale included, goes direct.
+  server included, goes direct; its connections to Tailscale's servers too, unless `HTTPS_PROXY`
+  is set.
+- **The Tailscale side is pre-release software.** tailscale-rs is young, and its cryptography has
+  not been audited. cpxy-tsgw runs a fork of it with a few additions for the exit node (its
+  packets, batched UDP sends, the proxy), pinned in `tsgw/Cargo.toml`.
 
 ## Day-to-day use
 
@@ -187,7 +194,10 @@ through the server, and check the reported public IP is the server's.
 access until they pick another one or it starts again.
 
 **Upgrade:** `docker pull ghcr.io/simophin/cpxy-ng-tsgw`, then recreate the container with the
-same volume; the login is kept. With the binary, replace the file and restart.
+same volume; the login is kept. With the binary, replace the file and restart. A node the earlier
+Go version of cpxy-tsgw registered keeps its identity, and so its approval: on first start the
+new version takes the keys from that version's `tailscaled.state` into `keys.json` and logs
+`Carried the node's Tailscale identity over`. The old file stays, so downgrading works too.
 
 **Uninstall:** remove the container and the volume (or the binary and its `STATE_DIR`), and remove
 the machine in the admin console.
@@ -202,30 +212,43 @@ the machine in the admin console.
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
 | Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Ask it [through the cpxy server](#choosing-the-servers) with `?via=cpxy`. |
-| Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. |
+| Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. On a direct path, try another `TCP_WINDOW`. |
 
 ## Building and testing
 
-`gateway/build.sh` builds the Rust engine as a static library and links the Go program to it:
+cpxy-tsgw is the `cpxy-tsgw` crate in `tsgw/`, linked to the packet engine (`mobile-engine`). It
+runs on Linux only:
 
 ```sh
-gateway/build.sh                                  # for this machine (glibc), into target/release
-gateway/build.sh x86_64-unknown-linux-musl        # fully static; needs zig on PATH
-gateway/build.sh aarch64-unknown-linux-musl
-gateway/build.sh test                             # the Go tests, linked to the engine
+cargo build --release -p cpxy-tsgw                    # for this machine, into target/release
+cargo zigbuild --release -p cpxy-tsgw --target x86_64-unknown-linux-musl   # static
+cross build --release -p cpxy-tsgw --target aarch64-unknown-linux-musl     # static, as CI does
 ```
 
-`Dockerfile.tsgw` builds the same static binary inside the `cargo-zigbuild` image, with Go added,
-into an image from `scratch` that declares every setting and its default;
-CI (`.github/workflows/ci.yml`) publishes it from `main`, and ships the bare binaries in the
-OpenWrt packages on the [download server](downloads.md).
+`Dockerfile.tsgw` builds the static binary inside the `cargo-zigbuild` image, into an image from
+`scratch` that declares every setting and its default; CI (`.github/workflows/ci.yml`) publishes it
+from `main`, and ships the binaries in the OpenWrt packages on the [download server](downloads.md).
 
-`gateway/internal/e2e` tests a built binary on a real tailnet: it creates ephemeral auth keys with
-the Tailscale API, runs cpxy-tsgw, approves its exit node, joins a client that uses it, checks that
-a site abroad sees the cpxy server's address and a local-region one this host's, that DNS is
-answered over the peer API and as packets, and deletes the devices and keys afterwards:
+`tsgw/test` (Go, with Tailscale's own test servers) tests a built binary, by default
+`target/release/cpxy-tsgw`, or the one `CPXY_TSGW_BIN` names:
 
-```sh
-CPXY_TSGW_E2E=1 TS_API_KEY=... CPXY_TSGW_SERVER='https://:<key>@<host>' \
-  go -C gateway test -count=1 -v ./internal/e2e
-```
+- `bench` runs a Tailscale control server and DERP in the test process, with no internet. CI runs
+  it with a short transfer. `TestStateFromGo` checks that a node registered by Go's tsnet keeps its
+  identity; `TestThroughput` moves data through the exit node both ways and reports MB/s and the
+  gateway's CPU and memory. `bench/delayed.sh <delay>` runs the benchmark with a round trip
+  between client and gateway.
+
+  ```sh
+  CPXY_TSGW_BENCH=1 go -C tsgw/test test -count=1 -v ./bench
+  CPXY_TSGW_BENCH=1 CPXY_TSGW_BENCH_MB=1000 go -C tsgw/test test -count=1 -v -run TestThroughput ./bench
+  ```
+
+- `e2e` tests on a real tailnet: it creates ephemeral auth keys with the Tailscale API, runs
+  cpxy-tsgw, approves its exit node, joins a client that uses it, checks that a site abroad sees
+  the cpxy server's address and a local-region one this host's, that DNS is answered over the peer
+  API and as packets, and deletes the devices and keys afterwards:
+
+  ```sh
+  CPXY_TSGW_E2E=1 TS_API_KEY=... CPXY_TSGW_SERVER='https://:<key>@<host>' \
+    go -C tsgw/test test -count=1 -v ./e2e
+  ```
