@@ -2813,7 +2813,7 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "serde_json",
- "smoltcp 0.14.0 (git+https://github.com/simophin/smoltcp?rev=d64e86df5d9523a6fb784e4437ba0f7f579ecda4)",
+ "smoltcp 0.14.0 (git+https://github.com/simophin/smoltcp?rev=40ba8028938433528d63cebaf9f64815d0bb749d)",
  "thiserror",
  "tokio",
  "tower",
@@ -4048,7 +4048,7 @@ dependencies = [
 [[package]]
 name = "smoltcp"
 version = "0.14.0"
-source = "git+https://github.com/simophin/smoltcp?rev=d64e86df5d9523a6fb784e4437ba0f7f579ecda4#d64e86df5d9523a6fb784e4437ba0f7f579ecda4"
+source = "git+https://github.com/simophin/smoltcp?rev=40ba8028938433528d63cebaf9f64815d0bb749d#40ba8028938433528d63cebaf9f64815d0bb749d"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",
