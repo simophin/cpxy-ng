@@ -471,6 +471,7 @@ jobs:
   #   <version>/openwrt/<opkg arch>/{cpxy.ipk,Packages,Packages.gz,Packages.sig}
   #   <version>/openwrt-apk/<apk arch>/cpxy.apk
   #   <version>/SHA256SUMS
+  # Then deletes all but the newest KEEP_BUILDS builds between releases; release folders stay.
   # Needs the R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and OPKG_FEED_KEY secrets, and the
   # CLOUDFLARE_ACCOUNT_ID, R2_BUCKET and DOWNLOAD_URL repository variables; skipped without
   # R2_BUCKET.
@@ -493,6 +494,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      KEEP_BUILDS: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -526,7 +528,7 @@ jobs:
           cat "$out/SHA256SUMS"
 
       - name: Upload
-        env:
+        env: &r2
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
@@ -542,6 +544,21 @@ jobs:
           # Last: the download server counts a version only once its SHA256SUMS is there
           aws s3 cp --endpoint-url "$ENDPOINT" --cache-control "$cache" \
             "out/$VERSION/SHA256SUMS" "s3://$BUCKET/$VERSION/SHA256SUMS"
+
+      # Builds between releases (1.17.0-22-g705a674) only; release folders (1.17.0) stay
+      - name: Prune old builds
+        env: *r2
+        run: |
+          aws s3 ls --endpoint-url "$ENDPOINT" "s3://$BUCKET/" \
+            | awk '$1 == "PRE" { sub("/$", "", $2); print $2 }' \
+            | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-g[0-9a-f]+$' \
+            | sort -V | head -n "-$KEEP_BUILDS" \
+            | while read -r old; do
+                echo "Deleting $old"
+                # First, so the download server stops counting the folder while the rest goes
+                aws s3 rm --endpoint-url "$ENDPOINT" "s3://$BUCKET/$old/SHA256SUMS"
+                aws s3 rm --recursive --endpoint-url "$ENDPOINT" "s3://$BUCKET/$old/"
+              done
 
       - name: Check the download server has it
         if: vars.DOWNLOAD_URL != ''

@@ -9,8 +9,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function until(check) {
-  for (let i = 0; i < 100; i++) { if (await check()) return; await delay(50); }
+async function until(check, tries = 100) {
+  for (let i = 0; i < tries; i++) { if (await check()) return; await delay(50); }
   throw new Error("Browser condition timed out");
 }
 
@@ -52,15 +52,19 @@ test("offline traffic page: history, follow, bounds, restart, retry, hidden tabs
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const chrome = process.env.CHROME_BIN || (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
-  const child = spawn(chrome, ["--headless", "--no-sandbox", "--no-first-run", "--disable-background-networking", "--disable-extensions", "--disable-sync", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+  const child = spawn(chrome, ["--headless", "--no-sandbox", "--no-first-run", "--disable-background-networking", "--disable-extensions", "--disable-sync", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", data => { stderr = (stderr + data).slice(-4000); });
   child.on("error", error => errors.push(error.message));
   let socket;
   try {
     let port;
+    // A cold CI runner can take well over 5s to start Chrome
     await until(async () => {
       if (errors.length) throw new Error(errors.join("\n"));
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Chrome exited (${child.exitCode ?? child.signalCode})`);
       try { port = (await readFile(join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0]; return true; } catch { return false; }
-    });
+    }, 600).catch(error => { throw new Error(`${error.message}\nChrome stderr:\n${stderr}`, { cause: error }); });
     const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
     socket = new WebSocket(targets.find(target => target.type === "page").webSocketDebuggerUrl);
     await new Promise(resolve => socket.addEventListener("open", resolve, { once: true }));
