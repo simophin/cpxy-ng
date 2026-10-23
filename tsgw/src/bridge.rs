@@ -163,7 +163,7 @@ fn recv_batch(fd: &OwnedFd, slots: &mut [PacketMut]) -> io::Result<Vec<usize>> {
             fd.as_raw_fd(),
             msgs.as_mut_ptr(),
             msgs.len() as _,
-            libc::MSG_DONTWAIT,
+            libc::MSG_DONTWAIT as _,
             std::ptr::null_mut(),
         )
     };
@@ -193,7 +193,7 @@ fn send_batch(fd: &OwnedFd, packets: &[&[u8]]) -> io::Result<usize> {
             fd.as_raw_fd(),
             msgs.as_mut_ptr(),
             msgs.len() as _,
-            libc::MSG_DONTWAIT,
+            libc::MSG_DONTWAIT as _,
         )
     };
     if n < 0 {
