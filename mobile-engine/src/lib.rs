@@ -18,11 +18,12 @@ mod connection_log;
 mod dns;
 mod ffi;
 mod filter;
+#[cfg(not(feature = "smoltcp"))]
 mod fin;
-#[cfg(feature = "smoltcp")]
-mod netstack;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(feature = "smoltcp")]
+mod netstack;
 mod proxy;
 mod routing;
 mod sni;
@@ -46,10 +47,13 @@ use connection_log::ConnectionLog;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
+#[cfg(not(feature = "smoltcp"))]
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
     TcpOptions,
 };
+#[cfg(feature = "smoltcp")]
+use netstack::{Flow as IpStackStream, TcpFlow as IpStackTcpStream, UdpFlow as IpStackUdpStream};
 use routing::Router;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::OwnedFd;
@@ -74,6 +78,7 @@ const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const DNS_PORT: u16 = 53;
 /// IPv6 and TCP headers without options. The MSS counts payload only (RFC 6691), and ipstack
 /// advertises one MSS for both IP versions, so it allows for the larger IPv6 header.
+#[cfg(any(not(feature = "smoltcp"), test))]
 const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
 /// The most a TCP flow has in flight towards the device, and buffers from it before the outbound
 /// side reads it, which is also the window it advertises; a flow moves at most this much per
@@ -493,18 +498,32 @@ async fn run(
     dns_listeners: Option<dns::Listeners>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
-    let mut tcp_config = TcpConfig::default();
-    tcp_config.timeout = TCP_IDLE_TIMEOUT;
-    tcp_config.max_unacked_bytes = tcp_window;
-    tcp_config.read_buffer_size = tcp_window as usize;
-    // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
-    tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
-    let mut config = IpStackConfig::default();
-    config
-        .mtu_unchecked(mtu)
-        .udp_timeout(UDP_IDLE_TIMEOUT)
-        .with_tcp_config(tcp_config);
-    let mut stack = IpStack::new(config, device);
+    #[cfg(not(feature = "smoltcp"))]
+    let mut stack = {
+        let mut tcp_config = TcpConfig::default();
+        tcp_config.timeout = TCP_IDLE_TIMEOUT;
+        tcp_config.max_unacked_bytes = tcp_window;
+        tcp_config.read_buffer_size = tcp_window as usize;
+        // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
+        tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
+        let mut config = IpStackConfig::default();
+        config
+            .mtu_unchecked(mtu)
+            .udp_timeout(UDP_IDLE_TIMEOUT)
+            .with_tcp_config(tcp_config);
+        IpStack::new(config, device)
+    };
+    #[cfg(feature = "smoltcp")]
+    let mut stack = netstack::Stack::new(
+        netstack::Config {
+            mtu,
+            tcp_buffer: tcp_window as usize,
+            tcp_idle_timeout: TCP_IDLE_TIMEOUT,
+            udp_idle_timeout: UDP_IDLE_TIMEOUT,
+            min_rto: Duration::from_millis(200),
+        },
+        device,
+    );
     let mut listener_tasks =
         proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
     if let (Some(listeners), Some(dns)) = (dns_listeners, &dns) {
@@ -535,6 +554,7 @@ async fn run(
                 flows.spawn(handle_udp(udp, dns.clone()));
             }
             // ICMP and anything else the filter let through: not relayed.
+            #[cfg(not(feature = "smoltcp"))]
             Ok(IpStackStream::UnknownTransport(_) | IpStackStream::UnknownNetwork(_)) => {}
             Err(e) => {
                 tracing::error!("IP stack stopped: {e}");
@@ -552,6 +572,7 @@ async fn run(
     let _ = device_closed.await;
 }
 
+#[cfg(any(not(feature = "smoltcp"), test))]
 fn mss_for_mtu(mtu: u16) -> u16 {
     mtu.saturating_sub(TCP_IP_HEADERS_LEN)
 }
@@ -577,7 +598,9 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
     // The app's first bytes wait in the flow while connecting, and the tap reads the server name
     // from them as they are relayed, so connecting never waits for it.
     let (name_tx, mut name_rx) = oneshot::channel();
-    let mut flow = sni::SniTap::new(fin::FinRetry::new(flow), name_tx);
+    #[cfg(not(feature = "smoltcp"))]
+    let flow = fin::FinRetry::new(flow);
+    let mut flow = sni::SniTap::new(flow, name_tx);
     let (outcome, upstream) = router.connect(request).await;
     let mut upstream = match upstream {
         Ok(upstream) => upstream,
@@ -614,7 +637,7 @@ async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
     }
 }
 
-/// Relays one UDP flow through its own direct socket until ipstack closes it as idle.
+/// Relays one UDP flow through its own direct socket until the stack closes it as idle.
 async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddr) -> std::io::Result<()> {
     let unspecified: IpAddr = match dst {
         SocketAddr::V4(_) => Ipv4Addr::UNSPECIFIED.into(),

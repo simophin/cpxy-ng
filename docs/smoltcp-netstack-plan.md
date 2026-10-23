@@ -1,7 +1,7 @@
 # Replacing ipstack with smoltcp: plan
 
 Status: Phase 0 measurements running on `cn-baise`; Phase 1 implemented (nine
-packet-level tests pass locally), Linux CI pending. Phase 2 integration next.
+packet-level tests pass locally), Linux CI pending. Phase 2 integration implemented; Linux validation and measurements pending.
 Phases 3–4 pending. Phase 5 remains outside this PR's requested scope.
 
 ## Why
@@ -307,6 +307,13 @@ fork, and get the plan agreed before writing it.
   have the same two existing failures with and without the feature:
   `relays_ipv6_unless_it_is_off` and `router_answers_dns_on_its_listen_address_until_stopped`.
   Linux CI runs both complete suites.
+
+- Phase 2 integration: the feature selects the new stack in `run()` and bypasses
+  `FinRetry`; tsgw enables it. DNS, routing, SNI and the packet filter are unchanged.
+  CI adds a second real-TUN lab run with the feature. Router packaging builds the
+  router and gateway separately to prevent Cargo feature unification migrating
+  the router before phase 5. The 256 KiB gateway default is retained until the
+  buffer-size benchmark supports a change.
 
 ## Measurements
 

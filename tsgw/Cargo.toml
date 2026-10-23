@@ -11,7 +11,7 @@ base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ipnet = "2"
 libc = "0.2"
-mobile-engine = { path = "../mobile-engine" }
+mobile-engine = { path = "../mobile-engine", features = ["smoltcp"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tailscale = { package = "geiserx_tailscale", git = "https://github.com/simophin/tailscale-rs", rev = "95575355640b318a9140a1979505eca6c0710035" } # GeiserX/tailscale-rs 0.58.2, plus Config::external_forwarder, batched sends on Linux and HTTPS_PROXY
