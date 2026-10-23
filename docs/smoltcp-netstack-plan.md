@@ -1,8 +1,10 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: Phase 0 measurements running on `cn-baise`; Phase 1 implemented (nine
-packet-level tests pass locally), Linux CI pending. Phase 2 integration implemented; Linux validation and measurements pending.
-Phases 3–4 pending. Phase 5 remains outside this PR's requested scope.
+Status: Phase 0/2 measurements running on `cn-baise`. Phase 1 and Phase 2 integration
+pass complete Linux engine suites and the real-TUN lab. Phase 3 recovery fixes
+implemented and tested in the fork; engine integration validation underway.
+Phase 4 receiver SACK is under review; sender SACK is not published upstream.
+Phase 5 remains outside this PR's requested scope.
 
 ## Why
 
@@ -315,6 +317,29 @@ fork, and get the plan agreed before writing it.
   the router before phase 5. The 256 KiB gateway default is retained until the
   buffer-size benchmark supports a change.
 
+- Linux verification: all 60 feature-enabled engine library tests and 51 default
+  engine tests pass, plus the binary tests. The real-TUN lab passes, including
+  16 parallel 4 MB transfers. The existing shutdown test now completes the TCP
+  handshake before waiting for the upstream connection; smoltcp accepts only
+  established connections. The DNS listener fixture uses IPv6-off mode, matching
+  its assertion that AAAA is answered without a host DNS server.
+- Phase 3: fork commits `da00976` (NewReno) and `8774bfc` (#1221) pass 711
+  smoltcp unit tests and all three netsim tests. The partial-ACK tests fail on
+  upstream for both Reno/CUBIC and cover sequence wrap; the two-peer ACK-loss
+  reproduction stalls at 2048/8192 bytes per peer before the fix. Regressions
+  also cover the full-window pure-ACK boundary and preserving the RTO cursor.
+  The original netsim snapshots are explicitly kept on no congestion controller;
+  a dedicated CUBIC/200 ms RTO test covers 0/0.5/1% loss at 54 ms RTT.
+- Standalone fork branches `cpxy-newreno` and `cpxy-rto-ack` isolate the fixes for
+  human review. Upstream's [contributing policy](https://github.com/smoltcp-rs/smoltcp/blob/main/CONTRIBUTING.txt)
+  requires human-authored code submissions, so no upstream PR containing this
+  generated code was opened.
+- Phase 4: upstream #1195 is open. Its author JPDye has no public sender-SACK
+  branch or PR as of 2026-10-23. Receiver work has been cherry-picked through
+  `2f038a3` (preserving original authorship); the reset adaptation preserves
+  `set_min_rto`. Unit tests pass (725). Sender-side RFC 6675 remains pending;
+  no competing sender implementation has been written.
+
 ## Measurements
 
 Host: `cn-baise`, Linux 6.12.111, Rust 1.97.1, Go 1.27.1. The offline benchmark
@@ -326,5 +351,15 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | Stack | Buffer | Loss | Download MB/s | CPU-ms/MB | Upload MB/s | CPU-ms/MB |
 |---|---:|---:|---:|---:|---:|---:|
 | ipstack | 256 KiB | 0% | 4.7 | 70.7 | 4.6 | 125.6 |
+| ipstack | 256 KiB | 0.5% | 2.3 | 478.4 | timeout | — |
+| ipstack | 256 KiB | 1% | 1.4 | 810.3 | timeout | — |
+| ipstack | 1 MiB | 0% | 16.5 | 59.1 | 5.1 | 116.2 |
+
+Lossy baseline uploads stalled, even at 100 MB. The benchmark now bounds a
+blocked userspace-TCP write by closing the connection, bounds gateway cleanup,
+and can isolate transfer directions. Later reruns use a 120 s upload limit;
+downloads retain 300 s. One old hard timeout left a gateway process alive;
+the next 1 MiB/0% result was discarded and rerun after reaping it. Control-plane
+startup failures are not throughput results and are retried separately.
 
 Further phase 0/2/3 measurements will be recorded here as they finish.
