@@ -799,7 +799,7 @@ mod tests {
             tun.into(),
             "http://:k@127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
-            Ipv6Mode::Full,
+            Ipv6Mode::Off,
             DEFAULT_MTU,
             Some(RouterDns {
                 listen,
@@ -1033,15 +1033,41 @@ mod tests {
             builder.write(&mut packet, &[]).unwrap();
             packet
         };
-        // SAFETY: writing our own buffer to the peer socket.
-        let sent = unsafe { libc::write(_peer.as_raw_fd(), syn.as_ptr() as *const _, syn.len()) };
-        assert_eq!(sent, syn.len() as isize);
-        let _accepted = listener.accept().unwrap();
-
+        let peer = std::os::unix::net::UnixDatagram::from(_peer);
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        peer.send(&syn).unwrap();
+        // smoltcp exposes a flow only after the three-way handshake. Keep this a real
+        // established flow when testing ordered shutdown, with either TCP stack.
+        let mut packet = [0; 2048];
+        let n = peer.recv(&mut packet).unwrap();
+        let sliced = etherparse::SlicedPacket::from_ip(&packet[..n]).unwrap();
+        let Some(etherparse::TransportSlice::Tcp(tcp)) = sliced.transport else {
+            panic!("SYN-ACK");
+        };
+        assert!(tcp.syn() && tcp.ack());
+        let builder = etherparse::PacketBuilder::ipv4(TUN_ADDR.octets(), [127, 0, 0, 1], 64)
+            .tcp(40000, port, 2, 65535)
+            .ack(tcp.sequence_number().wrapping_add(1));
+        let mut ack = Vec::new();
+        builder.write(&mut ack, &[]).unwrap();
+        peer.send(&ack).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let _accepted = loop {
+            match listener.accept() {
+                Ok(accepted) => break accepted,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "upstream connection timed out"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => panic!("upstream accept: {e}"),
+            }
+        };
         engine.stop();
         // Checked through the peer, not the descriptor number, which other tests may reuse at once.
-        // SAFETY: writing our own buffer to the peer socket.
-        let sent = unsafe { libc::write(_peer.as_raw_fd(), syn.as_ptr() as *const _, syn.len()) };
-        assert!(sent < 0, "the TUN descriptor is still open");
+        assert!(peer.send(&syn).is_err(), "the TUN descriptor is still open");
     }
 }
