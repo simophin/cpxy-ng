@@ -358,6 +358,9 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | ipstack | 1 MiB | 0% | 16.5 | 59.1 | 5.1 | 116.2 |
 | ipstack | 1 MiB | 0.5% | 1.6 | 1002.6 | timeout | — |
 | ipstack | 1 MiB | 1% | 1.5 | 1035.6 | timeout | — |
+| smoltcp Phase 2 (`24bda3b`) | 256 KiB | 0% | 4.2 | 46.3 | 4.5 | 100.0 |
+| smoltcp Phase 2 (`24bda3b`) | 1 MiB | 0% | 6.7 | 41.5 | 5.2 | 96.0 |
+| smoltcp Phase 2 (`24bda3b`) | 4 MiB | 0% | 7.8 | 38.3 | timeout | — |
 
 Lossy baseline uploads stalled, even at 100 MB. The benchmark now bounds a
 blocked userspace-TCP write by closing the connection, bounds gateway cleanup,
@@ -366,7 +369,24 @@ downloads retain 300 s. One old hard timeout left a gateway process alive;
 the next 1 MiB/0% result was discarded and rerun after reaping it. Control-plane
 startup failures are not throughput results and are retried separately.
 
-Further phase 0/2/3 measurements will be recorded here as they finish.
+### Phase 2 gate checkpoint
+
+At 256 KiB and zero injected loss, throughput is within the 20% gate and CPU is
+lower than ipstack. The 1 MiB clean-path download is **59% slower** than ipstack
+at the same buffer size (6.7 vs 16.5 MB/s), despite lower CPU cost. Four MiB gives
+only another 16% download throughput and the 100 MB upload stalls. A larger
+buffer alone is therefore not a sufficient fix, and the gateway default remains
+256 KiB pending the recovery-patched measurements.
+
+Do not treat the integration as having passed the performance gate. The saved
+unpatched/recovery/SACK binaries allow diagnosis without erasing the Phase 2
+comparison. Investigate loss recovery and the congestion window before changing
+the default or recommending rollout. The loss-only netem fixture has no bandwidth
+bottleneck: CUBIC reduces its congestion window on loss while fixed-window ipstack
+does not. That difference must be distinguished from retransmission stalls; see
+[RFC 9438 §4.6](https://www.rfc-editor.org/rfc/rfc9438.html#section-4.6).
+
+Further phase 2/3 measurements will be recorded here as they finish.
 
 ### Conditional sender-SACK proposal (not approved or implemented)
 
@@ -396,3 +416,25 @@ and upstream sender work remains unpublished, the proposed fallback is:
 
 This is a proposal for agreement, as required by Phase 4; it does not authorize
 or include a competing sender implementation.
+
+
+### CPU profile: established idle connections
+
+On `cn-baise`, release mode, recovery revision `8774bfc`, 100,000 polls per
+sample. Connections are established through the packet-level fixture with
+8 KiB buffers; no live network or root permissions are involved.
+
+| Established idle sockets | `iface.poll` µs/call | Full glue poll µs/call |
+|---:|---:|---:|
+| 1 | 0.036 | 0.177 |
+| 100 | 2.757 | 7.630 |
+| 1,000 | 27.923 | 80.217 |
+
+Both paths scale linearly with socket count. With 1,000 idle sockets, polling
+on every packet is costly: these polls alone can consume a core at roughly
+12,500 polls/s before relay or Tailscale work, and the driver may poll more than
+once per packet. The extra glue cost includes idle-deadline scans and reaping;
+future optimisation should cache deadlines/reap less often and evaluate
+`poll_ingress_single`/targeted egress before migrating large router workloads.
+Reproduce with `cargo test --release -p mobile-engine --features smoltcp --lib
+profile_idle_socket_polling -- --ignored --nocapture`.
