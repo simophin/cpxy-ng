@@ -1,6 +1,6 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: Phase 0/2 measurements running on `cn-baise`. Phase 1 and Phase 2 integration
+Status: Phase 0 baseline complete; Phase 2/3 measurements running on `cn-baise`. Phase 1 and Phase 2 integration
 pass complete Linux engine suites and the real-TUN lab. Phase 3 recovery fixes
 implemented and tested in the fork; engine integration validation underway.
 Phase 4 receiver SACK is adopted and tested; sender SACK is not published upstream.
@@ -356,6 +356,8 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | ipstack | 256 KiB | 0.5% | 2.3 | 478.4 | timeout | — |
 | ipstack | 256 KiB | 1% | 1.4 | 810.3 | timeout | — |
 | ipstack | 1 MiB | 0% | 16.5 | 59.1 | 5.1 | 116.2 |
+| ipstack | 1 MiB | 0.5% | 1.6 | 1002.6 | timeout | — |
+| ipstack | 1 MiB | 1% | 1.5 | 1035.6 | timeout | — |
 
 Lossy baseline uploads stalled, even at 100 MB. The benchmark now bounds a
 blocked userspace-TCP write by closing the connection, bounds gateway cleanup,
@@ -365,3 +367,32 @@ the next 1 MiB/0% result was discarded and rerun after reaping it. Control-plane
 startup failures are not throughput results and are retried separately.
 
 Further phase 0/2/3 measurements will be recorded here as they finish.
+
+### Conditional sender-SACK proposal (not approved or implemented)
+
+If the phase 3 gateway loss measurements still miss the phase 2 acceptance gate
+and upstream sender work remains unpublished, the proposed fallback is:
+
+- A fixed-capacity scoreboard of 32 sorted, merged sequence ranges per socket,
+  plus bounded retransmission bookkeeping (under 1 KiB of socket metadata).
+  Keep payload in the existing transmit buffer until cumulatively acknowledged.
+- Validate received blocks against the negotiated SACK capability and the
+  `[SND.UNA, SND.MAX]` interval, using wrap-safe sequence comparisons. Ignore
+  DSACK/below-ACK blocks, malformed ranges and claims for unsent data.
+- Implement RFC 6675 `IsLost`, `SetPipe` and `NextSeg` with `HighACK`, `HighData`,
+  `HighRxt`, `RescueRxt` and the existing recovery boundary. Use the existing
+  congestion-controller hooks; do not grow cwnd on partial recovery ACKs.
+- If the scoreboard fills, retain the ranges nearest the cumulative ACK and
+  conservatively forget farther SACK information. This can retransmit extra data
+  but cannot free unacknowledged bytes or prevent recovery. Clear SACK state on
+  RTO to handle receiver reneging; retain the tested NewReno fallback when SACK
+  was not negotiated or recovery information is insufficient.
+- Deterministic tests must cover multiple holes repaired before RTO, avoiding
+  retransmission of SACKed data, reordering, overlapping/duplicate blocks,
+  sequence wrap, bounded-capacity overflow, reneging/RTO, zero/full windows,
+  simultaneous bidirectional loss, and peers without SACK negotiation.
+- Re-run the real-TUN lab and the same buffer/loss matrix, measuring CPU and
+  memory as well as throughput. Adopt only after meeting the recorded gate.
+
+This is a proposal for agreement, as required by Phase 4; it does not authorize
+or include a competing sender implementation.

@@ -432,33 +432,45 @@ async fn device_write_backpressure_does_not_block_ingress() {
 }
 
 /// Run in release mode on the profiling host; no live network or privileges are needed.
-#[test]
+#[tokio::test]
 #[ignore = "manual idle-socket CPU profile"]
-fn profile_idle_socket_polling() {
+async fn profile_idle_socket_polling() {
+    const POLLS: usize = 100_000;
     for count in [1, 100, 1000] {
-        let mut device = device::Device::new(1500);
-        let mut iface = Interface::new(
-            InterfaceConfig::new(HardwareAddress::Ip),
-            &mut device,
-            SmolInstant::ZERO,
-        );
-        let mut sockets = SocketSet::new(vec![]);
+        let mut lab = Lab::new(1500);
+        let mut flows = Vec::new();
         for i in 0..count {
-            let mut socket = Socket::new(
-                smol_tcp::SocketBuffer::new(vec![0; 1024]),
-                smol_tcp::SocketBuffer::new(vec![0; 1024]),
+            flows.push(
+                lab.connect("203.0.113.71:8080".parse().unwrap(), 41000 + i as u16)
+                    .await,
             );
-            socket.listen(10000 + i as u16).unwrap();
-            sockets.add(socket);
         }
+        let mut inner = lab.stack.shared.inner.lock().unwrap();
+        let timestamp = inner.now();
         let start = std::time::Instant::now();
-        for _ in 0..100_000 {
-            std::hint::black_box(iface.poll(SmolInstant::ZERO, &mut device, &mut sockets));
+        {
+            let Inner {
+                iface,
+                device,
+                sockets,
+                ..
+            } = &mut *inner;
+            for _ in 0..POLLS {
+                std::hint::black_box(iface.poll(timestamp, device, sockets));
+            }
         }
+        let iface_us = start.elapsed().as_secs_f64() * 1e6 / POLLS as f64;
+        let (tx, _rx) = mpsc::channel(1);
+        let start = std::time::Instant::now();
+        for _ in 0..POLLS {
+            std::hint::black_box(inner.poll(&lab.stack.shared, &tx));
+        }
+        let driver_us = start.elapsed().as_secs_f64() * 1e6 / POLLS as f64;
         eprintln!(
-            "{count} idle sockets: {:.3} microseconds per iface.poll",
-            start.elapsed().as_secs_f64() * 10.0
+            "{count} established idle sockets: iface.poll={iface_us:.3} us, glue poll={driver_us:.3} us"
         );
+        drop(inner);
+        drop(flows);
     }
 }
 

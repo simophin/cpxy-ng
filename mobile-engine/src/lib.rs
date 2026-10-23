@@ -86,10 +86,9 @@ const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
 ///
 /// On a phone or a router the apps are a millisecond away, and memory is tight.
 const LOCAL_TCP_WINDOW: u32 = 64 << 10;
-/// An exit node's clients are a network away: 256 KiB is 12 MB/s at 20 ms, or 2.5 MB/s at 100 ms.
-/// ipstack has no congestion control, so a window larger than the path's bandwidth-delay product
-/// floods its bottleneck, and loss recovery then costs far more than the window gains: across
-/// China at 54 ms, a 5 MB/s path moved 4-5 MB/s with 256 KiB but 1 MB/s with 1 MiB.
+/// Per-direction buffer for an exit node's TCP flows. With smoltcp, CUBIC controls the bytes
+/// in flight; this fixed buffer still caps throughput over a long round trip. The gateway's
+/// memory budget is separate from the small local window used on mobile and routers.
 const GATEWAY_TCP_WINDOW: u32 = 256 << 10;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);

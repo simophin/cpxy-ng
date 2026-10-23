@@ -108,7 +108,7 @@ restart.
 | `DNS_SEARCH_DOMAINS` | empty | Ordered suffixes for single-label DNS queries, comma or space separated. Tries each suffix before the bare name. |
 | `IPV6` | `full` | Which IPv6 from clients to relay: `full` handles it like IPv4, which needs a cpxy server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` none. The box itself needs IPv6 for any of it. |
 | `MTU` | `1280` | The largest packet sent back to clients; Tailscale's MTU is 1280. |
-| `TCP_WINDOW` | `262144` (256 KiB) | Bytes of a client's TCP connection in flight at once. A larger window helps only on a clean, fast path: the packet engine has no congestion control, so a window past what the path between client and box holds (bandwidth x round trip) loses throughput. Across China at 50 ms, 256 KiB moved 4-5 MB/s and 1 MiB 1 MB/s. |
+| `TCP_WINDOW` | `262144` (256 KiB) | TCP buffer bytes per direction for each client connection. CUBIC congestion control adapts the bytes in flight to the path; this setting caps buffering and the receive window. Larger buffers can help fast paths with a long round trip, at a memory cost of twice this size per connection. |
 | `STATE_DIR` | the service's state directory; `/var/lib/cpxy-tsgw` in the Docker image | Where the Tailscale state is kept. Also `--state-dir`. |
 
 DNS servers are a plain IP (with an optional `:port`), or a `udp://`, `tcp://`, `tls://` or
@@ -212,7 +212,7 @@ the machine in the admin console.
 | Clients have no internet | The server URL or key is wrong, or the server is unreachable: the log shows the failed connections. |
 | Clients do not get split DNS | No global nameserver may have **Use with exit node** in the admin console. `--verbose` shows each query arriving over the peer API. |
 | Blocked sites fail; the log shows `Error connecting to upstream` | `DNS_ALTERNATIVE` is being poisoned. Ask it [through the cpxy server](#choosing-the-servers) with `?via=cpxy`. |
-| Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. On a direct path, try another `TCP_WINDOW`. |
+| Slow connections | Tailscale is relaying through DERP rather than connecting directly. Fewer NAT layers in front of the box help, as for any Tailscale node. On a direct path, a larger `TCP_WINDOW` can help if the buffer limits throughput over a long round trip. Packet loss and retransmission stalls can limit it even with a large buffer. |
 
 ## Building and testing
 
