@@ -17,6 +17,7 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/r
         *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac && \
     mkdir -p /out/state && \
+    rustup target add "$rust_target" && \
     cargo zigbuild --release --locked --target "$rust_target" -p cpxy-tsgw && \
     cp "target/$rust_target/release/cpxy-tsgw" /out/cpxy-tsgw
 
