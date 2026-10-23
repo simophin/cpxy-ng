@@ -71,6 +71,13 @@ func TestThroughput(t *testing.T) {
 	size := int64(envInt(t, "CPXY_TSGW_BENCH_MB", 200)) * mb
 	runs := envInt(t, "CPXY_TSGW_BENCH_RUNS", 3)
 	parallel := envInt(t, "CPXY_TSGW_BENCH_PARALLEL", 1)
+	directions := os.Getenv("CPXY_TSGW_BENCH_DIRECTIONS")
+	if directions == "" {
+		directions = "DU"
+	}
+	if directions != "D" && directions != "U" && directions != "DU" {
+		t.Fatal("CPXY_TSGW_BENCH_DIRECTIONS must be D, U or DU")
+	}
 	host := os.Getenv("CPXY_TSGW_BENCH_HOST")
 	if host == "" {
 		host = privateAddr(t)
@@ -206,7 +213,7 @@ func TestThroughput(t *testing.T) {
 	mon := &monitor{pid: gw.Process.Pid}
 	t.Logf("idle: RSS %.1f MB", float64(rss(mon.pid))/mb)
 	for _, dir := range []byte{'D', 'U'} {
-		if directions := os.Getenv("CPXY_TSGW_BENCH_DIRECTIONS"); directions != "" && !strings.ContainsRune(directions, rune(dir)) {
+		if !strings.ContainsRune(directions, rune(dir)) {
 			continue
 		}
 		transferSize := size
@@ -350,8 +357,8 @@ func transferWithin(ctx context.Context, t *testing.T, client *tsnet.Server, add
 			t.Fatalf("downloaded %d of %d bytes: %v", n, size, err)
 		}
 	case 'U':
-		if _, err := io.CopyN(c, zeros{}, size); err != nil {
-			t.Fatalf("upload: %v", err)
+		if n, err := io.CopyN(c, zeros{}, size); err != nil {
+			t.Fatalf("uploaded %d of %d bytes: %v", n, size, err)
 		}
 		var ack [1]byte
 		if _, err := io.ReadFull(c, ack[:]); err != nil {

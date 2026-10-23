@@ -1,10 +1,10 @@
 # Replacing ipstack with smoltcp: plan
 
-Status: Phase 0 baseline complete; Phase 2/3 measurements running on `cn-baise`. Phase 1 and Phase 2 integration
-pass complete Linux engine suites and the real-TUN lab. Phase 3 recovery fixes
-implemented and tested in the fork; engine integration validation underway.
-Phase 4 receiver SACK is adopted and tested; sender SACK is not published upstream.
-Phase 5 remains outside this PR's requested scope.
+Status: Phase 0 baseline complete. Phase 1–3 implementation and Phase 4 receiver
+SACK are committed and tested, but the loss-performance gate is unmet. The user
+approved the bounded sender-SACK proposal on 2026-10-23; it is not implemented.
+Continuation details are in [the handoff](smoltcp-netstack-handoff.md).
+Phase 5 remains outside the requested scope.
 
 ## Why
 
@@ -361,9 +361,16 @@ CPU is gateway CPU-ms/MB, including its engine and Tailscale threads.
 | smoltcp Phase 2 (`24bda3b`) | 256 KiB | 0% | 4.2 | 46.3 | 4.5 | 100.0 |
 | smoltcp Phase 2 (`24bda3b`) | 1 MiB | 0% | 6.7 | 41.5 | 5.2 | 96.0 |
 | smoltcp Phase 2 (`24bda3b`) | 4 MiB | 0% | 7.8 | 38.3 | timeout | — |
+| smoltcp Phase 2 (`24bda3b`) | 256 KiB | 0.5% | timeout: 191.4/200 MB in 300 s | — | not repeated | — |
+| smoltcp Phase 3 (`8774bfc`) | 256 KiB | 0% | 4.2 | 47.7 | 4.5 | 98.9 |
+| smoltcp Phase 3 (`8774bfc`) | 1 MiB | 0% | 10.6 | 33.5 | 6.2 | 91.5 |
+| smoltcp Phase 3 (`8774bfc`) | 4 MiB | 0% | 8.7 | 36.5 | timeout | — |
+| smoltcp Phase 3 (`8774bfc`) | 256 KiB | 0.5% | timeout: 186.4/200 MB in 300 s | — | not repeated | — |
 
-Lossy baseline uploads stalled, even at 100 MB. The benchmark now bounds a
-blocked userspace-TCP write by closing the connection, bounds gateway cleanup,
+Lossy baseline uploads timed out at 100 MB. A timeout alone does not distinguish
+slow congestion-controlled delivery from the known gateway receive-path stall;
+these attempts are censored measurements, not completed throughput results.
+The benchmark now bounds a blocked userspace-TCP write by closing the connection, bounds gateway cleanup,
 and can isolate transfer directions. Later reruns use a 120 s upload limit;
 downloads retain 300 s. One old hard timeout left a gateway process alive;
 the next 1 MiB/0% result was discarded and rerun after reaping it. Control-plane
@@ -374,9 +381,15 @@ startup failures are not throughput results and are retried separately.
 At 256 KiB and zero injected loss, throughput is within the 20% gate and CPU is
 lower than ipstack. The 1 MiB clean-path download is **59% slower** than ipstack
 at the same buffer size (6.7 vs 16.5 MB/s), despite lower CPU cost. Four MiB gives
-only another 16% download throughput and the 100 MB upload stalls. A larger
+only another 16% download throughput and the 100 MB upload times out. A larger
 buffer alone is therefore not a sufficient fix, and the gateway default remains
 256 KiB pending the recovery-patched measurements.
+
+The 256 KiB/0.5% download also fails the gate: 191,383,720 bytes arrive before
+its 300 s deadline (about 0.64 MB/s during that interval), versus ipstack's
+completed 2.3 MB/s transfer. This is a slow transfer, not evidence that it was
+permanently stalled. Per the Phase 2 stop rule, the remaining unpatched loss
+matrix is not expanded; compare the recovery build next to diagnose the gap.
 
 Do not treat the integration as having passed the performance gate. The saved
 unpatched/recovery/SACK binaries allow diagnosis without erasing the Phase 2
@@ -386,12 +399,21 @@ bottleneck: CUBIC reduces its congestion window on loss while fixed-window ipsta
 does not. That difference must be distinguished from retransmission stalls; see
 [RFC 9438 §4.6](https://www.rfc-editor.org/rfc/rfc9438.html#section-4.6).
 
-Further phase 2/3 measurements will be recorded here as they finish.
+The recovery build improves the clean 1 MiB download to 10.6 MB/s and reduces
+CPU to 33.5 CPU-ms/MB, but the 0.5% loss gate still fails: 186,435,425 of
+200,000,000 bytes arrive before the 300 s watchdog closes the connection (about
+0.62 MB/s over that interval). This result does not show a loss-throughput gain
+over unpatched smoltcp. The remaining recovery loss matrix is not expanded after
+this failure. Four MiB is slower than 1 MiB on the clean download and its upload
+also times out. Keep the 256 KiB default and do not recommend rollout while this
+gate is unmet. Receiver SACK passes the native engine suite and TUN lab; sender
+SACK is approved for implementation in the fork but has not been started.
 
-### Conditional sender-SACK proposal (not approved or implemented)
+### Bounded sender-SACK proposal (approved, not implemented)
 
-If the phase 3 gateway loss measurements still miss the phase 2 acceptance gate
-and upstream sender work remains unpublished, the proposed fallback is:
+Approved by the user on 2026-10-23 after Phase 3 missed the loss gate and
+upstream sender work remained unpublished. Implementation has not started;
+the next agent should carry out this agreed fallback:
 
 - A fixed-capacity scoreboard of 32 sorted, merged sequence ranges per socket,
   plus bounded retransmission bookkeeping (under 1 KiB of socket metadata).
@@ -414,8 +436,9 @@ and upstream sender work remains unpublished, the proposed fallback is:
 - Re-run the real-TUN lab and the same buffer/loss matrix, measuring CPU and
   memory as well as throughput. Adopt only after meeting the recorded gate.
 
-This is a proposal for agreement, as required by Phase 4; it does not authorize
-or include a competing sender implementation.
+The user explicitly approved implementing this bounded sender-SACK fallback in
+the fork. It remains unimplemented because the user then requested a handoff;
+no additional approval is needed to start this agreed work.
 
 
 ### CPU profile: established idle connections
@@ -438,3 +461,25 @@ future optimisation should cache deadlines/reap less often and evaluate
 `poll_ingress_single`/targeted egress before migrating large router workloads.
 Reproduce with `cargo test --release -p mobile-engine --features smoltcp --lib
 profile_idle_socket_polling -- --ignored --nocapture`.
+
+
+### Final validation and handoff
+
+- The receiver-SACK fork at `01bf32a` passes 726 unit tests and all three netsim
+  tests. Its native Linux engine run passes 61 tests, with the manual profiler
+  ignored; the real-TUN lab passes again. `go vet ./...` passes.
+- A no-delay 20 MB gateway smoke test passes at about 74 MB/s in both directions.
+  This is a smoke test, not a result comparable to the 54 ms/200 MB table above.
+- The subsequent native `TestStateFromGo` fails because the gateway exits with
+  `Address already in use`. Its cause is not established; rerun it in an isolated
+  namespace before attributing it to the stack. All CI checks passed on commit
+  `4b53f15` (run `39952887957`), including the gateway/state-import job.
+- A ten-second `perf` capture of the recovery gateway at zero injected loss uses
+  `cpu-clock:u`, 99 Hz, DWARF stacks and regular user permissions. It contains 56
+  samples and no lost samples. Symbols include Poly1305/ChaCha20, X25519, Tokio
+  async I/O and Tailscale actor/control code. The sample is too small for precise
+  hotspot percentages; the idle-socket measurements above provide stronger
+  evidence of scaling cost.
+- The final debug build filled the host filesystem. Only this task's disposable
+  `target/debug` cache was cleared (about 4.8 GiB); release artifacts and measured
+  binaries were preserved. Final native tests were rerun in release mode.
