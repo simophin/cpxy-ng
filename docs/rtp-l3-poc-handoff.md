@@ -11,9 +11,12 @@ the existing proxy are requested. Keep the experiment in a standalone Rust crate
 Branch: `poc/rtp-l3-tunnel`, created from local `main` / `origin/main` at
 `e112599400ec1b9c9705a136f5e41b458dfc104e`. The first commit is this handoff.
 
-The v1 experiment is complete at `4e1ab87`. The user explicitly started the
-v2 XChaCha20 experiment below on 2026-10-24. Its revised crypto requirements
-supersede the original v1 handshake/authentication/replay requirements for v2.
+**Final protocol: v3** (handshake-free raw XChaCha20, RTP header prefix + 16
+random nonce bytes; see "Final protocol" below). It is the only protocol in the
+code. V1 (PSK handshake + ChaCha20-Poly1305) was removed in Y6; its last
+version is at `f980c51` (v1 measurements at `4e1ab87`). V2 (24 random nonce
+bytes) was superseded by v3 and lives only in history. The v1 and v2 sections
+below are kept as the decision record.
 
 ## Public-repository hygiene
 
@@ -51,7 +54,7 @@ commit sanitized aggregates only. Do not commit a key even for convenience.
   `simophin` before writes, and use the same identity for Git credentials. Never
   print credentials. No GitHub publishing is required by this task.
 
-## Original implementation (v1, completed)
+## Original implementation (v1, completed; removed from code in Y6)
 
 1. Standalone Linux Rust binary with server/client modes, plus scripts for setup,
    cleanup, captures and repeatable benchmarks. Reuse existing dependencies where
@@ -129,7 +132,7 @@ Measure sequentially (no compilation or overlapping throughput runs):
   QoS behavior; repeat at peak/off-peak later if needed. Do not infer censorship
   resistance from throughput or Wireshark's protocol label.
 
-## Wire and session specification (v1)
+## Wire and session specification (v1, removed)
 
 Control messages use magic `R3P1`, one-byte type, client random C (32 bytes),
 server random S (32 bytes except HELLO), and HMAC-SHA256 over the full preceding
@@ -154,7 +157,7 @@ Authentication succeeds before replay, session or peer state changes. A fresh
 session rejects stale data. The custom control exchange is observable; this is
 not codec-valid media or standardized SRTP.
 
-## Next experiment: handshake-free XChaCha20 (v2, COMPLETE)
+## Handshake-free XChaCha20 (v2, COMPLETE; superseded by v3)
 
 ### Objective and accepted threat model
 
@@ -286,7 +289,7 @@ timeout exception strings can contain full command arguments and must not be
 published. A framing/crypto change alone does not establish valid media camouflage
 or expensive classification; continue to label the result as RTP-framed IP.
 
-## Final protocol: v3, 16 random nonce bytes (IN PROGRESS)
+## Final protocol: v3, 16 random nonce bytes (COMPLETE)
 
 The user chose v3 as the **final decision**: after a matched comparison it
 replaces v1, and the v1 handshake/AEAD code is removed. V2 remains documented
@@ -321,12 +324,12 @@ above as the 24-byte variant; v3 differs only in nonce construction and labels.
 - [x] Y3: cross-host validation and first-packet capture.
 - [x] Y4: adjacent v3 / v1 / v3 bounded matrix as in X5.
 - [x] Y5: verified remote cleanup; sanitized report.
-- [ ] Y6: remove v1 (handshake, AEAD, replay state, control-message tooling);
+- [x] Y6: remove v1 (handshake, AEAD, replay state, control-message tooling);
       v3 becomes plain `client` / `server`; tests and integration pass.
 
 ## Current state
 
-**V3 in progress (Y0–Y5 done).** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Next: Y6 remove v1 from the code.
+**V3 complete (Y0–Y6); it is the final protocol.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
 
 **V2 complete (X0–X6).** Report: `docs/rtp-l3-poc-v2-results.md`; endpoint-free
 aggregate: `experiments/rtp-l3/results/2026-10-24-v2-summary.json`. V1 results
@@ -380,3 +383,4 @@ obligations remain.
   verified against pre-task snapshots; sanitized v2 report and aggregate committed.
 - 2026-10-24: user chose a 16-random-byte nonce (v3) as the final protocol; Y0 conventions recorded.
 - 2026-10-24: Y1–Y5 v3 implemented, validated cross-host, matched against v1 (no measurable difference); cleanup verified.
+- 2026-10-24: Y6 removed v1 from the code; v3 is the only protocol. Linux tests, clippy and integration pass.

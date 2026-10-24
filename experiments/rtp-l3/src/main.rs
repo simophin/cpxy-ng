@@ -54,11 +54,10 @@ mod linux {
         kernel_rx_drops: u32,
     }
     impl Counts {
-        fn report(&self, elapsed: f64, final_report: bool, x: bool) {
-            // V2 has no replay detection: its counter only covers malformed,
+        fn report(&self, elapsed: f64, final_report: bool) {
+            // There is no replay detection: `rejected` only covers malformed,
             // non-IPv4-after-XOR or foreign-source datagrams.
-            let mut j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":if x{"xchacha20-v3"}else{"v1"},"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops});
-            j[if x { "rejected" } else { "invalid_or_replay" }] = self.invalid.into();
+            let j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":"xchacha20-v3","seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops,"rejected":self.invalid});
             eprintln!("{j}");
         }
     }
@@ -115,50 +114,17 @@ mod linux {
             .try_into()
             .map_err(|_| io::Error::other("key must be exactly 32 bytes"))
     }
-    fn connect(socket: &UdpSocket, key: &[u8; 32]) -> io::Result<Session> {
-        let hello = Control {
-            kind: HELLO,
-            c: rand::random(),
-            s: [0; 32],
-        };
-        let mut outgoing = hello.clone();
-        let mut b = [0; 2048];
-        let start = Instant::now();
-        socket.set_read_timeout(Some(Duration::from_millis(400)))?;
-        while start.elapsed() < Duration::from_secs(12) && RUN.load(Ordering::Relaxed) {
-            socket.send(&outgoing.encode(key))?;
-            if let Ok(n) = socket.recv(&mut b) {
-                if let Some(m) = Control::decode(&b[..n], key) {
-                    if m.c != hello.c {
-                        continue;
-                    }
-                    if m.kind == CHALLENGE && outgoing.kind == HELLO {
-                        outgoing = m.with_kind(FINISH);
-                    } else if m.kind == READY && outgoing.kind == FINISH && m.s == outgoing.s {
-                        socket.set_read_timeout(None)?;
-                        return Ok(Session::new(key, &m.c, &m.s, true));
-                    }
-                }
-            }
-        }
-        Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "authenticated handshake timed out",
-        ))
-    }
     pub fn main() -> io::Result<()> {
         // mode key-file interface cidr [inherited-fd | listen-address] [peer]
         let a: Vec<String> = env::args().collect();
-        let (client, x) = match a.get(1).map(String::as_str) {
-            Some("client") => (true, false),
-            Some("server") => (false, false),
-            Some("client-x") => (true, true),
-            Some("server-x") => (false, true),
+        let client = match a.get(1).map(String::as_str) {
+            Some("client") => true,
+            Some("server") => false,
             _ => return Err(io::Error::other("invalid mode")),
         };
-        if a.len() != if !client && x { 7 } else { 6 } {
+        if a.len() != if client { 6 } else { 7 } {
             return Err(io::Error::other(
-                "usage: rtp-l3-poc client|client-x KEY_FILE INTERFACE CIDR FD | server KEY_FILE INTERFACE CIDR LISTEN | server-x KEY_FILE INTERFACE CIDR LISTEN PEER",
+                "usage: rtp-l3-poc client KEY_FILE INTERFACE CIDR FD | server KEY_FILE INTERFACE CIDR LISTEN PEER",
             ));
         }
         let k = key(&a[2])?;
@@ -205,27 +171,18 @@ mod linux {
                 );
             }
         }
-        let mut session = if client && !x {
-            Some(connect(&socket, &k)?)
-        } else {
+        // No exchange: keys come from the PSK and the server's return address
+        // is configured out of band.
+        let (tx_key, rx_key) = keys(&k, client);
+        let mut tx = Tx::new(tx_key);
+        let peer: Option<SocketAddr> = if client {
             None
+        } else {
+            Some(
+                a[6].parse()
+                    .map_err(|_| io::Error::other("invalid PEER address"))?,
+            )
         };
-        // V2 needs no exchange: keys come from the PSK and the server's return
-        // address is configured out of band.
-        let mut xtx = None;
-        let mut xrx = [0; 32];
-        let mut peer: Option<SocketAddr> = None;
-        if x {
-            let (t, r) = xchacha::keys(&k, client);
-            xtx = Some(xchacha::Tx::new(t));
-            xrx = r;
-            if !client {
-                peer = Some(
-                    a[6].parse()
-                        .map_err(|_| io::Error::other("invalid PEER address"))?,
-                );
-            }
-        }
         let mut dev = tun(&a[3], &a[4])?;
         for fd in [socket.as_raw_fd(), dev.as_raw_fd()] {
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -239,9 +196,8 @@ mod linux {
         }
         eprintln!(
             "{}",
-            serde_json::json!({"event":"ready","client":client,"protocol":if x{"xchacha20-v3"}else{"v1"},"mtu":MTU,"socket_receive_buffer":({let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v})})
+            serde_json::json!({"event":"ready","client":client,"protocol":"xchacha20-v3","mtu":MTU,"socket_receive_buffer":({let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v})})
         );
-        let mut handshake = ServerHandshake::default();
         let mut counters = Counts::default();
         let started = Instant::now();
         let mut last = Instant::now();
@@ -273,39 +229,11 @@ mod linux {
                             if let Some(d) = drops {
                                 counters.kernel_rx_drops = d;
                             }
-                            if !x && b[..n].starts_with(b"R3P1") {
-                                if !client {
-                                    if let Some(m) = Control::decode(&b[..n], &k) {
-                                        if let Some((response, install)) =
-                                            handshake.receive(m, source.to_string(), Instant::now())
-                                        {
-                                            if install {
-                                                session = Some(Session::new(
-                                                    &k,
-                                                    &response.c,
-                                                    &response.s,
-                                                    false,
-                                                ));
-                                                peer = Some(source);
-                                            }
-                                            let _ = socket.send_to(&response.encode(&k), source);
-                                        }
-                                    } else {
-                                        counters.invalid += 1;
-                                    }
-                                }
-                                continue;
-                            }
                             if !client && peer != Some(source) {
                                 counters.invalid += 1;
                                 continue;
                             }
-                            let opened = if x {
-                                Some(xchacha::open(&xrx, &b[..n]))
-                            } else {
-                                session.as_mut().map(|s| s.rx.open(&b[..n]))
-                            };
-                            if let Some(Some(p)) = opened {
+                            if let Some(p) = open(&rx_key, &b[..n]) {
                                 counters.rx_packets += 1;
                                 counters.rx_plain += p.len() as u64;
                                 counters.rx_wire += n as u64;
@@ -326,30 +254,23 @@ mod linux {
                     match dev.read(&mut b) {
                         Ok(n) => {
                             let ticks = (started.elapsed().as_nanos() * 90000 / 1000000000) as u32;
-                            let sealed = if let Some(t) = &mut xtx {
-                                Some(t.seal(&b[..n], ticks))
-                            } else {
-                                session.as_mut().map(|s| s.tx.seal(&b[..n], ticks))
-                            };
-                            if let Some(sealed) = sealed {
-                                if let Some(p) = sealed {
-                                    let sent = if client {
-                                        socket.send(&p)
-                                    } else if let Some(addr) = peer {
-                                        socket.send_to(&p, addr)
-                                    } else {
-                                        continue;
-                                    };
-                                    if sent.ok() == Some(p.len()) {
-                                        counters.tx_packets += 1;
-                                        counters.tx_plain += n as u64;
-                                        counters.tx_wire += p.len() as u64;
-                                    } else {
-                                        counters.socket_drops += 1;
-                                    }
+                            if let Some(p) = tx.seal(&b[..n], ticks) {
+                                let sent = if client {
+                                    socket.send(&p)
+                                } else if let Some(addr) = peer {
+                                    socket.send_to(&p, addr)
                                 } else {
-                                    counters.tun_drops += 1;
+                                    continue;
+                                };
+                                if sent.ok() == Some(p.len()) {
+                                    counters.tx_packets += 1;
+                                    counters.tx_plain += n as u64;
+                                    counters.tx_wire += p.len() as u64;
+                                } else {
+                                    counters.socket_drops += 1;
                                 }
+                            } else {
+                                counters.tun_drops += 1;
                             }
                         }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -358,11 +279,11 @@ mod linux {
                 }
             }
             if last.elapsed() >= Duration::from_secs(5) {
-                counters.report(started.elapsed().as_secs_f64(), false, x);
+                counters.report(started.elapsed().as_secs_f64(), false);
                 last = Instant::now();
             }
         }
-        counters.report(started.elapsed().as_secs_f64(), true, x);
+        counters.report(started.elapsed().as_secs_f64(), true);
         Ok(())
     }
 }

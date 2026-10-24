@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize bounded Ethernet/IPv4 pcap without publishing endpoint identity.
 Usage: capture-shape.py PRIVATE_PCAP SERVER_IPV4 [MAX_IPV4_LEN] > SANITIZED_SUMMARY.json
-MAX_IPV4_LEN defaults to 1256 (v1); use 1264 for v2.
+MAX_IPV4_LEN defaults to 1256 (1200-byte inner MTU + 56).
 Capture observations are not authenticated receiver loss measurements.
 """
 import collections
@@ -14,7 +14,7 @@ import sys
 server = ipaddress.IPv4Address(sys.argv[2]).packed
 max_len = int(sys.argv[3]) if len(sys.argv) > 3 else 1256
 flows = {}
-controls = collections.Counter()
+non_rtp = collections.Counter()
 first = last = None
 with open(sys.argv[1], 'rb') as f:
     header = f.read(24)
@@ -42,10 +42,8 @@ with open(sys.argv[1], 'rb') as f:
         direction='download' if ip[12:16]==server else 'upload'
         first=t if first is None else min(first,t)
         last=t if last is None else max(last,t)
-        if payload.startswith(b'R3P1'):
-            controls[str(payload[4])]+=1
-            continue
         if len(payload)<12 or payload[:2]!=b'\x80\x60':
+            non_rtp[direction]+=1
             continue
         seq,stamp,ssrc=struct.unpack('!HII',payload[2:12])
         k=(direction,ssrc)
@@ -89,4 +87,4 @@ for (direction,_),v in flows.items():
                  'note':'Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.'})
 print(json.dumps({'start_utc':datetime.datetime.fromtimestamp(first,datetime.timezone.utc).isoformat() if first else None,
                   'end_utc':datetime.datetime.fromtimestamp(last,datetime.timezone.utc).isoformat() if last else None,
-                  'control_type_counts':dict(controls),'flows':rows},indent=2))
+                  'non_rtp_udp_packets':dict(non_rtp),'flows':rows},indent=2))

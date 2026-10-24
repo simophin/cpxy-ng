@@ -1,162 +1,17 @@
-//! Experimental RTP-framed encrypted IPv4; not SRTP or encoded media.
-use chacha20poly1305::{
-    aead::{Aead, KeyInit, Payload},
-    ChaCha20Poly1305, Nonce,
+//! Experimental RTP-framed IPv4 tunnel; not SRTP or encoded media.
+//!
+//! Handshake-free raw XChaCha20 with 16 random nonce bytes per packet. No tag,
+//! replay protection, sender authenticity or forward secrecy by design.
+use chacha20::{
+    cipher::{KeyIvInit, StreamCipher},
+    XChaCha20,
 };
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
-use std::time::{Duration, Instant};
+
 pub const MTU: usize = 1200;
-pub const HELLO: u8 = 1;
-pub const CHALLENGE: u8 = 2;
-pub const FINISH: u8 = 3;
-pub const READY: u8 = 4;
-const DOMAIN: &[u8] = b"rtp-l3-poc/control/v1";
-type Hmac256 = Hmac<Sha256>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Control {
-    pub kind: u8,
-    pub c: [u8; 32],
-    pub s: [u8; 32],
-}
-impl Control {
-    pub fn encode(&self, key: &[u8; 32]) -> Vec<u8> {
-        let mut out = b"R3P1".to_vec();
-        out.push(self.kind);
-        out.extend(self.c);
-        if self.kind != HELLO {
-            out.extend(self.s);
-        }
-        let mut mac = <Hmac256 as Mac>::new_from_slice(key).unwrap();
-        mac.update(DOMAIN);
-        mac.update(&out);
-        out.extend(mac.finalize().into_bytes());
-        out
-    }
-    pub fn decode(b: &[u8], key: &[u8; 32]) -> Option<Self> {
-        if b.len() < 5 || &b[..4] != b"R3P1" || !(1..=4).contains(&b[4]) {
-            return None;
-        }
-        let n = if b[4] == HELLO { 37 } else { 69 };
-        if b.len() != n + 32 {
-            return None;
-        }
-        let mut mac = <Hmac256 as Mac>::new_from_slice(key).unwrap();
-        mac.update(DOMAIN);
-        mac.update(&b[..n]);
-        mac.verify_slice(&b[n..]).ok()?;
-        let mut c = [0; 32];
-        c.copy_from_slice(&b[5..37]);
-        let mut s = [0; 32];
-        if n == 69 {
-            s.copy_from_slice(&b[37..69]);
-        }
-        Some(Self { kind: b[4], c, s })
-    }
-    pub fn with_kind(&self, kind: u8) -> Self {
-        Self {
-            kind,
-            ..self.clone()
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct ServerHandshake {
-    pending: Option<(Control, String, Instant)>,
-    installed: Option<(Control, String)>,
-}
-impl ServerHandshake {
-    /// Only decoded/authenticated control messages may enter here.
-    /// `install` is true exactly once for each new transcript.
-    pub fn receive(&mut self, m: Control, peer: String, now: Instant) -> Option<(Control, bool)> {
-        if m.kind == HELLO {
-            if let Some((old, p, t)) = &self.pending {
-                if old.c == m.c && *p == peer && now.duration_since(*t) < Duration::from_secs(10) {
-                    return Some((old.with_kind(CHALLENGE), false));
-                }
-            }
-            let challenge = Control {
-                kind: CHALLENGE,
-                c: m.c,
-                s: rand::random(),
-            };
-            self.pending = Some((challenge.clone(), peer, now));
-            return Some((challenge, false));
-        }
-        if m.kind == FINISH {
-            if let Some((old, p)) = &self.installed {
-                if old.c == m.c && old.s == m.s && *p == peer {
-                    return Some((old.with_kind(READY), false));
-                }
-            }
-            if let Some((old, p, t)) = &self.pending {
-                if old.c == m.c
-                    && old.s == m.s
-                    && *p == peer
-                    && now.duration_since(*t) < Duration::from_secs(10)
-                {
-                    self.installed = Some((m.clone(), peer));
-                    self.pending = None;
-                    return Some((m.with_kind(READY), true));
-                }
-            }
-        }
-        None
-    }
-}
-
-pub struct Tx {
-    cipher: ChaCha20Poly1305,
-    ssrc: [u8; 4],
-    index: u64,
-}
-pub struct Rx {
-    cipher: ChaCha20Poly1305,
-    ssrc: [u8; 4],
-    highest: Option<u64>,
-    bitmap: u128,
-}
-pub struct Session {
-    pub tx: Tx,
-    pub rx: Rx,
-}
-fn material(psk: &[u8; 32], c: &[u8; 32], s: &[u8; 32], label: &[u8]) -> ([u8; 32], [u8; 4]) {
-    let mut salt = [0; 64];
-    salt[..32].copy_from_slice(c);
-    salt[32..].copy_from_slice(s);
-    let h = Hkdf::<Sha256>::new(Some(&salt), psk);
-    let mut out = [0; 36];
-    h.expand(label, &mut out).unwrap();
-    (out[..32].try_into().unwrap(), out[32..].try_into().unwrap())
-}
-impl Session {
-    pub fn new(psk: &[u8; 32], c: &[u8; 32], s: &[u8; 32], client: bool) -> Self {
-        let a = material(psk, c, s, b"rtp-l3-poc/traffic/v1/client-to-server");
-        let b = material(psk, c, s, b"rtp-l3-poc/traffic/v1/server-to-client");
-        let (t, r) = if client { (a, b) } else { (b, a) };
-        Self {
-            tx: Tx {
-                cipher: ChaCha20Poly1305::new((&t.0).into()),
-                ssrc: t.1,
-                index: 0,
-            },
-            rx: Rx {
-                cipher: ChaCha20Poly1305::new((&r.0).into()),
-                ssrc: r.1,
-                highest: None,
-                bitmap: 0,
-            },
-        }
-    }
-}
-fn nonce(index: u64) -> [u8; 12] {
-    let mut n = [0; 12];
-    n[4..].copy_from_slice(&index.to_be_bytes());
-    n
-}
 fn ipv4(p: &[u8]) -> bool {
     p.len() >= 20
         && p.len() <= MTU
@@ -165,428 +20,206 @@ fn ipv4(p: &[u8]) -> bool {
         && (p[0] as usize & 15) * 4 <= p.len()
         && u16::from_be_bytes([p[2], p[3]]) as usize == p.len()
 }
+
+/// Random nonce bytes carried after the RTP header.
+pub const RANDOM: usize = 16;
+pub const OVERHEAD: usize = 12 + RANDOM;
+const C2S: &[u8] = b"rtp-l3-poc/xchacha20/v3/client-to-server";
+const S2C: &[u8] = b"rtp-l3-poc/xchacha20/v3/server-to-client";
+
+/// Returns (transmit, receive) keys for this side.
+pub fn keys(psk: &[u8; 32], client: bool) -> ([u8; 32], [u8; 32]) {
+    let h = Hkdf::<Sha256>::new(None, psk);
+    let (mut a, mut b) = ([0; 32], [0; 32]);
+    h.expand(C2S, &mut a).unwrap();
+    h.expand(S2C, &mut b).unwrap();
+    if client {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+/// Nonce = RTP header bytes 2..10 (sequence, timestamp, SSRC high half)
+/// followed by the packet's 16 random bytes; uniqueness rests on the latter.
+fn xor(key: &[u8; 32], p: &mut [u8]) {
+    let mut nonce = [0u8; 24];
+    nonce[..8].copy_from_slice(&p[2..10]);
+    nonce[8..].copy_from_slice(&p[12..OVERHEAD]);
+    XChaCha20::new(key.into(), (&nonce).into()).apply_keystream(&mut p[OVERHEAD..]);
+}
+pub struct Tx {
+    key: [u8; 32],
+    ssrc: u32,
+    seq: u16,
+    offset: u32,
+}
 impl Tx {
-    pub fn seal(&mut self, ip: &[u8], timestamp: u32) -> Option<Vec<u8>> {
-        if !ipv4(ip) || self.index >= 1 << 48 {
+    pub fn new(key: [u8; 32]) -> Self {
+        Self {
+            key,
+            ssrc: OsRng.next_u32(),
+            seq: OsRng.next_u32() as u16,
+            offset: OsRng.next_u32(),
+        }
+    }
+    /// `ticks` is monotonic elapsed 90 kHz time; framing only.
+    pub fn seal(&mut self, ip: &[u8], ticks: u32) -> Option<Vec<u8>> {
+        let mut random = [0; RANDOM];
+        OsRng.fill_bytes(&mut random);
+        self.seal_with(ip, ticks, &random)
+    }
+    fn seal_with(&mut self, ip: &[u8], ticks: u32, random: &[u8; RANDOM]) -> Option<Vec<u8>> {
+        if !ipv4(ip) {
             return None;
         }
-        let mut h = vec![0x80, 96];
-        h.extend((self.index as u16).to_be_bytes());
-        h.extend(timestamp.to_be_bytes());
-        h.extend(self.ssrc);
-        let n = nonce(self.index);
-        let body = self
-            .cipher
-            .encrypt(Nonce::from_slice(&n), Payload { msg: ip, aad: &h })
-            .ok()?;
-        self.index += 1;
-        h.extend(body);
-        Some(h)
+        let mut p = Vec::with_capacity(OVERHEAD + ip.len());
+        p.extend([0x80, 96]);
+        p.extend(self.seq.to_be_bytes());
+        p.extend(self.offset.wrapping_add(ticks).to_be_bytes());
+        p.extend(self.ssrc.to_be_bytes());
+        p.extend(random);
+        p.extend(ip);
+        xor(&self.key, &mut p);
+        self.seq = self.seq.wrapping_add(1);
+        Some(p)
     }
 }
-impl Rx {
-    pub fn open(&mut self, p: &[u8]) -> Option<Vec<u8>> {
-        if p.len() < 48 || p.len() > MTU + 28 || p[..2] != [0x80, 96] || p[8..12] != self.ssrc {
-            return None;
-        }
-        let seq = u16::from_be_bytes([p[2], p[3]]) as u64;
-        let index = match self.highest {
-            None => seq,
-            Some(h) => {
-                let base = (h & !65535) | seq;
-                if base + 32768 < h {
-                    base.checked_add(65536)?
-                } else if base > h + 32768 {
-                    base.checked_sub(65536)?
-                } else {
-                    base
-                }
-            }
-        };
-        if index >= 1 << 48 {
-            return None;
-        }
-        if let Some(h) = self.highest {
-            if index <= h {
-                let d = h - index;
-                if d >= 128 || self.bitmap & (1u128 << d) != 0 {
-                    return None;
-                }
-            } else if index - h >= 32768 {
-                return None;
-            }
-        }
-        let n = nonce(index);
-        let ip = self
-            .cipher
-            .decrypt(
-                Nonce::from_slice(&n),
-                Payload {
-                    msg: &p[12..],
-                    aad: &p[..12],
-                },
-            )
-            .ok()?;
-        if !ipv4(&ip) {
-            return None;
-        }
-        match self.highest {
-            None => {
-                self.highest = Some(index);
-                self.bitmap = 1;
-            }
-            Some(h) if index > h => {
-                let d = index - h;
-                self.bitmap = if d >= 128 { 1 } else { (self.bitmap << d) | 1 };
-                self.highest = Some(index);
-            }
-            Some(h) => self.bitmap |= 1u128 << (h - index),
-        }
-        Some(ip)
+/// Stateless: the nonce prefix is read from each received header, so
+/// rollover, loss, reordering and peer restarts never affect decryption.
+pub fn open(key: &[u8; 32], p: &[u8]) -> Option<Vec<u8>> {
+    if p.len() < OVERHEAD + 20 || p.len() > OVERHEAD + MTU || p[..2] != [0x80, 96] {
+        return None;
     }
+    let mut q = p.to_vec();
+    xor(key, &mut q);
+    let ip = q.split_off(OVERHEAD);
+    ipv4(&ip).then_some(ip)
 }
 
-/// V3: handshake-free raw XChaCha20; 16 random nonce bytes per packet.
-/// No tag, replay protection, authenticity or forward secrecy by design.
-pub mod xchacha {
-    use super::{ipv4, MTU};
-    use chacha20::{
-        cipher::{KeyIvInit, StreamCipher},
-        XChaCha20,
-    };
-    use hkdf::Hkdf;
-    use rand::{rngs::OsRng, RngCore};
-    use sha2::Sha256;
-    /// Random nonce bytes carried after the RTP header.
-    pub const RANDOM: usize = 16;
-    pub const OVERHEAD: usize = 12 + RANDOM;
-    const C2S: &[u8] = b"rtp-l3-poc/xchacha20/v3/client-to-server";
-    const S2C: &[u8] = b"rtp-l3-poc/xchacha20/v3/server-to-client";
-
-    /// Returns (transmit, receive) keys for this side.
-    pub fn keys(psk: &[u8; 32], client: bool) -> ([u8; 32], [u8; 32]) {
-        let h = Hkdf::<Sha256>::new(None, psk);
-        let (mut a, mut b) = ([0; 32], [0; 32]);
-        h.expand(C2S, &mut a).unwrap();
-        h.expand(S2C, &mut b).unwrap();
-        if client {
-            (a, b)
-        } else {
-            (b, a)
-        }
-    }
-    /// Nonce = RTP header bytes 2..10 (sequence, timestamp, SSRC high half)
-    /// followed by the packet's 16 random bytes; uniqueness rests on the latter.
-    fn xor(key: &[u8; 32], p: &mut [u8]) {
-        let mut nonce = [0u8; 24];
-        nonce[..8].copy_from_slice(&p[2..10]);
-        nonce[8..].copy_from_slice(&p[12..OVERHEAD]);
-        XChaCha20::new(key.into(), (&nonce).into()).apply_keystream(&mut p[OVERHEAD..]);
-    }
-    pub struct Tx {
-        key: [u8; 32],
-        ssrc: u32,
-        seq: u16,
-        offset: u32,
-    }
-    impl Tx {
-        pub fn new(key: [u8; 32]) -> Self {
-            Self {
-                key,
-                ssrc: OsRng.next_u32(),
-                seq: OsRng.next_u32() as u16,
-                offset: OsRng.next_u32(),
-            }
-        }
-        /// `ticks` is monotonic elapsed 90 kHz time; framing only.
-        pub fn seal(&mut self, ip: &[u8], ticks: u32) -> Option<Vec<u8>> {
-            let mut random = [0; RANDOM];
-            OsRng.fill_bytes(&mut random);
-            self.seal_with(ip, ticks, &random)
-        }
-        fn seal_with(&mut self, ip: &[u8], ticks: u32, random: &[u8; RANDOM]) -> Option<Vec<u8>> {
-            if !ipv4(ip) {
-                return None;
-            }
-            let mut p = Vec::with_capacity(OVERHEAD + ip.len());
-            p.extend([0x80, 96]);
-            p.extend(self.seq.to_be_bytes());
-            p.extend(self.offset.wrapping_add(ticks).to_be_bytes());
-            p.extend(self.ssrc.to_be_bytes());
-            p.extend(random);
-            p.extend(ip);
-            xor(&self.key, &mut p);
-            self.seq = self.seq.wrapping_add(1);
-            Some(p)
-        }
-    }
-    /// Stateless: the nonce prefix is read from each received header, so
-    /// rollover, loss, reordering and peer restarts never affect decryption.
-    pub fn open(key: &[u8; 32], p: &[u8]) -> Option<Vec<u8>> {
-        if p.len() < OVERHEAD + 20 || p.len() > OVERHEAD + MTU || p[..2] != [0x80, 96] {
-            return None;
-        }
-        let mut q = p.to_vec();
-        xor(key, &mut q);
-        let ip = q.split_off(OVERHEAD);
-        ipv4(&ip).then_some(ip)
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        fn ip(n: usize) -> Vec<u8> {
-            let mut p: Vec<u8> = (0..n).map(|i| i as u8).collect();
-            p[0] = 0x45;
-            p[2..4].copy_from_slice(&(n as u16).to_be_bytes());
-            p
-        }
-        fn hex(s: &str) -> Vec<u8> {
-            (0..s.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-                .collect()
-        }
-        fn pair(psk: u8) -> ([u8; 32], [u8; 32]) {
-            // (client transmit key, matching server receive key)
-            (keys(&[psk; 32], true).0, keys(&[psk; 32], false).1)
-        }
-        #[test]
-        fn libsodium_counter_zero_vector() {
-            // libsodium crypto_stream_xchacha20_xor (counter 0) of ip(40) under key
-            // 0x80..0x9f, nonce 0102030405060708 || 0x40..0x4f, generated independently.
-            let key: [u8; 32] = core::array::from_fn(|i| 0x80 + i as u8);
-            let random: [u8; RANDOM] = core::array::from_fn(|i| 0x40 + i as u8);
-            let mut t = Tx {
-                key,
-                ssrc: 0x0708090a,
-                seq: 0x0102,
-                offset: 0x03040506,
-            };
-            let p = t.seal_with(&ip(40), 0, &random).unwrap();
-            assert_eq!(p[..12], hex("80600102030405060708090a"));
-            assert_eq!(&p[12..OVERHEAD], &random);
-            assert_eq!(
-                p[OVERHEAD..],
-                hex("b5ced925dc386cc4263e486a5d9c82be477b0ebd57b46971c145a8f7e0aefa7cf85d68858989de42")
-            );
-            assert_eq!(open(&key, &p), Some(ip(40)));
-        }
-        #[test]
-        fn draft_xchacha_vector() {
-            // draft-arciszewski-xchacha-03 A.3.2 keystream starts at block 1.
-            let key: [u8; 32] = core::array::from_fn(|i| 0x80 + i as u8);
-            let nonce = hex("404142434445464748494a4b4c4d4e4f5051525354555658");
-            let mut p = vec![0u8; OVERHEAD + 96];
-            p[2..10].copy_from_slice(&nonce[..8]);
-            p[12..OVERHEAD].copy_from_slice(&nonce[8..]);
-            xor(&key, &mut p);
-            assert_eq!(
-                p[OVERHEAD + 64..],
-                hex("29624b4b1b140ace53740e405b2168540fd7d630c1f536fecd722fc3cddba7f4")
-            );
-        }
-        #[test]
-        fn directional_roundtrip_without_setup() {
-            let (ctx, crx) = keys(&[7; 32], true);
-            let (stx, srx) = keys(&[7; 32], false);
-            assert_eq!((ctx, crx), (srx, stx));
-            assert_ne!(ctx, crx);
-            assert_ne!(ctx, keys(&[8; 32], true).0);
-            let (mut c, mut s) = (Tx::new(ctx), Tx::new(stx));
-            let p = c.seal(&ip(MTU), 0).unwrap();
-            assert_eq!(p.len(), MTU + 28);
-            assert_eq!(open(&srx, &p), Some(ip(MTU)));
-            assert!(open(&crx, &p).is_none());
-            let q = s.seal(&ip(20), 0).unwrap();
-            assert_eq!(open(&crx, &q), Some(ip(20)));
-            assert!(open(&srx, &q).is_none());
-        }
-        #[test]
-        fn framing_rollover_loss_reorder_replay_and_restart() {
-            let (tx, rx) = pair(9);
-            let mut t = Tx::new(tx);
-            t.seq = 65534;
-            t.offset = u32::MAX;
-            let ps: Vec<_> = (0..4).map(|i| t.seal(&ip(60), i).unwrap()).collect();
-            assert_eq!(ps[2][2..4], [0, 0]);
-            assert_eq!(ps[1][4..8], [0, 0, 0, 0]);
-            for i in [3, 0, 2, 2, 3] {
-                assert_eq!(open(&rx, &ps[i]), Some(ip(60)));
-            }
-            // A restarted sender has new SSRC/sequence but remains decryptable.
-            let mut restarted = Tx::new(tx);
-            let r = restarted.seal(&ip(60), 0).unwrap();
-            assert_eq!(open(&rx, &r), Some(ip(60)));
-        }
-        #[test]
-        fn random_part_fresh_even_with_identical_headers() {
-            let mut t = Tx::new([1; 32]);
-            let mut seen = std::collections::HashSet::new();
-            for _ in 0..10000 {
-                t.seq = 5; // identical header prefix: uniqueness must come from RNG
-                let p = t.seal(&ip(20), 0).unwrap();
-                assert!(seen.insert(p[12..OVERHEAD].to_vec()));
-            }
-        }
-        #[test]
-        fn length_header_and_tamper_behaviour() {
-            let (tx, rx) = pair(3);
-            let mut t = Tx::new(tx);
-            assert!(t.seal(&ip(MTU + 1), 0).is_none());
-            assert!(t.seal(&ip(19), 0).is_none());
-            let p = t.seal(&ip(100), 0).unwrap();
-            assert!(open(&rx, &p[..p.len() - 1]).is_none());
-            assert!(open(&rx, &p[..OVERHEAD + 19]).is_none());
-            let mut long = p.clone();
-            long.resize(OVERHEAD + MTU + 1, 0);
-            assert!(open(&rx, &long).is_none());
-            let mut bad = p.clone();
-            bad[1] = 97;
-            assert!(open(&rx, &bad).is_none());
-            // No tag: a flipped payload bit decrypts to a modified packet.
-            let mut flipped = p.clone();
-            flipped[OVERHEAD + 50] ^= 1;
-            assert_ne!(open(&rx, &flipped).unwrap(), ip(100));
-            // Header bytes feed the nonce: changing the sequence garbles the
-            // whole packet (almost always failing the IPv4 check).
-            let mut seq = p.clone();
-            seq[3] ^= 1;
-            assert_ne!(open(&rx, &seq), Some(ip(100)));
-            // SSRC low half is framing only.
-            let mut ssrc = p.clone();
-            ssrc[11] ^= 1;
-            assert_eq!(open(&rx, &ssrc), Some(ip(100)));
-        }
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn ip() -> Vec<u8> {
-        let mut p = vec![0; 20];
+    fn ip(n: usize) -> Vec<u8> {
+        let mut p: Vec<u8> = (0..n).map(|i| i as u8).collect();
         p[0] = 0x45;
-        p[3] = 20;
+        p[2..4].copy_from_slice(&(n as u16).to_be_bytes());
         p
     }
-    fn pair() -> (Session, Session) {
-        (
-            Session::new(&[1; 32], &[2; 32], &[3; 32], true),
-            Session::new(&[1; 32], &[2; 32], &[3; 32], false),
-        )
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+    fn pair(psk: u8) -> ([u8; 32], [u8; 32]) {
+        // (client transmit key, matching server receive key)
+        (keys(&[psk; 32], true).0, keys(&[psk; 32], false).1)
     }
     #[test]
-    fn roundtrip_tamper_replay() {
-        let (mut a, mut b) = pair();
-        let p = a.tx.seal(&ip(), 5).unwrap();
-        for i in 0..p.len() {
-            let mut q = p.clone();
-            q[i] ^= 1;
-            assert!(b.rx.open(&q).is_none());
-            assert_eq!(b.rx.highest, None);
-        }
-        assert_eq!(b.rx.open(&p), Some(ip()));
-        assert!(b.rx.open(&p).is_none());
-        let q = b.tx.seal(&ip(), 7).unwrap();
-        assert_eq!(a.rx.open(&q), Some(ip()));
-        assert!(a.rx.open(&p).is_none());
-    }
-    #[test]
-    fn rollover_reorder_and_invalid_future() {
-        let (mut a, mut b) = pair();
-        a.tx.index = 65534;
-        b.rx.highest = Some(65533);
-        b.rx.bitmap = 1;
-        let p = a.tx.seal(&ip(), 1).unwrap();
-        let q = a.tx.seal(&ip(), 2).unwrap();
-        let r = a.tx.seal(&ip(), 3).unwrap();
-        assert!(b.rx.open(&r).is_some());
-        assert!(b.rx.open(&p).is_some());
-        assert!(b.rx.open(&q).is_some());
-        assert_eq!(b.rx.highest, Some(65536));
-        let mut bad = a.tx.seal(&ip(), 4).unwrap();
-        bad[2..4].copy_from_slice(&30000u16.to_be_bytes());
-        assert!(b.rx.open(&bad).is_none());
-        assert_eq!(b.rx.highest, Some(65536));
-    }
-    #[test]
-    fn replay_window_and_mtu() {
-        let (mut a, mut b) = pair();
-        let p = a.tx.seal(&ip(), 0).unwrap();
-        for _ in 0..130 {
-            let q = a.tx.seal(&ip(), 0).unwrap();
-            assert!(b.rx.open(&q).is_some());
-        }
-        assert!(b.rx.open(&p).is_none());
-        assert!(a.tx.seal(&vec![0; 1201], 0).is_none());
-        assert!(b.rx.open(&[0; 12]).is_none());
-    }
-    #[test]
-    fn control_authentication() {
-        let m = Control {
-            kind: HELLO,
-            c: [3; 32],
-            s: [0; 32],
+    fn libsodium_counter_zero_vector() {
+        // libsodium crypto_stream_xchacha20_xor (counter 0) of ip(40) under key
+        // 0x80..0x9f, nonce 0102030405060708 || 0x40..0x4f, generated independently.
+        let key: [u8; 32] = core::array::from_fn(|i| 0x80 + i as u8);
+        let random: [u8; RANDOM] = core::array::from_fn(|i| 0x40 + i as u8);
+        let mut t = Tx {
+            key,
+            ssrc: 0x0708090a,
+            seq: 0x0102,
+            offset: 0x03040506,
         };
-        let p = m.encode(&[4; 32]);
-        assert_eq!(Control::decode(&p, &[4; 32]), Some(m));
-        for i in 0..p.len() {
-            let mut q = p.clone();
-            q[i] ^= 1;
-            assert!(Control::decode(&q, &[4; 32]).is_none());
+        let p = t.seal_with(&ip(40), 0, &random).unwrap();
+        assert_eq!(p[..12], hex("80600102030405060708090a"));
+        assert_eq!(&p[12..OVERHEAD], &random);
+        assert_eq!(
+            p[OVERHEAD..],
+            hex("b5ced925dc386cc4263e486a5d9c82be477b0ebd57b46971c145a8f7e0aefa7cf85d68858989de42")
+        );
+        assert_eq!(open(&key, &p), Some(ip(40)));
+    }
+    #[test]
+    fn draft_xchacha_vector() {
+        // draft-arciszewski-xchacha-03 A.3.2 keystream starts at block 1.
+        let key: [u8; 32] = core::array::from_fn(|i| 0x80 + i as u8);
+        let nonce = hex("404142434445464748494a4b4c4d4e4f5051525354555658");
+        let mut p = vec![0u8; OVERHEAD + 96];
+        p[2..10].copy_from_slice(&nonce[..8]);
+        p[12..OVERHEAD].copy_from_slice(&nonce[8..]);
+        xor(&key, &mut p);
+        assert_eq!(
+            p[OVERHEAD + 64..],
+            hex("29624b4b1b140ace53740e405b2168540fd7d630c1f536fecd722fc3cddba7f4")
+        );
+    }
+    #[test]
+    fn directional_roundtrip_without_setup() {
+        let (ctx, crx) = keys(&[7; 32], true);
+        let (stx, srx) = keys(&[7; 32], false);
+        assert_eq!((ctx, crx), (srx, stx));
+        assert_ne!(ctx, crx);
+        assert_ne!(ctx, keys(&[8; 32], true).0);
+        let (mut c, mut s) = (Tx::new(ctx), Tx::new(stx));
+        let p = c.seal(&ip(MTU), 0).unwrap();
+        assert_eq!(p.len(), MTU + 28);
+        assert_eq!(open(&srx, &p), Some(ip(MTU)));
+        assert!(open(&crx, &p).is_none());
+        let q = s.seal(&ip(20), 0).unwrap();
+        assert_eq!(open(&crx, &q), Some(ip(20)));
+        assert!(open(&srx, &q).is_none());
+    }
+    #[test]
+    fn framing_rollover_loss_reorder_replay_and_restart() {
+        let (tx, rx) = pair(9);
+        let mut t = Tx::new(tx);
+        t.seq = 65534;
+        t.offset = u32::MAX;
+        let ps: Vec<_> = (0..4).map(|i| t.seal(&ip(60), i).unwrap()).collect();
+        assert_eq!(ps[2][2..4], [0, 0]);
+        assert_eq!(ps[1][4..8], [0, 0, 0, 0]);
+        for i in [3, 0, 2, 2, 3] {
+            assert_eq!(open(&rx, &ps[i]), Some(ip(60)));
+        }
+        // A restarted sender has new SSRC/sequence but remains decryptable.
+        let mut restarted = Tx::new(tx);
+        let r = restarted.seal(&ip(60), 0).unwrap();
+        assert_eq!(open(&rx, &r), Some(ip(60)));
+    }
+    #[test]
+    fn random_part_fresh_even_with_identical_headers() {
+        let mut t = Tx::new([1; 32]);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..10000 {
+            t.seq = 5; // identical header prefix: uniqueness must come from RNG
+            let p = t.seal(&ip(20), 0).unwrap();
+            assert!(seen.insert(p[12..OVERHEAD].to_vec()));
         }
     }
     #[test]
-    fn handshake_retries_restart_and_peer() {
-        let mut h = ServerHandshake::default();
-        let now = Instant::now();
-        let m = Control {
-            kind: HELLO,
-            c: [3; 32],
-            s: [0; 32],
-        };
-        let (q, install) = h.receive(m.clone(), "a".into(), now).unwrap();
-        assert!(!install);
-        assert_eq!(h.receive(m.clone(), "a".into(), now).unwrap().0, q);
-        assert!(h.receive(q.with_kind(FINISH), "b".into(), now).is_none());
-        assert!(h.receive(q.with_kind(FINISH), "a".into(), now).unwrap().1);
-        assert!(!h.receive(q.with_kind(FINISH), "a".into(), now).unwrap().1);
-        let mut restart = ServerHandshake::default();
-        let fresh = restart.receive(m, "a".into(), now).unwrap().0;
-        assert_ne!(fresh.s, q.s);
-        assert!(restart
-            .receive(q.with_kind(FINISH), "a".into(), now)
-            .is_none());
-    }
-    #[test]
-    fn stale_data_and_nonce_uniqueness() {
-        let (mut a, mut b) = pair();
-        let p = a.tx.seal(&ip(), 0).unwrap();
-        let q = a.tx.seal(&ip(), 0).unwrap();
-        assert_ne!(p, q);
-        assert!(b.rx.open(&p).is_some());
-        let mut fresh = Session::new(&[1; 32], &[2; 32], &[4; 32], false);
-        assert!(fresh.rx.open(&q).is_none());
-        a.tx.index = (1 << 48) - 1;
-        assert!(a.tx.seal(&ip(), 0).is_some());
-        assert!(a.tx.seal(&ip(), 0).is_none());
-    }
-    #[test]
-    fn timeout() {
-        let mut h = ServerHandshake::default();
-        let now = Instant::now();
-        let m = Control {
-            kind: HELLO,
-            c: [3; 32],
-            s: [0; 32],
-        };
-        let q = h.receive(m, "a".into(), now).unwrap().0;
-        assert!(h
-            .receive(
-                q.with_kind(FINISH),
-                "a".into(),
-                now + Duration::from_secs(11)
-            )
-            .is_none());
+    fn length_header_and_tamper_behaviour() {
+        let (tx, rx) = pair(3);
+        let mut t = Tx::new(tx);
+        assert!(t.seal(&ip(MTU + 1), 0).is_none());
+        assert!(t.seal(&ip(19), 0).is_none());
+        let p = t.seal(&ip(100), 0).unwrap();
+        assert!(open(&rx, &p[..p.len() - 1]).is_none());
+        assert!(open(&rx, &p[..OVERHEAD + 19]).is_none());
+        let mut long = p.clone();
+        long.resize(OVERHEAD + MTU + 1, 0);
+        assert!(open(&rx, &long).is_none());
+        let mut bad = p.clone();
+        bad[1] = 97;
+        assert!(open(&rx, &bad).is_none());
+        // No tag: a flipped payload bit decrypts to a modified packet.
+        let mut flipped = p.clone();
+        flipped[OVERHEAD + 50] ^= 1;
+        assert_ne!(open(&rx, &flipped).unwrap(), ip(100));
+        // Header bytes feed the nonce: changing the sequence garbles the
+        // whole packet (almost always failing the IPv4 check).
+        let mut seq = p.clone();
+        seq[3] ^= 1;
+        assert_ne!(open(&rx, &seq), Some(ip(100)));
+        // SSRC low half is framing only.
+        let mut ssrc = p.clone();
+        ssrc[11] ^= 1;
+        assert_eq!(open(&rx, &ssrc), Some(ip(100)));
     }
 }

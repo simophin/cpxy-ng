@@ -1,8 +1,18 @@
 # Experimental RTP-framed IPv4 tunnel
 
 Linux-only TUN runtime; portable protocol tests. This is encrypted IP in an RTP
-header, **not codec media, SRTP, or demonstrated censorship resistance**. The
-custom PSK control exchange is readily distinguishable. No production integration.
+header, **not codec media, SRTP, or demonstrated censorship resistance**. No
+production integration.
+
+Every datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`, with
+no handshake or setup packets. The 24-byte XChaCha20 nonce is RTP header bytes
+2..10 (sequence, timestamp, high SSRC half) followed by the 16 random bytes
+from the OS RNG. Each packet uses a fresh cipher (block counter 0, the libsodium
+`crypto_stream_xchacha20_xor` convention). Directional keys come from the PSK
+via HKDF-SHA256. IPv4 wire size is inner length + 56 bytes (1200-byte inner
+packet -> 1256). There is **no tag, replay protection, sender authenticity or
+forward secrecy** by design. Modified or replayed packets that still parse as
+IPv4 are forwarded; header tampering garbles the decrypted packet.
 
 Build/test with `cargo test --locked` and `cargo build --release --locked` in this
 directory. The crate is deliberately outside the production Cargo workspace.
@@ -14,14 +24,23 @@ keys. Never print or commit keys. Both sides use the same file contents.
 Server (authorized Linux account with TUN privileges):
 
 ```sh
-rtp-l3-poc server KEY_FILE TUN_NAME INNER_SERVER_CIDR LISTEN_ADDRESS:PORT
+rtp-l3-poc server KEY_FILE TUN_NAME INNER_SERVER_CIDR LISTEN_ADDRESS:PORT CLIENT_IPV4:PORT
 ```
 
 Client (ordinary account supporting unprivileged user/network namespaces):
 
 ```sh
-python3 scripts/client-netns.py BINARY KEY_FILE SERVER_ADDRESS:PORT TUN_NAME INNER_CLIENT_CIDR RUN_SCRIPT
+python3 scripts/client-netns.py BINARY KEY_FILE SERVER_ADDRESS:PORT TUN_NAME INNER_CLIENT_CIDR RUN_SCRIPT [CLIENT_BIND_PORT]
 ```
+
+The server only accepts from, and sends to, the configured client tuple, as
+seen after any client-side NAT. Learn it privately, for example by sending one
+datagram from the fixed client bind port and reading it from a server capture.
+Keep a server bound (with a placeholder peer while learning the tuple, then
+restart it with the real one) so client datagrams never elicit ICMP. Some NATs and
+paths drop return traffic to particular fixed ports; check the chosen port with
+a plain UDP echo before use. The server forwards anything its TUN emits to the
+configured peer, even before the client sends anything.
 
 The launcher creates and connects UDP **before** entering `unshare -Urn`. The
 socket retains host networking while the TUN and `RUN_SCRIPT` applications live
@@ -35,23 +54,23 @@ explicitly remove them afterwards. Closing TUN FDs removes task interfaces.
 The event loop polls nonblocking TUN/UDP with bounded 64-packet batches, no
 unbounded user queue, a requested 4 MiB kernel socket buffer, and 1200-byte inner
 MTU. It emits JSON counters every five seconds and on SIGTERM/SIGINT. Socket
-send/TUN write failures are counted and dropped. Authentication failures and
-replays share a counter; iperf's receiver report supplies final UDP loss/jitter.
-The Linux SO_RXQ_OVFL counter records cumulative local receive-buffer drops
-(observed on the next received packet). Counters include UDP payload bytes, excluding outer IP/UDP overhead; IPv4 wire
-size is inner length + 56 bytes. UDP setup packets are separate.
+send/TUN write failures are counted and dropped. `rejected` counts foreign
+sources and datagrams that are malformed or not IPv4 after decryption; iperf's
+receiver report supplies final UDP loss/jitter. The Linux SO_RXQ_OVFL counter
+records cumulative local receive-buffer drops (observed on the next received
+packet). Counters include UDP payload bytes, excluding outer IP/UDP overhead.
 
-See `docs/rtp-l3-poc-handoff.md` at repository root for wire design, checkpoints,
-measurement plan and cleanup evidence. A 128-packet replay window tolerates
-bounded reordering. Gaps of half a sequence cycle or longer require restarting
-both peers. There is no reconnect timer, congestion controller, pacing, FEC,
-fragmentation, certificate authentication or forward secrecy. Endpoint TCP retains
-its own congestion control. Use bounded paced UDP experiments only.
+See `docs/rtp-l3-poc-handoff.md` at repository root for the protocol decisions,
+checkpoints and cleanup evidence, and `docs/rtp-l3-poc-v3-results.md` for the
+final measurements. There is no reconnect timer, congestion controller, pacing,
+FEC or fragmentation. Endpoint TCP retains its own congestion control. Use
+bounded paced UDP experiments only.
 
 For isolated Linux integration, run `sh scripts/local-integration.sh CRATE_DIR
 PRIVATE_KEY_FILE OUTPUT_DIR` with absolute paths. It creates disposable nested
-namespaces, transfers 100 MiB each way across RTP rollovers, retries a lost
-CHALLENGE/READY, and injects bounded periodic loss, duplicates, reorder and
+namespaces and checks first-packet delivery without setup, 100 MiB each way
+across RTP rollover and restarts of both peers. Through `fault-proxy.py` it also
+injects bounded periodic loss, duplicates, reordering (held at most 20 ms) and
 ciphertext corruption. The script bounds waits and validates receiver JSON.
 
 `benchmark.py` runs sequential TCP upload/download with one/four streams and three
@@ -63,32 +82,10 @@ the matrix. Supply target/port/output arguments and keep raw output private.
 `sample-process.py` independently samples a task-owned server PID. The scripts
 measure process CPU as percent of one core. They do not establish one-way delay.
 
-`capture-shape.py PRIVATE_PCAP SERVER_IPV4 [MAX_IPV4_LEN]` (1264 for v2) emits endpoint-free IPv4 packet sizes,
-arrival gaps, burst lengths, RTP sequence observations and timestamp deltas from
-an Ethernet pcap. Capture at least the 12-byte RTP header; retain original packet
-lengths. Publish its aggregates with the exact capture/case window and tcpdump's
-capture-drop counts. Passive sequence gaps are not final receiver/path loss.
-
-## V3: handshake-free raw XChaCha20 (`client-x` / `server-x`)
-
-Explicit local modes; v1 is unchanged and nothing on the wire negotiates modes.
-Every datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`; the
-nonce is RTP header bytes 2..10 followed by those 16 random bytes.
-There is **no handshake, tag, replay protection, sender authenticity or forward
-secrecy** by design; modified or replayed packets that still parse as IPv4 are
-forwarded. Directional keys come from the PSK via HKDF-SHA256; each packet uses
-16 fresh OS-RNG bytes and a fresh cipher (block counter 0, libsodium
-`crypto_stream_xchacha20_xor` convention). Sequence/timestamp/SSRC are framing
-only. IPv4 wire size is inner length + 56 bytes (1200-byte inner -> 1256).
-
-```sh
-rtp-l3-poc server-x KEY_FILE TUN_NAME INNER_SERVER_CIDR LISTEN_ADDRESS:PORT CLIENT_IPV4:PORT
-python3 scripts/client-netns.py BINARY KEY_FILE SERVER_ADDRESS:PORT TUN_NAME INNER_CLIENT_CIDR RUN_SCRIPT client-x CLIENT_BIND_PORT
-```
-
-The server only accepts from, and sends to, the configured client tuple (after
-any client-side NAT); learn it privately. Its counter `rejected` covers foreign
-sources and datagrams that are malformed or not IPv4 after decryption.
-`sh scripts/local-integration-x.sh CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` checks
-first-packet delivery without setup, 100 MiB each way, peer restarts and the
-fault proxy (whose reorder hold is now bounded to 20 ms).
+`capture-shape.py PRIVATE_PCAP SERVER_IPV4 [MAX_IPV4_LEN]` emits endpoint-free
+IPv4 packet sizes, arrival gaps, burst lengths, RTP sequence observations,
+timestamp deltas and non-RTP UDP counts from an Ethernet pcap. Capture at least
+the 12-byte RTP header; retain original packet lengths. Publish its aggregates
+with the exact capture/case window and tcpdump's capture-drop counts. Passive
+sequence gaps are not final receiver/path loss. On hosts whose tcpdump AppArmor
+profile restricts output paths, write captures with `tcpdump -w - > FILE`.

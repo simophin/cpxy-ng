@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Loopback-only deterministic bounded UDP fault injector for integration tests.
-Drops first CHALLENGE/READY, then periodic data loss/duplicates/reorder/tampering.
+Periodic data loss/duplicates/reorder/tampering in both directions.
 Usage: fault-proxy.py LISTEN_PORT UPSTREAM_PORT [UPSTREAM_BIND_PORT]
 """
 import selectors
@@ -19,7 +19,6 @@ sel = selectors.DefaultSelector()
 sel.register(a, selectors.EVENT_READ)
 sel.register(b, selectors.EVENT_READ)
 client = None
-seen_control = set()
 counts = [0, 0]
 held = [None, None]
 held_at = [0.0, 0.0]
@@ -42,14 +41,6 @@ while True:
         def send(payload, target=target, address=address):
             target.sendto(payload, address) if address else target.send(payload)
         targets[direction] = send
-        if d.startswith(b"R3P1"):
-            kind = d[4]
-            if kind in (2, 4) and kind not in seen_control:
-                seen_control.add(kind)
-                print("dropped control", kind, flush=True)
-                continue
-            send(d)
-            continue
         counts[direction] += 1
         n = counts[direction]
         if n % 73 == 0:
