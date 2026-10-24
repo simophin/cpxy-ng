@@ -458,6 +458,7 @@ impl Client {
             self.previous = self
                 .rotation
                 .take()
+                .filter(|p| p.port != port)
                 .map(|p| (p, now.saturating_add(grace as u64)));
         }
         self.instance = Some(instance);
@@ -770,6 +771,20 @@ mod tests {
         assert_eq!(s.tick(63).1, vec![4001]);
         s.epoch = u32::MAX;
         assert!(s.rotate(4003, [3; 32], 64).is_none());
+    }
+
+    #[test]
+    fn reused_numeric_port_replaces_secret_without_ambiguous_grace() {
+        let mut c = client(1, 2);
+        c.ping(0).unwrap();
+        c.state(4000, &state(1, 77, 0, 4001), 0).unwrap();
+        let mut announcement = state(0, 77, 3, 4001);
+        if let Control::State { secret, .. } = &mut announcement {
+            *secret = [99; 32];
+        }
+        assert!(c.state(4000, &announcement, 10).is_some());
+        assert_eq!(c.rotation.as_ref().unwrap().secret, [99; 32]);
+        assert!(c.previous.is_none());
     }
 
     #[test]

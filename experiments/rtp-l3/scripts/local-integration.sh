@@ -43,6 +43,8 @@ start_iperf
 cat >"$poc_out/clean.sh" <<'RUN'
 set -eu
 ping -c 1 -W 3 192.0.2.1 >"$poc_out/first-ping.txt"
+# Force an idle rotation before transfers, then verify the new path.
+sleep 20
 ping -c 10 -i 0.05 -s 1172 -M do 192.0.2.1
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -n 100M -J >"$poc_out/clean-up.json"
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -n 100M -R -J >"$poc_out/clean-down.json"
@@ -59,6 +61,7 @@ sleep 0.2
 cat >"$poc_out/fault.sh" <<'RUN'
 set -eu
 ping -c 1 -W 3 192.0.2.1 >"$poc_out/first-ping-restart.txt"
+sleep 16
 ping -c 20 -i 0.05 192.0.2.1
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -t 4 -J >"$poc_out/fault-up.json"
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -t 4 -R -J >"$poc_out/fault-down.json"
@@ -85,7 +88,9 @@ for log in ('client-clean.log','client-fault.log','server-clean.log','server-fau
     final=events[-1]
     assert final['event']=='final' and final['rx_packets']>0,(log,final)
     if log.startswith('client-'):
-        assert final['switches'] >= 1 and final['pings_sent'] >= 2,(log,final)
+        assert final['switches'] >= 2 and final['pings_sent'] >= 2,(log,final)
+    else:
+        assert final['rotations'] >= 1,(log,final)
     print(log,'rx',final['rx_packets'],'rejected',final['rejected'])
 CHECK
 echo 'PASS local integration: registration, inherited socket disconnect/sendto, 100MiB each way across RTP rollover, peer restarts, UDP faults'

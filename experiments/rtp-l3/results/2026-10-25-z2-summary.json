@@ -1,0 +1,37 @@
+{
+  "checkpoint": "Z2",
+  "date": "2026-10-25",
+  "protocol": "xchacha20-v4",
+  "portable_tests": 18,
+  "linux_runtime_tests": 1,
+  "linux_release_build": "pass",
+  "linux_clippy_warnings_denied": "pass",
+  "namespace_integration": {
+    "result": "pass",
+    "clean_upload_received_bytes": 104857600,
+    "clean_download_received_bytes": 104857600,
+    "server_rotations": {
+      "clean": 4,
+      "fault": 2
+    },
+    "client_switches": {
+      "clean": 5,
+      "fault": 3
+    },
+    "checks": [
+      "registration",
+      "idle rotation",
+      "inherited socket AF_UNSPEC/sendto across namespaces",
+      "MTU ping",
+      "RTP sequence rollover",
+      "both peers restarted",
+      "TCP and paced UDP through periodic loss/duplicates/reordering/corruption"
+    ]
+  },
+  "limitations": [
+    "single concurrent client",
+    "multi-client masquerade, conntrack rebinding, forced fallback and sustained rotation transfer matrix deferred to Z3",
+    "no cross-host performance validation"
+  ],
+  "cleanup": "task processes, namespaces, keys and staging removed; no host firewall changes"
+}

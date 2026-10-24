@@ -11,9 +11,10 @@ the existing proxy are requested. Keep the experiment in a standalone Rust crate
 Branch: `poc/rtp-l3-tunnel`, created from local `main` / `origin/main` at
 `e112599400ec1b9c9705a136f5e41b458dfc104e`. The first commit is this handoff.
 
-**Final protocol: v3** (handshake-free raw XChaCha20, RTP header prefix + 16
-random nonce bytes; see "Final protocol" below). It is the only protocol in the
-code. V1 (PSK handshake + ChaCha20-Poly1305) was removed in Y6; its last
+**Current runtime: v4 (Z2 complete)** adds authenticated control, session
+registration and per-port rotation keys to the v3 data format. Z3 onward remains
+pending. The earlier **v3 data protocol** (raw XChaCha20, RTP header prefix + 16
+random nonce bytes; see the v3 sections below) is still used for data. V1 (PSK handshake + ChaCha20-Poly1305) was removed in Y6; its last
 version is at `f980c51` (v1 measurements at `4e1ab87`). V2 (24 random nonce
 bytes) was superseded by v3 and lives only in history. The v1 and v2 sections
 below are kept as the decision record.
@@ -564,7 +565,7 @@ Replay rules:
   - rotation with announcement retries; grace close; socket limit;
   - keepalive triggers, retry and fallback timing; session expiry; inner-address
     conflicts.
-- [ ] Z2: server and client runtimes, CLI and counters. On Linux: build, tests,
+- [x] Z2: server and client runtimes, CLI and counters. On Linux: build, tests,
   clippy with warnings denied, and the existing data-path integration still
   passing.
 - [ ] Z3: namespace integration with two concurrent clients behind a
@@ -608,18 +609,39 @@ Replay rules:
 
 ## Current state
 
-**Z2 runtime checkpoint implemented; Linux validation in progress.**
-The binary now wires v4 registration, multi-socket rotation, client switching,
-keepalive/fallback, per-port streams and counters. The regression script and
-fault proxy now follow v4 rotation paths. Linux-target check/clippy and the 17
-portable tests pass locally. Linux execution is next; Z2 is not yet complete.
+**Z2 complete; next: Z3 multi-client/NAT namespace integration.** The binary
+runs v4. Server CLI is `server KEY IFACE CIDR LISTEN_BASE LOW-HIGH [ROTATE_SECS]`;
+client CLI and launcher arguments are unchanged. The runtime polls the TUN and
+up to three installed UDP sockets, drives rotation/announcement/expiry and
+keepalive/fallback timers, creates fresh per-port Tx streams, and reports the
+requested v4 counters. Session capacity is 1024; grace/expiry are 60/90 seconds.
+`POC_KEEPALIVE_SECS` tunes the client mean (5–45; default 15). See the crate README
+for CLI, bounds and counter meanings. Capture-shape per-port reporting and the
+control-loss/NAT/multi-client matrix remain Z3 and later.
 
-Previous Z1 checkpoint: `lib.rs` exposes `control` and
-`state` modules for the authenticated codec, per-port keys and sans-I/O client /
-server lifecycle. All 17 portable tests pass on macOS, including the six v3
-regressions. `cargo clippy --locked --all-targets -- -D warnings` passes.
-V4 Linux execution and cross-host validation remain Z2–Z4. No remote resources were created and
-there are no cleanup obligations.
+Validation (2026-10-25): 18 portable tests pass on macOS and Linux; one additional
+Linux socket test covers implicit, ephemeral and fixed binding, AF_UNSPEC local
+port preservation, and sendto to multiple ports. Linux offline release build and
+`cargo clippy --locked --all-targets -- -D warnings` pass. Disposable nested
+namespace integration passes initial registration, idle rotation, exactly
+104857600 received bytes each direction across RTP rollover, peer restarts,
+MTU ping and TCP/UDP with periodic loss, duplicates, reordering and corruption.
+Clean/fault servers rotated 4/2 times and clients switched 5/3 times respectively.
+This is a single-client smoke/regression test; Z3 acceptance is not claimed.
+Endpoint-free aggregate: `experiments/rtp-l3/results/2026-10-25-z2-summary.json`.
+
+Linux testing exposed a fixed-bind detail: disconnect may restore a wildcard
+local address while keeping the local port. Preserve/check the port, and restore
+an implicit binding if Linux clears it. Cross-namespace transfers confirm the
+inherited socket still uses its original network namespace. A regression also
+covers reusing a numeric port with a new secret: discard same-number previous
+key state so it cannot overwrite the new current key. The fault proxy preserves
+each held packet's own send path when reordering across port changes.
+
+No public-server deployment or firewall changes were needed. Task-owned Linux
+processes, disposable namespaces, private key, source/vendor/build staging and
+uploaded archives have been removed and absence verified. Local temporary build
+staging was removed. No cleanup obligations remain.
 
 Z1 integration conventions / clarified edge cases:
 
@@ -657,7 +679,7 @@ Z1 integration conventions / clarified edge cases:
   reply requiring no switch. Server replies and announcements retain the existing
   session path so the runtime seals them with that path's keys.
 
-**V3 complete (Y0–Y6); it is the final protocol.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
+**V3 complete (Y0–Y6), preceding v4.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
 
 **V2 complete (X0–X6).** Report: `docs/rtp-l3-poc-v2-results.md`; endpoint-free
 aggregate: `experiments/rtp-l3/results/2026-10-24-v2-summary.json`. V1 results
@@ -726,3 +748,8 @@ obligations remain.
 - 2026-10-25: Z2 runtime checkpoint: v4 CLI, polling, registration, per-port
   crypto streams, rotation, liveness and counters implemented; Linux validation
   is pending. No public-server resources or firewall changes created.
+
+- 2026-10-25: Z2 complete: Linux 19 tests, warning-denied clippy, release build,
+  and v4 data-path/idle-rotation namespace regression pass. Fixed inherited
+  fixed-port disconnect validation and reused-port secret/grace ambiguity.
+  Updated CLI/counter documentation; temporary test resources removed. Next Z3.

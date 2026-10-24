@@ -92,8 +92,8 @@ fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
             return Err(io::Error::last_os_error());
         }
     }
-    if socket.local_addr()? != local {
-        return Err(io::Error::other("disconnect changed local tuple"));
+    if socket.local_addr()?.port() != local.port() {
+        return Err(io::Error::other("disconnect changed local port"));
     }
     Ok(peer)
 }
@@ -317,6 +317,12 @@ pub fn main() -> io::Result<()> {
         .map_err(|_| io::Error::other("invalid keepalive interval"))?;
     keepalive_delay(keepalive)
         .ok_or_else(|| io::Error::other("keepalive interval out of range"))?;
+    // The fixed 60-second grace must cover maximum jitter plus all retries.
+    if keepalive > 45 {
+        return Err(io::Error::other(
+            "keepalive mean must be at most 45 seconds for 60-second grace",
+        ));
+    }
     let socket = if client {
         let fd = a[5]
             .parse::<i32>()
@@ -577,4 +583,57 @@ pub fn main() -> io::Result<()> {
     }
     rt.counts.report(rt.started.elapsed().as_secs_f64(), true);
     Ok(())
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+
+    #[test]
+    fn disconnect_preserves_tuple_and_sends_to_multiple_ports() {
+        let reservation = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let fixed_port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        for bind_port in [None, Some(0u16), Some(fixed_port)] {
+            let a = UdpSocket::bind("127.0.0.1:0").unwrap();
+            let b = UdpSocket::bind("127.0.0.1:0").unwrap();
+            let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+            assert!(fd >= 0);
+            let socket = unsafe { UdpSocket::from_raw_fd(fd) };
+            if let Some(port) = bind_port {
+                let addr = libc::sockaddr_in {
+                    sin_family: libc::AF_INET as _,
+                    sin_port: port.to_be(),
+                    sin_addr: libc::in_addr { s_addr: 0 },
+                    sin_zero: [0; 8],
+                };
+                assert_eq!(
+                    unsafe {
+                        libc::bind(
+                            fd,
+                            &addr as *const _ as *const _,
+                            std::mem::size_of_val(&addr) as _,
+                        )
+                    },
+                    0
+                );
+            }
+            socket.connect(a.local_addr().unwrap()).unwrap();
+            let local = socket.local_addr().unwrap();
+            assert_eq!(disconnect(&socket).unwrap(), a.local_addr().unwrap());
+            assert_eq!(socket.local_addr().unwrap().port(), local.port());
+            for receiver in [&a, &b] {
+                receiver
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                socket
+                    .send_to(b"probe", receiver.local_addr().unwrap())
+                    .unwrap();
+                let mut buf = [0; 16];
+                let (n, source) = receiver.recv_from(&mut buf).unwrap();
+                assert_eq!(&buf[..n], b"probe");
+                assert_eq!(source, local);
+            }
+        }
+    }
 }

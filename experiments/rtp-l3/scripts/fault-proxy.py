@@ -24,13 +24,12 @@ for port in [base, *range(low, high + 1)]:
 counts = [0, 0]
 held = [None, None]
 held_at = [0.0, 0.0]
-targets = [None, None]
 while True:
     # Bound reordering: a held packet is released after 20 ms even when no
     # later packet follows, so quiet control connections cannot stall.
     for direction in (0, 1):
         if held[direction] is not None and time.monotonic() - held_at[direction] > 0.02:
-            targets[direction](held[direction])
+            held[direction][0](held[direction][1])
             held[direction] = None
     for key, _ in sel.select(0.01):
         pair, direction = key.data
@@ -45,7 +44,6 @@ while True:
         target, address = (pair["front"], pair["client"]) if direction else (pair["back"], None)
         def send(payload, target=target, address=address):
             target.sendto(payload, address) if address else target.send(payload)
-        targets[direction] = send
         counts[direction] += 1
         n = counts[direction]
         if n % 73 == 0:
@@ -54,11 +52,11 @@ while True:
             d = d[:-1] + bytes([d[-1] ^ 1])
         if held[direction] is not None:
             send(d)
-            send(held[direction])
+            held[direction][0](held[direction][1])
             held[direction] = None
             continue
         if n % 41 == 0:
-            held[direction] = d
+            held[direction] = (send, d)
             held_at[direction] = time.monotonic()
             continue
         send(d)
