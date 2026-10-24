@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Endpoint-free 1000-byte inner UDP packet gaps across server port switches.
-Usage: switch-gaps.py PRIVATE_ETHERNET_PCAP SERVER_IPV4 BASE_PORT
+Usage: switch-gaps.py PRIVATE_ETHERNET_PCAP SERVER_IPV4 BASE_PORT [CASE_SUMMARY_JSON]
 Excludes small control/ACK packets by exact expected v4 IPv4 length (1084).
 Passive capture gaps are not final receiver loss. No switch is inferred across
 a gap >= 5 seconds (separate benchmark phases); publish capture drop counts.
@@ -13,6 +13,12 @@ import sys
 
 server = ipaddress.IPv4Address(sys.argv[2]).packed
 base = int(sys.argv[3])
+windows = []
+if len(sys.argv) > 4:
+    cases = json.loads(open(sys.argv[4]).read())['cases']
+    windows = [(v['start_epoch'], v['end_epoch']) for v in cases if 'udp' in v['name']]
+    if not windows:
+        sys.exit('case summary has no UDP windows')
 rows = collections.defaultdict(list)
 base_counts = collections.Counter()
 with open(sys.argv[1], 'rb') as f:
@@ -31,6 +37,9 @@ with open(sys.argv[1], 'rb') as f:
             sys.exit('truncated record')
         if len(packet) < 54 or packet[12:14] != b'\x08\x00':
             continue
+        timestamp = sec+fraction/scale
+        if windows and not any(start <= timestamp <= end for start, end in windows):
+            continue
         ip = packet[14:]
         ihl = (ip[0]&15)*4
         if ip[0] >> 4 != 4 or ip[9] != 17 or len(ip) < ihl+20:
@@ -43,7 +52,7 @@ with open(sys.argv[1], 'rb') as f:
         if port == base:
             base_counts[direction] += 1
         if struct.unpack('!H', ip[2:4])[0] == 1084 and ip[ihl+8:ihl+10] == b'\x80\x60':
-            rows[direction].append((sec+fraction/scale, port))
+            rows[direction].append((timestamp, port))
 
 summary = dict(base_port_udp_packets=dict(base_counts), directions={})
 for direction, packets in rows.items():

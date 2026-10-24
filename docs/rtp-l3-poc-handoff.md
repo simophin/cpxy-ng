@@ -784,3 +784,5 @@ obligations remain.
 - 2026-10-25: added explicit ROTATE_SECS=0 fixed-initial-port baseline for Z5; Linux 19 tests, warning-denied clippy and release build pass again. Other v4 registration/key/keepalive behaviour stays matched.
 
 - 2026-10-25: Z4 initial registration was blocked by a source-address mismatch: HTTPS egress differed from observed UDP egress. Corrected runtime /32 rules from a task-port-only capture, restarted clean validation. Added endpoint-free switch-gap parser; synthetic transition/outage fixture passes. Endurance and corrected NAT probes in progress; remote cleanup remains required.
+
+- 2026-10-25: Z4 ten-minute 5 Mbit/s upload with continuous ping complete: 4.968 Mbit/s, 2346/375001 datagrams lost (0.626%); all 601 receiver intervals nonempty, one-second text precision. Idle phase active. NAT probes have no delayed replies at 30/60/120/180 s, full cross-port replies at 5/20 s, partial at 10/15/25 s. Keepalive mean retained at 15 s (jitter max 18 s); exact expiry cannot be separated from filtering/loss. Partial sanitized aggregate committed; Z5/Z6 and remote cleanup pending.

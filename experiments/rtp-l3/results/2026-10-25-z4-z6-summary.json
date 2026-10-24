@@ -1,0 +1,5536 @@
+{
+  "mode": "endurance",
+  "start_utc": "2026-10-24T14:20:09.911564+00:00",
+  "cases": [
+    {
+      "name": "active-udp-up",
+      "start_epoch": 1792851614.2228992,
+      "end_epoch": 1792852215.1312804,
+      "receiver_mbps": 4.968098691846108,
+      "receiver_bytes": 372655000,
+      "lost_percent": 0.625598331737782,
+      "lost_packets": 2346,
+      "packets": 375001,
+      "jitter_ms": 0.1542416458720082,
+      "receiver_intervals": [
+        {
+          "start": 0.0,
+          "end": 1.0,
+          "seconds": 1.0,
+          "bytes": 578000,
+          "packets": 578,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 1.0,
+          "end": 2.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 2.0,
+          "end": 3.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 3.0,
+          "end": 4.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 4.0,
+          "end": 5.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 5.0,
+          "end": 6.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 6.0,
+          "end": 7.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 7.0,
+          "end": 8.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 8.0,
+          "end": 9.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 9.0,
+          "end": 10.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 10.0,
+          "end": 11.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 11.0,
+          "end": 12.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 12.0,
+          "end": 13.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 13.0,
+          "end": 14.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 14.0,
+          "end": 15.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 15.0,
+          "end": 16.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 16.0,
+          "end": 17.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 17.0,
+          "end": 18.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 18.0,
+          "end": 19.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 19.0,
+          "end": 20.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 20.0,
+          "end": 21.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 21.0,
+          "end": 22.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 22.0,
+          "end": 23.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 23.0,
+          "end": 24.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 24.0,
+          "end": 25.0,
+          "seconds": 1.0,
+          "bytes": 526000,
+          "packets": 526,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 25.0,
+          "end": 26.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 26.0,
+          "end": 27.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 27.0,
+          "end": 28.0,
+          "seconds": 1.0,
+          "bytes": 500000,
+          "packets": 500,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 28.0,
+          "end": 29.0,
+          "seconds": 1.0,
+          "bytes": 602000,
+          "packets": 752,
+          "lost_packets": 150,
+          "lost_percent": 20.0
+        },
+        {
+          "start": 29.0,
+          "end": 30.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 30.0,
+          "end": 31.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 31.0,
+          "end": 32.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 32.0,
+          "end": 33.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 33.0,
+          "end": 34.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 34.0,
+          "end": 35.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 35.0,
+          "end": 36.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 36.0,
+          "end": 37.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 37.0,
+          "end": 38.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 38.0,
+          "end": 39.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 39.0,
+          "end": 40.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 40.0,
+          "end": 41.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 41.0,
+          "end": 42.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 42.0,
+          "end": 43.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 625,
+          "lost_packets": 1,
+          "lost_percent": 0.16
+        },
+        {
+          "start": 43.0,
+          "end": 44.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 626,
+          "lost_packets": 2,
+          "lost_percent": 0.32
+        },
+        {
+          "start": 44.0,
+          "end": 45.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 45.0,
+          "end": 46.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 46.0,
+          "end": 47.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 47.0,
+          "end": 48.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 48.0,
+          "end": 49.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 49.0,
+          "end": 50.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 50.0,
+          "end": 51.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 51.0,
+          "end": 52.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 52.0,
+          "end": 53.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 53.0,
+          "end": 54.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 54.0,
+          "end": 55.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 55.0,
+          "end": 56.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 56.0,
+          "end": 57.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 57.0,
+          "end": 58.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 58.0,
+          "end": 59.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 59.0,
+          "end": 60.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 60.0,
+          "end": 61.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 61.0,
+          "end": 62.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 660,
+          "lost_packets": 34,
+          "lost_percent": 5.2
+        },
+        {
+          "start": 62.0,
+          "end": 63.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 63.0,
+          "end": 64.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 64.0,
+          "end": 65.0,
+          "seconds": 1.0,
+          "bytes": 492000,
+          "packets": 624,
+          "lost_packets": 132,
+          "lost_percent": 21.0
+        },
+        {
+          "start": 65.0,
+          "end": 66.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 66.0,
+          "end": 67.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 67.0,
+          "end": 68.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 68.0,
+          "end": 69.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 69.0,
+          "end": 70.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 70.0,
+          "end": 71.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 71.0,
+          "end": 72.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 72.0,
+          "end": 73.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 73.0,
+          "end": 74.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 74.0,
+          "end": 75.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 75.0,
+          "end": 76.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 76.0,
+          "end": 77.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 77.0,
+          "end": 78.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 78.0,
+          "end": 79.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 79.0,
+          "end": 80.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 80.0,
+          "end": 81.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 81.0,
+          "end": 82.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 82.0,
+          "end": 83.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 83.0,
+          "end": 84.0,
+          "seconds": 1.0,
+          "bytes": 504000,
+          "packets": 625,
+          "lost_packets": 121,
+          "lost_percent": 19.0
+        },
+        {
+          "start": 84.0,
+          "end": 85.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 85.0,
+          "end": 86.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 86.0,
+          "end": 87.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 87.0,
+          "end": 88.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 88.0,
+          "end": 89.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 89.0,
+          "end": 90.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 90.0,
+          "end": 91.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 91.0,
+          "end": 92.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 92.0,
+          "end": 93.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 93.0,
+          "end": 94.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 94.0,
+          "end": 95.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 95.0,
+          "end": 96.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 96.0,
+          "end": 97.0,
+          "seconds": 1.0,
+          "bytes": 592000,
+          "packets": 592,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 97.0,
+          "end": 98.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 98.0,
+          "end": 99.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 99.0,
+          "end": 100.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 100.0,
+          "end": 101.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 101.0,
+          "end": 102.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 102.0,
+          "end": 103.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 103.0,
+          "end": 104.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 104.0,
+          "end": 105.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 105.0,
+          "end": 106.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 106.0,
+          "end": 107.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 107.0,
+          "end": 108.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 108.0,
+          "end": 109.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 109.0,
+          "end": 110.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 110.0,
+          "end": 111.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 111.0,
+          "end": 112.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 112.0,
+          "end": 113.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 113.0,
+          "end": 114.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 114.0,
+          "end": 115.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 115.0,
+          "end": 116.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 116.0,
+          "end": 117.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 117.0,
+          "end": 118.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 118.0,
+          "end": 119.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 119.0,
+          "end": 120.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 120.0,
+          "end": 121.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 121.0,
+          "end": 122.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 122.0,
+          "end": 123.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 123.0,
+          "end": 124.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 124.0,
+          "end": 125.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 125.0,
+          "end": 126.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 126.0,
+          "end": 127.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 127.0,
+          "end": 128.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 128.0,
+          "end": 129.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 129.0,
+          "end": 130.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 130.0,
+          "end": 131.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 131.0,
+          "end": 132.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 132.0,
+          "end": 133.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 133.0,
+          "end": 134.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 659,
+          "lost_packets": 33,
+          "lost_percent": 5.0
+        },
+        {
+          "start": 134.0,
+          "end": 135.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 135.0,
+          "end": 136.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 136.0,
+          "end": 137.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 137.0,
+          "end": 138.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 138.0,
+          "end": 139.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 139.0,
+          "end": 140.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 140.0,
+          "end": 141.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 141.0,
+          "end": 142.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 142.0,
+          "end": 143.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 143.0,
+          "end": 144.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 144.0,
+          "end": 145.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 145.0,
+          "end": 146.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 146.0,
+          "end": 147.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 147.0,
+          "end": 148.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 148.0,
+          "end": 149.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 149.0,
+          "end": 150.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 150.0,
+          "end": 151.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 151.0,
+          "end": 152.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 152.0,
+          "end": 153.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 153.0,
+          "end": 154.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 154.0,
+          "end": 155.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 155.0,
+          "end": 156.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 156.0,
+          "end": 157.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 157.0,
+          "end": 158.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 690,
+          "lost_packets": 64,
+          "lost_percent": 9.3
+        },
+        {
+          "start": 158.0,
+          "end": 159.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 159.0,
+          "end": 160.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 160.0,
+          "end": 161.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 161.0,
+          "end": 162.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 162.0,
+          "end": 163.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 163.0,
+          "end": 164.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 164.0,
+          "end": 165.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 165.0,
+          "end": 166.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 166.0,
+          "end": 167.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 167.0,
+          "end": 168.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 168.0,
+          "end": 169.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 169.0,
+          "end": 170.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 625,
+          "lost_packets": 1,
+          "lost_percent": 0.16
+        },
+        {
+          "start": 170.0,
+          "end": 171.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 171.0,
+          "end": 172.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 625,
+          "lost_packets": 1,
+          "lost_percent": 0.16
+        },
+        {
+          "start": 172.0,
+          "end": 173.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 173.0,
+          "end": 174.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 174.0,
+          "end": 175.0,
+          "seconds": 1.0,
+          "bytes": 527000,
+          "packets": 527,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 175.0,
+          "end": 176.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 176.0,
+          "end": 177.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 177.0,
+          "end": 178.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 178.0,
+          "end": 179.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 179.0,
+          "end": 180.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 180.0,
+          "end": 181.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 181.0,
+          "end": 182.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 182.0,
+          "end": 183.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 183.0,
+          "end": 184.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 184.0,
+          "end": 185.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 185.0,
+          "end": 186.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 186.0,
+          "end": 187.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 187.0,
+          "end": 188.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 188.0,
+          "end": 189.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 189.0,
+          "end": 190.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 190.0,
+          "end": 191.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 191.0,
+          "end": 192.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 192.0,
+          "end": 193.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 193.0,
+          "end": 194.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 194.0,
+          "end": 195.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 195.0,
+          "end": 196.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 196.0,
+          "end": 197.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 197.0,
+          "end": 198.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 198.0,
+          "end": 199.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 199.0,
+          "end": 200.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 200.0,
+          "end": 201.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 201.0,
+          "end": 202.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 202.0,
+          "end": 203.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 203.0,
+          "end": 204.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 204.0,
+          "end": 205.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 205.0,
+          "end": 206.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 206.0,
+          "end": 207.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 207.0,
+          "end": 208.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 208.0,
+          "end": 209.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 209.0,
+          "end": 210.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 210.0,
+          "end": 211.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 211.0,
+          "end": 212.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 212.0,
+          "end": 213.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 659,
+          "lost_packets": 33,
+          "lost_percent": 5.0
+        },
+        {
+          "start": 213.0,
+          "end": 214.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 214.0,
+          "end": 215.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 215.0,
+          "end": 216.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 216.0,
+          "end": 217.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 217.0,
+          "end": 218.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 218.0,
+          "end": 219.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 219.0,
+          "end": 220.0,
+          "seconds": 1.0,
+          "bytes": 489000,
+          "packets": 626,
+          "lost_packets": 137,
+          "lost_percent": 22.0
+        },
+        {
+          "start": 220.0,
+          "end": 221.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 221.0,
+          "end": 222.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 222.0,
+          "end": 223.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 223.0,
+          "end": 224.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 224.0,
+          "end": 225.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 225.0,
+          "end": 226.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 226.0,
+          "end": 227.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 227.0,
+          "end": 228.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 228.0,
+          "end": 229.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 229.0,
+          "end": 230.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 230.0,
+          "end": 231.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 231.0,
+          "end": 232.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 232.0,
+          "end": 233.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 233.0,
+          "end": 234.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 234.0,
+          "end": 235.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 235.0,
+          "end": 236.0,
+          "seconds": 1.0,
+          "bytes": 592000,
+          "packets": 592,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 236.0,
+          "end": 237.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 237.0,
+          "end": 238.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 238.0,
+          "end": 239.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 239.0,
+          "end": 240.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 240.0,
+          "end": 241.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 241.0,
+          "end": 242.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 242.0,
+          "end": 243.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 243.0,
+          "end": 244.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 244.0,
+          "end": 245.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 245.0,
+          "end": 246.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 246.0,
+          "end": 247.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 247.0,
+          "end": 248.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 248.0,
+          "end": 249.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 249.0,
+          "end": 250.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 250.0,
+          "end": 251.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 251.0,
+          "end": 252.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 252.0,
+          "end": 253.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 253.0,
+          "end": 254.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 254.0,
+          "end": 255.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 255.0,
+          "end": 256.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 256.0,
+          "end": 257.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 257.0,
+          "end": 258.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 258.0,
+          "end": 259.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 259.0,
+          "end": 260.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 260.0,
+          "end": 261.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 261.0,
+          "end": 262.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 262.0,
+          "end": 263.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 263.0,
+          "end": 264.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 264.0,
+          "end": 265.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 265.0,
+          "end": 266.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 266.0,
+          "end": 267.0,
+          "seconds": 1.0,
+          "bytes": 488000,
+          "packets": 627,
+          "lost_packets": 139,
+          "lost_percent": 22.0
+        },
+        {
+          "start": 267.0,
+          "end": 268.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 268.0,
+          "end": 269.0,
+          "seconds": 1.0,
+          "bytes": 627000,
+          "packets": 627,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 269.0,
+          "end": 270.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 270.0,
+          "end": 271.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 271.0,
+          "end": 272.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 272.0,
+          "end": 273.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 273.0,
+          "end": 274.0,
+          "seconds": 1.0,
+          "bytes": 622000,
+          "packets": 622,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 274.0,
+          "end": 275.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 275.0,
+          "end": 276.0,
+          "seconds": 1.0,
+          "bytes": 491000,
+          "packets": 628,
+          "lost_packets": 137,
+          "lost_percent": 22.0
+        },
+        {
+          "start": 276.0,
+          "end": 277.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 277.0,
+          "end": 278.0,
+          "seconds": 1.0,
+          "bytes": 622000,
+          "packets": 622,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 278.0,
+          "end": 279.0,
+          "seconds": 1.0,
+          "bytes": 627000,
+          "packets": 627,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 279.0,
+          "end": 280.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 280.0,
+          "end": 281.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 721,
+          "lost_packets": 95,
+          "lost_percent": 13.0
+        },
+        {
+          "start": 281.0,
+          "end": 282.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 282.0,
+          "end": 283.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 283.0,
+          "end": 284.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 284.0,
+          "end": 285.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 285.0,
+          "end": 286.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 286.0,
+          "end": 287.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 287.0,
+          "end": 288.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 288.0,
+          "end": 289.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 289.0,
+          "end": 290.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 290.0,
+          "end": 291.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 291.0,
+          "end": 292.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 292.0,
+          "end": 293.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 293.0,
+          "end": 294.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 294.0,
+          "end": 295.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 295.0,
+          "end": 296.0,
+          "seconds": 1.0,
+          "bytes": 561000,
+          "packets": 561,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 296.0,
+          "end": 297.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 297.0,
+          "end": 298.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 298.0,
+          "end": 299.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 299.0,
+          "end": 300.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 300.0,
+          "end": 301.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 301.0,
+          "end": 302.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 302.0,
+          "end": 303.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 303.0,
+          "end": 304.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 304.0,
+          "end": 305.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 305.0,
+          "end": 306.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 306.0,
+          "end": 307.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 307.0,
+          "end": 308.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 308.0,
+          "end": 309.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 309.0,
+          "end": 310.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 310.0,
+          "end": 311.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 311.0,
+          "end": 312.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 312.0,
+          "end": 313.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 313.0,
+          "end": 314.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 314.0,
+          "end": 315.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 315.0,
+          "end": 316.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 316.0,
+          "end": 317.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 317.0,
+          "end": 318.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 318.0,
+          "end": 319.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 319.0,
+          "end": 320.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 320.0,
+          "end": 321.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 321.0,
+          "end": 322.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 322.0,
+          "end": 323.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 323.0,
+          "end": 324.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 324.0,
+          "end": 325.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 325.0,
+          "end": 326.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 326.0,
+          "end": 327.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 327.0,
+          "end": 328.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 328.0,
+          "end": 329.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 329.0,
+          "end": 330.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 330.0,
+          "end": 331.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 331.0,
+          "end": 332.0,
+          "seconds": 1.0,
+          "bytes": 508000,
+          "packets": 623,
+          "lost_packets": 115,
+          "lost_percent": 18.0
+        },
+        {
+          "start": 332.0,
+          "end": 333.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 333.0,
+          "end": 334.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 334.0,
+          "end": 335.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 335.0,
+          "end": 336.0,
+          "seconds": 1.0,
+          "bytes": 627000,
+          "packets": 627,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 336.0,
+          "end": 337.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 337.0,
+          "end": 338.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 338.0,
+          "end": 339.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 339.0,
+          "end": 340.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 340.0,
+          "end": 341.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 341.0,
+          "end": 342.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 342.0,
+          "end": 343.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 343.0,
+          "end": 344.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 344.0,
+          "end": 345.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 345.0,
+          "end": 346.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 346.0,
+          "end": 347.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 347.0,
+          "end": 348.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 348.0,
+          "end": 349.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 349.0,
+          "end": 350.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 350.0,
+          "end": 351.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 688,
+          "lost_packets": 63,
+          "lost_percent": 9.2
+        },
+        {
+          "start": 351.0,
+          "end": 352.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 352.0,
+          "end": 353.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 353.0,
+          "end": 354.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 354.0,
+          "end": 355.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 355.0,
+          "end": 356.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 356.0,
+          "end": 357.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 357.0,
+          "end": 358.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 358.0,
+          "end": 359.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 359.0,
+          "end": 360.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 360.0,
+          "end": 361.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 625,
+          "lost_packets": 2,
+          "lost_percent": 0.32
+        },
+        {
+          "start": 361.0,
+          "end": 362.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 626,
+          "lost_packets": 1,
+          "lost_percent": 0.16
+        },
+        {
+          "start": 362.0,
+          "end": 363.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 363.0,
+          "end": 364.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 364.0,
+          "end": 365.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 365.0,
+          "end": 366.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 366.0,
+          "end": 367.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 367.0,
+          "end": 368.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 368.0,
+          "end": 369.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 369.0,
+          "end": 370.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 370.0,
+          "end": 371.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 371.0,
+          "end": 372.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 372.0,
+          "end": 373.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 373.0,
+          "end": 374.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 374.0,
+          "end": 375.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 375.0,
+          "end": 376.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 376.0,
+          "end": 377.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 377.0,
+          "end": 378.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 378.0,
+          "end": 379.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 379.0,
+          "end": 380.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 380.0,
+          "end": 381.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 381.0,
+          "end": 382.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 382.0,
+          "end": 383.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 383.0,
+          "end": 384.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 384.0,
+          "end": 385.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 385.0,
+          "end": 386.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 386.0,
+          "end": 387.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 387.0,
+          "end": 388.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 388.0,
+          "end": 389.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 389.0,
+          "end": 390.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 390.0,
+          "end": 391.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 391.0,
+          "end": 392.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 392.0,
+          "end": 393.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 393.0,
+          "end": 394.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 394.0,
+          "end": 395.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 395.0,
+          "end": 396.0,
+          "seconds": 1.0,
+          "bytes": 527000,
+          "packets": 527,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 396.0,
+          "end": 397.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 397.0,
+          "end": 398.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 398.0,
+          "end": 399.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 399.0,
+          "end": 400.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 400.0,
+          "end": 401.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 401.0,
+          "end": 402.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 402.0,
+          "end": 403.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 403.0,
+          "end": 404.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 625,
+          "lost_packets": 1,
+          "lost_percent": 0.16
+        },
+        {
+          "start": 404.0,
+          "end": 405.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 405.0,
+          "end": 406.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 406.0,
+          "end": 407.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 407.0,
+          "end": 408.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 408.0,
+          "end": 409.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 409.0,
+          "end": 410.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 410.0,
+          "end": 411.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 411.0,
+          "end": 412.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 412.0,
+          "end": 413.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 413.0,
+          "end": 414.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 414.0,
+          "end": 415.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 415.0,
+          "end": 416.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 416.0,
+          "end": 417.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 417.0,
+          "end": 418.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 418.0,
+          "end": 419.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 419.0,
+          "end": 420.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 420.0,
+          "end": 421.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 658,
+          "lost_packets": 33,
+          "lost_percent": 5.0
+        },
+        {
+          "start": 421.0,
+          "end": 422.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 422.0,
+          "end": 423.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 423.0,
+          "end": 424.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 424.0,
+          "end": 425.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 425.0,
+          "end": 426.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 426.0,
+          "end": 427.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 427.0,
+          "end": 428.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 428.0,
+          "end": 429.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 429.0,
+          "end": 430.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 430.0,
+          "end": 431.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 431.0,
+          "end": 432.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 432.0,
+          "end": 433.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 433.0,
+          "end": 434.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 434.0,
+          "end": 435.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 435.0,
+          "end": 436.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 436.0,
+          "end": 437.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 437.0,
+          "end": 438.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 438.0,
+          "end": 439.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 439.0,
+          "end": 440.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 440.0,
+          "end": 441.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 441.0,
+          "end": 442.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 442.0,
+          "end": 443.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 443.0,
+          "end": 444.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 444.0,
+          "end": 445.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 445.0,
+          "end": 446.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 446.0,
+          "end": 447.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 447.0,
+          "end": 448.0,
+          "seconds": 1.0,
+          "bytes": 479000,
+          "packets": 627,
+          "lost_packets": 148,
+          "lost_percent": 24.0
+        },
+        {
+          "start": 448.0,
+          "end": 449.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 449.0,
+          "end": 450.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 450.0,
+          "end": 451.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 451.0,
+          "end": 452.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 452.0,
+          "end": 453.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 453.0,
+          "end": 454.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 454.0,
+          "end": 455.0,
+          "seconds": 1.0,
+          "bytes": 590000,
+          "packets": 590,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 455.0,
+          "end": 456.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 456.0,
+          "end": 457.0,
+          "seconds": 1.0,
+          "bytes": 500000,
+          "packets": 500,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 457.0,
+          "end": 458.0,
+          "seconds": 1.0,
+          "bytes": 618000,
+          "packets": 752,
+          "lost_packets": 134,
+          "lost_percent": 18.0
+        },
+        {
+          "start": 458.0,
+          "end": 459.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 459.0,
+          "end": 460.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 460.0,
+          "end": 461.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 461.0,
+          "end": 462.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 462.0,
+          "end": 463.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 463.0,
+          "end": 464.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 464.0,
+          "end": 465.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 465.0,
+          "end": 466.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 466.0,
+          "end": 467.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 467.0,
+          "end": 468.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 468.0,
+          "end": 469.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 469.0,
+          "end": 470.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 470.0,
+          "end": 471.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 471.0,
+          "end": 472.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 660,
+          "lost_packets": 35,
+          "lost_percent": 5.3
+        },
+        {
+          "start": 472.0,
+          "end": 473.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 473.0,
+          "end": 474.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 474.0,
+          "end": 475.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 475.0,
+          "end": 476.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 476.0,
+          "end": 477.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 477.0,
+          "end": 478.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 478.0,
+          "end": 479.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 479.0,
+          "end": 480.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 480.0,
+          "end": 481.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 481.0,
+          "end": 482.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 482.0,
+          "end": 483.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 483.0,
+          "end": 484.0,
+          "seconds": 1.0,
+          "bytes": 569000,
+          "packets": 569,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 484.0,
+          "end": 485.0,
+          "seconds": 1.0,
+          "bytes": 545000,
+          "packets": 681,
+          "lost_packets": 136,
+          "lost_percent": 20.0
+        },
+        {
+          "start": 485.0,
+          "end": 486.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 486.0,
+          "end": 487.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 487.0,
+          "end": 488.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 488.0,
+          "end": 489.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 489.0,
+          "end": 490.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 490.0,
+          "end": 491.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 491.0,
+          "end": 492.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 492.0,
+          "end": 493.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 493.0,
+          "end": 494.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 494.0,
+          "end": 495.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 495.0,
+          "end": 496.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 496.0,
+          "end": 497.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 497.0,
+          "end": 498.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 498.0,
+          "end": 499.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 499.0,
+          "end": 500.0,
+          "seconds": 1.0,
+          "bytes": 592000,
+          "packets": 592,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 500.0,
+          "end": 501.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 501.0,
+          "end": 502.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 502.0,
+          "end": 503.0,
+          "seconds": 1.0,
+          "bytes": 470000,
+          "packets": 627,
+          "lost_packets": 157,
+          "lost_percent": 25.0
+        },
+        {
+          "start": 503.0,
+          "end": 504.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 504.0,
+          "end": 505.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 505.0,
+          "end": 506.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 506.0,
+          "end": 507.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 507.0,
+          "end": 508.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 508.0,
+          "end": 509.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 509.0,
+          "end": 510.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 510.0,
+          "end": 511.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 511.0,
+          "end": 512.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 512.0,
+          "end": 513.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 513.0,
+          "end": 514.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 514.0,
+          "end": 515.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 515.0,
+          "end": 516.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 516.0,
+          "end": 517.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 517.0,
+          "end": 518.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 518.0,
+          "end": 519.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 519.0,
+          "end": 520.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 520.0,
+          "end": 521.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 521.0,
+          "end": 522.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 522.0,
+          "end": 523.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 523.0,
+          "end": 524.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 524.0,
+          "end": 525.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 525.0,
+          "end": 526.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 526.0,
+          "end": 527.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 527.0,
+          "end": 528.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 528.0,
+          "end": 529.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 529.0,
+          "end": 530.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 530.0,
+          "end": 531.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 531.0,
+          "end": 532.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 532.0,
+          "end": 533.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 533.0,
+          "end": 534.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 534.0,
+          "end": 535.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 535.0,
+          "end": 536.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 536.0,
+          "end": 537.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 537.0,
+          "end": 538.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 659,
+          "lost_packets": 33,
+          "lost_percent": 5.0
+        },
+        {
+          "start": 538.0,
+          "end": 539.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 539.0,
+          "end": 540.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 540.0,
+          "end": 541.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 541.0,
+          "end": 542.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 542.0,
+          "end": 543.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 543.0,
+          "end": 544.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 544.0,
+          "end": 545.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 545.0,
+          "end": 546.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 546.0,
+          "end": 547.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 547.0,
+          "end": 548.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 548.0,
+          "end": 549.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 549.0,
+          "end": 550.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 550.0,
+          "end": 551.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 551.0,
+          "end": 552.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 552.0,
+          "end": 553.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 553.0,
+          "end": 554.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 554.0,
+          "end": 555.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 555.0,
+          "end": 556.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 556.0,
+          "end": 557.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 557.0,
+          "end": 558.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 558.0,
+          "end": 559.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 559.0,
+          "end": 560.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 560.0,
+          "end": 561.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 561.0,
+          "end": 562.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 562.0,
+          "end": 563.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 563.0,
+          "end": 564.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 564.0,
+          "end": 565.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 565.0,
+          "end": 566.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 566.0,
+          "end": 567.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 567.0,
+          "end": 568.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 568.0,
+          "end": 569.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 569.0,
+          "end": 570.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 570.0,
+          "end": 571.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 571.0,
+          "end": 572.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 626,
+          "lost_packets": 3,
+          "lost_percent": 0.48
+        },
+        {
+          "start": 572.0,
+          "end": 573.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 573.0,
+          "end": 574.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 690,
+          "lost_packets": 64,
+          "lost_percent": 9.3
+        },
+        {
+          "start": 574.0,
+          "end": 575.0,
+          "seconds": 1.0,
+          "bytes": 429000,
+          "packets": 627,
+          "lost_packets": 198,
+          "lost_percent": 32.0
+        },
+        {
+          "start": 575.0,
+          "end": 576.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 576.0,
+          "end": 577.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 577.0,
+          "end": 578.0,
+          "seconds": 1.0,
+          "bytes": 627000,
+          "packets": 627,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 578.0,
+          "end": 579.0,
+          "seconds": 1.0,
+          "bytes": 623000,
+          "packets": 623,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 579.0,
+          "end": 580.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 580.0,
+          "end": 581.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 581.0,
+          "end": 582.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 582.0,
+          "end": 583.0,
+          "seconds": 1.0,
+          "bytes": 484000,
+          "packets": 627,
+          "lost_packets": 143,
+          "lost_percent": 23.0
+        },
+        {
+          "start": 583.0,
+          "end": 584.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 584.0,
+          "end": 585.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 585.0,
+          "end": 586.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 586.0,
+          "end": 587.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 587.0,
+          "end": 588.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 588.0,
+          "end": 589.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 589.0,
+          "end": 590.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 590.0,
+          "end": 591.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 591.0,
+          "end": 592.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 592.0,
+          "end": 593.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 593.0,
+          "end": 594.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 594.0,
+          "end": 595.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 595.0,
+          "end": 596.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 596.0,
+          "end": 597.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 597.0,
+          "end": 598.0,
+          "seconds": 1.0,
+          "bytes": 626000,
+          "packets": 626,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 598.0,
+          "end": 599.0,
+          "seconds": 1.0,
+          "bytes": 624000,
+          "packets": 624,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 599.0,
+          "end": 600.0,
+          "seconds": 1.0,
+          "bytes": 625000,
+          "packets": 625,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        },
+        {
+          "start": 600.0,
+          "end": 600.08,
+          "seconds": 0.08000000000004093,
+          "bytes": 48000,
+          "packets": 48,
+          "lost_packets": 0,
+          "lost_percent": 0.0
+        }
+      ],
+      "receiver_interval_source": "receiver_text_rounded_2dp"
+    }
+  ],
+  "startup_ping": {
+    "sent": 20,
+    "received": 17
+  },
+  "idle_start_epoch": 1792852215.1328661,
+  "status": "Z4 active phase complete; idle phase and Z5/Z6 pending",
+  "nat": {
+    "required_probes": [
+      {
+        "idle_seconds": 30,
+        "initial_replies": 1,
+        "delayed_replies": 0,
+        "delayed_same_port": 0,
+        "delayed_cross_port": 0,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 60,
+        "initial_replies": 2,
+        "delayed_replies": 0,
+        "delayed_same_port": 0,
+        "delayed_cross_port": 0,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 120,
+        "initial_replies": 3,
+        "delayed_replies": 0,
+        "delayed_same_port": 0,
+        "delayed_cross_port": 0,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 180,
+        "initial_replies": 2,
+        "delayed_replies": 0,
+        "delayed_same_port": 0,
+        "delayed_cross_port": 0,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      }
+    ],
+    "shorter_probes": [
+      {
+        "idle_seconds": 5,
+        "initial_replies": 3,
+        "delayed_replies": 9,
+        "delayed_same_port": 3,
+        "delayed_cross_port": 6,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 10,
+        "initial_replies": 2,
+        "delayed_replies": 8,
+        "delayed_same_port": 2,
+        "delayed_cross_port": 6,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 15,
+        "initial_replies": 3,
+        "delayed_replies": 8,
+        "delayed_same_port": 2,
+        "delayed_cross_port": 6,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 20,
+        "initial_replies": 3,
+        "delayed_replies": 9,
+        "delayed_same_port": 3,
+        "delayed_cross_port": 6,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      },
+      {
+        "idle_seconds": 25,
+        "initial_replies": 3,
+        "delayed_replies": 5,
+        "delayed_same_port": 3,
+        "delayed_cross_port": 2,
+        "observed_external_tuples": 1,
+        "local_port_preserved": false
+      }
+    ],
+    "server_destinations": 3,
+    "expected_initial_replies_per_socket": 3,
+    "maximum_delayed_replies_per_socket": 9,
+    "keepalive_mean_seconds": 15,
+    "keepalive_jitter_seconds": [
+      12,
+      18
+    ],
+    "limitations": [
+      "Single sample per delay, with initial and delayed packet loss; not an exact NAT timeout measurement.",
+      "Each delayed reply can refresh return-path state; cross-port matrix is not nine independent expiry trials.",
+      "Shared external tuple observed for responding destinations; different sockets receive different mappings.",
+      "No delayed return after 30 seconds on this path; mapping expiry, filtering and path loss cannot be distinguished."
+    ]
+  }
+}

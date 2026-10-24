@@ -181,6 +181,8 @@ It reports cross-port packet gaps, all port transitions, and base-port packet
 counts without publishing endpoint identities. Gaps of five seconds or more
 are listed separately as phase boundaries **or outages**, never silently
 counted as acceptable. TCP packets of the same length may also match, so use
-isolated UDP capture windows or correlate timestamps with the case summary.
+isolated UDP capture windows or pass CASE_SUMMARY_JSON as the optional fourth
+argument to restrict capture timestamps to recorded UDP case windows. This
+requires synchronized server/client wall clocks; record any observed offset.
 These capture observations supplement receiver loss/intervals, and do not
 replace them. Always report tcpdump's capture-drop count.

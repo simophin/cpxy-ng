@@ -59,10 +59,26 @@ def transfer(name, seconds, udp=False, reverse=False, streams=1):
     # UDP receiver intervals are server output for upload, local for download.
     receiver = raw if reverse or not udp else raw.get('server_output_json', {})
     intervals = [v['sum'] for v in receiver.get('intervals', []) if 'sum' in v]
+    interval_source = 'receiver_json'
+    if udp and not reverse and not intervals:
+        # Older/default iperf servers send text to --get-server-output.
+        pattern = r'^\[\s*\d+\]\s+([\d.]+)-([\d.]+)\s+sec\s+.*?\s+([\d.]+)\s+ms\s+(\d+)/(\d+)\s+\(([\d.]+)%\)'
+        for match in re.finditer(pattern, raw.get('server_output_text', ''), re.M):
+            start, end = float(match[1]), float(match[2])
+            if not 0 < end-start <= 2:
+                continue  # Exclude the whole-test summary row.
+            lost, packets = int(match[4]), int(match[5])
+            intervals.append(dict(start=start, end=end, seconds=end-start,
+                bytes=(packets-lost)*1000, packets=packets, lost_packets=lost,
+                lost_percent=float(match[6])))
+        interval_source = 'receiver_text_rounded_2dp'
+    if udp and not intervals:
+        raise RuntimeError('missing UDP receiver intervals')
     summary['cases'].append(dict(name=name, start_epoch=t, end_epoch=time.time(),
         receiver_mbps=received['bits_per_second']/1e6, receiver_bytes=received['bytes'],
         lost_percent=received.get('lost_percent'), lost_packets=received.get('lost_packets'),
         packets=received.get('packets'), jitter_ms=received.get('jitter_ms'),
+        receiver_interval_source=interval_source,
         receiver_intervals=[{k:v.get(k) for k in ('start','end','seconds','bytes','packets','lost_packets','lost_percent')} for v in intervals]))
     save()
     if received['bytes'] == 0:
