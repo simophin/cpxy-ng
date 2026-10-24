@@ -89,7 +89,7 @@ Keep this document sufficient for another agent to resume without replaying the
 full conversation; access details remain exclusively in private session context.
 
 - [x] P0: inspect local baseline and remote prerequisites; commit handoff first.
-- [ ] P1: prove unprivileged namespace/socket/TUN path; specify wire/crypto lifecycle.
+- [x] P1: prove unprivileged namespace/socket/TUN path; specify wire/crypto lifecycle.
 - [ ] P2: implement tunnel and focused correctness tests; commit.
 - [ ] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
 - [ ] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
@@ -125,17 +125,47 @@ Measure sequentially (no compilation or overlapping throughput runs):
   QoS behavior; repeat at peak/off-peak later if needed. Do not infer censorship
   resistance from throughput or Wireshark's protocol label.
 
+## Wire and session specification (v1)
+
+Control messages use magic `R3P1`, one-byte type, client random C (32 bytes),
+server random S (32 bytes except HELLO), and HMAC-SHA256 over the full preceding
+message prefixed with `rtp-l3-poc/control/v1`. Types are HELLO, CHALLENGE, FINISH,
+READY. Every HELLO is authenticated; fresh server randomness prevents a recorded
+exchange recreating old keys after restart. Duplicate HELLO reuses an unexpired
+pending challenge. FINISH must authenticate and match the pending peer/transcript
+before installation; duplicate FINISH for the installed session resends READY
+without resetting any counters. Pending challenges expire after 10 seconds.
+Existing sessions remain installed until a valid replacement FINISH.
+
+HKDF-SHA256 uses C||S as salt and the PSK as input, with separate versioned
+client-to-server and server-to-client labels to derive 32-byte traffic keys and
+32-bit SSRCs. Data uses a fixed 12-byte RTP v2 header, payload type 96, initial
+sequence zero, monotonic elapsed-time 90 kHz timestamps. ChaCha20-Poly1305 takes
+the complete header as AAD. Its nonce is four zero bytes followed by the 64-bit
+extended packet index. Sequence carries its low 16 bits; no extra index is sent.
+Keys are independent by direction and each fresh handshake. Transmit stops before
+index 2^48. Receivers infer the nearest index, supporting forward gaps below
+32768 packets and a 128-packet replay window; larger outages require restart.
+Authentication succeeds before replay, session or peer state changes. A fresh
+session rejects stale data. The custom control exchange is observable; this is
+not codec-valid media or standardized SRTP.
+
 ## Current state
 
-Handoff prepared before implementation. Remote prerequisite inspection only;
-no deployed task processes, opened ports, created TUN devices or persistent network
-changes. The namespace prerequisite check was temporary and exited successfully.
+P1 complete. On the authorized client, an ordinary user opened UDP in the host
+namespace, inherited the FD through `unshare -Urn`, created a TUN via ioctl, and
+completed an echo round trip while the child namespace had **no routes**. This
+proves the outer socket retains host namespace connectivity. The proof process
+exited; TUN and namespace disappeared. Its source-restricted server firewalld
+runtime UDP rule was explicitly removed, and an empty rich-rule list verified.
+No deployed task services or network changes remain.
 
-Next: implementing subagent reads this file, validates the inherited UDP socket
-and unprivileged TUN arrangement, then records wire format/session design and
-implements P1/P2. Use only the private conversation for actual remote access.
+Next: implement the standalone protocol library and Linux TUN runtime, test the
+wire lifecycle including lost READY and rollover, then checkpoint P2 before
+remote deployment. Actual access details stay only in private session context.
 
 ## Progress log
 
 - 2026-10-24: created branch from main; verified Linux prerequisites on both hosts.
   User requires temporary firewalld openings on the public server and cleanup.
+- 2026-10-24: P1 inherited-socket/TUN echo passed; proof rule and files removed.
