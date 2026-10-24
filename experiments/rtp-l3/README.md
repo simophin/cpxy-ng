@@ -53,3 +53,18 @@ PRIVATE_KEY_FILE OUTPUT_DIR` with absolute paths. It creates disposable nested
 namespaces, transfers 100 MiB each way across RTP rollovers, retries a lost
 CHALLENGE/READY, and injects bounded periodic loss, duplicates, reorder and
 ciphertext corruption. The script bounds waits and validates receiver JSON.
+
+`benchmark.py` runs sequential TCP upload/download with one/four streams and three
+20-second repetitions, followed by a paced 1000-byte UDP ladder (ten seconds per
+rate, stop above 2% receiver loss). It records 100 idle ping probes, loaded ping,
+receiver throughput/loss/jitter, iperf CPU, and optional client tunnel CPU/RSS via
+`POC_TUN_PID`. One bounded connection retry is preserved; a second failure stops
+the matrix. Supply target/port/output arguments and keep raw output private.
+`sample-process.py` independently samples a task-owned server PID. The scripts
+measure process CPU as percent of one core. They do not establish one-way delay.
+
+`capture-shape.py PRIVATE_PCAP SERVER_IPV4` emits endpoint-free IPv4 packet sizes,
+arrival gaps, burst lengths, RTP sequence observations and timestamp deltas from
+an Ethernet pcap. Capture at least the 12-byte RTP header; retain original packet
+lengths. Publish its aggregates with the exact capture/case window and tcpdump's
+capture-drop counts. Passive sequence gaps are not final receiver/path loss.

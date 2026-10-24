@@ -178,6 +178,16 @@ summary. Direct baseline initially timed out once; packet diagnosis subsequently
 confirmed TCP SYN/SYN-ACK and application control exchange. One bounded retry per
 case is recorded; do not infer censorship from a connection timeout.
 
+Measurement update: direct matrix retained one successful single-stream upload
+(44.38 Mbit/s), then stopped after two bounded connection timeouts. One earlier
+direct setup timeout and one initial tunnel handshake timeout are also recorded
+privately; a later tunnel retry succeeded. The tunnel matrix is advancing through
+all planned cases. Its current idle RTT median is about 178 ms, similar to the
+contemporaneous direct idle median, rather than the earlier 77 ms smoke RTT.
+Do not compare the early smoke RTT as simultaneous evidence of an advantage.
+The first capture is bounded and may represent only early uploads; separate
+bounded download/UDP samples must be mapped to their actual case windows.
+
 Next: complete sequential matched direct/tunnel TCP and paced UDP measurements with
 idle/loaded ping and CPU/RSS sampling. Keep raw artifacts private, publish sanitized
 aggregates only. Then stop the supervisor, verify all owned processes/interfaces/
@@ -192,3 +202,4 @@ namespaces/firewall rules absent, remove staged keys/files, and commit P5/P6.
 - 2026-10-24: P3 Linux offline build/tests and disposable namespace fault integration passed.
 - 2026-10-24: P4 cross-host TUN, MTU ping and controlled forwarding/NAT passed; bounded deployment active.
 - 2026-10-24: P5 tools saved during active deployment; direct baseline initial connection timeout under diagnosis/retry.
+- 2026-10-24: direct baseline partial after bounded failures; tunnel matrix progressing; packet-shape parser independently validated on synthetic rollover/reorder/duplicate fixture.
