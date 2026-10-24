@@ -57,7 +57,7 @@ mod linux {
         fn report(&self, elapsed: f64, final_report: bool, x: bool) {
             // V2 has no replay detection: its counter only covers malformed,
             // non-IPv4-after-XOR or foreign-source datagrams.
-            let mut j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":if x{"xchacha20-v2"}else{"v1"},"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops});
+            let mut j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":if x{"xchacha20-v3"}else{"v1"},"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops});
             j[if x { "rejected" } else { "invalid_or_replay" }] = self.invalid.into();
             eprintln!("{j}");
         }
@@ -239,7 +239,7 @@ mod linux {
         }
         eprintln!(
             "{}",
-            serde_json::json!({"event":"ready","client":client,"protocol":if x{"xchacha20-v2"}else{"v1"},"mtu":MTU,"socket_receive_buffer":({let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v})})
+            serde_json::json!({"event":"ready","client":client,"protocol":if x{"xchacha20-v3"}else{"v1"},"mtu":MTU,"socket_receive_buffer":({let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v})})
         );
         let mut handshake = ServerHandshake::default();
         let mut counters = Counts::default();

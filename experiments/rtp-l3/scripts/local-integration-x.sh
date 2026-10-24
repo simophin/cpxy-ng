@@ -1,5 +1,5 @@
 #!/bin/sh
-# V2 (client-x/server-x) isolated integration. Run on Linux as ordinary user.
+# V3 (client-x/server-x) isolated integration. Run on Linux as ordinary user.
 # Usage: sh local-integration-x.sh ABSOLUTE_CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR
 set -eu
 poc_crate=$1
@@ -81,10 +81,10 @@ for name in ('clean-up','clean-down','fault-up','fault-down','fault-udp'):
         assert received['bytes']>=100*1024*1024,(name,received)
 for log in ('client-clean.log','client-fault.log','server-clean.log','server-fault.log'):
     events=[json.loads(l) for l in (out/log).read_text().splitlines() if l.startswith('{')]
-    assert events[0]['event']=='ready' and events[0]['protocol']=='xchacha20-v2',log
+    assert events[0]['event']=='ready' and events[0]['protocol']=='xchacha20-v3',log
     final=events[-1]
     assert final['event']=='final' and final['rx_packets']>0,(log,final)
     print(log,'rx',final['rx_packets'],'rejected',final['rejected'])
 CHECK
-echo 'PASS v2 local integration: first packet without setup, 100MiB each way across RTP rollover, peer restarts, UDP faults'
+echo 'PASS v3 local integration: first packet without setup, 100MiB each way across RTP rollover, peer restarts, UDP faults'
 NS

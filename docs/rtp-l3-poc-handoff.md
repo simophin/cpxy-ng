@@ -316,8 +316,8 @@ above as the 24-byte variant; v3 differs only in nonce construction and labels.
 ### v3 plan
 
 - [x] Y0: record conventions (this section).
-- [ ] Y1: implement v3 in place of the 24-byte v2 format, with unit vectors.
-- [ ] Y2: Linux build/tests/clippy and namespace integration.
+- [x] Y1: implement v3 in place of the 24-byte v2 format, with unit vectors.
+- [x] Y2: Linux build/tests/clippy and namespace integration.
 - [ ] Y3: cross-host validation and first-packet capture.
 - [ ] Y4: adjacent v3 / v1 / v3 bounded matrix as in X5.
 - [ ] Y5: verified remote cleanup; sanitized report.
@@ -326,7 +326,7 @@ above as the 24-byte variant; v3 differs only in nonce construction and labels.
 
 ## Current state
 
-**V3 in progress (Y0 done)**; next Y1. V2 below remains complete.
+**V3 in progress (Y0–Y2 done).** v3 replaced the 24-byte v2 packet format in `client-x`/`server-x` (v1 still present for comparison). 13 unit tests (6 v3, incl. a new libsodium vector for the header-prefix nonce, identical-header RNG freshness, and header-tamper behaviour) pass on macOS and Linux; Linux release build and clippy pass; v3 and v1 namespace integrations pass. Next: Y3 cross-host. V2 below remains complete.
 
 **V2 complete (X0–X6).** Report: `docs/rtp-l3-poc-v2-results.md`; endpoint-free
 aggregate: `experiments/rtp-l3/results/2026-10-24-v2-summary.json`. V1 results

@@ -69,16 +69,17 @@ an Ethernet pcap. Capture at least the 12-byte RTP header; retain original packe
 lengths. Publish its aggregates with the exact capture/case window and tcpdump's
 capture-drop counts. Passive sequence gaps are not final receiver/path loss.
 
-## V2: handshake-free raw XChaCha20 (`client-x` / `server-x`)
+## V3: handshake-free raw XChaCha20 (`client-x` / `server-x`)
 
 Explicit local modes; v1 is unchanged and nothing on the wire negotiates modes.
-Every datagram is `RTP header (12) | random nonce (24) | XChaCha20(inner IPv4)`.
+Every datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`; the
+nonce is RTP header bytes 2..10 followed by those 16 random bytes.
 There is **no handshake, tag, replay protection, sender authenticity or forward
 secrecy** by design; modified or replayed packets that still parse as IPv4 are
 forwarded. Directional keys come from the PSK via HKDF-SHA256; each packet uses
-a fresh 24-byte OS-RNG nonce and a fresh cipher (block counter 0, libsodium
+16 fresh OS-RNG bytes and a fresh cipher (block counter 0, libsodium
 `crypto_stream_xchacha20_xor` convention). Sequence/timestamp/SSRC are framing
-only. IPv4 wire size is inner length + 64 bytes (1200-byte inner -> 1264).
+only. IPv4 wire size is inner length + 56 bytes (1200-byte inner -> 1256).
 
 ```sh
 rtp-l3-poc server-x KEY_FILE TUN_NAME INNER_SERVER_CIDR LISTEN_ADDRESS:PORT CLIENT_IPV4:PORT
