@@ -90,7 +90,7 @@ full conversation; access details remain exclusively in private session context.
 
 - [x] P0: inspect local baseline and remote prerequisites; commit handoff first.
 - [x] P1: prove unprivileged namespace/socket/TUN path; specify wire/crypto lifecycle.
-- [ ] P2: implement tunnel and focused correctness tests; commit.
+- [x] P2: implement tunnel and focused correctness tests; commit.
 - [ ] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
 - [ ] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
 - [ ] P5: complete bounded measurement matrix; commit sanitized report and commands.
@@ -152,20 +152,22 @@ not codec-valid media or standardized SRTP.
 
 ## Current state
 
-P1 complete. On the authorized client, an ordinary user opened UDP in the host
-namespace, inherited the FD through `unshare -Urn`, created a TUN via ioctl, and
-completed an echo round trip while the child namespace had **no routes**. This
-proves the outer socket retains host namespace connectivity. The proof process
-exited; TUN and namespace disappeared. Its source-restricted server firewalld
-runtime UDP rule was explicitly removed, and an empty rich-rule list verified.
-No deployed task services or network changes remain.
+P1/P2 complete. Standalone crate in `experiments/rtp-l3` provides portable protocol
+code, Linux nonblocking TUN/UDP runtime, and host-socket/unprivileged-namespace
+launcher. Seven focused tests pass on the local platform: control/data tampering,
+replay, bounded reorder/rollover, stale session, directional packet separation,
+nonce exhaustion, challenge expiry, wrong peer and duplicate FINISH/READY.
+No remote deployment is active, and no firewall rules or host changes remain.
 
-Next: implement the standalone protocol library and Linux TUN runtime, test the
-wire lifecycle including lost READY and rollover, then checkpoint P2 before
-remote deployment. Actual access details stay only in private session context.
+Next: build on authorized Linux client (offline vendored dependencies privately
+staged outside checkout), perform local namespace integration and fault checks,
+then commit P3. Before deployment record all owned firewall/network changes and
+cleanup actions in a private deployment ledger. Capture raw artifacts only outside
+checkout. P4/P5 must include forwarding proof and bounded bidirectional benchmarks.
 
 ## Progress log
 
 - 2026-10-24: created branch from main; verified Linux prerequisites on both hosts.
   User requires temporary firewalld openings on the public server and cleanup.
 - 2026-10-24: P1 inherited-socket/TUN echo passed; proof rule and files removed.
+- 2026-10-24: P2 runtime/library/launcher implemented; seven protocol tests passed.

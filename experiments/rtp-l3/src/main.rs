@@ -1,0 +1,291 @@
+#[cfg(target_os = "linux")]
+mod linux {
+    use rtp_l3_poc::*;
+    use std::{
+        env, fs,
+        io::{self, Read, Write},
+        net::{SocketAddr, UdpSocket},
+        os::fd::{AsRawFd, FromRawFd},
+        process::Command,
+        sync::atomic::{AtomicBool, Ordering},
+        time::{Duration, Instant},
+    };
+    static RUN: AtomicBool = AtomicBool::new(true);
+    extern "C" fn stop(_: libc::c_int) {
+        RUN.store(false, Ordering::Relaxed);
+    }
+    fn ip(args: &[&str]) -> io::Result<()> {
+        if Command::new("ip").args(args).status()?.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other("ip setup failed"))
+        }
+    }
+    fn tun(name: &str, address: &str) -> io::Result<fs::File> {
+        if name.len() > 15 || !name.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            return Err(io::Error::other("invalid interface name"));
+        }
+        let f = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/net/tun")?;
+        // Linux ifreq: 16-byte name followed by flags, padding to 40 bytes on x86_64.
+        let mut req = [0u8; 40];
+        req[..name.len()].copy_from_slice(name.as_bytes());
+        req[16..18].copy_from_slice(&(0x1001u16).to_ne_bytes());
+        if unsafe { libc::ioctl(f.as_raw_fd(), 0x400454ca, req.as_mut_ptr()) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        ip(&["addr", "add", address, "dev", name])?;
+        ip(&["link", "set", "dev", name, "mtu", "1200", "up"])?;
+        Ok(f)
+    }
+    #[derive(Default)]
+    struct Counts {
+        tx_packets: u64,
+        rx_packets: u64,
+        tx_plain: u64,
+        rx_plain: u64,
+        tx_wire: u64,
+        rx_wire: u64,
+        invalid: u64,
+        tun_drops: u64,
+        socket_drops: u64,
+    }
+    impl Counts {
+        fn report(&self, elapsed: f64, final_report: bool) {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":if final_report{"final"}else{"stats"},"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"invalid_or_replay":self.invalid,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops})
+            );
+        }
+    }
+    fn key(path: &str) -> io::Result<[u8; 32]> {
+        use std::os::unix::fs::PermissionsExt;
+        let m = fs::metadata(path)?;
+        if m.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::other("key file must have private permissions"));
+        }
+        fs::read(path)?
+            .try_into()
+            .map_err(|_| io::Error::other("key must be exactly 32 bytes"))
+    }
+    fn connect(socket: &UdpSocket, key: &[u8; 32]) -> io::Result<Session> {
+        let hello = Control {
+            kind: HELLO,
+            c: rand::random(),
+            s: [0; 32],
+        };
+        let mut outgoing = hello.clone();
+        let mut b = [0; 2048];
+        let start = Instant::now();
+        socket.set_read_timeout(Some(Duration::from_millis(400)))?;
+        while start.elapsed() < Duration::from_secs(12) && RUN.load(Ordering::Relaxed) {
+            socket.send(&outgoing.encode(key))?;
+            if let Ok(n) = socket.recv(&mut b) {
+                if let Some(m) = Control::decode(&b[..n], key) {
+                    if m.c != hello.c {
+                        continue;
+                    }
+                    if m.kind == CHALLENGE && outgoing.kind == HELLO {
+                        outgoing = m.with_kind(FINISH);
+                    } else if m.kind == READY && outgoing.kind == FINISH && m.s == outgoing.s {
+                        socket.set_read_timeout(None)?;
+                        return Ok(Session::new(key, &m.c, &m.s, true));
+                    }
+                }
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "authenticated handshake timed out",
+        ))
+    }
+    pub fn main() -> io::Result<()> {
+        // mode key-file interface cidr [inherited-fd | listen-address]
+        let a: Vec<String> = env::args().collect();
+        if a.len() != 6 {
+            return Err(io::Error::other(
+                "usage: rtp-l3-poc client|server KEY_FILE INTERFACE CIDR FD|LISTEN",
+            ));
+        }
+        let client = match a[1].as_str() {
+            "client" => true,
+            "server" => false,
+            _ => return Err(io::Error::other("invalid mode")),
+        };
+        let k = key(&a[2])?;
+        unsafe {
+            libc::signal(libc::SIGTERM, stop as libc::sighandler_t);
+            libc::signal(libc::SIGINT, stop as libc::sighandler_t);
+        }
+        let socket = if client {
+            let fd: i32 = a[5]
+                .parse()
+                .map_err(|_| io::Error::other("invalid inherited FD"))?;
+            if fd < 3 {
+                return Err(io::Error::other("FD must be >=3"));
+            }
+            unsafe { UdpSocket::from_raw_fd(fd) }
+        } else {
+            UdpSocket::bind(&a[5])?
+        };
+        let size: libc::c_int = 4 * 1024 * 1024;
+        for opt in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
+            unsafe {
+                libc::setsockopt(
+                    socket.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    opt,
+                    &size as *const _ as *const _,
+                    4,
+                );
+            }
+        }
+        let mut session = if client {
+            Some(connect(&socket, &k)?)
+        } else {
+            None
+        };
+        let mut dev = tun(&a[3], &a[4])?;
+        for fd in [socket.as_raw_fd(), dev.as_raw_fd()] {
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        if client {
+            ip(&["link", "set", "lo", "up"])?;
+        }
+        eprintln!(
+            "{}",
+            serde_json::json!({"event":"ready","client":client,"mtu":MTU,"socket_receive_buffer":{let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v}})
+        );
+        let mut handshake = ServerHandshake::default();
+        let mut peer: Option<SocketAddr> = None;
+        let mut counters = Counts::default();
+        let started = Instant::now();
+        let mut last = Instant::now();
+        let mut b = [0u8; 65536];
+        while RUN.load(Ordering::Relaxed) {
+            let mut polls = [
+                libc::pollfd {
+                    fd: socket.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: dev.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            let r = unsafe { libc::poll(polls.as_mut_ptr(), 2, 250) };
+            if r < 0 {
+                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(io::Error::last_os_error());
+            }
+            if polls[0].revents & libc::POLLIN != 0 {
+                for _ in 0..64 {
+                    match socket.recv_from(&mut b) {
+                        Ok((n, source)) => {
+                            if b[..n].starts_with(b"R3P1") {
+                                if !client {
+                                    if let Some(m) = Control::decode(&b[..n], &k) {
+                                        if let Some((response, install)) =
+                                            handshake.receive(m, source.to_string(), Instant::now())
+                                        {
+                                            if install {
+                                                session = Some(Session::new(
+                                                    &k,
+                                                    &response.c,
+                                                    &response.s,
+                                                    false,
+                                                ));
+                                                peer = Some(source);
+                                            }
+                                            let _ = socket.send_to(&response.encode(&k), source);
+                                        }
+                                    } else {
+                                        counters.invalid += 1;
+                                    }
+                                }
+                                continue;
+                            }
+                            if !client && peer != Some(source) {
+                                counters.invalid += 1;
+                                continue;
+                            }
+                            if let Some(s) = &mut session {
+                                if let Some(p) = s.rx.open(&b[..n]) {
+                                    counters.rx_packets += 1;
+                                    counters.rx_plain += p.len() as u64;
+                                    counters.rx_wire += n as u64;
+                                    if dev.write(&p).ok() != Some(p.len()) {
+                                        counters.tun_drops += 1;
+                                    }
+                                } else {
+                                    counters.invalid += 1;
+                                }
+                            } else {
+                                counters.invalid += 1;
+                            }
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            if polls[1].revents & libc::POLLIN != 0 {
+                for _ in 0..64 {
+                    match dev.read(&mut b) {
+                        Ok(n) => {
+                            if let Some(s) = &mut session {
+                                if let Some(p) = s.tx.seal(
+                                    &b[..n],
+                                    (started.elapsed().as_nanos() * 90000 / 1000000000) as u32,
+                                ) {
+                                    let sent = if client {
+                                        socket.send(&p)
+                                    } else if let Some(addr) = peer {
+                                        socket.send_to(&p, addr)
+                                    } else {
+                                        continue;
+                                    };
+                                    if sent.ok() == Some(p.len()) {
+                                        counters.tx_packets += 1;
+                                        counters.tx_plain += n as u64;
+                                        counters.tx_wire += p.len() as u64;
+                                    } else {
+                                        counters.socket_drops += 1;
+                                    }
+                                } else {
+                                    counters.tun_drops += 1;
+                                }
+                            }
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            if last.elapsed() >= Duration::from_secs(5) {
+                counters.report(started.elapsed().as_secs_f64(), false);
+                last = Instant::now();
+            }
+        }
+        counters.report(started.elapsed().as_secs_f64(), true);
+        Ok(())
+    }
+}
+#[cfg(target_os = "linux")]
+fn main() -> std::io::Result<()> {
+    linux::main()
+}
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("Linux runtime required; protocol library tests are portable");
+}
