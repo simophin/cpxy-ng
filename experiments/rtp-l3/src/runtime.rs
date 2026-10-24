@@ -261,21 +261,36 @@ impl Runtime {
                         self.counts.control_rejected += 1;
                         return;
                     }
+                    let instance = c.instance;
                     let reply = c.state(port, &msg, now);
                     if reply.is_some() {
                         self.counts.switches += 1;
+                        if env::var_os("POC_TRACE_PATHS").is_some() {
+                            eprintln!("{}", serde_json::json!({"event":"path", "seconds":now,
+                                "port":c.current, "epoch":c.epoch,
+                                "instance_changed":instance != c.instance,
+                                "solicited":matches!(msg, Control::State { echo, .. } if echo != 0)}));
+                        }
                     }
                     self.sync_client(now);
                     if let Some(msg) = reply {
                         self.ping(msg);
                     }
                 } else if matches!(msg, Control::Ping { .. }) {
+                    let id = match msg { Control::Ping { session, .. } => session, _ => unreachable!() };
+                    let old = self.server.as_ref().unwrap().sessions().get(&id).map(|s| s.path);
                     if let Some((reply, _)) =
                         self.server
                             .as_mut()
                             .unwrap()
                             .ping(Path { port, peer: source }, &msg, now)
                     {
+                        if env::var_os("POC_TRACE_PATHS").is_some() {
+                            eprintln!("{}", serde_json::json!({"event":"registration", "seconds":now,
+                                "session":id, "port":port, "new":old.is_none(),
+                                "tuple_changed":old.is_some_and(|p| p.peer != source),
+                                "same_port":old.is_some_and(|p| p.port == port)}));
+                        }
                         self.control(reply);
                     } else {
                         self.counts.control_rejected += 1;
@@ -455,6 +470,9 @@ pub fn main() -> io::Result<()> {
                                 Stream::new(PortKeys::rotation(&psk, &secret, false)),
                             );
                             rt.counts.rotations += 1;
+                            if env::var_os("POC_TRACE_PATHS").is_some() {
+                                eprintln!("{}", serde_json::json!({"event":"rotation", "seconds":now, "port":port}));
+                            }
                             rt.counts.announces_sent += actions.len() as u64;
                             for action in actions {
                                 rt.control(action);
