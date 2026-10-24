@@ -170,7 +170,15 @@ deployment ledger outside checkout and the root agent's private recovery notes.
 Client/ server staged binaries, key files and raw results/capture also require P6
 removal. No private endpoints or secrets are in tracked files.
 
-Next: run sequential matched direct/tunnel TCP and paced UDP measurements with
+P5 tooling committed while measurement is in progress: sequential 20-second TCP
+(one/four streams, three repeats, both directions), ten-second UDP ladder with
+2% loss stop, 100 idle pings plus loaded ping per case, client/server tunnel CPU
+and RSS. Each case validates receiver JSON and writes a resumable sanitized
+summary. Direct baseline initially timed out once; packet diagnosis subsequently
+confirmed TCP SYN/SYN-ACK and application control exchange. One bounded retry per
+case is recorded; do not infer censorship from a connection timeout.
+
+Next: complete sequential matched direct/tunnel TCP and paced UDP measurements with
 idle/loaded ping and CPU/RSS sampling. Keep raw artifacts private, publish sanitized
 aggregates only. Then stop the supervisor, verify all owned processes/interfaces/
 namespaces/firewall rules absent, remove staged keys/files, and commit P5/P6.
@@ -183,3 +191,4 @@ namespaces/firewall rules absent, remove staged keys/files, and commit P5/P6.
 - 2026-10-24: P2 runtime/library/launcher implemented; seven protocol tests passed.
 - 2026-10-24: P3 Linux offline build/tests and disposable namespace fault integration passed.
 - 2026-10-24: P4 cross-host TUN, MTU ping and controlled forwarding/NAT passed; bounded deployment active.
+- 2026-10-24: P5 tools saved during active deployment; direct baseline initial connection timeout under diagnosis/retry.

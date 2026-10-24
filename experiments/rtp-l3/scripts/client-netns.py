@@ -22,6 +22,7 @@ env = dict(os.environ, POC_BINARY=binary, POC_KEY=key, POC_IFACE=iface,
 script = '''
 "$POC_BINARY" client "$POC_KEY" "$POC_IFACE" "$POC_CIDR" "$POC_FD" &
 poc_pid=$!
+export POC_TUN_PID="$poc_pid"
 trap 'kill -TERM "$poc_pid" 2>/dev/null; wait "$poc_pid"' EXIT INT TERM
 poc_wait=0
 until ip -o -4 addr show dev "$POC_IFACE" 2>/dev/null | grep -Fq " $POC_CIDR "; do
