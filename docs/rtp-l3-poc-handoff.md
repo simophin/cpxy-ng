@@ -551,7 +551,7 @@ Replay rules:
 ### Plan
 
 - [x] Z0: decisions recorded below; per-port keys added.
-- [ ] Z1: control codec, per-port key derivation and state machines in
+- [x] Z1: control codec, per-port key derivation and state machines in
   `lib.rs`. Unit tests:
   - control round trip, and rejection of any flipped bit in the header, random
     bytes, body or tag;
@@ -608,9 +608,49 @@ Replay rules:
 
 ## Current state
 
-**In progress: Z1 v4 library.** Control codec and per-port key derivation added;
-state machines and their tests are the next checkpoint. Runtime remains v3.
-No remote resources have been created.
+**Z1 complete; next: Z2 runtime integration.** `lib.rs` exposes `control` and
+`state` modules for the authenticated codec, per-port keys and sans-I/O client /
+server lifecycle. All 17 portable tests pass on macOS, including the six v3
+regressions. `cargo clippy --locked --all-targets -- -D warnings` passes.
+The binary, CLI, counters and Linux integration script still run v3; v4 Linux
+and cross-host validation remain Z2–Z4. No remote resources were created and
+there are no cleanup obligations.
+
+Z1 integration conventions / clarified edge cases:
+
+- Time is monotonic whole seconds; call timer methods at least once per second.
+  The runtime samples jitter with `rotation_delay` / `keepalive_delay`, sets the
+  client's interval for each new idle window, binds candidate rotation ports,
+  and passes a fresh OS-random secret to `Server::rotate` only after bind succeeds.
+  Failed binds must leave epoch/session state unchanged. Runtime owns fresh Tx
+  streams per port, socket closing, counters and selecting keys by local/server
+  port. Choose a bounded session-table capacity when constructing the server.
+- Control version is 4. The body length includes the 4-byte type/version/length
+  header and fields, excludes zero padding and the 16-byte tag: PING = 32 bytes,
+  STATE = 66 bytes. Their minimum outer IPv4 sizes are 104 and 138 bytes.
+  The maximum padded outer IPv4 size is 260 bytes.
+- Every retry gets a fresh increasing PING sequence, since duplicate PINGs are
+  deliberately ignored by the server. Only the latest sequence is outstanding.
+  A new-instance STATE must echo it, and acceptance consumes that echo.
+  Equal-epoch unsolicited/replayed STATE is a no-op; it cannot change the port
+  or secret, reset retry timers, or prolong previous-port grace.
+- After three unanswered attempts at 2-second spacing, fallback selects the
+  base port. Base probes then use 1, 2, 4, 8, 16, 30, 30... second spacing,
+  until a valid STATE restores the current rotation path.
+- Announcement retry deadlines are +1, +2 and +4 seconds from announcement.
+  A PING acknowledges rotation only on the new socket with the current instance
+  and epoch. Retire the previous socket after **both** grace has elapsed and its
+  last session has left (the later condition, per the socket-limit rule above).
+  A subsequent rotation evicts the oldest socket and its stranded sessions to
+  maintain the three-socket limit. These clients recover through base fallback.
+- Pass only authenticated, direction-checked PING/STATE to the state machines.
+  Check the server source IP before client handling; refresh data liveness only
+  after decoding a valid IPv4 packet on a known path. Data never registers or
+  moves sessions. Expired sessions forget sequence state; replay suppression is
+  scoped to a live session, not a persistent global anti-replay database.
+- Client `state` returns a PING when switching; `None` can also mean an accepted
+  reply requiring no switch. Server replies and announcements retain the existing
+  session path so the runtime seals them with that path's keys.
 
 **V3 complete (Y0–Y6); it is the final protocol.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
 
@@ -673,3 +713,7 @@ obligations remain.
 - 2026-10-25: Z1 codec checkpoint: authenticated padded PING/STATE, base and
   per-port directional keys, strict framing/body validation and data dispatch.
   Codec tests include every single-bit mutation and truncated packets.
+- 2026-10-25: Z1 state machines complete: session registration/roaming/conflicts,
+  bounded capacity, expiry, rotation/retries/grace, replay/instance checks,
+  keepalive and base fallback. Seventeen macOS tests and clippy with warnings
+  denied pass. No remote deployment; runtime integration is Z2.

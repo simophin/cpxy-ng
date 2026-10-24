@@ -1,7 +1,8 @@
 //! Experimental RTP-framed IPv4 tunnel; not SRTP or encoded media.
 //!
 //! Handshake-free raw XChaCha20 with 16 random nonce bytes per packet. No tag,
-//! replay protection, sender authenticity or forward secrecy by design.
+//! replay protection, sender authenticity or forward secrecy on data by design.
+//! The v4 library adds authenticated control; the binary still runs v3.
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
     XChaCha20,
@@ -11,6 +12,7 @@ use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 
 pub mod control;
+pub mod state;
 
 pub const MTU: usize = 1200;
 

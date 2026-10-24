@@ -4,6 +4,12 @@ Linux-only TUN runtime; portable protocol tests. This is encrypted IP in an RTP
 header, **not codec media, SRTP, or demonstrated censorship resistance**. No
 production integration.
 
+The binary currently runs v3 as described below. The v4 library checkpoint Z1
+adds `control` (padded authenticated PING/STATE and per-port key derivation) and
+`state` (portable client/server lifecycle with caller-supplied monotonic time).
+Socket integration, v4 CLI/counters and Linux validation are Z2 onward; see the
+handoff's Current state for timer, replay and runtime integration conventions.
+
 Every datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`, with
 no handshake or setup packets. The 24-byte XChaCha20 nonce is RTP header bytes
 2..10 (sequence, timestamp, high SSRC half) followed by the 16 random bytes
