@@ -780,3 +780,5 @@ obligations remain.
   Sanitized evidence recorded and private Linux resources removed. Next Z4.
 
 - 2026-10-25: Z4 started: added bounded mapping and endurance/comparison helpers; Linux tests, clippy and release build pass. Private deployment active on authorized hosts; source-restricted runtime openings have timeout safety net and explicit cleanup script. Cleanup and results still pending.
+
+- 2026-10-25: added explicit ROTATE_SECS=0 fixed-initial-port baseline for Z5; Linux 19 tests, warning-denied clippy and release build pass again. Other v4 registration/key/keepalive behaviour stays matched.

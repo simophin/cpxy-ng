@@ -345,8 +345,12 @@ pub fn main() -> io::Result<()> {
         .transpose()
         .map_err(|_| io::Error::other("invalid rotation interval"))?
         .unwrap_or(300);
-    let mut next_rotation =
-        rotation_delay(mean).ok_or_else(|| io::Error::other("rotation interval out of range"))?;
+    // Zero keeps the initial non-base path for matched no-rotation measurements.
+    let mut next_rotation = if mean == 0 {
+        u64::MAX
+    } else {
+        rotation_delay(mean).ok_or_else(|| io::Error::other("rotation interval out of range"))?
+    };
     let keepalive = env::var("POC_KEEPALIVE_SECS")
         .map(|v| v.parse::<u64>())
         .unwrap_or(Ok(15))

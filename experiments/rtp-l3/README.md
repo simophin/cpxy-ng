@@ -54,7 +54,8 @@ PING may move a tuple after NAT rebinding.
 
 The base port remains open for bootstrap/fallback. The server immediately opens
 a rotation port, then rotates every 300 seconds ±50% by default. ROTATE_SECS
-changes that mean (minimum 2). The range must contain at least three non-base
+changes that mean (minimum 2); zero keeps the initial rotation port fixed for
+matched no-rotation measurements. Registration and keepalives are unchanged. The range must contain at least three non-base
 ports. Binding retries occupied ports before changing epoch or sessions; a
 failed rotation leaves the current path intact and retries next interval. At
 most the base, current and previous rotation sockets remain installed. Previous
