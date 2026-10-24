@@ -7,8 +7,8 @@ measurements predate the unified key labels/reserved-zero control header and
 do not validate those new wire conventions.
 
 Random-nonce replaces AEAD's PSK handshake and ChaCha20-Poly1305 with handshake-free raw
-XChaCha20 and a fresh random 24-byte nonce per packet (conventions in
-`docs/rtp-l3-poc-handoff.md`). It worked cross-host from the very first packet,
+XChaCha20 and a fresh random 24-byte nonce per packet. Removed implementation
+conventions remain in Git history. It worked cross-host from the very first packet,
 and the wire now carries **only RTP-framed datagrams**: no `R3P1` setup
 messages. In adjacent, matched windows its throughput, loss, RTT and CPU were
 **indistinguishable from AEAD within run-to-run variation**. It costs 8 more bytes
@@ -16,7 +16,7 @@ per packet. These results do **not** establish censorship resistance, valid
 media camouflage, or a speedup. random-nonce has no authenticity, replay protection or
 forward secrecy by design.
 
-Source: `experiments/rtp-l3` (`client-x` / `server-x`). Endpoint-free
+Historical source: `experiments/rtp-l3` (the removed `client-x` / `server-x` modes). Endpoint-free
 aggregate with per-case epochs, RTT, CPU, counters, capture shape and framing
 checks: [`2026-10-24-v2-summary.json`](../experiments/rtp-l3/results/2026-10-24-v2-summary.json).
 Directions are from the client's perspective. Raw evidence stays private

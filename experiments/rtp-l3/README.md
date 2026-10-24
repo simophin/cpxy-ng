@@ -117,6 +117,8 @@ session counters.
 For the Z3 matrix, run `timeout 360 unshare -Urn python3
 scripts/z3-integration.py CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` on Linux with
 absolute paths. It needs Python 3.9+, ip, iptables, nsenter, unshare and iperf3.
+If administrative tools are outside the unprivileged shell PATH, prepend
+`/usr/sbin:/sbin` before invoking the harness.
 Two clients with the same local UDP port use separate outer namespaces behind
 a masquerading router, then inherit sockets into their TUN namespaces. With a
 10-second rotation mean and 5-second keepalive mean it checks concurrent paced

@@ -93,11 +93,18 @@ Cross-host receiver/capture evidence and limitations are in the report, includin
 49 idle fallbacks, an initial UDP setup failure, the fixed-client fallback,
 server receive-buffer drops and substantial download loss. Shape/gap parser
 and bounded-continuation fixtures passed. Historical success is not a new test
-of consolidated key/header conventions. Consolidation validation: 18 portable tests passed on macOS; 19 tests,
-warning-denied clippy, offline release build and the single-client namespace
-regression passed on Linux. The two-client/recovery matrix is running in private
-Linux staging; that staging/key still require cleanup before completion. No
-public-server deployment or host firewall changes were made for consolidation.
+of consolidated key/header conventions. Consolidation validation passed: 18 portable tests on macOS; 19 tests,
+warning-denied clippy, offline release build, single-client namespace regression
+and the full two-client/recovery matrix on Linux. Each client transferred at
+least 100 MiB each way, crossing five new ports on upload and six on download;
+the largest conservative transfer stall bound was 1.004 s. All recovery checks
+passed. The first matrix setup stopped before testing because iptables was
+outside the unprivileged PATH; adding admin-tool directories resolved it.
+[Consolidated-protocol namespace evidence](../experiments/rtp-l3/results/2026-10-25-unified-namespace-summary.json)
+is separate from the untouched historical measurement JSON. This validates
+matching updated peers locally, not public-path idle retention. Z4 diagnosis
+remains open. Validation staging/builds, namespaces and the private key were
+removed after checking task-process absence; the public server was untouched.
 
 ## Authorized environment and hygiene
 
@@ -107,7 +114,8 @@ endpoints, private paths, SSH configuration, keys or raw captures in Git.
 Generate keys outside the checkout, restrict files to mode 0600, never print
 keys, and transfer privately. Stage only task files in private temporary
 locations. Remote fish shells require wrapping commands in `sh -lc`; add
-`$HOME/.cargo/bin` to the remote PATH.
+`$HOME/.cargo/bin` to the remote PATH; namespace firewall tests also need
+`/usr/sbin:/sbin` for tools such as iptables.
 
 Prefer disposable user/network namespaces for client and local integration;
 no client sudo, host route or host sysctl changes. Inspect server networking
@@ -129,8 +137,8 @@ The completed measurement deployment was removed. Runtime zones/policies and
 links exactly matched their pre-task snapshots; IPv4 forwarding was unchanged,
 permanent firewall configuration untouched, and task processes absent on both
 hosts. Remote and local staging/builds, captures and all key copies were
-removed. No public-server deployment is active. The consolidation validation staging/key
-noted above must be removed when the namespace matrix finishes.
+removed. Consolidation validation resources were also removed after successful checks.
+No public-server deployment or cleanup obligations remain.
 
 Commit each coherent checkpoint with handoff updates. Before interruption,
 record exact next work, current validation and any cleanup obligations. Never
