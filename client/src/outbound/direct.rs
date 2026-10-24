@@ -48,18 +48,33 @@ impl Outbound for DirectOutbound {
             .with_context(|| format!("Failed to connect to {host}:{port}"))?,
         };
 
-        tracing::debug!(host = host.host(), tls, "DirectOutbound: TCP connected, performing TLS handshake");
+        upstream
+            .set_nodelay(true)
+            .context("Error setting nodelay on direct TCP stream")?;
+
+        tracing::debug!(
+            host = host.host(),
+            tls,
+            "DirectOutbound: TCP connected, performing TLS handshake"
+        );
         let mut upstream = connect_tls(host.host(), tls, upstream).await?;
 
         if !initial_plaintext.is_empty() {
-            tracing::debug!(bytes = initial_plaintext.len(), "DirectOutbound: sending initial payload");
+            tracing::debug!(
+                bytes = initial_plaintext.len(),
+                "DirectOutbound: sending initial payload"
+            );
             upstream
                 .write_all(&initial_plaintext)
                 .await
                 .context("Error sending initial payload to remote")?;
         }
 
-        tracing::info!(host = host.host(), port, "DirectOutbound: connection established");
+        tracing::info!(
+            host = host.host(),
+            port,
+            "DirectOutbound: connection established"
+        );
         anyhow::Ok(upstream)
     }
 }
