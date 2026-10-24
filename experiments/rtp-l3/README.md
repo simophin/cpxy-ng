@@ -201,3 +201,9 @@ offset. Optional `capture_minus_client_clock_seconds` in the case summary
 corrects measured wall-clock offset. The broad windows include adjacent
 intervals and do not attribute all nearby loss to switching. Raw capture port
 transitions can include many reordered packets around a single runtime switch.
+
+Comparison helpers accept `--start-at CASE` for a bounded continuation after a
+failed case and `--continue-on-error` to attempt remaining independent cases.
+Failures are recorded separately and the process exits nonzero if any fail.
+Keep the failed attempt, restart/window boundaries and retry count in reports;
+never merge failed setup attempts into successful UDP samples.

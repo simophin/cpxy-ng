@@ -21,7 +21,9 @@ case_summary = {}
 if len(sys.argv) > 4:
     case_summary = json.loads(open(sys.argv[4]).read())
     cases = case_summary['cases']
-    windows = [(v['start_epoch'], v['end_epoch']) for v in cases if 'udp' in v['name']]
+    offset = case_summary.get('capture_minus_client_clock_seconds', 0)
+    windows = [(v['start_epoch']+offset, v['end_epoch']+offset)
+               for v in cases if 'udp' in v['name']]
     if not windows:
         sys.exit('case summary has no UDP windows')
 rows = collections.defaultdict(list)

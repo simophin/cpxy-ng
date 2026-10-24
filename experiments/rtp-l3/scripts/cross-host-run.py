@@ -11,6 +11,7 @@ import pathlib
 import re
 import signal
 import subprocess
+import sys
 import time
 
 p = argparse.ArgumentParser(description=__doc__)
@@ -18,6 +19,8 @@ p.add_argument('mode', choices=['endurance', 'idle', 'comparison'])
 p.add_argument('target')
 p.add_argument('port', type=int)
 p.add_argument('out')
+p.add_argument('--start-at', choices=['tcp-up-p1','tcp-up-p4','udp-up','tcp-down-p1','tcp-down-p4','udp-down'], default='tcp-up-p1')
+p.add_argument('--continue-on-error', action='store_true')
 a = p.parse_args()
 out = pathlib.Path(a.out)
 out.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -76,6 +79,10 @@ def transfer(name, seconds, udp=False, reverse=False, streams=1):
         raise RuntimeError('missing UDP receiver intervals')
     summary['cases'].append(dict(name=name, start_epoch=t, end_epoch=time.time(),
         receiver_mbps=received['bits_per_second']/1e6, receiver_bytes=received['bytes'],
+        sender_tcp_congestion=end.get('sender_tcp_congestion'),
+        receiver_tcp_congestion=end.get('receiver_tcp_congestion'),
+        socket_buffers={k:raw['start'].get(k) for k in ('sock_bufsize','sndbuf_actual','rcvbuf_actual')},
+        iperf_cpu_percent=end.get('cpu_utilization_percent'),
         lost_percent=received.get('lost_percent'), lost_packets=received.get('lost_packets'),
         packets=received.get('packets'), jitter_ms=received.get('jitter_ms'),
         receiver_interval_source=interval_source,
@@ -102,9 +109,22 @@ if a.mode in ('endurance', 'idle'):
     ping('post_idle_ping')
     transfer('post-idle-udp-down', 10, udp=True, reverse=True)
 else:
-    for reverse in (False, True):
-        for streams in (1,4):
-            transfer('tcp-%s-p%d'%('down' if reverse else 'up', streams), 20, reverse=reverse, streams=streams)
-        transfer('udp-%s'%('down' if reverse else 'up'), 60, udp=True, reverse=reverse)
+    cases = [('tcp-'+direction+'-p'+str(streams), 20, False, reverse, streams)
+             for reverse, direction in ((False,'up'),(True,'down')) for streams in (1,4)]
+    cases.insert(2, ('udp-up', 60, True, False, 1))
+    cases.append(('udp-down', 60, True, True, 1))
+    first = [v[0] for v in cases].index(a.start_at)
+    for name, seconds, udp, reverse, streams in cases[first:]:
+        try:
+            transfer(name, seconds, udp=udp, reverse=reverse, streams=streams)
+        except (RuntimeError, subprocess.TimeoutExpired, ValueError) as error:
+            summary.setdefault('failed_cases', []).append(dict(name=name,
+                error_type=type(error).__name__, reason='iperf failed; inspect private raw artifacts'))
+            save()
+            if not a.continue_on_error:
+                raise
 summary['end_utc'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+summary['status'] = 'completed_with_failures' if summary.get('failed_cases') else 'complete'
 save()
+if summary.get('failed_cases'):
+    sys.exit(1)
