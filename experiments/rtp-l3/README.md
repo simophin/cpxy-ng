@@ -155,3 +155,21 @@ the 12-byte RTP header; retain original packet lengths. Publish its aggregates
 with the exact capture/case window and tcpdump's capture-drop counts. Passive
 sequence gaps are not final receiver/path loss. On hosts whose tcpdump AppArmor
 profile restricts output paths, write captures with `tcpdump -w - > FILE`.
+
+Cross-host Z4 helpers (operator supplies all endpoints and private paths):
+`nat-probe.py server BIND_IP PORT,PORT,PORT` and matching
+`nat-probe.py client SERVER_IP PORT,PORT,PORT` test silent 30/60/120/180-second
+return reachability from several destination ports. Each deadline has its own
+client socket; all destinations receive an initial request, and delayed replies
+also test cross-port filtering. Raw output includes peer tuples: keep it private.
+This establishes a lower bound when replies survive; it cannot identify an exact
+mapping timeout or distinguish expired mappings from filtering/path loss.
+
+Run `cross-host-run.py endurance INNER_SERVER_IP IPERF_PORT PRIVATE_OUTPUT_DIR`
+inside the client namespace using a small operator-owned RUN_SCRIPT. It sends
+5 Mbit/s UDP with concurrent ping for 600 seconds, then waits 600 seconds with
+no application traffic before MTU ping and reverse UDP. `comparison` runs
+20-second one/four-stream TCP and 60-second 5 Mbit/s UDP in each direction.
+Raw receiver intervals are retained in the endpoint-free summary to compare
+loss/gaps around separately recorded rotation events. Server/capture lifetime,
+source-restricted runtime rules and verified cleanup remain operator-owned.

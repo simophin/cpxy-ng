@@ -609,7 +609,7 @@ Replay rules:
 
 ## Current state
 
-**Z3 complete; next: Z4 cross-host validation.** The runtime runs v4 with
+**Z4 in progress: cross-host NAT probes and endurance validation.** The runtime runs v4 with
 learned client sessions, authenticated control, per-port keys, rotation and
 keepalive/fallback. See the crate README for CLI, counter and harness details.
 
@@ -778,3 +778,5 @@ obligations remain.
   and live-server restart pass. Added opt-in path traces, selective test fault
   hook and per-port capture aggregates; fixed interleaved shutdown JSON.
   Sanitized evidence recorded and private Linux resources removed. Next Z4.
+
+- 2026-10-25: Z4 started: added bounded mapping and endurance/comparison helpers; Linux tests, clippy and release build pass. Private deployment active on authorized hosts; source-restricted runtime openings have timeout safety net and explicit cleanup script. Cleanup and results still pending.
