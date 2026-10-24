@@ -1,0 +1,1866 @@
+{
+  "experiment": "RTP-framed encrypted IPv4 POC",
+  "date_utc": "2026-10-24",
+  "direction_convention": "from client perspective",
+  "runs": {
+    "direct": {
+      "kind": "direct",
+      "idle_rtt": {
+        "samples": 100,
+        "median_ms": 179.0,
+        "p95_ms": 179.0,
+        "p99_ms": 180.0,
+        "sent": 105,
+        "received": 100
+      },
+      "cases": [
+        {
+          "name": "tcp-up-p1-r1",
+          "start_epoch": 1792830333.4526846,
+          "end_epoch": 1792830374.2668104,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 1,
+          "repetition": 1,
+          "receiver_mbps": 44.376191792244136,
+          "receiver_bytes": 111935488,
+          "receiver_seconds": 20.179377,
+          "retransmits": 4591,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 269,
+            "median_ms": 179.0,
+            "p95_ms": 183.0,
+            "p99_ms": 187.0,
+            "sent": 279,
+            "received": 269
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.206051205934672,
+            "host_user": 0.0006381677503640722,
+            "host_system": 0.20541055504131045,
+            "remote_total": 2.122921334171812,
+            "remote_user": 0.0411558117903348,
+            "remote_system": 2.081765522381477
+          },
+          "server_tunnel_cpu_percent": 0.024987691147642127,
+          "server_tunnel_rss_peak_bytes": 2473984,
+          "evidence_transfer_overlap": false
+        }
+      ],
+      "failed_attempts": [
+        {
+          "case": "tcp-up-p1-r2",
+          "attempt": 1,
+          "error_type": "TimeoutExpired",
+          "reason": "iperf subprocess timed out"
+        },
+        {
+          "case": "tcp-up-p1-r2",
+          "attempt": 2,
+          "error_type": "RuntimeError",
+          "reason": "iperf failed; inspect private raw artifacts"
+        }
+      ]
+    },
+    "tunnel": {
+      "kind": "tunnel",
+      "idle_rtt": {
+        "samples": 100,
+        "median_ms": 178.0,
+        "p95_ms": 179.0,
+        "p99_ms": 179.0,
+        "sent": 102,
+        "received": 100
+      },
+      "cases": [
+        {
+          "name": "tcp-up-p1-r1",
+          "start_epoch": 1792830614.1591675,
+          "end_epoch": 1792830635.4227471,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 1,
+          "repetition": 1,
+          "receiver_mbps": 43.648473142628795,
+          "receiver_bytes": 110100480,
+          "receiver_seconds": 20.179488,
+          "retransmits": 2027,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 207,
+            "median_ms": 178.0,
+            "p95_ms": 180.0,
+            "p99_ms": 184.0,
+            "sent": 212,
+            "received": 207
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.2901105916289365,
+            "host_user": 0,
+            "host_system": 0.29008645436592156,
+            "remote_total": 3.785864671431031,
+            "remote_user": 0.17098012848460653,
+            "remote_system": 3.6148894984612627
+          },
+          "client_tunnel_cpu_percent": 23.843586516019116,
+          "client_tunnel_rss_bytes": 2514944,
+          "server_tunnel_cpu_percent": 16.041435244063006,
+          "server_tunnel_rss_peak_bytes": 2473984,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-up-p1-r2",
+          "start_epoch": 1792830636.4281466,
+          "end_epoch": 1792830657.6960766,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 1,
+          "repetition": 2,
+          "receiver_mbps": 34.138916861115,
+          "receiver_bytes": 86114304,
+          "receiver_seconds": 20.179739,
+          "retransmits": 1659,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 207,
+            "median_ms": 178.0,
+            "p95_ms": 180.0,
+            "p99_ms": 185.0,
+            "sent": 212,
+            "received": 207
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.25028972226437884,
+            "host_user": 0,
+            "host_system": 0.25027041388288074,
+            "remote_total": 2.84448349787277,
+            "remote_user": 0.18923414458505505,
+            "remote_system": 2.6552443978278832
+          },
+          "client_tunnel_cpu_percent": 18.995736746100782,
+          "client_tunnel_rss_bytes": 2519040,
+          "server_tunnel_cpu_percent": 12.325700332433462,
+          "server_tunnel_rss_peak_bytes": 2473984,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-up-p1-r3",
+          "start_epoch": 1792830658.7013276,
+          "end_epoch": 1792830679.9664025,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 1,
+          "repetition": 3,
+          "receiver_mbps": 40.73652594288655,
+          "receiver_bytes": 102760448,
+          "receiver_seconds": 20.180503,
+          "retransmits": 1247,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 202,
+            "median_ms": 178.0,
+            "p95_ms": 182.0,
+            "p99_ms": 188.0,
+            "sent": 212,
+            "received": 202
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.32574226978140347,
+            "host_user": 0.05760886107788472,
+            "host_system": 0.2681285818194737,
+            "remote_total": 3.6267786082483675,
+            "remote_user": 0.09929374487067384,
+            "remote_system": 3.5274799081054677
+          },
+          "client_tunnel_cpu_percent": 22.66627325404021,
+          "client_tunnel_rss_bytes": 2519040,
+          "server_tunnel_cpu_percent": 15.042177307783941,
+          "server_tunnel_rss_peak_bytes": 2473984,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-up-p4-r1",
+          "start_epoch": 1792830680.971633,
+          "end_epoch": 1792830703.7884705,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 4,
+          "repetition": 1,
+          "receiver_mbps": 45.306112749387005,
+          "receiver_bytes": 114294784,
+          "receiver_seconds": 20.181786,
+          "retransmits": 1133,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 216,
+            "median_ms": 178.0,
+            "p95_ms": 180.0,
+            "p99_ms": 184.0,
+            "sent": 227,
+            "received": 216
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.368059258133421,
+            "host_user": 0.007612881858448634,
+            "host_system": 0.3604418848992447,
+            "remote_total": 3.928260434606686,
+            "remote_user": 0.3882303263419965,
+            "remote_system": 3.5400350632157616
+          },
+          "client_tunnel_cpu_percent": 25.8580970622039,
+          "client_tunnel_rss_bytes": 2523136,
+          "server_tunnel_cpu_percent": 15.719178962373084,
+          "server_tunnel_rss_peak_bytes": 2478080,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-up-p4-r2",
+          "start_epoch": 1792830704.7950315,
+          "end_epoch": 1792830726.603566,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 4,
+          "repetition": 2,
+          "receiver_mbps": 44.686141397395325,
+          "receiver_bytes": 112721920,
+          "receiver_seconds": 20.180202,
+          "retransmits": 1129,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 211,
+            "median_ms": 178.0,
+            "p95_ms": 180.0,
+            "p99_ms": 182.0,
+            "sent": 217,
+            "received": 211
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.378430234002151,
+            "host_user": 0.0315448687891512,
+            "host_system": 0.34686654930558014,
+            "remote_total": 3.728451584405231,
+            "remote_user": 0.18430392402394935,
+            "remote_system": 3.5441526157202974
+          },
+          "client_tunnel_cpu_percent": 24.57753421517403,
+          "client_tunnel_rss_bytes": 2523136,
+          "server_tunnel_cpu_percent": 16.290496151552674,
+          "server_tunnel_rss_peak_bytes": 2478080,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-up-p4-r3",
+          "start_epoch": 1792830727.6100113,
+          "end_epoch": 1792830749.4208357,
+          "protocol": "tcp",
+          "direction": "up",
+          "streams": 4,
+          "repetition": 3,
+          "receiver_mbps": 13.820490586628015,
+          "receiver_bytes": 34865152,
+          "receiver_seconds": 20.181716,
+          "retransmits": 2717,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 173,
+            "median_ms": 179.0,
+            "p95_ms": 199.0,
+            "p99_ms": 199.0,
+            "sent": 214,
+            "received": 173
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.20457738789363744,
+            "host_user": 0.027896275148802475,
+            "host_system": 0.1766670023375771,
+            "remote_total": 0.916361828791395,
+            "remote_user": 0.05516365614386769,
+            "remote_system": 0.861203127615294
+          },
+          "client_tunnel_cpu_percent": 7.060714313979269,
+          "client_tunnel_rss_bytes": 2527232,
+          "server_tunnel_cpu_percent": 4.9019678286729595,
+          "server_tunnel_rss_peak_bytes": 2478080,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-down-p1-r1",
+          "start_epoch": 1792830750.4268725,
+          "end_epoch": 1792830771.69195,
+          "protocol": "tcp",
+          "direction": "down",
+          "streams": 1,
+          "repetition": 1,
+          "receiver_mbps": 37.58900443526148,
+          "receiver_bytes": 93978624,
+          "receiver_seconds": 20.001301,
+          "retransmits": 3276,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 205,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 180.0,
+            "sent": 212,
+            "received": 205
+          },
+          "iperf_cpu_percent": {
+            "host_total": 1.448844205658604,
+            "host_user": 0.12783294769927483,
+            "host_system": 1.3210016036320351,
+            "remote_total": 0.14614621856818133,
+            "remote_user": 0,
+            "remote_system": 0.14614621856818133
+          },
+          "client_tunnel_cpu_percent": 18.010750177706115,
+          "client_tunnel_rss_bytes": 2535424,
+          "server_tunnel_cpu_percent": 11.394556057242594,
+          "server_tunnel_rss_peak_bytes": 2498560,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-down-p1-r2",
+          "start_epoch": 1792830772.6968298,
+          "end_epoch": 1792830793.9612617,
+          "protocol": "tcp",
+          "direction": "down",
+          "streams": 1,
+          "repetition": 2,
+          "receiver_mbps": 32.818302174019124,
+          "receiver_bytes": 82051072,
+          "receiver_seconds": 20.001296,
+          "retransmits": 2597,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 198,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 212,
+            "received": 198
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.9639732432992272,
+            "host_user": 0.10395643165915769,
+            "host_system": 0.860026466288935,
+            "remote_total": 0.13404258440089026,
+            "remote_user": 0,
+            "remote_system": 0.13404753994765356
+          },
+          "client_tunnel_cpu_percent": 16.600490470334766,
+          "client_tunnel_rss_bytes": 2539520,
+          "server_tunnel_cpu_percent": 10.185624394449809,
+          "server_tunnel_rss_peak_bytes": 2519040,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-down-p1-r3",
+          "start_epoch": 1792830794.9644608,
+          "end_epoch": 1792830816.2321975,
+          "protocol": "tcp",
+          "direction": "down",
+          "streams": 1,
+          "repetition": 3,
+          "receiver_mbps": 34.70571558091976,
+          "receiver_bytes": 86769664,
+          "receiver_seconds": 20.001239,
+          "retransmits": 4318,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 201,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 212,
+            "received": 201
+          },
+          "iperf_cpu_percent": {
+            "host_total": 0.9733195459229034,
+            "host_user": 0.10548594998487024,
+            "host_system": 0.867823942240771,
+            "remote_total": 0.14216541463814195,
+            "remote_user": 0,
+            "remote_system": 0.14216541463814195
+          },
+          "client_tunnel_cpu_percent": 16.033676043545153,
+          "client_tunnel_rss_bytes": 2543616,
+          "server_tunnel_cpu_percent": 10.94470326759155,
+          "server_tunnel_rss_peak_bytes": 2527232,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-down-p4-r1",
+          "start_epoch": 1792830817.2374632,
+          "end_epoch": 1792830839.04703,
+          "protocol": "tcp",
+          "direction": "down",
+          "streams": 4,
+          "repetition": 1,
+          "receiver_mbps": 114.70549104740584,
+          "receiver_bytes": 286785536,
+          "receiver_seconds": 20.001521,
+          "retransmits": 10080,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 209,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 184.0,
+            "sent": 217,
+            "received": 209
+          },
+          "iperf_cpu_percent": {
+            "host_total": 2.065414304820061,
+            "host_user": 0.2475860839017109,
+            "host_system": 1.8178188121861334,
+            "remote_total": 0.4304430493593527,
+            "remote_user": 0,
+            "remote_system": 0.4304430493593527
+          },
+          "client_tunnel_cpu_percent": 33.517401278126044,
+          "client_tunnel_rss_bytes": 2551808,
+          "server_tunnel_cpu_percent": 34.31018302001201,
+          "server_tunnel_rss_peak_bytes": 2555904,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-down-p4-r2",
+          "start_epoch": 1792830840.0497963,
+          "end_epoch": 1792830862.0942419,
+          "protocol": "tcp",
+          "direction": "down",
+          "streams": 4,
+          "repetition": 2,
+          "receiver_mbps": 123.46292859543794,
+          "receiver_bytes": 308674560,
+          "receiver_seconds": 20.001117,
+          "retransmits": 13471,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 207,
+            "median_ms": 178.0,
+            "p95_ms": 182.0,
+            "p99_ms": 189.0,
+            "sent": 220,
+            "received": 207
+          },
+          "iperf_cpu_percent": {
+            "host_total": 2.0629031538230245,
+            "host_user": 0.11464580496177365,
+            "host_system": 1.9482573488612507,
+            "remote_total": 0.8194490984972497,
+            "remote_user": 0.01169221066101352,
+            "remote_system": 0.8077617861230654
+          },
+          "client_tunnel_cpu_percent": 32.43447423179215,
+          "client_tunnel_rss_bytes": 2555904,
+          "server_tunnel_cpu_percent": 37.97975370593855,
+          "server_tunnel_rss_peak_bytes": 2584576,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "tcp-down-p4-r3",
+          "start_epoch": 1792830863.0970874,
+          "end_epoch": 1792830885.1402013,
+          "protocol": "tcp",
+          "direction": "down",
+          "streams": 4,
+          "repetition": 3,
+          "receiver_mbps": 126.55906698190323,
+          "receiver_bytes": 316407808,
+          "receiver_seconds": 20.000641,
+          "retransmits": 13850,
+          "loss_percent": null,
+          "lost_packets": null,
+          "packets": null,
+          "jitter_ms": null,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 213,
+            "median_ms": 178.0,
+            "p95_ms": 180.0,
+            "p99_ms": 184.0,
+            "sent": 219,
+            "received": 213
+          },
+          "iperf_cpu_percent": {
+            "host_total": 2.2635555437646526,
+            "host_user": 0.14677812793657485,
+            "host_system": 2.116744835700745,
+            "remote_total": 0.6737777854440947,
+            "remote_user": 0,
+            "remote_system": 0.6737777854440947
+          },
+          "client_tunnel_cpu_percent": 32.663261721276776,
+          "client_tunnel_rss_bytes": 2555904,
+          "server_tunnel_cpu_percent": 37.07160589128233,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "udp-up-5M",
+          "start_epoch": 1792830886.1464977,
+          "end_epoch": 1792830897.2296467,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "5M",
+          "receiver_mbps": 4.91237721021611,
+          "receiver_bytes": 6251000,
+          "receiver_seconds": 10.18,
+          "retransmits": null,
+          "loss_percent": 0,
+          "lost_packets": 0,
+          "packets": 6251,
+          "jitter_ms": 0.19583803186147838,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 108,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 111,
+            "received": 108
+          },
+          "iperf_cpu_percent": {
+            "host_total": 4.110938200787416,
+            "host_user": 0,
+            "host_system": 4.110928710648904,
+            "remote_total": 0.65542816385321,
+            "remote_user": 0.0633591363825548,
+            "remote_system": 0.5920592043487354
+          },
+          "client_tunnel_cpu_percent": 7.308392255611247,
+          "client_tunnel_rss_bytes": 2555904,
+          "server_tunnel_cpu_percent": 2.398877516504739,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "udp-up-10M",
+          "start_epoch": 1792830898.2336702,
+          "end_epoch": 1792830909.3138368,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "10M",
+          "receiver_mbps": 9.824778548080914,
+          "receiver_bytes": 12502000,
+          "receiver_seconds": 10.179975,
+          "retransmits": null,
+          "loss_percent": 0,
+          "lost_packets": 0,
+          "packets": 12502,
+          "jitter_ms": 0.17069458439161492,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 104,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 110,
+            "received": 104
+          },
+          "iperf_cpu_percent": {
+            "host_total": 6.935250968412864,
+            "host_user": 4.405340269928628,
+            "host_system": 2.5299486559223707,
+            "remote_total": 1.6425453337738052,
+            "remote_user": 0.06649316949432087,
+            "remote_system": 1.57606198746895
+          },
+          "client_tunnel_cpu_percent": 12.635189102145256,
+          "client_tunnel_rss_bytes": 2555904,
+          "server_tunnel_cpu_percent": 4.79744326473956,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "udp-up-20M",
+          "start_epoch": 1792830910.318555,
+          "end_epoch": 1792830922.34741,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "20M",
+          "receiver_mbps": 19.6493174842618,
+          "receiver_bytes": 25003000,
+          "receiver_seconds": 10.179692,
+          "retransmits": null,
+          "loss_percent": 0,
+          "lost_packets": 0,
+          "packets": 25003,
+          "jitter_ms": 0.10273428578352647,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 115,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 120,
+            "received": 115
+          },
+          "iperf_cpu_percent": {
+            "host_total": 10.216456756524131,
+            "host_user": 1.580060208224459,
+            "host_system": 8.63633961021898,
+            "remote_total": 2.4736424250128146,
+            "remote_user": 0.5700403327921966,
+            "remote_system": 1.903602092220618
+          },
+          "client_tunnel_cpu_percent": 17.208620657053718,
+          "client_tunnel_rss_bytes": 2555904,
+          "server_tunnel_cpu_percent": 7.541649340391253,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "udp-up-50M",
+          "start_epoch": 1792830923.3494613,
+          "end_epoch": 1792830934.433632,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "50M",
+          "receiver_mbps": 49.125250940520395,
+          "receiver_bytes": 62507000,
+          "receiver_seconds": 10.179205,
+          "retransmits": null,
+          "loss_percent": 0,
+          "lost_packets": 0,
+          "packets": 62507,
+          "jitter_ms": 0.12250095834511954,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 102,
+            "median_ms": 178.0,
+            "p95_ms": 178.0,
+            "p99_ms": 179.0,
+            "sent": 111,
+            "received": 102
+          },
+          "iperf_cpu_percent": {
+            "host_total": 4.63231363998032,
+            "host_user": 2.316128348953177,
+            "host_system": 2.316128348953177,
+            "remote_total": 4.477643024794278,
+            "remote_user": 0.4833640558609034,
+            "remote_system": 3.994269145059712
+          },
+          "client_tunnel_cpu_percent": 12.540406068085359,
+          "client_tunnel_rss_bytes": 2555904,
+          "server_tunnel_cpu_percent": 16.091089543205957,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "udp-up-100M",
+          "start_epoch": 1792830935.4383945,
+          "end_epoch": 1792830946.5223594,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "100M",
+          "receiver_mbps": 50.33175281877643,
+          "receiver_bytes": 64034000,
+          "receiver_seconds": 10.177909,
+          "retransmits": null,
+          "loss_percent": 48.77320981432148,
+          "lost_packets": 60967,
+          "packets": 125001,
+          "jitter_ms": 0.07907550776288924,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 39,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 108,
+            "received": 39
+          },
+          "iperf_cpu_percent": {
+            "host_total": 11.64629391581254,
+            "host_user": 1.7821917683406008,
+            "host_system": 9.864026219460804,
+            "remote_total": 4.354750679531714,
+            "remote_user": 0.479732441603012,
+            "remote_system": 3.8750084127819266
+          },
+          "client_tunnel_cpu_percent": 28.05855169330858,
+          "client_tunnel_rss_bytes": 2560000,
+          "server_tunnel_cpu_percent": 15.992215703110835,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        },
+        {
+          "name": "udp-down-5M",
+          "start_epoch": 1792830947.526828,
+          "end_epoch": 1792830958.612692,
+          "protocol": "udp",
+          "direction": "down",
+          "offered_rate": "5M",
+          "receiver_mbps": 4.826672444701795,
+          "receiver_bytes": 6034000,
+          "receiver_seconds": 10.001093,
+          "retransmits": null,
+          "loss_percent": 3.426056891403426,
+          "lost_packets": 218,
+          "packets": 6252,
+          "jitter_ms": 0.08162986399692662,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 105,
+            "median_ms": 178.0,
+            "p95_ms": 179.0,
+            "p99_ms": 179.0,
+            "sent": 111,
+            "received": 105
+          },
+          "iperf_cpu_percent": {
+            "host_total": 2.518018244569854,
+            "host_user": 0.645022314629154,
+            "host_system": 1.8729959299407,
+            "remote_total": 2.7553568360533656,
+            "remote_user": 0.17891238597687606,
+            "remote_system": 2.57644445007649
+          },
+          "client_tunnel_cpu_percent": 6.584962575609503,
+          "client_tunnel_rss_bytes": 2560000,
+          "server_tunnel_cpu_percent": 2.099052842280969,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        }
+      ],
+      "end_utc": "2026-10-24T08:35:59.616914+00:00"
+    },
+    "direct-udp": {
+      "kind": "direct",
+      "idle_rtt": {
+        "samples": 100,
+        "median_ms": 179.0,
+        "p95_ms": 180.0,
+        "p99_ms": 180.0,
+        "sent": 103,
+        "received": 100
+      },
+      "cases": [
+        {
+          "name": "udp-up-5M",
+          "start_epoch": 1792830974.2497537,
+          "end_epoch": 1792830985.3564067,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "5M",
+          "receiver_mbps": 4.907640924272374,
+          "receiver_bytes": 6246000,
+          "receiver_seconds": 10.181674,
+          "retransmits": null,
+          "loss_percent": 0,
+          "lost_packets": 0,
+          "packets": 6246,
+          "jitter_ms": 0.18592640112671993,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 106,
+            "median_ms": 179.0,
+            "p95_ms": 179.0,
+            "p99_ms": 180.0,
+            "sent": 111,
+            "received": 106
+          },
+          "iperf_cpu_percent": {
+            "host_total": 5.9652969625201475,
+            "host_user": 1.9779562158186281,
+            "host_system": 3.987321796858249,
+            "remote_total": 0.9295500751348006,
+            "remote_user": 0.06035337910172172,
+            "remote_system": 0.869196696033079
+          },
+          "server_tunnel_cpu_percent": 0.0,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": true
+        },
+        {
+          "name": "udp-up-10M",
+          "start_epoch": 1792830986.3594508,
+          "end_epoch": 1792830997.772316,
+          "protocol": "udp",
+          "direction": "up",
+          "offered_rate": "10M",
+          "receiver_mbps": 9.772667446921897,
+          "receiver_bytes": 12502000,
+          "receiver_seconds": 10.234258,
+          "retransmits": null,
+          "loss_percent": 0,
+          "lost_packets": 0,
+          "packets": 12502,
+          "jitter_ms": 0.20672204125468138,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 105,
+            "median_ms": 179.0,
+            "p95_ms": 179.0,
+            "p99_ms": 180.0,
+            "sent": 114,
+            "received": 105
+          },
+          "iperf_cpu_percent": {
+            "host_total": 8.11424254341056,
+            "host_user": 0,
+            "host_system": 8.11422385703126,
+            "remote_total": 1.5974228615800383,
+            "remote_user": 0.0787841118935673,
+            "remote_system": 1.5186289786196354
+          },
+          "server_tunnel_cpu_percent": 0.09994999288078694,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        }
+      ],
+      "failed_attempts": [
+        {
+          "case": "udp-up-20M",
+          "attempt": 1,
+          "error_type": "TimeoutExpired",
+          "reason": "iperf subprocess timed out"
+        },
+        {
+          "case": "udp-up-20M",
+          "attempt": 2,
+          "error_type": "RuntimeError",
+          "reason": "iperf failed; inspect private raw artifacts"
+        }
+      ]
+    },
+    "tunnel-repeat": {
+      "kind": "tunnel",
+      "idle_rtt": {
+        "samples": 100,
+        "median_ms": 234.0,
+        "p95_ms": 238.0,
+        "p99_ms": 241.0,
+        "sent": 105,
+        "received": 100
+      },
+      "cases": [
+        {
+          "name": "udp-down-5M",
+          "start_epoch": 1792831104.7440991,
+          "end_epoch": 1792831116.8650877,
+          "protocol": "udp",
+          "direction": "down",
+          "offered_rate": "5M",
+          "receiver_mbps": 4.69142060955472,
+          "receiver_bytes": 5865000,
+          "receiver_seconds": 10.001235,
+          "retransmits": null,
+          "loss_percent": 6.033135354798374,
+          "lost_packets": 386,
+          "packets": 6251,
+          "jitter_ms": 0.0800785105190249,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 111,
+            "median_ms": 234.0,
+            "p95_ms": 235.0,
+            "p99_ms": 236.0,
+            "sent": 121,
+            "received": 111
+          },
+          "iperf_cpu_percent": {
+            "host_total": 2.2287838757394245,
+            "host_user": 0.43252611083438847,
+            "host_system": 1.7962840684126176,
+            "remote_total": 2.750756137019062,
+            "remote_user": 0.18188319148437318,
+            "remote_system": 2.568882714746821
+          },
+          "client_tunnel_cpu_percent": 5.8576080136413085,
+          "client_tunnel_rss_bytes": 2326528,
+          "server_tunnel_cpu_percent": 2.180778258443677,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": true
+        }
+      ],
+      "end_utc": "2026-10-24T08:38:37.868521+00:00"
+    },
+    "direct-down": {
+      "kind": "direct",
+      "idle_rtt": {
+        "samples": 100,
+        "median_ms": 179.0,
+        "p95_ms": 180.0,
+        "p99_ms": 180.0,
+        "sent": 108,
+        "received": 100
+      },
+      "cases": [
+        {
+          "name": "udp-down-5M",
+          "start_epoch": 1792831205.0310767,
+          "end_epoch": 1792831216.3662672,
+          "protocol": "udp",
+          "direction": "down",
+          "offered_rate": "5M",
+          "receiver_mbps": 4.8074615643047975,
+          "receiver_bytes": 6010000,
+          "receiver_seconds": 10.00112,
+          "retransmits": null,
+          "loss_percent": 5.885968956508376,
+          "lost_packets": 383,
+          "packets": 6393,
+          "jitter_ms": 0.0993332653339552,
+          "out_of_order": null,
+          "loaded_rtt": {
+            "samples": 108,
+            "median_ms": 179.0,
+            "p95_ms": 180.0,
+            "p99_ms": 183.0,
+            "sent": 113,
+            "received": 108
+          },
+          "iperf_cpu_percent": {
+            "host_total": 2.65211271316673,
+            "host_user": 0.9127115338726958,
+            "host_system": 1.7393919016960562,
+            "remote_total": 2.48032292069377,
+            "remote_user": 0.16399607154777657,
+            "remote_system": 2.3163172441283324
+          },
+          "server_tunnel_cpu_percent": 0.09995185548455265,
+          "server_tunnel_rss_peak_bytes": 2617344,
+          "evidence_transfer_overlap": false
+        }
+      ],
+      "end_utc": "2026-10-24T08:40:17.369297+00:00"
+    }
+  },
+  "metadata": {
+    "direct": {
+      "kind": "direct",
+      "start_utc": "2026-10-24T08:25:22.895595+00:00",
+      "clock_ticks": 100,
+      "tcp_seconds": 20,
+      "repetitions": 3,
+      "udp_seconds": 10,
+      "udp_payload_bytes": 1000,
+      "udp_stop_loss_percent": 2,
+      "udp_rates": [
+        "5M",
+        "10M",
+        "20M",
+        "50M",
+        "100M"
+      ],
+      "tcp_congestion_control": "cubic",
+      "tcp_rmem": "4096\t131072\t6291456",
+      "tcp_wmem": "4096\t16384\t4194304",
+      "rmem_max": "212992",
+      "wmem_max": "212992",
+      "protocol": "all",
+      "udp_direction": "both",
+      "selector_source": "reconstructed from saved invocation; original metadata predates selector fields"
+    },
+    "tunnel": {
+      "kind": "tunnel",
+      "start_utc": "2026-10-24T08:30:03.915730+00:00",
+      "clock_ticks": 100,
+      "tcp_seconds": 20,
+      "repetitions": 3,
+      "udp_seconds": 10,
+      "udp_payload_bytes": 1000,
+      "udp_stop_loss_percent": 2,
+      "udp_rates": [
+        "5M",
+        "10M",
+        "20M",
+        "50M",
+        "100M"
+      ],
+      "tcp_congestion_control": "cubic",
+      "tcp_rmem": "4096\t131072\t6291456",
+      "tcp_wmem": "4096\t16384\t4194304",
+      "rmem_max": "212992",
+      "wmem_max": "212992",
+      "protocol": "all",
+      "udp_direction": "both",
+      "selector_source": "reconstructed from saved invocation; original metadata predates selector fields"
+    },
+    "direct-udp": {
+      "kind": "direct",
+      "start_utc": "2026-10-24T08:36:03.896182+00:00",
+      "clock_ticks": 100,
+      "tcp_seconds": 20,
+      "repetitions": 3,
+      "udp_seconds": 10,
+      "udp_payload_bytes": 1000,
+      "udp_stop_loss_percent": 2,
+      "udp_rates": [
+        "5M",
+        "10M",
+        "20M",
+        "50M",
+        "100M"
+      ],
+      "tcp_congestion_control": "cubic",
+      "tcp_rmem": "4096\t131072\t6291456",
+      "tcp_wmem": "4096\t16384\t4194304",
+      "rmem_max": "212992",
+      "wmem_max": "212992",
+      "protocol": "udp",
+      "udp_direction": "both",
+      "selector_source": "reconstructed from saved invocation; original metadata predates selector fields"
+    },
+    "tunnel-repeat": {
+      "kind": "tunnel",
+      "start_utc": "2026-10-24T08:38:14.224340+00:00",
+      "clock_ticks": 100,
+      "tcp_seconds": 20,
+      "repetitions": 3,
+      "udp_seconds": 10,
+      "udp_payload_bytes": 1000,
+      "udp_stop_loss_percent": 2,
+      "udp_rates": [
+        "5M"
+      ],
+      "tcp_congestion_control": "cubic",
+      "tcp_rmem": "4096\t131072\t6291456",
+      "tcp_wmem": "4096\t16384\t4194304",
+      "rmem_max": "212992",
+      "wmem_max": "212992",
+      "protocol": "udp",
+      "udp_direction": "down",
+      "selector_source": "reconstructed from saved invocation; original metadata predates selector fields"
+    },
+    "direct-down": {
+      "kind": "direct",
+      "protocol": "udp",
+      "udp_direction": "down",
+      "start_utc": "2026-10-24T08:39:54.168706+00:00",
+      "clock_ticks": 100,
+      "tcp_seconds": 20,
+      "repetitions": 3,
+      "udp_seconds": 10,
+      "udp_payload_bytes": 1000,
+      "udp_stop_loss_percent": 2,
+      "udp_rates": [
+        "5M"
+      ],
+      "tcp_congestion_control": "cubic",
+      "tcp_rmem": "4096\t131072\t6291456",
+      "tcp_wmem": "4096\t16384\t4194304",
+      "rmem_max": "212992",
+      "wmem_max": "212992"
+    }
+  },
+  "runtime_counters": {
+    "primary_client": {
+      "event": "final",
+      "invalid_or_replay": 0,
+      "rx_packets": 1310292,
+      "rx_plain_bytes": 1296649272,
+      "rx_udp_payload_bytes": 1333337448,
+      "seconds": 355.827032081,
+      "socket_receive_drops": 6366,
+      "socket_send_drops": 0,
+      "tun_write_drops": 0,
+      "tx_packets": 918859,
+      "tx_plain_bytes": 851479470,
+      "tx_udp_payload_bytes": 877207522
+    },
+    "repeat_client": {
+      "event": "final",
+      "invalid_or_replay": 0,
+      "rx_packets": 6224,
+      "rx_plain_bytes": 6181026,
+      "rx_udp_payload_bytes": 6355298,
+      "seconds": 23.767950824,
+      "socket_receive_drops": 0,
+      "socket_send_drops": 0,
+      "tun_write_drops": 0,
+      "tx_packets": 244,
+      "tx_plain_bytes": 20437,
+      "tx_udp_payload_bytes": 27269
+    },
+    "server_all_sessions": {
+      "event": "final",
+      "invalid_or_replay": 0,
+      "rx_packets": 874223,
+      "rx_plain_bytes": 803033670,
+      "rx_udp_payload_bytes": 827511914,
+      "seconds": 1420.620706165,
+      "socket_receive_drops": 3903,
+      "socket_send_drops": 58,
+      "tun_write_drops": 0,
+      "tx_packets": 1402590,
+      "tx_plain_bytes": 1389916155,
+      "tx_udp_payload_bytes": 1429188675
+    }
+  },
+  "counter_phase_notes": {
+    "client_rx_overflow_before_udp": 6366,
+    "client_rx_overflow_final": 6366,
+    "client_rx_overflow_during_udp": 0,
+    "note": "Five-second counter snapshots; all observed client RX overflow occurred before the UDP phase.",
+    "primary_tcp_server_counter_bracket": {
+      "socket_receive_drops": 3693,
+      "socket_send_drops": 58,
+      "invalid_or_replay": 0,
+      "tun_write_drops": 0,
+      "bracket_seconds": 275.7038399979999
+    },
+    "primary_udp_server_counter_bracket": {
+      "socket_receive_drops": 0,
+      "socket_send_drops": 0,
+      "invalid_or_replay": 0,
+      "tun_write_drops": 0,
+      "bracket_seconds": 80.57201420399997
+    },
+    "primary_udp_upload100_server_counter_bracket": {
+      "socket_receive_drops": 0,
+      "socket_send_drops": 0,
+      "invalid_or_replay": 0,
+      "tun_write_drops": 0,
+      "bracket_seconds": 15.000974209999981
+    }
+  },
+  "evidence_transfer_windows": [
+    {
+      "start_epoch": 1792830975.49,
+      "end_epoch": 1792830979.78,
+      "bytes": 22080382,
+      "affected_cases": [
+        "direct-udp/udp-up-5M"
+      ],
+      "start_utc": "2026-10-24T08:36:15.490000+00:00",
+      "end_utc": "2026-10-24T08:36:19.780000+00:00"
+    },
+    {
+      "start_epoch": 1792831104.49,
+      "end_epoch": 1792831105.86,
+      "bytes": 2880190,
+      "affected_cases": [
+        "tunnel-repeat/udp-down-5M"
+      ],
+      "start_utc": "2026-10-24T08:38:24.490000+00:00",
+      "end_utc": "2026-10-24T08:38:25.860000+00:00"
+    }
+  ],
+  "capture_shape": {
+    "outer": {
+      "start_utc": "2026-10-24T08:19:22.547112+00:00",
+      "end_utc": "2026-10-24T08:30:38.212284+00:00",
+      "control_type_counts": {
+        "1": 28,
+        "2": 28,
+        "3": 2,
+        "4": 2
+      },
+      "flows": [
+        {
+          "direction": "upload",
+          "session_number": 1,
+          "packets": 22027,
+          "start_epoch": 1792829962.781375,
+          "end_epoch": 1792829971.886315,
+          "ipv4_length_bytes": {
+            "min": 96,
+            "median": 1256,
+            "p95": 1256,
+            "p99": 1256,
+            "max": 1256
+          },
+          "ipv4_length_top_counts": [
+            [
+              1256,
+              17441
+            ],
+            [
+              108,
+              2302
+            ],
+            [
+              136,
+              1755
+            ],
+            [
+              120,
+              442
+            ],
+            [
+              128,
+              47
+            ],
+            [
+              140,
+              10
+            ],
+            [
+              96,
+              9
+            ],
+            [
+              116,
+              4
+            ]
+          ],
+          "ip_bytes": 22458971,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 1.0221004486083984,
+            "p99": 5.360841751098633,
+            "max": 101.07898712158203
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 3,
+            "p95": 81,
+            "p99": 229,
+            "max": 494
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 0,
+            "median": 3,
+            "p95": 97,
+            "p99": 499,
+            "max": 4294967295
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 10,
+          "rtp_sequence_missing_in_capture_span": 539,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": []
+        },
+        {
+          "direction": "download",
+          "session_number": 2,
+          "packets": 31066,
+          "start_epoch": 1792829962.781678,
+          "end_epoch": 1792830010.730796,
+          "ipv4_length_bytes": {
+            "min": 96,
+            "median": 1256,
+            "p95": 1256,
+            "p99": 1256,
+            "max": 1256
+          },
+          "ipv4_length_top_counts": [
+            [
+              1256,
+              23773
+            ],
+            [
+              108,
+              5996
+            ],
+            [
+              136,
+              782
+            ],
+            [
+              96,
+              254
+            ],
+            [
+              120,
+              150
+            ],
+            [
+              128,
+              73
+            ],
+            [
+              109,
+              13
+            ],
+            [
+              140,
+              10
+            ]
+          ],
+          "ip_bytes": 30674508,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.0069141387939453125,
+            "median": 0.02002716064453125,
+            "p95": 0.6589889526367188,
+            "p99": 3.9479732513427734,
+            "max": 20223.932027816772
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 2,
+            "p95": 64,
+            "p99": 766,
+            "max": 4360
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 0,
+            "median": 2,
+            "p95": 59,
+            "p99": 356,
+            "max": 1820157
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 0,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": []
+        },
+        {
+          "direction": "upload",
+          "session_number": 3,
+          "packets": 98150,
+          "start_epoch": 1792830604.075296,
+          "end_epoch": 1792830638.212284,
+          "ipv4_length_bytes": {
+            "min": 108,
+            "median": 1256,
+            "p95": 1256,
+            "p99": 1256,
+            "max": 1256
+          },
+          "ipv4_length_top_counts": [
+            [
+              1256,
+              97784
+            ],
+            [
+              140,
+              331
+            ],
+            [
+              108,
+              16
+            ],
+            [
+              116,
+              4
+            ],
+            [
+              145,
+              4
+            ],
+            [
+              112,
+              3
+            ],
+            [
+              232,
+              2
+            ],
+            [
+              244,
+              2
+            ]
+          ],
+          "ip_bytes": 122868864,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.0,
+            "median": 0.00095367431640625,
+            "p95": 0.4971027374267578,
+            "p99": 4.270076751708984,
+            "max": 835.1950645446777
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 18,
+            "p95": 127,
+            "p99": 240,
+            "max": 757
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 0,
+            "median": 3,
+            "p95": 45,
+            "p99": 379,
+            "max": 75198
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 32,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": [
+            "tunnel/tcp-up-p1-r1",
+            "tunnel/tcp-up-p1-r2"
+          ]
+        },
+        {
+          "direction": "download",
+          "session_number": 4,
+          "packets": 48697,
+          "start_epoch": 1792830604.075468,
+          "end_epoch": 1792830638.212244,
+          "ipv4_length_bytes": {
+            "min": 96,
+            "median": 108,
+            "p95": 108,
+            "p99": 136,
+            "max": 435
+          },
+          "ipv4_length_top_counts": [
+            [
+              108,
+              46210
+            ],
+            [
+              96,
+              1065
+            ],
+            [
+              136,
+              715
+            ],
+            [
+              140,
+              331
+            ],
+            [
+              128,
+              305
+            ],
+            [
+              120,
+              55
+            ],
+            [
+              109,
+              10
+            ],
+            [
+              116,
+              4
+            ]
+          ],
+          "ip_bytes": 5284241,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.0069141387939453125,
+            "median": 0.02193450927734375,
+            "p95": 1.2969970703125,
+            "p99": 9.337902069091797,
+            "max": 1013.7670040130615
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 7,
+            "p95": 56,
+            "p99": 100,
+            "max": 193
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 0,
+            "median": 2,
+            "p95": 116,
+            "p99": 840,
+            "max": 91239
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 0,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": [
+            "tunnel/tcp-up-p1-r1",
+            "tunnel/tcp-up-p1-r2"
+          ]
+        }
+      ],
+      "tcpdump_kernel_capture_drops": 0
+    },
+    "download": {
+      "start_utc": "2026-10-24T08:33:13.431999+00:00",
+      "end_utc": "2026-10-24T08:33:22.089445+00:00",
+      "control_type_counts": {},
+      "flows": [
+        {
+          "direction": "upload",
+          "session_number": 1,
+          "packets": 6408,
+          "start_epoch": 1792830793.431999,
+          "end_epoch": 1792830802.089094,
+          "ipv4_length_bytes": {
+            "min": 96,
+            "median": 108,
+            "p95": 136,
+            "p99": 140,
+            "max": 436
+          },
+          "ipv4_length_top_counts": [
+            [
+              108,
+              2590
+            ],
+            [
+              136,
+              1914
+            ],
+            [
+              96,
+              1157
+            ],
+            [
+              120,
+              452
+            ],
+            [
+              128,
+              208
+            ],
+            [
+              140,
+              77
+            ],
+            [
+              109,
+              2
+            ],
+            [
+              112,
+              2
+            ]
+          ],
+          "ip_bytes": 744387,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 2.57110595703125,
+            "p99": 30.40790557861328,
+            "max": 832.5490951538086
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 1,
+            "p95": 18,
+            "p99": 76,
+            "max": 662
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 0,
+            "median": 3,
+            "p95": 242,
+            "p99": 2731,
+            "max": 74928
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 0,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": [
+            "tunnel/tcp-down-p1-r2",
+            "tunnel/tcp-down-p1-r3"
+          ]
+        },
+        {
+          "direction": "download",
+          "session_number": 2,
+          "packets": 23592,
+          "start_epoch": 1792830793.432083,
+          "end_epoch": 1792830802.089445,
+          "ipv4_length_bytes": {
+            "min": 108,
+            "median": 1256,
+            "p95": 1256,
+            "p99": 1256,
+            "max": 1256
+          },
+          "ipv4_length_top_counts": [
+            [
+              1256,
+              23491
+            ],
+            [
+              140,
+              77
+            ],
+            [
+              109,
+              6
+            ],
+            [
+              108,
+              6
+            ],
+            [
+              116,
+              2
+            ],
+            [
+              228,
+              2
+            ],
+            [
+              112,
+              1
+            ],
+            [
+              419,
+              1
+            ]
+          ],
+          "ip_bytes": 29522989,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.007867813110351562,
+            "median": 0.02002716064453125,
+            "p95": 0.7200241088867188,
+            "p99": 3.0918121337890625,
+            "max": 1011.1868381500244
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 2,
+            "p95": 77,
+            "p99": 1099,
+            "max": 3639
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 0,
+            "median": 2,
+            "p95": 64,
+            "p99": 279,
+            "max": 91006
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 0,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": [
+            "tunnel/tcp-down-p1-r2",
+            "tunnel/tcp-down-p1-r3"
+          ]
+        }
+      ],
+      "tcpdump_kernel_capture_drops": 0
+    },
+    "udp": {
+      "start_utc": "2026-10-24T08:35:34.090970+00:00",
+      "end_utc": "2026-10-24T08:35:40.196666+00:00",
+      "control_type_counts": {},
+      "flows": [
+        {
+          "direction": "upload",
+          "session_number": 1,
+          "packets": 29953,
+          "start_epoch": 1792830934.09097,
+          "end_epoch": 1792830940.196666,
+          "ipv4_length_bytes": {
+            "min": 88,
+            "median": 1084,
+            "p95": 1084,
+            "p99": 1084,
+            "max": 1084
+          },
+          "ipv4_length_top_counts": [
+            [
+              1084,
+              29902
+            ],
+            [
+              140,
+              33
+            ],
+            [
+              108,
+              9
+            ],
+            [
+              109,
+              2
+            ],
+            [
+              112,
+              2
+            ],
+            [
+              408,
+              1
+            ],
+            [
+              116,
+              1
+            ],
+            [
+              145,
+              1
+            ]
+          ],
+          "ip_bytes": 32420811,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.0,
+            "median": 0.12302398681640625,
+            "p95": 0.32401084899902344,
+            "p99": 0.4649162292480469,
+            "max": 833.4341049194336
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 1,
+            "p95": 7107,
+            "p99": 8241,
+            "max": 8241
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 1,
+            "median": 8,
+            "p95": 22,
+            "p99": 29,
+            "max": 75031
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 19464,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": [
+            "tunnel/udp-up-50M",
+            "tunnel/udp-up-100M"
+          ]
+        },
+        {
+          "direction": "download",
+          "session_number": 2,
+          "packets": 47,
+          "start_epoch": 1792830934.179403,
+          "end_epoch": 1792830939.67353,
+          "ipv4_length_bytes": {
+            "min": 88,
+            "median": 140,
+            "p95": 140,
+            "p99": 435,
+            "max": 435
+          },
+          "ipv4_length_top_counts": [
+            [
+              140,
+              33
+            ],
+            [
+              109,
+              6
+            ],
+            [
+              108,
+              4
+            ],
+            [
+              112,
+              1
+            ],
+            [
+              435,
+              1
+            ],
+            [
+              116,
+              1
+            ],
+            [
+              88,
+              1
+            ]
+          ],
+          "ip_bytes": 6457,
+          "oversize_ip_packets": 0,
+          "interarrival_ms": {
+            "min": 0.025987625122070312,
+            "median": 100.2349853515625,
+            "p95": 407.85980224609375,
+            "p99": 1012.2818946838379,
+            "max": 1012.2818946838379
+          },
+          "burst_packets_gap_at_most_1ms": {
+            "min": 1,
+            "median": 1,
+            "p95": 2,
+            "p99": 4,
+            "max": 4
+          },
+          "rtp_timestamp_delta_ticks": {
+            "min": 4,
+            "median": 9022,
+            "p95": 36707,
+            "p99": 91107,
+            "max": 91107
+          },
+          "rtp_sequence_duplicates_observed": 0,
+          "rtp_reorder_observations": 0,
+          "rtp_sequence_missing_in_capture_span": 0,
+          "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.",
+          "overlapping_cases": [
+            "tunnel/udp-up-50M",
+            "tunnel/udp-up-100M"
+          ]
+        }
+      ],
+      "tcpdump_kernel_capture_drops": 0
+    }
+  },
+  "setup_failure_counts": {
+    "direct_initial": 1,
+    "direct_tcp_matrix": 2,
+    "tunnel_initial_handshake": 1,
+    "direct_upload_udp_matrix": 2
+  },
+  "cleanup": {
+    "verified": true,
+    "runtime_firewall_rules_removed": true,
+    "task_interfaces_namespace_processes_removed": true,
+    "forwarding_sysctl_unchanged": true,
+    "remote_staging_and_all_psks_removed": true
+  },
+  "limits": [
+    "Single short path/window, sequential modes and substantial variation; partial direct baseline.",
+    "4MiB socket request achieved425984bytes on both hosts; local RX overflow affects throughput interpretation.",
+    "Supplemental directup5M and tunneldown5M overlap evidence transfers; primarymatrix and finaldirectdown do not.",
+    "Not codec media, standardized SRTP, anonymity, forward secrecy, or censorship-resistance evidence.",
+    "Receiver jitter/loss from iperf; duplicate/out-of-order counters unavailable where JSON omitted them."
+  ]
+}

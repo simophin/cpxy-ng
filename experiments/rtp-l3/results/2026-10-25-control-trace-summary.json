@@ -1,0 +1,1273 @@
+{
+  "directions": {
+    "client_to_server": {
+      "ports": {
+        "port-1": {
+          "attempted": 5,
+          "sent": 5,
+          "server_capture_seen": 5,
+          "received": 5,
+          "duplicate_receives": 0,
+          "decode:control": 5,
+          "ping:accepted": 5
+        },
+        "port-2": {
+          "attempted": 9,
+          "sent": 9,
+          "server_capture_seen": 9,
+          "received": 9,
+          "duplicate_receives": 0,
+          "decode:control": 9,
+          "ping:accepted": 9
+        },
+        "port-3": {
+          "attempted": 5,
+          "sent": 5,
+          "server_capture_seen": 4,
+          "received": 4,
+          "duplicate_receives": 0,
+          "decode:control": 4,
+          "ping:accepted": 4,
+          "server_capture_missing": 1,
+          "missing_receive": 1
+        },
+        "port-4": {
+          "attempted": 3,
+          "sent": 3,
+          "server_capture_seen": 3,
+          "received": 3,
+          "duplicate_receives": 0,
+          "decode:control": 3,
+          "ping:accepted": 3
+        },
+        "port-5": {
+          "attempted": 1,
+          "sent": 1,
+          "server_capture_seen": 1,
+          "received": 1,
+          "duplicate_receives": 0,
+          "decode:control": 1,
+          "ping:accepted": 1
+        },
+        "port-6": {
+          "attempted": 9,
+          "sent": 9,
+          "server_capture_seen": 9,
+          "received": 9,
+          "duplicate_receives": 0,
+          "decode:control": 9,
+          "ping:accepted": 9
+        }
+      },
+      "missing_receive": [
+        {
+          "epoch": 1,
+          "kind": "ping",
+          "seq": 9,
+          "port": "port-3",
+          "sender_mono_us": 60155938,
+          "server_capture_seen": false
+        }
+      ],
+      "ignored_states": []
+    },
+    "server_to_client": {
+      "ports": {
+        "port-1": {
+          "attempted": 7,
+          "sent": 7,
+          "server_capture_seen": 7,
+          "missing_receive": 1,
+          "received": 6,
+          "duplicate_receives": 0,
+          "decode:control": 6,
+          "state:instance_requires_fresh_echo": 2,
+          "state:accepted": 4
+        },
+        "port-2": {
+          "attempted": 18,
+          "sent": 18,
+          "server_capture_seen": 18,
+          "received": 6,
+          "duplicate_receives": 0,
+          "decode:control": 6,
+          "state:accepted": 6,
+          "missing_receive": 12
+        },
+        "port-3": {
+          "attempted": 5,
+          "sent": 5,
+          "server_capture_seen": 5,
+          "missing_receive": 1,
+          "received": 4,
+          "duplicate_receives": 0,
+          "decode:control": 4,
+          "state:accepted": 4
+        },
+        "port-4": {
+          "attempted": 4,
+          "sent": 4,
+          "server_capture_seen": 4,
+          "received": 3,
+          "duplicate_receives": 0,
+          "decode:control": 3,
+          "state:accepted": 3,
+          "missing_receive": 1
+        },
+        "port-5": {
+          "attempted": 2,
+          "sent": 2,
+          "server_capture_seen": 2,
+          "received": 2,
+          "duplicate_receives": 0,
+          "decode:control": 2,
+          "state:accepted": 2
+        },
+        "port-6": {
+          "attempted": 11,
+          "sent": 11,
+          "server_capture_seen": 10,
+          "missing_receive": 11,
+          "server_capture_missing": 1
+        }
+      },
+      "missing_receive": [
+        {
+          "echo": 1,
+          "epoch": 0,
+          "kind": "state",
+          "port": "port-1",
+          "sender_mono_us": 2150259,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 4,
+          "epoch": 0,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 19428008,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 6,
+          "epoch": 1,
+          "kind": "state",
+          "port": "port-3",
+          "sender_mono_us": 34380153,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 12,
+          "epoch": 2,
+          "kind": "state",
+          "port": "port-4",
+          "sender_mono_us": 93331504,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 153128239,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 154129625,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 17,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 154384468,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 155135462,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 156136687,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 18,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 156388515,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 157139680,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 158140976,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 19,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 158393144,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 159144177,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 4,
+          "kind": "state",
+          "port": "port-2",
+          "sender_mono_us": 160145672,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 22,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 172266945,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 23,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 174270827,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 24,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 176275048,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 26,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 179463509,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 27,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 181217502,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 28,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 183220144,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 30,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 186399566,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 31,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 188265506,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 32,
+          "epoch": 5,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 190291058,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 6,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 191042156,
+          "server_capture_seen": true
+        },
+        {
+          "echo": 0,
+          "epoch": 6,
+          "kind": "state",
+          "port": "port-6",
+          "sender_mono_us": 192043502,
+          "server_capture_seen": false
+        }
+      ],
+      "ignored_states": [
+        {
+          "echo": 0,
+          "epoch": 0,
+          "kind": "state",
+          "port": "port-1",
+          "sender_mono_us": 3005063,
+          "result": "instance_requires_fresh_echo",
+          "pending": 1
+        },
+        {
+          "echo": 0,
+          "epoch": 0,
+          "kind": "state",
+          "port": "port-1",
+          "sender_mono_us": 4005416,
+          "result": "instance_requires_fresh_echo",
+          "pending": 1
+        }
+      ]
+    }
+  },
+  "clock_offset_server_minus_client_us": {
+    "lower": -21110,
+    "upper": 156326,
+    "consistent": true,
+    "assumption": "stable relative clock offset during the run; nonnegative transit time"
+  },
+  "limitations": [
+    "Successful send means kernel acceptance only.",
+    "Missing receive may include trace boundaries or incomplete logs.",
+    "Server capture fingerprints establish observation at the server interface, not client wire arrival or an exact NAT timeout."
+  ],
+  "ping_lifecycles": [
+    {
+      "session": "session-1",
+      "seq": 1,
+      "port": "port-1",
+      "client_mono_us": 5579,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 2,
+      "port": "port-1",
+      "client_mono_us": 2042227,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 3,
+      "port": "port-2",
+      "client_mono_us": 2222669,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 4,
+      "port": "port-2",
+      "client_mono_us": 17231170,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 5,
+      "port": "port-2",
+      "client_mono_us": 19235375,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 6,
+      "port": "port-3",
+      "client_mono_us": 32237648,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 7,
+      "port": "port-3",
+      "client_mono_us": 34241849,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 8,
+      "port": "port-3",
+      "client_mono_us": 48201946,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 9,
+      "port": "port-3",
+      "client_mono_us": 60155938,
+      "sent": true,
+      "server_ping_result": null,
+      "replies": []
+    },
+    {
+      "session": "session-1",
+      "seq": 10,
+      "port": "port-3",
+      "client_mono_us": 62160019,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 11,
+      "port": "port-4",
+      "client_mono_us": 76111430,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 12,
+      "port": "port-4",
+      "client_mono_us": 91125852,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 13,
+      "port": "port-4",
+      "client_mono_us": 93129598,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 14,
+      "port": "port-2",
+      "client_mono_us": 107141209,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 15,
+      "port": "port-2",
+      "client_mono_us": 124154076,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 16,
+      "port": "port-2",
+      "client_mono_us": 136163727,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 17,
+      "port": "port-2",
+      "client_mono_us": 152180198,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 18,
+      "port": "port-2",
+      "client_mono_us": 154184376,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 19,
+      "port": "port-2",
+      "client_mono_us": 156188689,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 20,
+      "port": "port-1",
+      "client_mono_us": 159194512,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 21,
+      "port": "port-5",
+      "client_mono_us": 159377072,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 22,
+      "port": "port-6",
+      "client_mono_us": 170125188,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 23,
+      "port": "port-6",
+      "client_mono_us": 172129259,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 24,
+      "port": "port-6",
+      "client_mono_us": 174133484,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 25,
+      "port": "port-1",
+      "client_mono_us": 177140640,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 26,
+      "port": "port-6",
+      "client_mono_us": 177321929,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 27,
+      "port": "port-6",
+      "client_mono_us": 179075826,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 28,
+      "port": "port-6",
+      "client_mono_us": 181078544,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 29,
+      "port": "port-1",
+      "client_mono_us": 184076421,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": true,
+          "decode": [
+            "control"
+          ],
+          "state": [
+            "accepted"
+          ],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 30,
+      "port": "port-6",
+      "client_mono_us": 184257725,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 31,
+      "port": "port-6",
+      "client_mono_us": 186124358,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    },
+    {
+      "session": "session-1",
+      "seq": 32,
+      "port": "port-6",
+      "client_mono_us": 188149968,
+      "sent": true,
+      "server_ping_result": "accepted",
+      "replies": [
+        {
+          "sent": true,
+          "client_received": false,
+          "decode": [],
+          "state": [],
+          "server_capture_seen": true
+        }
+      ]
+    }
+  ],
+  "client_timer_events": [
+    {
+      "mono_us": 2042108,
+      "pending_before": 1,
+      "pending_after": 2,
+      "fallback": false
+    },
+    {
+      "mono_us": 17230918,
+      "pending_before": null,
+      "pending_after": 4,
+      "fallback": false
+    },
+    {
+      "mono_us": 19235151,
+      "pending_before": 4,
+      "pending_after": 5,
+      "fallback": false
+    },
+    {
+      "mono_us": 34241562,
+      "pending_before": 6,
+      "pending_after": 7,
+      "fallback": false
+    },
+    {
+      "mono_us": 48201699,
+      "pending_before": null,
+      "pending_after": 8,
+      "fallback": false
+    },
+    {
+      "mono_us": 60155848,
+      "pending_before": null,
+      "pending_after": 9,
+      "fallback": false
+    },
+    {
+      "mono_us": 62159710,
+      "pending_before": 9,
+      "pending_after": 10,
+      "fallback": false
+    },
+    {
+      "mono_us": 91125770,
+      "pending_before": null,
+      "pending_after": 12,
+      "fallback": false
+    },
+    {
+      "mono_us": 93129346,
+      "pending_before": 12,
+      "pending_after": 13,
+      "fallback": false
+    },
+    {
+      "mono_us": 124153844,
+      "pending_before": null,
+      "pending_after": 15,
+      "fallback": false
+    },
+    {
+      "mono_us": 136163496,
+      "pending_before": null,
+      "pending_after": 16,
+      "fallback": false
+    },
+    {
+      "mono_us": 152179936,
+      "pending_before": null,
+      "pending_after": 17,
+      "fallback": false
+    },
+    {
+      "mono_us": 154184120,
+      "pending_before": 17,
+      "pending_after": 18,
+      "fallback": false
+    },
+    {
+      "mono_us": 156188429,
+      "pending_before": 18,
+      "pending_after": 19,
+      "fallback": false
+    },
+    {
+      "mono_us": 158192887,
+      "pending_before": 19,
+      "pending_after": null,
+      "fallback": true
+    },
+    {
+      "mono_us": 159194337,
+      "pending_before": null,
+      "pending_after": 20,
+      "fallback": false
+    },
+    {
+      "mono_us": 172129190,
+      "pending_before": 22,
+      "pending_after": 23,
+      "fallback": false
+    },
+    {
+      "mono_us": 174133204,
+      "pending_before": 23,
+      "pending_after": 24,
+      "fallback": false
+    },
+    {
+      "mono_us": 176137952,
+      "pending_before": 24,
+      "pending_after": null,
+      "fallback": true
+    },
+    {
+      "mono_us": 177140402,
+      "pending_before": null,
+      "pending_after": 25,
+      "fallback": false
+    },
+    {
+      "mono_us": 179075588,
+      "pending_before": 26,
+      "pending_after": 27,
+      "fallback": false
+    },
+    {
+      "mono_us": 181078453,
+      "pending_before": 27,
+      "pending_after": 28,
+      "fallback": false
+    },
+    {
+      "mono_us": 183045401,
+      "pending_before": 28,
+      "pending_after": null,
+      "fallback": true
+    },
+    {
+      "mono_us": 184076332,
+      "pending_before": null,
+      "pending_after": 29,
+      "fallback": false
+    },
+    {
+      "mono_us": 186124256,
+      "pending_before": 30,
+      "pending_after": 31,
+      "fallback": false
+    },
+    {
+      "mono_us": 188149788,
+      "pending_before": 31,
+      "pending_after": 32,
+      "fallback": false
+    }
+  ],
+  "measurement": {
+    "protocol": "rtp-l3",
+    "application_idle_seconds": 180,
+    "keepalive_mean_seconds": 15,
+    "rotation_mean_seconds": 30,
+    "single_client_socket": true,
+    "inner_mtu": 1200,
+    "client_runtime_seconds": 188.399831935,
+    "server_runtime_seconds": 192.541956991,
+    "client_first_trace_utc": "2026-10-24T15:25:51.364240+00:00",
+    "server_first_trace_utc": "2026-10-24T15:25:51.524243+00:00",
+    "startup_ping_received": 3,
+    "startup_ping_sent": 3,
+    "post_idle_mtu_ping_received": 0,
+    "post_idle_mtu_ping_sent": 5,
+    "capture": {
+      "written_packets": 92,
+      "filter_received_packets": 93,
+      "kernel_dropped_packets": 0,
+      "boundary_limitation": "One final server announcement absent from capture; two final announcements after client exit. All solicited replies were captured."
+    },
+    "final_counters": {
+      "client": {
+        "announce_retries": 0,
+        "announces_sent": 0,
+        "control_rejected": 0,
+        "control_rx_packets": 21,
+        "control_tx_packets": 32,
+        "event": "final",
+        "fallbacks": 3,
+        "pings_sent": 32,
+        "pings_unanswered": 19,
+        "protocol": "rtp-l3",
+        "rejected": 0,
+        "rotation_bind_failures": 0,
+        "rotations": 0,
+        "rx_packets": 3,
+        "rx_plain_bytes": 252,
+        "rx_udp_payload_bytes": 4016,
+        "seconds": 188.399831935,
+        "session_conflicts": 0,
+        "sessions": 1,
+        "socket_receive_drops": 0,
+        "socket_send_drops": 0,
+        "switches": 8,
+        "tun_write_drops": 0,
+        "tx_packets": 8,
+        "tx_plain_bytes": 6252,
+        "tx_udp_payload_bytes": 11029,
+        "unknown_destination": 0
+      },
+      "server": {
+        "announce_retries": 10,
+        "announces_sent": 6,
+        "control_rejected": 0,
+        "control_rx_packets": 31,
+        "control_tx_packets": 47,
+        "event": "final",
+        "fallbacks": 0,
+        "pings_sent": 0,
+        "pings_unanswered": 0,
+        "protocol": "rtp-l3",
+        "rejected": 1,
+        "rotation_bind_failures": 0,
+        "rotations": 6,
+        "rx_packets": 7,
+        "rx_plain_bytes": 5052,
+        "rx_udp_payload_bytes": 9712,
+        "seconds": 192.541956991,
+        "session_conflicts": 0,
+        "sessions": 1,
+        "socket_receive_drops": 0,
+        "socket_send_drops": 0,
+        "switches": 0,
+        "tun_write_drops": 0,
+        "tx_packets": 7,
+        "tx_plain_bytes": 5052,
+        "tx_udp_payload_bytes": 13238,
+        "unknown_destination": 5
+      }
+    }
+  },
+  "interpretation": {
+    "solicited_states_sent": 31,
+    "solicited_states_client_received_and_accepted": 15,
+    "solicited_states_missing_client_receive": 16,
+    "ignored_solicited_states": 0,
+    "ignored_unsolicited_bootstrap_announcements": 2,
+    "fallback_ping_sequences": [
+      [
+        17,
+        18,
+        19
+      ],
+      [
+        22,
+        23,
+        24
+      ],
+      [
+        26,
+        27,
+        28
+      ]
+    ],
+    "fallback_replies_server_capture_seen": 9,
+    "fallback_replies_client_received": 0,
+    "upstream_ping_missing_runtime_and_capture": [
+      9
+    ],
+    "conclusion": "Observed fallback groups failed return delivery to the client runtime, not client decoder rejection or superseded-echo acceptance. Exact loss location and destination-port/NAT dependence remain undetermined."
+  },
+  "validation": {
+    "portable_tests_passed": 19,
+    "linux_tests_passed": 20,
+    "linux_clippy_warnings_denied": true,
+    "linux_offline_release_build": true,
+    "correlation_fixtures_passed": 4,
+    "final_namespace_regression_passed": true,
+    "namespace_cases": [
+      "100 MiB each way",
+      "idle rotation",
+      "inherited socket disconnect/sendto",
+      "peer restarts",
+      "bounded UDP loss/duplicate/reorder/corruption"
+    ],
+    "failed_attempts": [
+      "Initial traced namespace regression completed traffic but failed the harness ready-first-log assertion; parser adjusted to ignore optional trace events. Two subsequent runs passed."
+    ],
+    "public_build_note": "Public measurement preceded a final trace-enable caching/lazy-JSON allocation optimization. Wire format, state policy and event schema unchanged; final build passed Linux tests/clippy and traced namespace regression."
+  },
+  "cleanup": {
+    "server_runtime_zones_policies_links_and_forwarding_restored": true,
+    "permanent_firewall_untouched": true,
+    "server_task_processes_absent": true,
+    "server_tun_absent": true,
+    "staging_and_keys_removed": true,
+    "client_task_processes_absent": true,
+    "client_namespace_validation_finished": true
+  }
+}
