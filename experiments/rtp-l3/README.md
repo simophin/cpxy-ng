@@ -174,3 +174,13 @@ no application traffic before MTU ping and reverse UDP. `comparison` runs
 Raw receiver intervals are retained in the endpoint-free summary to compare
 loss/gaps around separately recorded rotation events. Server/capture lifetime,
 source-restricted runtime rules and verified cleanup remain operator-owned.
+
+`switch-gaps.py PRIVATE_ETHERNET_PCAP SERVER_IPV4 BASE_PORT` isolates the
+1084-byte outer IPv4 packets produced by 1000-byte inner UDP payloads in v4.
+It reports cross-port packet gaps, all port transitions, and base-port packet
+counts without publishing endpoint identities. Gaps of five seconds or more
+are listed separately as phase boundaries **or outages**, never silently
+counted as acceptable. TCP packets of the same length may also match, so use
+isolated UDP capture windows or correlate timestamps with the case summary.
+These capture observations supplement receiver loss/intervals, and do not
+replace them. Always report tcpdump's capture-drop count.

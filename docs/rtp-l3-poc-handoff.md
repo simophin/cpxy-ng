@@ -782,3 +782,5 @@ obligations remain.
 - 2026-10-25: Z4 started: added bounded mapping and endurance/comparison helpers; Linux tests, clippy and release build pass. Private deployment active on authorized hosts; source-restricted runtime openings have timeout safety net and explicit cleanup script. Cleanup and results still pending.
 
 - 2026-10-25: added explicit ROTATE_SECS=0 fixed-initial-port baseline for Z5; Linux 19 tests, warning-denied clippy and release build pass again. Other v4 registration/key/keepalive behaviour stays matched.
+
+- 2026-10-25: Z4 initial registration was blocked by a source-address mismatch: HTTPS egress differed from observed UDP egress. Corrected runtime /32 rules from a task-port-only capture, restarted clean validation. Added endpoint-free switch-gap parser; synthetic transition/outage fixture passes. Endurance and corrected NAT probes in progress; remote cleanup remains required.
