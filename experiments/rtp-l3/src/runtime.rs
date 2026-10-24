@@ -458,7 +458,7 @@ pub fn main() -> io::Result<()> {
         rt.ping(ping);
     }
     report_event(
-        serde_json::json!({"event":"ready","client":client,"protocol":"xchacha20-v4","mtu":MTU}),
+        serde_json::json!({"event":"ready","client":client,"protocol":PROTOCOL,"mtu":MTU}),
     );
     let mut last = Instant::now();
     let mut b = [0; 65536];

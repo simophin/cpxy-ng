@@ -1,4 +1,10 @@
-# RTP-framed L3 tunnel POC results
+# Historical AEAD baseline results
+
+Historical measurement record. The current design is specified in
+[the protocol specification](rtp-l3-protocol.md). Artifact filenames and recorded
+protocol identifiers are frozen evidence, not supported runtime modes. These
+measurements predate the unified key labels/reserved-zero control header and
+do not validate those new wire conventions.
 
 The experimental tunnel successfully carried kernel IPv4/TCP/UDP between the
 authorized hosts, including forwarding and narrowly scoped NAT to a controlled

@@ -1,4 +1,4 @@
-//! V4 control codec. Data still uses v3 encryption; only control carries a MAC.
+//! Authenticated control codec; data encryption carries no MAC.
 use crate::{ipv4, keys, xor, Tx, MTU, OVERHEAD, RANDOM};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -25,8 +25,8 @@ impl PortKeys {
     pub fn base(psk: &[u8; 32], client: bool) -> Self {
         let (tx_data, rx_data) = keys(psk, client);
         let h = Hkdf::<Sha256>::new(None, psk);
-        let a = derive(&h, b"rtp-l3-poc/xchacha20/v4/control-client-to-server");
-        let b = derive(&h, b"rtp-l3-poc/xchacha20/v4/control-server-to-client");
+        let a = derive(&h, b"rtp-l3-poc/control/client-to-server");
+        let b = derive(&h, b"rtp-l3-poc/control/server-to-client");
         let (tx_control, rx_control) = if client { (a, b) } else { (b, a) };
         Self {
             tx_data,
@@ -38,15 +38,12 @@ impl PortKeys {
     /// A fresh secret is required for every bound rotation port, including reuse
     /// of a numeric port. Neither secrets nor derived keys implement Debug.
     pub fn rotation(psk: &[u8; 32], secret: &[u8; 32], client: bool) -> Self {
-        let salt = derive(
-            &Hkdf::<Sha256>::new(None, psk),
-            b"rtp-l3-poc/xchacha20/v4/port-salt",
-        );
+        let salt = derive(&Hkdf::<Sha256>::new(None, psk), b"rtp-l3-poc/port-salt");
         let h = Hkdf::<Sha256>::new(Some(&salt), secret);
-        let a = derive(&h, b"rtp-l3-poc/xchacha20/v4/port/data-client-to-server");
-        let b = derive(&h, b"rtp-l3-poc/xchacha20/v4/port/data-server-to-client");
-        let c = derive(&h, b"rtp-l3-poc/xchacha20/v4/port/control-client-to-server");
-        let d = derive(&h, b"rtp-l3-poc/xchacha20/v4/port/control-server-to-client");
+        let a = derive(&h, b"rtp-l3-poc/port/data/client-to-server");
+        let b = derive(&h, b"rtp-l3-poc/port/data/server-to-client");
+        let c = derive(&h, b"rtp-l3-poc/port/control/client-to-server");
+        let d = derive(&h, b"rtp-l3-poc/port/control/server-to-client");
         let (tx_data, rx_data, tx_control, rx_control) =
             if client { (a, b, c, d) } else { (b, a, d, c) };
         Self {
@@ -80,7 +77,8 @@ pub enum Control {
 }
 impl Control {
     fn body(&self) -> Vec<u8> {
-        let mut b = vec![0, 4, 0, 0];
+        // Reserved byte must be zero; there is one experimental format.
+        let mut b = vec![0, 0, 0, 0];
         match self {
             Self::Ping {
                 session,
@@ -122,7 +120,7 @@ impl Control {
         b
     }
     fn parse(b: &[u8]) -> Option<Self> {
-        if b.len() < 4 || b[1] != 4 {
+        if b.len() < 4 || b[1] != 0 {
             return None;
         }
         let len = u16::from_be_bytes(b[2..4].try_into().ok()?) as usize;
@@ -323,9 +321,12 @@ mod tests {
                 bad[2..4].copy_from_slice(&len.to_be_bytes());
                 assert!(Control::parse(&bad).is_none());
             }
-            let mut bad = b.clone();
-            bad[1] = 3;
-            assert!(Control::parse(&bad).is_none());
+            assert_eq!(b[1], 0);
+            for reserved in 1..=u8::MAX {
+                let mut bad = b.clone();
+                bad[1] = reserved;
+                assert!(Control::parse(&bad).is_none());
+            }
             let mut bad = b.clone();
             bad.push(1);
             assert!(Control::parse(&bad).is_none());

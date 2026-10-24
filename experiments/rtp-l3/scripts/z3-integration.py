@@ -141,7 +141,7 @@ assert struct.unpack_from("H",r,4)[0]==2 and struct.unpack_from("i",r,16)[0]==0,
     run(['python3', '-c', code], router)
 
 
-summary = {'protocol': 'xchacha20-v4', 'rotation_mean_seconds': 10,
+summary = {'protocol': 'rtp-l3', 'rotation_mean_seconds': 10,
            'keepalive_mean_seconds': 5, 'transfers': [], 'checks': {}}
 try:
     run(['ip', 'link', 'set', 'lo', 'up'])

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Endpoint-free 1000-byte inner UDP packet gaps across server port switches.
 Usage: switch-gaps.py PRIVATE_ETHERNET_PCAP SERVER_IPV4 BASE_PORT [CASE_SUMMARY_JSON [CLIENT_TRACE_JSONL]]
-Excludes small control/ACK packets by exact expected v4 IPv4 length (1084).
+Excludes small control/ACK packets by exact expected IPv4 length (1084).
 Passive capture gaps are not final receiver loss. Port transitions can include reordered packets, and are not runtime switch counts.
 No transition is inferred across
 a gap >= 5 seconds (separate benchmark phases); publish capture drop counts.

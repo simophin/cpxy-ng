@@ -1,4 +1,4 @@
-//! Sans-I/O v4 lifecycle. All times are monotonic whole seconds supplied by
+//! Sans-I/O session lifecycle. All times are monotonic whole seconds supplied by
 //! the caller. Only authenticated, direction-checked control enters these APIs.
 //! The runtime binds a port successfully before committing a rotation, creates
 //! fresh secrets/Tx streams, sends returned actions, and closes retired sockets.

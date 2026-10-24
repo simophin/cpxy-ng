@@ -1,4 +1,10 @@
-# RTP/UDP L3 tunnel v4 cross-host results
+# RTP/UDP L3 tunnel cross-host results
+
+Historical measurement record. The current design is specified in
+[the protocol specification](rtp-l3-protocol.md). Artifact filenames and recorded
+protocol identifiers are frozen evidence, not supported runtime modes. These
+measurements predate the unified key labels/reserved-zero control header and
+do not validate those new wire conventions.
 
 Z4's ten-minute paced upload completed, but **idle retention failed**: the
 15-second keepalive candidate recorded 49 base fallbacks during ten idle
@@ -6,9 +12,9 @@ minutes. A separate five-second candidate also fell back and was stopped early.
 Z5's bounded comparison completed after one failed UDP setup and one retry.
 Z6 cleanup is verified. There is no validated keepalive setting for this path.
 
-The standalone v4 runtime adds one explicit comparison option: ROTATE_SECS=0
-keeps the initial non-base port fixed. Registration, keys and keepalives remain
-v4. Production code is untouched. Results do not establish censorship resistance.
+The measured standalone runtime adds one explicit comparison option: ROTATE_SECS=0
+keeps the initial non-base port fixed. Registration, keys and keepalives remain unchanged. Production code is
+untouched. Results do not establish censorship resistance.
 
 Evidence: [sanitized aggregate](../experiments/rtp-l3/results/2026-10-25-z4-z6-summary.json).
 The filename uses the local test date (2026-10-25); the UTC windows are on

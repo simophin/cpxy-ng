@@ -4,8 +4,8 @@ Linux-only TUN runtime; portable protocol tests. This is encrypted IP in an RTP
 header, **not codec media, SRTP, or demonstrated censorship resistance**. No
 production integration.
 
-The binary runs v4: authenticated padded PING/STATE control, learned client
-sessions, server UDP port rotation with ephemeral per-port keys, and client
+The binary implements one experimental protocol: authenticated padded
+PING/STATE control, learned client sessions, server UDP port rotation with ephemeral per-port keys, and client
 keepalive/fallback. The portable `control` and `state` modules implement the
 codec and lifecycle; the Linux runtime owns sockets, timers and counters.
 
@@ -55,8 +55,8 @@ PING may move a tuple after NAT rebinding.
 The base port remains open for bootstrap/fallback. The server immediately opens
 a rotation port, then rotates every 300 seconds ±50% by default. ROTATE_SECS
 changes that mean (minimum 2); zero keeps the initial rotation port fixed for
-matched no-rotation measurements. Registration and keepalives are unchanged. The range must contain at least three non-base
-ports. Binding retries occupied ports before changing epoch or sessions; a
+matched no-rotation measurements. Registration and keepalives are unchanged.
+The range must contain at least three non-base ports. Binding retries occupied ports before changing epoch or sessions; a
 failed rotation leaves the current path intact and retries next interval. At
 most the base, current and previous rotation sockets remain installed. Previous
 sockets retire after both 60-second grace and the last session leaves; a
@@ -94,15 +94,16 @@ include control and data, excluding outer IP/UDP overhead; packet/plain-byte
 counters count data only. Separate control packet counters, `sessions`,
 `session_conflicts`, `rotations`, `announces_sent`, `announce_retries`,
 `switches`, `pings_sent`, `pings_unanswered` (expired PING deadlines),
-`fallbacks`, `unknown_destination` and `rotation_bind_failures` describe the v4
+`fallbacks`, `unknown_destination` and `rotation_bind_failures` describe the session
 lifecycle.
 
-See `docs/rtp-l3-poc-handoff.md` at repository root for the protocol decisions,
-checkpoints and cleanup evidence, and `docs/rtp-l3-poc-v4-results.md` for cross-host measurements, including the
-failed idle-retention criterion. The v3 report remains the earlier data-format
-comparison. There is no congestion controller, pacing, FEC or
-fragmentation. Endpoint TCP retains its own congestion control. Use bounded
-paced UDP experiments only.
+See the [protocol specification](../../docs/rtp-l3-protocol.md),
+[handoff and diagnosis checklist](../../docs/rtp-l3-poc-handoff.md), and
+[cross-host results](../../docs/rtp-l3-cross-host-results.md), including the
+failed idle-retention criterion. Earlier measured configurations are historical
+evidence, not supported modes. There is no congestion controller, pacing,
+FEC or fragmentation. Endpoint TCP retains its own congestion control. Use
+bounded paced UDP experiments only.
 
 For isolated Linux integration, run `sh scripts/local-integration.sh CRATE_DIR
 PRIVATE_KEY_FILE OUTPUT_DIR` with absolute paths. It creates disposable nested
@@ -111,7 +112,7 @@ rollover, inherited socket `AF_UNSPEC`/`sendto` across namespaces and restarts
 of both peers. Through the per-port loopback `fault-proxy.py` it also injects
 bounded periodic loss, duplicates, reordering (held at most 20 ms) and
 ciphertext corruption. The script bounds waits and validates receiver JSON and
-v4 counters.
+session counters.
 
 For the Z3 matrix, run `timeout 360 unshare -Urn python3
 scripts/z3-integration.py CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` on Linux with
@@ -177,7 +178,7 @@ loss/gaps around separately recorded rotation events. Server/capture lifetime,
 source-restricted runtime rules and verified cleanup remain operator-owned.
 
 `switch-gaps.py PRIVATE_ETHERNET_PCAP SERVER_IPV4 BASE_PORT` isolates the
-1084-byte outer IPv4 packets produced by 1000-byte inner UDP payloads in v4.
+1084-byte outer IPv4 packets produced by 1000-byte inner UDP payloads.
 It reports cross-port packet gaps, all observed port transitions (including
 reordering between old/new ports), and base-port packet
 counts without publishing endpoint identities. Gaps of five seconds or more
@@ -208,3 +209,8 @@ failed case and `--continue-on-error` to attempt remaining independent cases.
 Failures are recorded separately and the process exits nonzero if any fail.
 Keep the failed attempt, restart/window boundaries and retry count in reports;
 never merge failed setup attempts into successful UDP samples.
+
+The runtime reports `protocol: "rtp-l3"`. There is one format and no legacy
+mode or negotiation. Both peers must use the unified key labels and
+reserved-zero control header documented in the specification. Historical JSON
+artifacts retain their recorded identifiers and do not imply compatibility.

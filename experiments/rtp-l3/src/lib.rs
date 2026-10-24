@@ -1,8 +1,8 @@
 //! Experimental RTP-framed IPv4 tunnel; not SRTP or encoded media.
 //!
-//! Handshake-free raw XChaCha20 with 16 random nonce bytes per packet. No tag,
+//! Raw XChaCha20 with 16 random nonce bytes per packet. No tag,
 //! replay protection, sender authenticity or forward secrecy on data by design.
-//! V4 adds authenticated control, session registration and per-port keys.
+//! Authenticated control provides session registration and per-port keys.
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
     XChaCha20,
@@ -14,6 +14,7 @@ use sha2::Sha256;
 pub mod control;
 pub mod state;
 
+pub const PROTOCOL: &str = "rtp-l3";
 pub const MTU: usize = 1200;
 
 fn ipv4(p: &[u8]) -> bool {
@@ -28,8 +29,8 @@ fn ipv4(p: &[u8]) -> bool {
 /// Random nonce bytes carried after the RTP header.
 pub const RANDOM: usize = 16;
 pub const OVERHEAD: usize = 12 + RANDOM;
-const C2S: &[u8] = b"rtp-l3-poc/xchacha20/v3/client-to-server";
-const S2C: &[u8] = b"rtp-l3-poc/xchacha20/v3/server-to-client";
+const C2S: &[u8] = b"rtp-l3-poc/data/client-to-server";
+const S2C: &[u8] = b"rtp-l3-poc/data/server-to-client";
 
 /// Returns (transmit, receive) keys for this side.
 pub fn keys(psk: &[u8; 32], client: bool) -> ([u8; 32], [u8; 32]) {

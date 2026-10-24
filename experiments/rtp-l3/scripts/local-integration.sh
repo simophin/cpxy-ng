@@ -84,7 +84,7 @@ for name in ('clean-up','clean-down','fault-up','fault-down','fault-udp'):
         assert received['bytes']>=100*1024*1024,(name,received)
 for log in ('client-clean.log','client-fault.log','server-clean.log','server-fault.log'):
     events=[json.loads(l) for l in (out/log).read_text().splitlines() if l.startswith('{')]
-    assert events[0]['event']=='ready' and events[0]['protocol']=='xchacha20-v4',log
+    assert events[0]['event']=='ready' and events[0]['protocol']=='rtp-l3',log
     final=events[-1]
     assert final['event']=='final' and final['rx_packets']>0,(log,final)
     if log.startswith('client-'):
