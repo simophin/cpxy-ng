@@ -11,8 +11,8 @@ the existing proxy are requested. Keep the experiment in a standalone Rust crate
 Branch: `poc/rtp-l3-tunnel`, created from local `main` / `origin/main` at
 `e112599400ec1b9c9705a136f5e41b458dfc104e`. The first commit is this handoff.
 
-**Current runtime: v4 (Z2 complete)** adds authenticated control, session
-registration and per-port rotation keys to the v3 data format. Z3 onward remains
+**Current runtime: v4 (Z3 complete)** adds authenticated control, session
+registration and per-port rotation keys to the v3 data format. Z4 onward remains
 pending. The earlier **v3 data protocol** (raw XChaCha20, RTP header prefix + 16
 random nonce bytes; see the v3 sections below) is still used for data. V1 (PSK handshake + ChaCha20-Poly1305) was removed in Y6; its last
 version is at `f980c51` (v1 measurements at `4e1ab87`). V2 (24 random nonce
@@ -568,7 +568,7 @@ Replay rules:
 - [x] Z2: server and client runtimes, CLI and counters. On Linux: build, tests,
   clippy with warnings denied, and the existing data-path integration still
   passing.
-- [ ] Z3: namespace integration with two concurrent clients behind a
+- [x] Z3: namespace integration with two concurrent clients behind a
   masquerading router namespace. Rotation runs every 10 s during 100 MiB
   transfers each way. Required outcomes:
   - every client passes through at least 3 ports;
@@ -609,39 +609,58 @@ Replay rules:
 
 ## Current state
 
-**Z2 complete; next: Z3 multi-client/NAT namespace integration.** The binary
-runs v4. Server CLI is `server KEY IFACE CIDR LISTEN_BASE LOW-HIGH [ROTATE_SECS]`;
-client CLI and launcher arguments are unchanged. The runtime polls the TUN and
-up to three installed UDP sockets, drives rotation/announcement/expiry and
-keepalive/fallback timers, creates fresh per-port Tx streams, and reports the
-requested v4 counters. Session capacity is 1024; grace/expiry are 60/90 seconds.
-`POC_KEEPALIVE_SECS` tunes the client mean (5–45; default 15). See the crate README
-for CLI, bounds and counter meanings. Capture-shape per-port reporting and the
-control-loss/NAT/multi-client matrix remain Z3 and later.
+**Z3 complete; next: Z4 cross-host validation.** The runtime runs v4 with
+learned client sessions, authenticated control, per-port keys, rotation and
+keepalive/fallback. See the crate README for CLI, counter and harness details.
 
-Validation (2026-10-25): 18 portable tests pass on macOS and Linux; one additional
-Linux socket test covers implicit, ephemeral and fixed binding, AF_UNSPEC local
-port preservation, and sendto to multiple ports. Linux offline release build and
-`cargo clippy --locked --all-targets -- -D warnings` pass. Disposable nested
-namespace integration passes initial registration, idle rotation, exactly
-104857600 received bytes each direction across RTP rollover, peer restarts,
-MTU ping and TCP/UDP with periodic loss, duplicates, reordering and corruption.
-Clean/fault servers rotated 4/2 times and clients switched 5/3 times respectively.
-This is a single-client smoke/regression test; Z3 acceptance is not claimed.
-Endpoint-free aggregate: `experiments/rtp-l3/results/2026-10-25-z2-summary.json`.
+Validation (2026-10-25): 18 portable tests on macOS and Linux, one Linux
+inherited-socket test, offline Linux release build and warning-denied clippy
+pass. The existing Z2 namespace regression also passes. The new
+`z3-integration.py` uses two concurrent clients with the same local UDP port
+behind a disposable masquerading router. Rotation mean is 10 s (the specified
+±50% jitter); keepalive mean is 5 s. Each client receives 105119744 bytes each
+way (iperf's block rounding exceeds the requested 100 MiB), paced at 16 Mbit/s.
+Each upload crosses seven new rotation ports; each download crosses six. All
+receiver half-second intervals contain data; using actual interval lengths,
+the largest conservative stall bound is 1.002 s, below the 5 s acceptance limit.
+This bound applies to the transfer phases, not deliberate recovery faults.
 
-Linux testing exposed a fixed-bind detail: disconnect may restore a wildcard
-local address while keeping the local port. Preserve/check the port, and restore
-an implicit binding if Linux clears it. Cross-namespace transfers confirm the
-inherited socket still uses its original network namespace. A regression also
-covers reusing a numeric port with a new secret: discard same-number previous
-key state so it cannot overwrite the new current key. The fault proxy preserves
-each held packet's own send path when reordering across port changes.
+All recovery cases pass:
 
-No public-server deployment or firewall changes were needed. Task-owned Linux
-processes, disposable namespaces, private key, source/vendor/build staging and
-uploaded archives have been removed and absence verified. Local temporary build
-staging was removed. No cleanup obligations remain.
+- initial announcement and early retries lost in the router; a later retry
+  recovers the path;
+- four unsolicited STATEs suppressed with the explicit test-only marker hook;
+  both clients obtain the missed per-port secret through solicited PING replies
+  and pass large-packet ping;
+- router conntrack actually flushed through netlink, with disjoint masquerade
+  source-port ranges before/after; authenticated PINGs move both peer tuples on
+  the same server ports, followed by successful traffic;
+- the entire rotation range blocked in both directions, with base reachable;
+  both clients increment fallback counters and register on base before the
+  block is removed, then regain connectivity within a bounded wait;
+- server restarted while both clients remain alive; both observe instance
+  change, re-register and pass traffic.
+
+Clients finish with 19 switches and two fallbacks each; the original/restarted
+servers rotate 17/1 times with two sessions and no inner-address conflicts.
+The original server records 188 local receive-buffer drops; TCP still completes
+all transfers. Portable key-separation tests plus successful data after each
+switch cover per-port key installation. Capture-shape now separates ports and
+SSRCs, reports idle gaps across stream changes, and filters unrelated endpoints;
+a synthetic pcap verifies these changes. No new cross-host captures are claimed.
+Endpoint-free evidence: `experiments/rtp-l3/results/2026-10-25-z3-summary.json`.
+
+Z3 exposed two harness timing assumptions (PING may beat an announcement retry;
+post-unblock traffic must allow re-registration) and shell job notifications
+interleaving with final JSON. Recovery waits are bounded and accept the intended
+paths; runtime JSON events now serialize and write a complete line at once.
+The missed-secret hook selectively drops unsolicited STATE without guessing
+from encrypted packet sizes. Leave its environment variable unset normally.
+
+No public-server deployment or host firewall changes were needed. Task-owned
+Linux processes were checked absent before removing all private key, raw logs,
+source/archive/build staging. Disposable namespaces released their interfaces,
+routes, conntrack and firewall rules. No cleanup obligations remain.
 
 Z1 integration conventions / clarified edge cases:
 
@@ -753,3 +772,9 @@ obligations remain.
   and v4 data-path/idle-rotation namespace regression pass. Fixed inherited
   fixed-port disconnect validation and reused-port secret/grace ambiguity.
   Updated CLI/counter documentation; temporary test resources removed. Next Z3.
+
+- 2026-10-25: Z3 complete: two-client masquerade, sustained rotation transfers,
+  announcement loss/secret recovery, actual conntrack rebinding, base fallback
+  and live-server restart pass. Added opt-in path traces, selective test fault
+  hook and per-port capture aggregates; fixed interleaved shutdown JSON.
+  Sanitized evidence recorded and private Linux resources removed. Next Z4.
