@@ -177,7 +177,8 @@ source-restricted runtime rules and verified cleanup remain operator-owned.
 
 `switch-gaps.py PRIVATE_ETHERNET_PCAP SERVER_IPV4 BASE_PORT` isolates the
 1084-byte outer IPv4 packets produced by 1000-byte inner UDP payloads in v4.
-It reports cross-port packet gaps, all port transitions, and base-port packet
+It reports cross-port packet gaps, all observed port transitions (including
+reordering between old/new ports), and base-port packet
 counts without publishing endpoint identities. Gaps of five seconds or more
 are listed separately as phase boundaries **or outages**, never silently
 counted as acceptable. TCP packets of the same length may also match, so use
@@ -191,3 +192,12 @@ The `idle` mode of `cross-host-run.py` skips the active UDP phase and performs
 only startup ping, a 600-second idle window and post-idle checks. A failed
 shorter diagnostic may be stopped early, but must be reported with its actual
 duration and cannot be claimed as a completed ten-minute pass.
+
+Pass CLIENT_TRACE_JSONL after CASE_SUMMARY_JSON to `switch-gaps.py` to report
+capture gaps and receiver interval loss within three seconds of each runtime
+path event during UDP cases. It estimates runtime origin from the run script's
+`start_utc`; timers have whole-second precision and script startup adds a small
+offset. Optional `capture_minus_client_clock_seconds` in the case summary
+corrects measured wall-clock offset. The broad windows include adjacent
+intervals and do not attribute all nearby loss to switching. Raw capture port
+transitions can include many reordered packets around a single runtime switch.

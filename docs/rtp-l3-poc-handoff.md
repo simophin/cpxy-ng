@@ -609,7 +609,7 @@ Replay rules:
 
 ## Current state
 
-**Z4 in progress: cross-host NAT probes and endurance validation.** The runtime runs v4 with
+**Z4 measured: load completes; idle retention fails. Z5 comparison in progress.** The runtime runs v4 with
 learned client sessions, authenticated control, per-port keys, rotation and
 keepalive/fallback. See the crate README for CLI, counter and harness details.
 
@@ -788,3 +788,5 @@ obligations remain.
 - 2026-10-25: Z4 ten-minute 5 Mbit/s upload with continuous ping complete: 4.968 Mbit/s, 2346/375001 datagrams lost (0.626%); all 601 receiver intervals nonempty, one-second text precision. Idle phase active. NAT probes have no delayed replies at 30/60/120/180 s, full cross-port replies at 5/20 s, partial at 10/15/25 s. Keepalive mean retained at 15 s (jitter max 18 s); exact expiry cannot be separated from filtering/loss. Partial sanitized aggregate committed; Z5/Z6 and remote cleanup pending.
 
 - 2026-10-25: Z4 idle retention fails on the public path with 15-second keepalives: repeated base fallbacks while application packet counters remain fixed. Server capture shows PING/reply traffic, client reports no decoder rejections or receive-buffer drops. A separate 5-second-keepalive diagnostic also fails (3 fallbacks by ~90 s; stopped at 147 s total with final counters). No validated keepalive setting or exact path cause is claimed. Original full idle window still completing, followed by Z5 and explicit cleanup.
+
+- 2026-10-25: Z4 full idle window completed (600.000 s): 49 fallbacks, no application data during interior 590 s; 222 control sends versus 84 receives. Post-idle MTU ping 17/20; reverse UDP 4.250 Mbit/s, 14.725% loss. Active loaded ping 2481/2988, RTT median/p95/p99 183/241/241 ms. Capture has 386433 packets and zero kernel drops; max active upload gap 315.732 ms. Runtime-correlated +/-3 s receiver/capture windows retained; observed port transitions include reordering. Z4 idle-retention acceptance failed at both tested keepalive means (short diagnostic at 5 s); no path cause claimed. Z5 fixed-port matrix active; cleanup pending.
