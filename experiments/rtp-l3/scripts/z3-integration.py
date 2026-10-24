@@ -27,7 +27,8 @@ def interrupted(signum, frame):
 
 signal.signal(signal.SIGTERM, interrupted)
 signal.signal(signal.SIGINT, interrupted)
-env = dict(os.environ, POC_TRACE_PATHS='1', POC_KEEPALIVE_SECS='5')
+env = dict(os.environ, POC_TRACE_PATHS='1', POC_KEEPALIVE_SECS='5',
+           POC_TEST_DROP_ANNOUNCEMENTS_FILE=str(out/'drop-announcements'))
 
 
 def run(args, ns=None, **kw):
@@ -206,18 +207,23 @@ try:
     ping(1)
     summary['checks']['dropped_announcement_retry_or_ping'] = True
 
-    # Drop all announcement attempts and PING replies on both rotation/base
-    # sockets. After removing the rule only a fresh PING can recover the secret.
+    # Selectively lose ALL unsolicited STATEs (including subsequent rotations),
+    # preserving PING replies. The explicit test hook avoids ciphertext/size
+    # classification and proves that PING alone supplies the missed secret.
     n = len(events('server.log', 'rotation'))
-    control_rule('-A', 2)
+    marker = out/'drop-announcements'
+    marker.touch(mode=0o600)
+    before = {i: len(paths(i)) for i in clients}
     wait_for(lambda: len(events('server.log', 'rotation')) > n, 17)
-    time.sleep(4.5)
-    before = len(paths(2))
-    control_rule('-D', 2)
-    recovered = wait_for(lambda: paths(2)[before:] or None, 15)
-    assert recovered[0]['solicited'], recovered
-    ping(2)
-    summary['checks']['missed_secret_recovered_by_ping'] = True
+    for i in clients:
+        recovered = wait_for(lambda i=i: paths(i)[before[i]:] or None, 15)
+        assert all(p['solicited'] for p in recovered), recovered
+        ping(i)
+    drops = len(events('server.log', 'test_announcement_drop'))
+    assert drops >= 2, drops
+    marker.unlink()
+    summary['test_hook_announcement_drops'] = drops
+    summary['checks']['missed_secret_recovered_by_ping_both_clients'] = True
 
     # Force disjoint translated source ports and actually flush conntrack.
     ipt(['-t', 'nat', '-R', 'POSTROUTING', '1', '-o', 'wanb', '-p', 'udp',
@@ -236,9 +242,9 @@ try:
     registration_start = len(events('server.log', 'registration'))
     ipt(['-A', 'FORWARD', '-p', 'udp', '--dport', '45990:46020', '-j', 'DROP'])
     ipt(['-A', 'FORWARD', '-p', 'udp', '--sport', '45990:46020', '-j', 'DROP'])
-    wait_for(lambda: all(counters(i)['fallbacks'] > before[i] for i in clients), 25)
-    assert len({e['session'] for e in events('server.log', 'registration')[registration_start:]
-                if e['port'] == 45983}) == 2, 'both clients must reach base during block'
+    wait_for(lambda: all(counters(i)['fallbacks'] > before[i] for i in clients)
+             and len({e['session'] for e in events('server.log', 'registration')[registration_start:]
+                      if e['port'] == 45983}) == 2, 25)
     ipt(['-D', 'FORWARD', '-p', 'udp', '--dport', '45990:46020', '-j', 'DROP'])
     ipt(['-D', 'FORWARD', '-p', 'udp', '--sport', '45990:46020', '-j', 'DROP'])
     for i in clients:

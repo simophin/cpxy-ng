@@ -185,6 +185,19 @@ impl Runtime {
         }
     }
     fn control(&mut self, action: Send) {
+        // Explicit integration-only fault hook: lose announcements and their
+        // retries while preserving solicited STATE, without decrypting in a
+        // network proxy or confusing a later rotation with PING recovery.
+        if matches!(action.message, Control::State { echo: 0, .. })
+            && env::var_os("POC_TEST_DROP_ANNOUNCEMENTS_FILE")
+                .is_some_and(|p| std::path::Path::new(&p).exists())
+        {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"test_announcement_drop", "seconds":self.started.elapsed().as_secs()})
+            );
+            return;
+        }
         let ticks = self.ticks();
         if let Some(s) = self.streams.get_mut(&action.path.port) {
             let p =

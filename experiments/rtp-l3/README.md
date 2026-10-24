@@ -129,6 +129,11 @@ output directory remain caller-owned and must be removed after validation.
 `POC_TRACE_PATHS=1` enables JSON path/rotation/registration events used by this
 harness. They include port, epoch, instance-change and tuple-change indicators,
 never keys or peer addresses. Session ids in registration events are ephemeral.
+The explicit test hook `POC_TEST_DROP_ANNOUNCEMENTS_FILE` suppresses unsolicited
+STATE and its retries while that marker file exists, emitting
+`test_announcement_drop` events. Solicited STATE replies still pass. The harness
+uses this only for the missed-secret case; the other loss case drops short UDP
+packets with router firewall rules. Leave the hook unset for normal runs.
 
 `benchmark.py` runs sequential TCP upload/download with one/four streams and
 three 20-second repetitions, followed by a paced 1000-byte UDP ladder (ten
