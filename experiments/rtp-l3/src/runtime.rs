@@ -192,9 +192,8 @@ impl Runtime {
             && env::var_os("POC_TEST_DROP_ANNOUNCEMENTS_FILE")
                 .is_some_and(|p| std::path::Path::new(&p).exists())
         {
-            eprintln!(
-                "{}",
-                serde_json::json!({"event":"test_announcement_drop", "seconds":self.started.elapsed().as_secs()})
+            report_event(
+                serde_json::json!({"event":"test_announcement_drop", "seconds":self.started.elapsed().as_secs()}),
             );
             return;
         }
@@ -279,13 +278,10 @@ impl Runtime {
                     if reply.is_some() {
                         self.counts.switches += 1;
                         if env::var_os("POC_TRACE_PATHS").is_some() {
-                            eprintln!(
-                                "{}",
-                                serde_json::json!({"event":"path", "seconds":now,
+                            report_event(serde_json::json!({"event":"path", "seconds":now,
                                 "port":c.current, "epoch":c.epoch,
                                 "instance_changed":instance != c.instance,
-                                "solicited":matches!(msg, Control::State { echo, .. } if echo != 0)})
-                            );
+                                "solicited":matches!(msg, Control::State { echo, .. } if echo != 0)}));
                         }
                     }
                     self.sync_client(now);
@@ -311,13 +307,10 @@ impl Runtime {
                             .ping(Path { port, peer: source }, &msg, now)
                     {
                         if env::var_os("POC_TRACE_PATHS").is_some() {
-                            eprintln!(
-                                "{}",
-                                serde_json::json!({"event":"registration", "seconds":now,
+                            report_event(serde_json::json!({"event":"registration", "seconds":now,
                                 "session":id, "port":port, "new":old.is_none(),
                                 "tuple_changed":old.is_some_and(|p| p.peer != source),
-                                "same_port":old.is_some_and(|p| p.port == port)})
-                            );
+                                "same_port":old.is_some_and(|p| p.port == port)}));
                         }
                         self.control(reply);
                     } else {
@@ -460,9 +453,8 @@ pub fn main() -> io::Result<()> {
         let ping = c.ping(0).unwrap();
         rt.ping(ping);
     }
-    eprintln!(
-        "{}",
-        serde_json::json!({"event":"ready","client":client,"protocol":"xchacha20-v4","mtu":MTU})
+    report_event(
+        serde_json::json!({"event":"ready","client":client,"protocol":"xchacha20-v4","mtu":MTU}),
     );
     let mut last = Instant::now();
     let mut b = [0; 65536];
@@ -499,9 +491,8 @@ pub fn main() -> io::Result<()> {
                             );
                             rt.counts.rotations += 1;
                             if env::var_os("POC_TRACE_PATHS").is_some() {
-                                eprintln!(
-                                    "{}",
-                                    serde_json::json!({"event":"rotation", "seconds":now, "port":port})
+                                report_event(
+                                    serde_json::json!({"event":"rotation", "seconds":now, "port":port}),
                                 );
                             }
                             rt.counts.announces_sent += actions.len() as u64;
