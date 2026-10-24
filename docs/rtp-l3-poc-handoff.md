@@ -264,7 +264,7 @@ rather than inventing a cipher or modifying the AEAD internals.
       setup, truncation/MTU handling and cleanup. Verify v2 has no tag or control
       packets on the wire. Replays are deliberately accepted; tampering has no
       guaranteed cryptographic detection. Do not retain contrary v1 test assertions.
-- [ ] X4: run isolated namespace integration, then a bounded cross-host test only
+- [x] X4: run isolated namespace integration, then a bounded cross-host test only
       when this experiment is started. Capture from before process startup and
       prove that the first outbound packet is RTP-framed encrypted data. Verify
       forwarding/NAT to the controlled endpoint as before; keep captures private.
@@ -306,10 +306,42 @@ The first v2 attempt exposed a fault-proxy artifact (a reordered packet held
 until the next packet could stall a quiet iperf control connection); the hold
 is now bounded to 20 ms. The v1 integration still passes with the same proxy.
 
-Private client staging (source+vendor, release binary, PSK 0600) lives in a
-task directory outside any checkout on CLIENT_HOST; it must be deleted in X6.
-Next: X4 — copy PSK/binary to SERVER_HOST privately, open source-restricted
-runtime firewalld rule, capture from before startup, cross-host validation.
+X4 cross-host validation passed (2026-10-24, about 12:50–12:55 UTC). Server
+runtime-only changes: a public-zone rich rule accepting the tunnel UDP port
+from the client's public /32 only; trusted-zone assignment of the task TUN and
+egress veth host end; a trusted-zone masquerade rich rule scoped to tunnel
+subnet -> egress /30; an egress namespace with an iperf3 endpoint and no return
+route to the tunnel subnet. IP forwarding was already enabled (unchanged).
+
+- Client-side NAT rewrites the source port. Return routing used the private
+  operator procedure: start `server-x` with a placeholder peer (bound socket,
+  so stray datagrams elicit no ICMP), send one plain datagram from the fixed
+  client port, read the external tuple from a server capture, restart
+  `server-x` with it, then start the client within seconds from the same port.
+  The NAT mapping stayed stable across restarts within that window.
+- Fixed client ports in one range received **no return UDP at all**, even for
+  a plain-UDP echo, while ephemeral and other fixed ports worked. Cause not
+  established (client-side NAT or path filtering); a working fixed port was
+  chosen by plain-UDP echo before tunnel use. Not a v2 protocol issue.
+- First ping without any setup succeeded; 1200-byte MTU pings 10/10; pings to
+  the egress endpoint 10/10. Egress iperf3 logged connections only from the
+  egress veth host address, proving masquerade. Five-second smoke TCP: tunnel
+  up 22.42, down 22.22, forwarded 8.21 Mbit/s (smoke only; idle RTT ~235 ms in
+  this window versus ~178 ms during v1's window).
+- Capture proof (client restart against a running server, capture started
+  first): 23 packets, 0 kernel drops, **0 non-RTP and 0 `R3P1` packets**. The
+  client's first outbound datagram was RTP v2/PT 96 carrying an 84-byte ICMP
+  echo (148 IPv4 bytes = 84 + 64). Largest observed IPv4 length 1264.
+- Debian's tcpdump AppArmor profile denies `-w` into the root-only task dir;
+  write captures as `tcpdump -w - > FILE` instead.
+- Server v2 `rejected` stayed 0; server socket receive overflow 571 in X4.
+
+Private staging: client task dir (source+vendor, binary, PSK 0600, run
+outputs) and server task dir (binary, PSK 0600, scripts, logs, captures,
+baseline firewall/link snapshots, ledger). Server egress namespace/veth and the
+firewall rules remain active for X5. Cleanup: run the server task cleanup
+script, then delete both task dirs (X6).
+Next: X5 adjacent v2/v1 (and direct if feasible) bounded measurement matrix.
 
 All v1 checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
 cross-host forwarding/NAT, bounded measurements, sanitized report and cleanup are
@@ -355,3 +387,4 @@ requested or performed.
   Planning only; user explicitly deferred implementation/testing to a later agent.
 - 2026-10-24: user started v2. X0 conventions recorded; remote baselines inspected read-only.
 - 2026-10-24: X1–X3 v2 modes, unit tests and namespace integration passed (macOS+Linux); v1 regression integration passed.
+- 2026-10-24: X4 cross-host v2 passed: no-setup first packet, MTU/forwarded ping, NAT, capture shows only RTP-framed data.
