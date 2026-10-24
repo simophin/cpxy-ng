@@ -327,7 +327,251 @@ above as the 24-byte variant; v3 differs only in nonce construction and labels.
 - [x] Y6: remove v1 (handshake, AEAD, replay state, control-message tooling);
       v3 becomes plain `client` / `server`; tests and integration pass.
 
+## Next: control channel, port rotation and keepalive (v4, PLANNED)
+
+Planning only; nothing below is implemented. It builds on v3 without changing
+data packets. Defaults marked "(tunable)" are starting points for Z4
+measurement, not decisions.
+
+### Goals
+
+- **Port rotation.** The server always listens on a fixed base port. From time
+  to time it opens an extra port and announces it to every active client.
+  Clients then send to the new port. No single server port carries a
+  long-lived flow, much as RTP endpoints move between ports after ICE
+  or hole punching.
+- **Control messages.** Add an authenticated control channel inside the
+  existing RTP framing. It carries registration, keepalive, announcements and
+  state resynchronisation. Control packets must look like data packets on the
+  wire.
+- **Keepalive.** Keep the client's NAT mapping alive and detect dead paths over
+  UDP. Recover by falling back to the base port.
+- **Multiple clients.** The server keeps one session per client, learns each
+  client's address from authenticated control, and routes TUN packets by inner
+  destination address. This removes the out-of-band `PEER` argument and the
+  tuple-learning procedure.
+
+### Wire format
+
+Every datagram stays `RTP header (12) | random (16) | XChaCha20(body)`, using
+v3 nonce rules and the same directional data keys. The receiver tells data and
+control apart by the first decrypted byte:
+
+- High nibble `4`: an IPv4 data packet, handled exactly as in v3. It carries no
+  tag and has no replay protection.
+- `0x01`–`0x0f`: a control message. Its 16-byte tag must verify, or the
+  packet is dropped and counted under `control_rejected`.
+- Anything else: rejected, as in v3.
+
+Control body: `type (1) | version (1) | length (2) | fields | zero padding`,
+followed on the wire by `tag (16)`. Encrypt-then-MAC:
+`tag = HMAC-SHA256(control_key, RTP header || random || encrypted body)[..16]`.
+`control_key` comes from the PSK via HKDF with info
+`rtp-l3-poc/xchacha20/v4/control-client-to-server` or `.../control-server-to-client`.
+Data labels stay at v3. This re-adds the `hmac` dependency, for control only.
+Control traffic is rare, so the cost is negligible.
+
+Padding: control bodies are padded to a random total of 60–160 bytes (tunable),
+the range of small data packets such as TCP ACKs (108 B on the wire in v3). No
+fixed-size control packets.
+
+Messages (all fields big-endian):
+
+| Type | Direction | Fields |
+|------|-----------|--------|
+| `0x01 PING` | client → server | session id (8), inner IPv4 (4), ping seq (4), known server instance (8), known epoch (4) |
+| `0x02 STATE` | server → client | session id (8), echoed ping seq (4, 0 if unsolicited), server instance (8), epoch (4), current port (2), base port (2), grace seconds (2) |
+
+PING is both registration and keepalive. Every PING carries the client's full
+state and every STATE the server's, so any single exchange resynchronises both
+sides. No message needs a reliable-delivery layer of its own. An announcement
+is an unsolicited STATE with a higher epoch. The client acknowledges it by
+sending a PING to the new port.
+
+### Session and state model
+
+- **Client session.** At start the client picks a random 64-bit session id. Its
+  inner IPv4 comes from its CIDR argument. Ping seq increases strictly for the
+  life of the process.
+- **Server instance.** At start the server picks a random 64-bit instance id.
+  Epoch starts at 0 and increases by one per rotation. A changed instance id
+  tells the client that the server restarted.
+- **Server session table.** Keyed by session id, each entry holds the inner
+  IPv4, the path (receiving socket plus client source tuple), the last ping seq,
+  the last-seen time and the last epoch the client acknowledged.
+  - The server creates or updates an entry only from a PING whose tag verifies
+    and whose seq is above the stored one.
+  - The path moves to wherever that PING arrived, which handles NAT rebinding
+    and client roaming.
+  - Data packets never create or move a session.
+- **Inner addresses.** A claimed inner IPv4 must lie inside the server CIDR and
+  must not be the server's own address. If another live session already holds
+  that address, the newer PING wins and the older session is dropped and
+  counted.
+- **Upstream data.** Accepted only from a source tuple that belongs to a live
+  session on the socket where it arrived. Otherwise it is dropped and counted
+  under `rejected`, as in v3.
+- **Downstream data.** A TUN packet's destination address selects the session.
+  The server sends from that session's socket to its tuple. Packets with an
+  unknown destination are dropped and counted.
+- **Session expiry.** A session expires after 90 s (tunable) with no valid
+  packet from its tuple.
+- **Shared PSK.** All clients share one PSK for the POC, so any key holder can
+  impersonate another session. Per-client keys are an open question (below).
+
+Replay rules:
+
+- **Server.** It ignores a PING whose seq is not above the stored seq, so
+  replayed old PINGs cannot move a session.
+- **Client, same instance.** It accepts a STATE with the same instance id only
+  if the epoch is at least its current epoch.
+- **Client, new instance.** It accepts a different instance id only in a STATE
+  that echoes an outstanding ping seq. A replayed old-instance STATE therefore
+  cannot redirect the client.
+- **Residual risk.** An on-path attacker can still race a fresh PING from
+  another address. It could already drop traffic, so this is accepted for the
+  POC.
+
+### Port rotation
+
+- **Server configuration:** a base port, a rotation range (`LOW-HIGH`), a
+  rotation interval (mean 300 s ±50% jitter, tunable) and a grace period
+  (60 s, tunable; at least the longest keepalive interval plus the full PING
+  retry time).
+- **Bootstrap.** The base port is always open and never carries steady
+  traffic. The first STATE a client receives already names the current
+  rotation port, so after one round trip the base port is used only for
+  bootstrap and fallback.
+- **Rotation.** The server binds a random free port in the range, retrying
+  ports that are in use. It increments the epoch and sends an unsolicited STATE
+  to every session over that session's current path. It does not send from the
+  new port, because the client's NAT may filter unsolicited traffic from it.
+- **Announcement retries.** The STATE is resent after 1, 2 and 4 s until the
+  session sends a PING with the new epoch on the new port. Sessions that never
+  move stay on the old port until grace ends, then fall back to the base port
+  through keepalive failure.
+- **Socket limit.** The server keeps at most the base port plus the current
+  and previous rotation ports. A port closes when its grace ends or its last
+  session moves, whichever comes later. When rotations outpace grace, the
+  oldest port closes early.
+- **Client switch.** On a valid announcement the client sends a PING to the new
+  port immediately and moves upstream data there in the same flight.
+  - Downstream from the server's address is accepted on any port it currently
+    knows: base, current and the previous one during grace.
+  - The client keeps one local UDP socket, so its internal tuple is unchanged.
+    The NAT may still assign a new external port per destination, which the
+    server learns from that PING.
+- **Fresh RTP stream per port.** Each side starts a new `Tx` (new SSRC, sequence
+  and timestamp offset) per server port, so each port looks like its own
+  stream rather than one stream moving between ports.
+- **Client socket.** The launcher's socket is created and connected outside the
+  namespace. The client reads the server address with `getpeername` and then
+  dissolves the connection with `connect(AF_UNSPEC)` so it can `sendto` several
+  ports. The CLI does not change. Z2 must verify that an inherited socket
+  behaves this way inside the namespace.
+
+### Keepalive and liveness
+
+- **Client PING triggers.** The client sends a PING when nothing has been sent
+  *or* nothing has been received for the keepalive interval I. I defaults to
+  15 s with ±20% jitter and is tunable (see Z4). Under steady bidirectional
+  traffic no keepalives are sent.
+- **Retry and fallback.** Every PING expects a STATE. With none after 2 s the
+  client retries, up to 3 attempts in all. If all fail, the path is dead and the
+  client falls back to the base port, retrying with backoff of 1, 2, 4 … 30 s.
+  Data keeps flowing during retries.
+- **Server.** The server never sends keepalives on its own. Only client-sent
+  traffic reliably refreshes the client's NAT mapping. The server's job is to
+  answer PINGs and expire idle sessions.
+- **Startup.** The client sends a PING before its first data packet, without
+  waiting for the reply. The first data packet can be lost if the network
+  reorders it ahead of the PING. This replaces v3's "first packet with no
+  setup" property with "one control packet leads the first flight".
+- **Wire visibility.** Keepalives are small packets in a stream that is
+  otherwise idle. Real RTP media streams rarely go fully silent, so idle
+  cadence remains distinguishable. Cover traffic is out of scope for now.
+
+### Runtime changes
+
+- **`lib.rs`.** Add the control codec (encode/decode, tag, padding) and
+  sans-I/O client and server state machines that take time as a parameter. The
+  rotation, retry, expiry and replay rules can then be unit-tested on macOS
+  without sockets.
+- **`main.rs` (server).** Poll several UDP sockets plus the TUN, drive timers
+  from the poll timeout, and keep the session table. The CLI becomes
+  `server KEY IFACE CIDR LISTEN_BASE ROTATE_LOW-ROTATE_HIGH [ROTATE_SECS]`, and
+  `PEER` is removed.
+- **`main.rs` (client).** Use the unconnected socket, PING/STATE handling,
+  switching and fallback.
+- **Counters.** Add `sessions`, `rotations`, `announces_sent`,
+  `announce_retries`, `switches`, `pings_sent`, `pings_unanswered`,
+  `fallbacks`, `control_rejected` and `unknown_destination`. The JSON
+  `protocol` becomes `xchacha20-v4`.
+- **Scripts.**
+  - `local-integration.sh`: runs two clients and adds NAT and rotation cases.
+  - `fault-proxy.py`: gains a mode that drops STATE and PING packets. The
+    proxy cannot decrypt, so it identifies them by size, or by a test-only
+    hook.
+  - `capture-shape.py`: reports per-port flows and inter-packet gaps while the
+    flow is idle.
+
+### Plan
+
+- [ ] Z0: confirm or adjust the open questions below and the defaults above.
+- [ ] Z1: control codec and state machines in `lib.rs`. Unit tests:
+  - control round trip, and rejection of any flipped bit in the header, random
+    bytes, body or tag;
+  - data and control told apart by the first byte, and padding lengths within
+    range;
+  - session create/move only from a fresh PING; replayed PINGs and STATEs
+    ignored; instance-change acceptance rules;
+  - rotation with announcement retries; grace close; socket limit;
+  - keepalive triggers, retry and fallback timing; session expiry; inner-address
+    conflicts.
+- [ ] Z2: server and client runtimes, CLI and counters. On Linux: build, tests,
+  clippy with warnings denied, and the existing data-path integration still
+  passing.
+- [ ] Z3: namespace integration with two concurrent clients behind a
+  masquerading router namespace. Rotation runs every 10 s during 100 MiB
+  transfers each way. Required outcomes:
+  - every client passes through at least 3 ports;
+  - no transfer stalls for more than 5 s;
+  - dropped announcements are recovered by retries or keepalive;
+  - flushing the router's conntrack (a NAT rebinding) is relearned from the
+    next PING;
+  - blocking the current rotation port ends in base-port fallback;
+  - a server restart is detected through the instance id, and sessions
+    re-register.
+- [ ] Z4: cross-host validation. Firewalld runtime rules open the base port and
+  rotation range for the client's /32 source only.
+  1. Measure the client NAT's UDP mapping timeout and per-destination port
+     behaviour with idle probes at 30, 60, 120 and 180 s and with several
+     server ports. Choose I from that.
+  2. Run rotation every 30 s for 10 minutes under continuous paced UDP and
+     ping, then leave the tunnel idle for 10 minutes and confirm keepalives
+     hold the mapping.
+- [ ] Z5: bounded comparison of rotation (20 s) against none. Measure TCP
+  goodput, plus 5 Mbit/s UDP loss and gaps around each switch. Run packet-shape
+  captures, including what the base port sees.
+- [ ] Z6: verified cleanup of runtime rules, processes, interfaces, staging
+  and keys; sanitized report.
+
+### Open questions (defaults apply unless changed in Z0)
+
+1. **Keys.** Keep a shared PSK with session ids (default), or use per-client
+   keys. With per-client keys the server must find the right key, either by
+   trial decryption or through a key hint, which would be an observable field.
+2. **Rotation cadence.** Mean 300 s ±50% (default). Shorter intervals spread
+   load across more ports but add more switch events and NAT mappings.
+3. **Client local port.** Keep one local socket (default). Rotating it as well
+   would need more sockets created outside the namespace. It would also cure
+   the observed fixed-port return problem automatically.
+4. **Cover traffic.** Accept that idle keepalive cadence is observable
+   (default), or add low-rate padding traffic while idle.
+
 ## Current state
+
+**Next: v4 control channel, port rotation and keepalive (planned, Z0 open; see above).**
 
 **V3 complete (Y0–Y6); it is the final protocol.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
 
@@ -384,3 +628,4 @@ obligations remain.
 - 2026-10-24: user chose a 16-random-byte nonce (v3) as the final protocol; Y0 conventions recorded.
 - 2026-10-24: Y1–Y5 v3 implemented, validated cross-host, matched against v1 (no measurable difference); cleanup verified.
 - 2026-10-24: Y6 removed v1 from the code; v3 is the only protocol. Linux tests, clippy and integration pass.
+- 2026-10-24: planned v4: authenticated PING/STATE control, server port rotation with announcements, keepalive/fallback, multi-client sessions (Z0–Z6). Not implemented.
