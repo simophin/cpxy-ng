@@ -92,7 +92,7 @@ full conversation; access details remain exclusively in private session context.
 - [x] P1: prove unprivileged namespace/socket/TUN path; specify wire/crypto lifecycle.
 - [x] P2: implement tunnel and focused correctness tests; commit.
 - [x] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
-- [ ] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
+- [x] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
 - [ ] P5: complete bounded measurement matrix; commit sanitized report and commands.
 - [ ] P6: remove remote processes, runtime firewall openings and network changes;
       verify cleanup; commit final handoff status.
@@ -152,28 +152,28 @@ not codec-valid media or standardized SRTP.
 
 ## Current state
 
-P1/P2/P3 complete. Linux release build and seven portable protocol tests pass.
-Disposable nested namespace integration transferred 100 MiB TCP each direction
-(client TX 136795 / RX 133572 IP packets, crossing RTP sequence rollovers), then
-replaced the session and completed TCP both directions plus UDP under injected
-loss, duplication, reordering and ciphertext tampering. First CHALLENGE and READY
-were deliberately dropped, proving HELLO/FINISH retry recovery. The clean local
-saturation run recorded 196 client UDP receive-buffer drops; fault run recorded
-zero receive-buffer drops and 2409 invalid/replay rejections. Runtime now reports
-SO_RXQ_OVFL and waits for client TUN address/link readiness before applications.
-Local test processes/namespaces exited; no host routes/interfaces were changed.
-Private staged build/key/results remain on the client for deployment (outside
-checkout), and must be removed at P6. Private tested binary/key are also staged on the server; no server task processes/rules exist yet.
+P1–P4 complete. Authorized cross-host smoke passed: ten 1200-byte inner ICMP
+packets and ten forwarded ICMP probes each had zero loss, mean RTT about 77 ms.
+Bidirectional TCP to the controlled server egress namespace delivered about
+50.4 / 61.5 Mbit/s in short three-second probes. The endpoint logged the translated
+veth source and has only its directly connected route, proving both L3 forwarding
+and narrow NAT (not a third-party/internet reachability claim).
 
-Linux clippy passes with warnings denied; the integration rerun additionally
-validated receiver byte counts, absent JSON errors, and both control drops.
+**Active temporary deployment:** server supervisor has a 30-minute bound and
+cleanup trap. It owns tunnel/benchmark/capture processes; source-restricted
+firewalld runtime openings for outer UDP and direct TCP/UDP benchmark; two
+task-only interfaces in the trusted runtime zone; one egress namespace/veth pair;
+and a narrow source+destination masquerade rule. Existing IP forwarding was 1 and
+was not changed. Rules also have timeouts; interfaces require explicit supervisor
+cleanup. Exact rules, process IDs, private paths and stop trigger are in a private
+deployment ledger outside checkout and the root agent's private recovery notes.
+Client/ server staged binaries, key files and raw results/capture also require P6
+removal. No private endpoints or secrets are in tracked files.
 
-Next: create a private deployment/cleanup ledger, then start the staged binary. Use a source-restricted runtime outer UDP rule and temporary
-task-only TUN/veth interfaces. Prove forwarding to a controlled server egress
-namespace without probing third-party services. Server forwarding is already
-enabled, so no sysctl change is expected; no NAT is needed for this routed test.
-Record P4 state immediately after deployment. Then bounded direct/tunnel matrix,
-filtered packet shape capture, aggregate report, explicit cleanup and final commit.
+Next: run sequential matched direct/tunnel TCP and paced UDP measurements with
+idle/loaded ping and CPU/RSS sampling. Keep raw artifacts private, publish sanitized
+aggregates only. Then stop the supervisor, verify all owned processes/interfaces/
+namespaces/firewall rules absent, remove staged keys/files, and commit P5/P6.
 
 ## Progress log
 
@@ -182,3 +182,4 @@ filtered packet shape capture, aggregate report, explicit cleanup and final comm
 - 2026-10-24: P1 inherited-socket/TUN echo passed; proof rule and files removed.
 - 2026-10-24: P2 runtime/library/launcher implemented; seven protocol tests passed.
 - 2026-10-24: P3 Linux offline build/tests and disposable namespace fault integration passed.
+- 2026-10-24: P4 cross-host TUN, MTU ping and controlled forwarding/NAT passed; bounded deployment active.
