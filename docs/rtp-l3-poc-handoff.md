@@ -94,7 +94,7 @@ full conversation; access details remain exclusively in private session context.
 - [x] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
 - [x] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
 - [ ] P5: complete bounded measurement matrix; commit sanitized report and commands.
-- [ ] P6: remove remote processes, runtime firewall openings and network changes;
+- [x] P6: remove remote processes, runtime firewall openings and network changes;
       verify cleanup; commit final handoff status.
 
 ## Validation and measurement plan
@@ -152,58 +152,33 @@ not codec-valid media or standardized SRTP.
 
 ## Current state
 
-P1–P4 complete. Authorized cross-host smoke passed: ten 1200-byte inner ICMP
-packets and ten forwarded ICMP probes each had zero loss, mean RTT about 77 ms.
-Bidirectional TCP to the controlled server egress namespace delivered about
-50.4 / 61.5 Mbit/s in short three-second probes. The endpoint logged the translated
-veth source and has only its directly connected route, proving both L3 forwarding
-and narrow NAT (not a third-party/internet reachability claim).
+P1–P4 and P6 complete; P5 measurements complete, sanitized report pending.
+All network tests ended. Primary tunnel ran 12 TCP and six UDP cases; partial
+direct TCP/upload-UDP and final direct download-UDP comparisons are preserved.
+No further network tests are planned.
 
-**Active temporary deployment:** server supervisor has a 30-minute bound and
-cleanup trap. It owns tunnel/benchmark/capture processes; source-restricted
-firewalld runtime openings for outer UDP and direct TCP/UDP benchmark; two
-task-only interfaces in the trusted runtime zone; one egress namespace/veth pair;
-and a narrow source+destination masquerade rule. Existing IP forwarding was 1 and
-was not changed. Rules also have timeouts; interfaces require explicit supervisor
-cleanup. Exact rules, process IDs, private paths and stop trigger are in a private
-deployment ledger outside checkout and the root agent's private recovery notes.
-Client/ server staged binaries, key files and raw results/capture also require P6
-removal. No private endpoints or secrets are in tracked files.
+**Cleanup verified:** server supervisor exited with `CLEANUP_FINISHED`; all six
+owned runtime rule/interface removals succeeded. Public and trusted rich-rule
+lists are empty, and trusted interfaces match the original two existing ones.
+Task TUN, veth, egress namespace, saved process IDs and benchmark/outer listeners
+are absent. Existing IP forwarding remains 1 (unchanged throughout). Client has
+no task runtime, interface or route. Both remote task staging directories,
+remote archive copies, and local/remote PSK files were removed. Key-excluding
+raw evidence is retained privately outside checkout for independent review.
+Local temporary source/vendor/binary staging will be removed after offline report
+work. Exact private verification evidence is available in the active session.
 
-P5 tooling committed while measurement is in progress: sequential 20-second TCP
-(one/four streams, three repeats, both directions), ten-second UDP ladder with
-2% loss stop, 100 idle pings plus loaded ping per case, client/server tunnel CPU
-and RSS. Each case validates receiver JSON and writes a resumable sanitized
-summary. Direct baseline initially timed out once; packet diagnosis subsequently
-confirmed TCP SYN/SYN-ACK and application control exchange. One bounded retry per
-case is recorded; do not infer censorship from a connection timeout.
+Important report correction: file timestamps show the first evidence-copy window
+was **after the entire primary tunnel matrix**, overlapping supplemental direct
+UDP upload 5 Mbit/s only. The second copy window overlapped the supplemental
+tunnel download repeat. Thus that repeat is potentially contaminated and must
+not be presented as a clean confirmation. Primary tunnel download loss 3.43%
+and final direct download loss 5.89% had no evidence-transfer overlap. Full
+window/case mapping, CPU/RSS and local-drop scope belong in the final report.
 
-Measurement update: direct matrix retained one successful single-stream upload
-(44.38 Mbit/s), then stopped after two bounded connection timeouts. One earlier
-direct setup timeout and one initial tunnel handshake timeout are also recorded
-privately; a later tunnel retry succeeded. The tunnel matrix is advancing through
-all planned cases. Its current idle RTT median is about 178 ms, similar to the
-contemporaneous direct idle median, rather than the earlier 77 ms smoke RTT.
-Do not compare the early smoke RTT as simultaneous evidence of an advantage.
-The first capture is bounded and may represent only early uploads; separate
-bounded download/UDP samples must be mapped to their actual case windows.
-
-Primary tunnel matrix has completed 12 TCP and six UDP cases. Upload UDP at
-5/10/20/50 Mbit/s had zero receiver loss; 100 Mbit/s delivered about 50.3 Mbit/s
-with 48.8% loss. Download 5 Mbit/s had 3.43% loss and stopped; a quiet-interval
-repeat had 6.03% loss with zero local receive-overflow/replay/send/TUN drops.
-Primary client cumulative RX overflow was 6366, all accumulated before the final
-UDP download case. Direct supplemental upload UDP 5/10 Mbit/s had zero loss;
-next rate failed two bounded control connections. A single direct download
-5 Mbit/s comparison is the last active network test. No further throughput
-matrix is planned. Some completed-capture copies occurred during UDP tests and
-must be disclosed as possible interference; remaining evidence transfer waits
-until network tests end.
-
-Next: retrieve all raw evidence privately, write sanitized aggregate JSON/report
-including timestamps, partial baseline and all setup failures, then stop the
-server supervisor and verify/remove all task processes, runtime rules, interfaces,
-namespace and staged key/files. Final P5/P6 commits must record cleanup evidence.
+Next: write/verify sanitized aggregate JSON and report offline, obtain independent
+numeric/source review, remove remaining private build staging (retain raw evidence),
+and commit P5 plus final handoff. No remote cleanup obligations remain.
 
 ## Progress log
 
@@ -216,3 +191,4 @@ namespace and staged key/files. Final P5/P6 commits must record cleanup evidence
 - 2026-10-24: P5 tools saved during active deployment; direct baseline initial connection timeout under diagnosis/retry.
 - 2026-10-24: direct baseline partial after bounded failures; tunnel matrix progressing; packet-shape parser independently validated on synthetic rollover/reorder/duplicate fixture.
 - 2026-10-24: primary tunnel matrix completed; quiet down5M repeat confirms loss; final direct down5M check active.
+- 2026-10-24: P6 explicit runtime firewall/network/process cleanup verified; remote staging and all PSKs removed.
