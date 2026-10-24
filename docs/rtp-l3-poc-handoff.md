@@ -608,7 +608,9 @@ Replay rules:
 
 ## Current state
 
-**Next: v4 control channel, port rotation and keepalive (planned; Z0 decided, Z1 next; see above).**
+**In progress: Z1 v4 library.** Control codec and per-port key derivation added;
+state machines and their tests are the next checkpoint. Runtime remains v3.
+No remote resources have been created.
 
 **V3 complete (Y0–Y6); it is the final protocol.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
 
@@ -667,3 +669,7 @@ obligations remain.
 - 2026-10-24: Y6 removed v1 from the code; v3 is the only protocol. Linux tests, clippy and integration pass.
 - 2026-10-24: planned v4: authenticated PING/STATE control, server port rotation with announcements, keepalive/fallback, multi-client sessions (Z0–Z6). Not implemented.
 - 2026-10-24: Z0 decided: shared PSK, 300 s ±50% rotation, one client local port, no cover traffic; added ephemeral per-port secrets delivered in STATE.
+
+- 2026-10-25: Z1 codec checkpoint: authenticated padded PING/STATE, base and
+  per-port directional keys, strict framing/body validation and data dispatch.
+  Codec tests include every single-bit mutation and truncated packets.

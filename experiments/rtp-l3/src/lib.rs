@@ -10,6 +10,8 @@ use hkdf::Hkdf;
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 
+pub mod control;
+
 pub const MTU: usize = 1200;
 
 fn ipv4(p: &[u8]) -> bool {
@@ -72,16 +74,19 @@ impl Tx {
         if !ipv4(ip) {
             return None;
         }
-        let mut p = Vec::with_capacity(OVERHEAD + ip.len());
+        Some(self.seal_body(ip, ticks, random))
+    }
+    fn seal_body(&mut self, body: &[u8], ticks: u32, random: &[u8; RANDOM]) -> Vec<u8> {
+        let mut p = Vec::with_capacity(OVERHEAD + body.len());
         p.extend([0x80, 96]);
         p.extend(self.seq.to_be_bytes());
         p.extend(self.offset.wrapping_add(ticks).to_be_bytes());
         p.extend(self.ssrc.to_be_bytes());
         p.extend(random);
-        p.extend(ip);
+        p.extend(body);
         xor(&self.key, &mut p);
         self.seq = self.seq.wrapping_add(1);
-        Some(p)
+        p
     }
 }
 /// Stateless: the nonce prefix is read from each received header, so

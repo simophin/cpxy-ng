@@ -197,6 +197,7 @@ version = "0.1.0"
 dependencies = [
  "chacha20",
  "hkdf",
+ "hmac",
  "libc",
  "rand",
  "serde_json",
