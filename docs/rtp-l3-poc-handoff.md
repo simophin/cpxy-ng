@@ -93,7 +93,7 @@ full conversation; access details remain exclusively in private session context.
 - [x] P2: implement tunnel and focused correctness tests; commit.
 - [x] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
 - [x] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
-- [ ] P5: complete bounded measurement matrix; commit sanitized report and commands.
+- [x] P5: complete bounded measurement matrix; commit sanitized report and commands.
 - [x] P6: remove remote processes, runtime firewall openings and network changes;
       verify cleanup; commit final handoff status.
 
@@ -152,33 +152,31 @@ not codec-valid media or standardized SRTP.
 
 ## Current state
 
-P1–P4 and P6 complete; P5 measurements complete, sanitized report pending.
-All network tests ended. Primary tunnel ran 12 TCP and six UDP cases; partial
-direct TCP/upload-UDP and final direct download-UDP comparisons are preserved.
-No further network tests are planned.
+All checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
+cross-host forwarding/NAT, bounded measurements, sanitized report and cleanup are
+finished. Results: `docs/rtp-l3-poc-results.md`; detailed endpoint-free aggregate:
+`experiments/rtp-l3/results/2026-10-24-summary.json`.
 
-**Cleanup verified:** server supervisor exited with `CLEANUP_FINISHED`; all six
-owned runtime rule/interface removals succeeded. Public and trusted rich-rule
-lists are empty, and trusted interfaces match the original two existing ones.
-Task TUN, veth, egress namespace, saved process IDs and benchmark/outer listeners
-are absent. Existing IP forwarding remains 1 (unchanged throughout). Client has
-no task runtime, interface or route. Both remote task staging directories,
-remote archive copies, and local/remote PSK files were removed. Key-excluding
-raw evidence is retained privately outside checkout for independent review.
-Local temporary source/vendor/binary staging will be removed after offline report
-work. Exact private verification evidence is available in the active session.
+Primary tunnel completed twelve TCP and six UDP cases. Direct baseline is partial
+with bounded setup/control failures preserved. The final report separates clean
+primary/final-direct observations from two supplemental cases overlapping private
+evidence transfers, and records CPU, RSS, local socket drops and packet shape.
+No censorship-resistance or media-valid camouflage claim is made.
 
-Important report correction: file timestamps show the first evidence-copy window
-was **after the entire primary tunnel matrix**, overlapping supplemental direct
-UDP upload 5 Mbit/s only. The second copy window overlapped the supplemental
-tunnel download repeat. Thus that repeat is potentially contaminated and must
-not be presented as a clean confirmation. Primary tunnel download loss 3.43%
-and final direct download loss 5.89% had no evidence-transfer overlap. Full
-window/case mapping, CPU/RSS and local-drop scope belong in the final report.
+**Cleanup complete and independently verified:** all owned firewalld runtime
+rules/interface assignments, task listeners/processes, TUN/veth and egress
+namespace are absent. Original trusted interfaces and IP forwarding are retained.
+Client task namespace resources exited. Remote task staging/archive files and all
+local/remote PSKs were removed. Private local source/vendor/binary deployment
+staging was also deleted; only key-excluding raw evidence and analysis remain
+outside checkout. There are no outstanding remote cleanup obligations.
 
-Next: write/verify sanitized aggregate JSON and report offline, obtain independent
-numeric/source review, remove remaining private build staging (retain raw evidence),
-and commit P5 plus final handoff. No remote cleanup obligations remain.
+Final verification: seven protocol tests passed on macOS/Linux; Linux release
+build and clippy with warnings denied passed; local final tests/clippy/fmt, Python
+syntax, shell syntax, diff whitespace and public-identity scans passed. A separate
+agent reviewed source, reproduced primary numeric results, checked public artifact
+hygiene, and independently verified remote teardown. No GitHub publication was
+requested or performed.
 
 ## Progress log
 
@@ -190,5 +188,6 @@ and commit P5 plus final handoff. No remote cleanup obligations remain.
 - 2026-10-24: P4 cross-host TUN, MTU ping and controlled forwarding/NAT passed; bounded deployment active.
 - 2026-10-24: P5 tools saved during active deployment; direct baseline initial connection timeout under diagnosis/retry.
 - 2026-10-24: direct baseline partial after bounded failures; tunnel matrix progressing; packet-shape parser independently validated on synthetic rollover/reorder/duplicate fixture.
-- 2026-10-24: primary tunnel matrix completed; quiet down5M repeat confirms loss; final direct down5M check active.
+- 2026-10-24: primary tunnel matrix completed; down5M repeat completed; later overlap audit marks it potentially contaminated; final direct down5M check active.
 - 2026-10-24: P6 explicit runtime firewall/network/process cleanup verified; remote staging and all PSKs removed.
+- 2026-10-24: P5 sanitized report/aggregate completed; independent numeric/source/privacy and cleanup reviews passed; private build staging removed.

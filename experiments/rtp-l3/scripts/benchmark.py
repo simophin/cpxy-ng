@@ -110,7 +110,7 @@ def run(name, extra, duration, attributes):
         try:
             return run_once(name,extra,duration,attributes)
         except (RuntimeError,subprocess.TimeoutExpired) as error:
-            summary.setdefault('failed_attempts',[]).append({'case':name,'attempt':attempt,'error':str(error),'epoch':time.time()})
+            summary.setdefault('failed_attempts',[]).append({'case':name,'attempt':attempt,'error_type':type(error).__name__,'reason':'iperf subprocess timed out' if isinstance(error,subprocess.TimeoutExpired) else 'iperf failed; inspect private raw artifacts','epoch':time.time()})
             raw_path=out/(name+'.json')
             if raw_path.exists():
                 raw_path.rename(out/(name+'-failed-attempt%d.json'%attempt))
