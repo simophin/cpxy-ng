@@ -186,3 +186,8 @@ argument to restrict capture timestamps to recorded UDP case windows. This
 requires synchronized server/client wall clocks; record any observed offset.
 These capture observations supplement receiver loss/intervals, and do not
 replace them. Always report tcpdump's capture-drop count.
+
+The `idle` mode of `cross-host-run.py` skips the active UDP phase and performs
+only startup ping, a 600-second idle window and post-idle checks. A failed
+shorter diagnostic may be stopped early, but must be reported with its actual
+duration and cannot be claimed as a completed ten-minute pass.

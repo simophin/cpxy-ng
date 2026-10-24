@@ -14,7 +14,7 @@ import subprocess
 import time
 
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('mode', choices=['endurance', 'comparison'])
+p.add_argument('mode', choices=['endurance', 'idle', 'comparison'])
 p.add_argument('target')
 p.add_argument('port', type=int)
 p.add_argument('out')
@@ -85,14 +85,15 @@ def transfer(name, seconds, udp=False, reverse=False, streams=1):
         raise RuntimeError('no receiver bytes')
 
 ping('startup_ping')
-if a.mode == 'endurance':
-    with (out/'loaded-ping.txt').open('w') as f:
-        proc = subprocess.Popen(['ping','-n','-i','.2',a.target], stdout=f, stderr=subprocess.STDOUT)
-        try:
-            transfer('active-udp-up', 600, udp=True)
-        finally:
-            proc.send_signal(signal.SIGINT)
-            proc.wait(timeout=5)
+if a.mode in ('endurance', 'idle'):
+    if a.mode == 'endurance':
+        with (out/'loaded-ping.txt').open('w') as f:
+            proc = subprocess.Popen(['ping','-n','-i','.2',a.target], stdout=f, stderr=subprocess.STDOUT)
+            try:
+                transfer('active-udp-up', 600, udp=True)
+            finally:
+                proc.send_signal(signal.SIGINT)
+                proc.wait(timeout=5)
     summary['idle_start_epoch'] = time.time()
     save()
     time.sleep(600)
