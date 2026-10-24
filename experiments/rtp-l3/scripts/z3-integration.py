@@ -8,8 +8,6 @@ import json
 import os
 from pathlib import Path
 import signal
-import socket
-import struct
 import subprocess as sp
 import sys
 import time
@@ -98,10 +96,16 @@ def ipt(args):
     run(['iptables', '-w', *args], router)
 
 
-def ping(i):
+def ping(i, retry=False):
     # Large inner packets cannot match the short-control fault rule.
-    run(['nsenter', '-t', app[i], '-U', '--preserve-credentials', '-n', '--', 'ping', '-c', '2', '-W', '2',
-         '-s', '1000', '192.0.2.1'], stdout=sp.DEVNULL)
+    try:
+        run(['nsenter', '-t', app[i], '-U', '--preserve-credentials', '-n', '--',
+             'ping', '-c', '2', '-W', '2', '-s', '1000', '192.0.2.1'], stdout=sp.DEVNULL)
+        return True
+    except sp.CalledProcessError:
+        if not retry:
+            raise
+        return False
 
 
 def paths(i):
@@ -185,14 +189,16 @@ try:
                 s = interval['sum']
                 idle = idle + s['seconds'] if s['bytes'] == 0 else 0
                 maximum = max(maximum, idle)
-            # With 0.5s samples, positive intervals on either side add <1s uncertainty.
-            assert maximum + 1 < 5, (name, maximum)
+            # Bound partial gaps within the two nonempty bordering intervals,
+            # using measured interval duration rather than the requested cadence.
+            stall_bound = maximum + 2 * max(v['sum']['seconds'] for v in receiver['intervals'])
+            assert stall_bound < 5, (name, stall_bound)
             ports = {p['port'] for p in paths(i)[initial[i]:]}
             assert len(ports) >= 3, (name, ports)
             summary['transfers'].append({'client': i, 'direction': 'down' if reverse else 'up',
                 'received_bytes': received['bytes'], 'seconds': received['seconds'],
                 'distinct_new_rotation_ports': len(ports), 'zero_byte_interval_run_seconds': maximum,
-                'stall_upper_bound_seconds': maximum + 1})
+                'stall_upper_bound_seconds': stall_bound})
     summary['checks']['concurrent_masquerade_rotation_transfers'] = True
 
     # Lose initial announcement and +1/+2 retries; a retry or PING recovers.
@@ -248,7 +254,7 @@ try:
     ipt(['-D', 'FORWARD', '-p', 'udp', '--dport', '45990:46020', '-j', 'DROP'])
     ipt(['-D', 'FORWARD', '-p', 'udp', '--sport', '45990:46020', '-j', 'DROP'])
     for i in clients:
-        wait_for(lambda i=i: (ping(i) or True))
+        wait_for(lambda i=i: ping(i, retry=True))
     summary['checks']['blocked_rotation_base_fallback_both_clients'] = True
 
     before = {i: len(paths(i)) for i in clients}
@@ -260,7 +266,8 @@ try:
     summary['checks']['live_clients_server_instance_restart'] = True
     for p in reversed(processes):
         stop(p)
-    summary['client_final_counters'] = [counters(i) for i in clients]
+    summary['client_final_counters'] = [wait_for(lambda i=i: events(f'client{i}.log', 'final'))[-1]
+                                        for i in clients]
     summary['server_final_counters'] = [events(n, 'final')[-1] for n in ('server.log', 'server-restart.log')]
     assert all(e['session_conflicts'] == 0 for e in summary['server_final_counters'])
     (out/'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
