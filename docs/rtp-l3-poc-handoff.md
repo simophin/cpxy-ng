@@ -11,10 +11,8 @@ the existing proxy are requested. Keep the experiment in a standalone Rust crate
 Branch: `poc/rtp-l3-tunnel`, created from local `main` / `origin/main` at
 `e112599400ec1b9c9705a136f5e41b458dfc104e`. The first commit is this handoff.
 
-The v1 experiment is complete at `4e1ab87`. The next experiment below is
-**planned only, not started**. The user requested this documentation update and
-explicitly said not to begin implementation or testing yet; a later agent should
-wait for an explicit instruction to start. Its revised crypto requirements
+The v1 experiment is complete at `4e1ab87`. The user explicitly started the
+v2 XChaCha20 experiment below on 2026-10-24. Its revised crypto requirements
 supersede the original v1 handshake/authentication/replay requirements for v2.
 
 ## Public-repository hygiene
@@ -156,7 +154,7 @@ Authentication succeeds before replay, session or peer state changes. A fresh
 session rejects stale data. The custom control exchange is observable; this is
 not codec-valid media or standardized SRTP.
 
-## Next experiment: handshake-free XChaCha20 (v2, NOT STARTED)
+## Next experiment: handshake-free XChaCha20 (v2, IN PROGRESS)
 
 ### Objective and accepted threat model
 
@@ -213,9 +211,39 @@ and absence of an authentication tag. Verify the chosen Rust implementation's
 raw XChaCha20 API and interoperability vectors; use a maintained implementation
 rather than inventing a cipher or modifying the AEAD internals.
 
+### Recorded v2 conventions (X0)
+
+- Explicit local modes `client-x` / `server-x`; v1 `client` / `server` remain
+  unchanged. Nothing on the wire identifies or negotiates the mode.
+- Directional keys: HKDF-SHA256 with no salt (RFC 5869 zero salt), the 32-byte
+  PSK as input key material, info `rtp-l3-poc/xchacha20/v2/client-to-server` or
+  `rtp-l3-poc/xchacha20/v2/server-to-client`, 32-byte output. Both peers derive
+  them locally at startup; nothing is exchanged.
+- RTP header (12 bytes): `0x80`, marker 0 / payload type 96, 16-bit sequence,
+  32-bit timestamp, 32-bit SSRC. Per process and direction, SSRC, the initial
+  sequence and a timestamp offset are random (RFC 3550 section 5.1 practice);
+  the sequence increments per sent packet and the timestamp is the offset plus
+  monotonic elapsed 90 kHz ticks, both wrapping freely. Framing only.
+- Nonce: 24 bytes from the OS CSPRNG (`rand::rngs::OsRng`, i.e. `getrandom`)
+  per packet, sent in clear immediately after the RTP header.
+- Cipher: raw XChaCha20 from the RustCrypto `chacha20` 0.9 crate (already in the
+  lockfile), one fresh instance per packet, block counter starting at **0** — the
+  libsodium `crypto_stream_xchacha20_xor` convention (HChaCha20 subkey from the
+  first 16 nonce bytes; ChaCha20-IETF nonce `0^4 || nonce[16..24]`). Ciphertext
+  length equals inner IPv4 length.
+- Receiver is stateless: accepts byte 0 `0x80`, byte 1 exactly 96, total UDP
+  payload 56–1236 bytes; ignores sequence/timestamp/SSRC; XORs; requires a
+  well-formed IPv4 header whose total length equals the decrypted length.
+  Anything else increments a `rejected` counter. Replays/modified packets that
+  still parse are accepted by design.
+- Return routing: `server-x KEY IFACE CIDR LISTEN PEER_IPV4:PORT`. The server
+  only accepts from, and only sends to, the configured peer tuple. The client
+  launcher binds a fixed local UDP port. If client-side NAT rewrites the port,
+  the operator learns the external tuple privately and restarts the server.
+
 ### Implementation and continuation plan
 
-- [ ] X0: after the user explicitly starts this work, read this handoff and v1
+- [x] X0: after the user explicitly starts this work, read this handoff and v1
       results, verify the branch/working tree, and preserve `4e1ab87` as the v1
       reference. Record the concrete v2 wire/key/counter conventions and commit
       that checkpoint before deployment.
@@ -260,10 +288,9 @@ or expensive classification; continue to label the result as RTP-framed IP.
 
 ## Current state
 
-**V2 is planned only and must not start until the user instructs a later agent
-to begin.** No v2 code, tests, remote access, deployment, new keys or firewall
-changes were performed for this documentation update. Next action is to await
-that instruction; then begin X0 above.
+**V2 in progress.** X0 done: conventions recorded above; `4e1ab87` preserved as
+the v1 reference. Read-only remote baseline inspection performed; no remote
+changes, keys or firewall rules yet. Next: X1/X2 implementation, then X3 tests.
 
 All v1 checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
 cross-host forwarding/NAT, bounded measurements, sanitized report and cleanup are
@@ -307,3 +334,4 @@ requested or performed.
 - 2026-10-24: documented the user's next experiment: raw XChaCha20 with fresh
   24-byte random per-packet nonces, static PSK, no handshake/Poly1305/replay window.
   Planning only; user explicitly deferred implementation/testing to a later agent.
+- 2026-10-24: user started v2. X0 conventions recorded; remote baselines inspected read-only.
