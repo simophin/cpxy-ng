@@ -11,6 +11,12 @@ the existing proxy are requested. Keep the experiment in a standalone Rust crate
 Branch: `poc/rtp-l3-tunnel`, created from local `main` / `origin/main` at
 `e112599400ec1b9c9705a136f5e41b458dfc104e`. The first commit is this handoff.
 
+The v1 experiment is complete at `4e1ab87`. The next experiment below is
+**planned only, not started**. The user requested this documentation update and
+explicitly said not to begin implementation or testing yet; a later agent should
+wait for an explicit instruction to start. Its revised crypto requirements
+supersede the original v1 handshake/authentication/replay requirements for v2.
+
 ## Public-repository hygiene
 
 Never put preshared keys, credentials, SSH configuration, actual hostnames,
@@ -47,7 +53,7 @@ commit sanitized aggregates only. Do not commit a key even for convenience.
   `simophin` before writes, and use the same identity for Git credentials. Never
   print credentials. No GitHub publishing is required by this task.
 
-## Proposed implementation
+## Original implementation (v1, completed)
 
 1. Standalone Linux Rust binary with server/client modes, plus scripts for setup,
    cleanup, captures and repeatable benchmarks. Reuse existing dependencies where
@@ -150,9 +156,116 @@ Authentication succeeds before replay, session or peer state changes. A fresh
 session rejects stale data. The custom control exchange is observable; this is
 not codec-valid media or standardized SRTP.
 
+## Next experiment: handshake-free XChaCha20 (v2, NOT STARTED)
+
+### Objective and accepted threat model
+
+The user's objective is censorship circumvention through traffic concealment,
+not an additional layer of application security. Encrypt the entire inner IP
+packet, including IP headers and TLS handshake/SNI, while preserving the visible
+RTP framing. Existing end-to-end TLS continues to protect TLS application data.
+For this experiment the user explicitly accepts **no Poly1305/tag, no tunnel
+authenticity, no replay protection and no forward secrecy**. Do not reintroduce
+a session handshake or replay machinery to supply those excluded properties.
+This scope choice does not make nonce reuse safe: concealment still requires
+avoiding repeated keystreams under the same key.
+
+The v1 `R3P1` HELLO/CHALLENGE/FINISH/READY exchange is a directly recognizable
+startup signature. V2 must send only data packets with RTP framing, including
+from the first packet; no custom magic, setup datagrams, challenge exchange,
+wire negotiation, session identifier exchange, or fallback probe to v1.
+
+### Packet format and crypto
+
+```text
+outer IPv4 | UDP | RTP header (12) | random nonce (24) | encrypted inner IP
+```
+
+- Use **raw XChaCha20**, not ChaCha20 and not XChaCha20-Poly1305. Its nonce is
+  192 bits / 24 bytes and its key is 256 bits / 32 bytes. Generate a fresh full
+  24-byte nonce with an OS-backed cryptographically secure RNG for every packet,
+  transmit it in the clear, and initialize a fresh cipher instance for that packet.
+  Do not truncate it or derive it solely from RTP sequence/timestamp/SSRC.
+- Random nonces are appropriate because collisions in this 192-bit space are
+  negligible with a sound RNG. XChaCha20 itself is **not nonce-misuse-resistant**;
+  an actual repeated key/nonce still repeats the keystream. Never replace the
+  secure RNG with a small counter, timestamp, or weak seeded PRNG.
+- Retain a static PSK supplied through a private key file. Derive independent
+  directional keys locally with HKDF-SHA256 and fixed versioned direction labels;
+  this requires no exchanged randomness, session state, extra packet bytes, or
+  handshake. Both peers use the same agreed derivation and packet cipher counter
+  convention. Record those exact conventions before implementing.
+- RTP sequence, timestamps and SSRC serve the outer framing only. Their rollover,
+  packet loss/reordering, and either process restarting must not affect packet
+  decryptability. There is no implicit crypto rollover counter or replay bitmap.
+- XChaCha20 preserves plaintext length. Crypto overhead is 24 bytes; total outer
+  IPv4 overhead is **64 bytes** (20 IP + 8 UDP + 12 RTP + 24 nonce), versus v1's
+  56 bytes. Keep inner MTU 1200 initially: outer IPv4 length is at most **1264**.
+  A 1000-byte inner UDP application payload becomes **1092** outer IPv4 bytes.
+- Raw stream encryption has no tag or authenticated associated data. Do not claim
+  that a successful XOR/decryption establishes the sender's identity or that
+  modified/replayed packets will be cryptographically rejected. Keep ordinary
+  packet-length/IP parsing checks and bounded buffers for runtime correctness.
+
+Reference: [libsodium raw XChaCha20 documentation](https://doc.libsodium.org/advanced/stream_ciphers/xchacha20)
+explicitly specifies the 192-bit nonce, suitability of random per-message nonces,
+and absence of an authentication tag. Verify the chosen Rust implementation's
+raw XChaCha20 API and interoperability vectors; use a maintained implementation
+rather than inventing a cipher or modifying the AEAD internals.
+
+### Implementation and continuation plan
+
+- [ ] X0: after the user explicitly starts this work, read this handoff and v1
+      results, verify the branch/working tree, and preserve `4e1ab87` as the v1
+      reference. Record the concrete v2 wire/key/counter conventions and commit
+      that checkpoint before deployment.
+- [ ] X1: add an explicit local v2 mode or separate experimental binary, keeping
+      v1 available for a controlled comparison. Add the raw cipher dependency as
+      needed. Remove setup, tag and replay assumptions from the v2 packet path;
+      do not auto-negotiate modes over the network. Update launcher/runtime
+      readiness and statistics so v2 readiness does not wait for a handshake.
+- [ ] X2: make single-client return routing independent of authentication:
+      configure the server's client UDP endpoint out of band and support a fixed
+      client bind port. If NAT changes the tuple, observe/configure it privately
+      through the authorized operator channel. Do not add a discovery handshake.
+      Keep the source-restricted temporary firewalld setup and current namespace
+      arrangement. No hostnames, tuples, keys or private paths belong in Git.
+- [ ] X3: validate a known raw XChaCha20 vector/reference and independent packet
+      round trips in both directions. Exercise sequence rollover, missing/out-of-
+      order packets, fresh nonces after restart, first-packet delivery without
+      setup, truncation/MTU handling and cleanup. Verify v2 has no tag or control
+      packets on the wire. Replays are deliberately accepted; tampering has no
+      guaranteed cryptographic detection. Do not retain contrary v1 test assertions.
+- [ ] X4: run isolated namespace integration, then a bounded cross-host test only
+      when this experiment is started. Capture from before process startup and
+      prove that the first outbound packet is RTP-framed encrypted data. Verify
+      forwarding/NAT to the controlled endpoint as before; keep captures private.
+- [ ] X5: repeat the bounded TCP/UDP, idle/loaded RTT, CPU/RSS and packet-shape
+      measurements. Report setup/first-packet failures, receiver loss and ping
+      delivery alongside RTT percentiles. Compare to v1 with matched settings and
+      adjacent measurement windows where feasible; do not claim a speedup from
+      old unmatched samples. Record the extra 8 bytes per packet and achieved
+      socket buffer sizes. Keep buffer/batching optimization a separate change
+      so its effect is distinguishable from the crypto/protocol change.
+- [ ] X6: remove every task-owned runtime firewall rule, process, interface,
+      namespace and key/staging file; independently verify cleanup. Commit a
+      sanitized report and final handoff, retaining key-free raw evidence privately.
+
+Commit coherent X checkpoints and update Current state throughout, as for v1.
+Do not transfer evidence, compile, or run other throughput tests during any
+measurement case. Preserve failed attempts with endpoint-free summaries; Python
+timeout exception strings can contain full command arguments and must not be
+published. A framing/crypto change alone does not establish valid media camouflage
+or expensive classification; continue to label the result as RTP-framed IP.
+
 ## Current state
 
-All checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
+**V2 is planned only and must not start until the user instructs a later agent
+to begin.** No v2 code, tests, remote access, deployment, new keys or firewall
+changes were performed for this documentation update. Next action is to await
+that instruction; then begin X0 above.
+
+All v1 checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
 cross-host forwarding/NAT, bounded measurements, sanitized report and cleanup are
 finished. Results: `docs/rtp-l3-poc-results.md`; detailed endpoint-free aggregate:
 `experiments/rtp-l3/results/2026-10-24-summary.json`.
@@ -191,3 +304,6 @@ requested or performed.
 - 2026-10-24: primary tunnel matrix completed; down5M repeat completed; later overlap audit marks it potentially contaminated; final direct down5M check active.
 - 2026-10-24: P6 explicit runtime firewall/network/process cleanup verified; remote staging and all PSKs removed.
 - 2026-10-24: P5 sanitized report/aggregate completed; independent numeric/source/privacy and cleanup reviews passed; private build staging removed.
+- 2026-10-24: documented the user's next experiment: raw XChaCha20 with fresh
+  24-byte random per-packet nonces, static PSK, no handshake/Poly1305/replay window.
+  Planning only; user explicitly deferred implementation/testing to a later agent.
