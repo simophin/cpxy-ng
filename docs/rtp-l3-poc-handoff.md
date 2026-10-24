@@ -608,12 +608,17 @@ Replay rules:
 
 ## Current state
 
-**Z1 complete; next: Z2 runtime integration.** `lib.rs` exposes `control` and
+**Z2 runtime checkpoint implemented; Linux validation in progress.**
+The binary now wires v4 registration, multi-socket rotation, client switching,
+keepalive/fallback, per-port streams and counters. The regression script and
+fault proxy now follow v4 rotation paths. Linux-target check/clippy and the 17
+portable tests pass locally. Linux execution is next; Z2 is not yet complete.
+
+Previous Z1 checkpoint: `lib.rs` exposes `control` and
 `state` modules for the authenticated codec, per-port keys and sans-I/O client /
 server lifecycle. All 17 portable tests pass on macOS, including the six v3
 regressions. `cargo clippy --locked --all-targets -- -D warnings` passes.
-The binary, CLI, counters and Linux integration script still run v3; v4 Linux
-and cross-host validation remain Z2–Z4. No remote resources were created and
+V4 Linux execution and cross-host validation remain Z2–Z4. No remote resources were created and
 there are no cleanup obligations.
 
 Z1 integration conventions / clarified edge cases:
@@ -717,3 +722,7 @@ obligations remain.
   bounded capacity, expiry, rotation/retries/grace, replay/instance checks,
   keepalive and base fallback. Seventeen macOS tests and clippy with warnings
   denied pass. No remote deployment; runtime integration is Z2.
+
+- 2026-10-25: Z2 runtime checkpoint: v4 CLI, polling, registration, per-port
+  crypto streams, rotation, liveness and counters implemented; Linux validation
+  is pending. No public-server resources or firewall changes created.

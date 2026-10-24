@@ -2,7 +2,7 @@
 //!
 //! Handshake-free raw XChaCha20 with 16 random nonce bytes per packet. No tag,
 //! replay protection, sender authenticity or forward secrecy on data by design.
-//! The v4 library adds authenticated control; the binary still runs v3.
+//! V4 adds authenticated control, session registration and per-port keys.
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
     XChaCha20,

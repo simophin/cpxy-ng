@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """Loopback-only deterministic bounded UDP fault injector for integration tests.
 Periodic data loss/duplicates/reorder/tampering in both directions.
-Usage: fault-proxy.py LISTEN_PORT UPSTREAM_PORT [UPSTREAM_BIND_PORT]
+Usage: fault-proxy.py BASE_PORT ROTATE_LOW ROTATE_HIGH
 """
 import selectors
 import socket
 import sys
 import time
 
-listen, upstream = map(int, sys.argv[1:3])
-a = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-a.bind(("127.0.0.1", listen))
-b = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-if len(sys.argv) > 3:
-    b.bind(("127.0.0.1", int(sys.argv[3])))
-b.connect(("127.0.0.1", upstream))
+# One forwarding pair per server port. STATE remains encrypted and names the
+# real port; use a second loopback IP so the proxy can expose identical ports.
+# Usage: fault-proxy.py BASE_PORT ROTATE_LOW ROTATE_HIGH
+base, low, high = map(int, sys.argv[1:4])
 sel = selectors.DefaultSelector()
-sel.register(a, selectors.EVENT_READ)
-sel.register(b, selectors.EVENT_READ)
-client = None
+for port in [base, *range(low, high + 1)]:
+    front = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    front.bind(("127.0.0.2", port))
+    back = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    back.connect(("127.0.0.1", port))
+    pair = {"front": front, "back": back, "client": None}
+    sel.register(front, selectors.EVENT_READ, (pair, 0))
+    sel.register(back, selectors.EVENT_READ, (pair, 1))
 counts = [0, 0]
 held = [None, None]
 held_at = [0.0, 0.0]
@@ -31,13 +33,16 @@ while True:
             targets[direction](held[direction])
             held[direction] = None
     for key, _ in sel.select(0.01):
-        d, source = key.fileobj.recvfrom(65536)
-        direction = int(key.fileobj is b)
+        pair, direction = key.data
+        try:
+            d, source = key.fileobj.recvfrom(65536)
+        except ConnectionRefusedError:
+            continue  # A rotation socket may have retired.
         if not direction:
-            client = source
-        if client is None:
+            pair["client"] = source
+        if pair["client"] is None:
             continue
-        target, address = (a, client) if direction else (b, None)
+        target, address = (pair["front"], pair["client"]) if direction else (pair["back"], None)
         def send(payload, target=target, address=address):
             target.sendto(payload, address) if address else target.send(payload)
         targets[direction] = send

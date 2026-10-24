@@ -331,6 +331,7 @@ pub struct Client {
     retry_at: Option<u64>,
     recovering: bool,
     pub fallbacks: u64,
+    pub pings_unanswered: u64,
 }
 impl Client {
     pub fn new(session: u64, inner: Ipv4Addr, base: u16, interval: u64, now: u64) -> Option<Self> {
@@ -355,6 +356,7 @@ impl Client {
             retry_at: None,
             recovering: false,
             fallbacks: 0,
+            pings_unanswered: 0,
         })
     }
     /// None on sequence exhaustion: restart with a new random session id.
@@ -487,6 +489,7 @@ impl Client {
             if now < self.retry_at.unwrap() {
                 return None;
             }
+            self.pings_unanswered += 1;
             let msg = self.ping(now)?;
             self.retry_at = Some(now.saturating_add(self.backoff));
             self.backoff = (self.backoff * 2).min(30);
@@ -496,6 +499,7 @@ impl Client {
             if now < p.deadline {
                 return None;
             }
+            self.pings_unanswered += 1;
             if p.attempts < 3 {
                 let attempts = p.attempts + 1;
                 let msg = self.ping(now)?;

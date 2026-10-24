@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Open host UDP socket, then inherit it into unprivileged TUN/app namespace.
 Usage: client-netns.py BINARY KEY_FILE ENDPOINT:PORT IFACE CIDR RUN_SCRIPT [BIND_PORT]
-BIND_PORT fixes the local UDP port so the server can be configured with the
-return tuple out of band.
+BIND_PORT optionally fixes the local UDP port; PING learns its NAT mapping.
 RUN_SCRIPT runs inside the namespace after TUN is ready. Paths are supplied by
 operator; never embed deployment endpoints or keys in this file.
 """

@@ -20,8 +20,8 @@ cleanup() {
   done
 }
 trap cleanup EXIT INT TERM
-start_server() { # $1 = configured client tuple, $2 = log name
-  "$poc_bin" server "$poc_key" rtptest0 192.0.2.1/24 127.0.0.1:45983 "$1" 2>"$poc_out/$2" &
+start_server() { # $1 = log name
+  "$poc_bin" server "$poc_key" rtptest0 192.0.2.1/24 127.0.0.1:45983 45990-46000 10 2>"$poc_out/$1" &
   poc_server=$!
   poc_wait=0
   until ip -o -4 addr show dev rtptest0 2>/dev/null | grep -q '192.0.2.1/24'; do
@@ -38,33 +38,33 @@ start_iperf() {
   poc_iperf=$!
   sleep 0.2
 }
-start_server 127.0.0.1:45985 server-clean.log
+start_server server-clean.log
 start_iperf
 cat >"$poc_out/clean.sh" <<'RUN'
 set -eu
-ping -c 1 -W 2 192.0.2.1 >"$poc_out/first-ping.txt"
+ping -c 1 -W 3 192.0.2.1 >"$poc_out/first-ping.txt"
 ping -c 10 -i 0.05 -s 1172 -M do 192.0.2.1
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -n 100M -J >"$poc_out/clean-up.json"
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -n 100M -R -J >"$poc_out/clean-down.json"
 RUN
 python3 "$poc_crate/scripts/client-netns.py" "$poc_bin" "$poc_key" 127.0.0.1:45983 rtptest1 192.0.2.2/24 "$poc_out/clean.sh" 45985 >"$poc_out/clean.txt" 2>"$poc_out/client-clean.log"
-# Restart both peers: fresh SSRC/sequence/nonces must interoperate without setup.
+# Restart both peers: fresh session/instance and port secrets must interoperate.
 stop_server
 kill -TERM "$poc_iperf"; wait "$poc_iperf" || true
-start_server 127.0.0.1:45986 server-fault.log
+start_server server-fault.log
 start_iperf
-python3 "$poc_crate/scripts/fault-proxy.py" 45984 45983 45986 >"$poc_out/faults.txt" 2>&1 &
+python3 "$poc_crate/scripts/fault-proxy.py" 45983 45990 46000 >"$poc_out/faults.txt" 2>&1 &
 poc_proxy=$!
 sleep 0.2
 cat >"$poc_out/fault.sh" <<'RUN'
 set -eu
-ping -c 1 -W 2 192.0.2.1 >"$poc_out/first-ping-restart.txt"
+ping -c 1 -W 3 192.0.2.1 >"$poc_out/first-ping-restart.txt"
 ping -c 20 -i 0.05 192.0.2.1
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -t 4 -J >"$poc_out/fault-up.json"
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -t 4 -R -J >"$poc_out/fault-down.json"
 timeout 45 iperf3 -c 192.0.2.1 -p 45201 -t 3 -u -b 5M -l 1000 -J >"$poc_out/fault-udp.json"
 RUN
-python3 "$poc_crate/scripts/client-netns.py" "$poc_bin" "$poc_key" 127.0.0.1:45984 rtptest1 192.0.2.2/24 "$poc_out/fault.sh" >"$poc_out/fault.txt" 2>"$poc_out/client-fault.log"
+python3 "$poc_crate/scripts/client-netns.py" "$poc_bin" "$poc_key" 127.0.0.2:45983 rtptest1 192.0.2.2/24 "$poc_out/fault.sh" >"$poc_out/fault.txt" 2>"$poc_out/client-fault.log"
 stop_server
 python3 - "$poc_out" <<'CHECK'
 import json, pathlib, sys
@@ -81,10 +81,12 @@ for name in ('clean-up','clean-down','fault-up','fault-down','fault-udp'):
         assert received['bytes']>=100*1024*1024,(name,received)
 for log in ('client-clean.log','client-fault.log','server-clean.log','server-fault.log'):
     events=[json.loads(l) for l in (out/log).read_text().splitlines() if l.startswith('{')]
-    assert events[0]['event']=='ready' and events[0]['protocol']=='xchacha20-v3',log
+    assert events[0]['event']=='ready' and events[0]['protocol']=='xchacha20-v4',log
     final=events[-1]
     assert final['event']=='final' and final['rx_packets']>0,(log,final)
+    if log.startswith('client-'):
+        assert final['switches'] >= 1 and final['pings_sent'] >= 2,(log,final)
     print(log,'rx',final['rx_packets'],'rejected',final['rejected'])
 CHECK
-echo 'PASS local integration: first packet without setup, 100MiB each way across RTP rollover, peer restarts, UDP faults'
+echo 'PASS local integration: registration, inherited socket disconnect/sendto, 100MiB each way across RTP rollover, peer restarts, UDP faults'
 NS
