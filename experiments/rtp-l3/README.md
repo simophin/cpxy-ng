@@ -68,3 +68,26 @@ arrival gaps, burst lengths, RTP sequence observations and timestamp deltas from
 an Ethernet pcap. Capture at least the 12-byte RTP header; retain original packet
 lengths. Publish its aggregates with the exact capture/case window and tcpdump's
 capture-drop counts. Passive sequence gaps are not final receiver/path loss.
+
+## V2: handshake-free raw XChaCha20 (`client-x` / `server-x`)
+
+Explicit local modes; v1 is unchanged and nothing on the wire negotiates modes.
+Every datagram is `RTP header (12) | random nonce (24) | XChaCha20(inner IPv4)`.
+There is **no handshake, tag, replay protection, sender authenticity or forward
+secrecy** by design; modified or replayed packets that still parse as IPv4 are
+forwarded. Directional keys come from the PSK via HKDF-SHA256; each packet uses
+a fresh 24-byte OS-RNG nonce and a fresh cipher (block counter 0, libsodium
+`crypto_stream_xchacha20_xor` convention). Sequence/timestamp/SSRC are framing
+only. IPv4 wire size is inner length + 64 bytes (1200-byte inner -> 1264).
+
+```sh
+rtp-l3-poc server-x KEY_FILE TUN_NAME INNER_SERVER_CIDR LISTEN_ADDRESS:PORT CLIENT_IPV4:PORT
+python3 scripts/client-netns.py BINARY KEY_FILE SERVER_ADDRESS:PORT TUN_NAME INNER_CLIENT_CIDR RUN_SCRIPT client-x CLIENT_BIND_PORT
+```
+
+The server only accepts from, and sends to, the configured client tuple (after
+any client-side NAT); learn it privately. Its counter `rejected` covers foreign
+sources and datagrams that are malformed or not IPv4 after decryption.
+`sh scripts/local-integration-x.sh CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` checks
+first-packet delivery without setup, 100 MiB each way, peer restarts and the
+fault proxy (whose reorder hold is now bounded to 20 ms).

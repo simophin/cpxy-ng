@@ -247,18 +247,18 @@ rather than inventing a cipher or modifying the AEAD internals.
       results, verify the branch/working tree, and preserve `4e1ab87` as the v1
       reference. Record the concrete v2 wire/key/counter conventions and commit
       that checkpoint before deployment.
-- [ ] X1: add an explicit local v2 mode or separate experimental binary, keeping
+- [x] X1: add an explicit local v2 mode or separate experimental binary, keeping
       v1 available for a controlled comparison. Add the raw cipher dependency as
       needed. Remove setup, tag and replay assumptions from the v2 packet path;
       do not auto-negotiate modes over the network. Update launcher/runtime
       readiness and statistics so v2 readiness does not wait for a handshake.
-- [ ] X2: make single-client return routing independent of authentication:
+- [x] X2: make single-client return routing independent of authentication:
       configure the server's client UDP endpoint out of band and support a fixed
       client bind port. If NAT changes the tuple, observe/configure it privately
       through the authorized operator channel. Do not add a discovery handshake.
       Keep the source-restricted temporary firewalld setup and current namespace
       arrangement. No hostnames, tuples, keys or private paths belong in Git.
-- [ ] X3: validate a known raw XChaCha20 vector/reference and independent packet
+- [x] X3: validate a known raw XChaCha20 vector/reference and independent packet
       round trips in both directions. Exercise sequence rollover, missing/out-of-
       order packets, fresh nonces after restart, first-packet delivery without
       setup, truncation/MTU handling and cleanup. Verify v2 has no tag or control
@@ -288,9 +288,28 @@ or expensive classification; continue to label the result as RTP-framed IP.
 
 ## Current state
 
-**V2 in progress.** X0 done: conventions recorded above; `4e1ab87` preserved as
-the v1 reference. Read-only remote baseline inspection performed; no remote
-changes, keys or firewall rules yet. Next: X1/X2 implementation, then X3 tests.
+**V2 in progress.** X0–X3 done. `client-x`/`server-x` implemented beside v1
+(`chacha20` 0.9 raw XChaCha20, already locked). 13 unit tests pass on macOS and
+Linux (7 v1 + 6 v2: libsodium counter-0 packet vector generated independently
+via `crypto_stream_xchacha20_xor`, draft-arciszewski-xchacha-03 A.3.2 keystream,
+directional keys, rollover/loss/reorder/replay/restart decryptability, 10k
+distinct nonces, length/header checks and documented non-detection of a
+flipped payload bit). Linux release build and clippy `-D warnings` pass (fixed
+a newer-rustc `function_casts_as_integer` lint on the signal handler cast).
+
+`scripts/local-integration-x.sh` passed in disposable namespaces: first ping
+without setup, MTU-sized ping, 100 MiB each way (over 130k packets, crossing
+RTP sequence rollover), restart of both peers with fresh SSRC/sequence/nonces,
+and the fault proxy (loss/dup/reorder/1-byte corruption). Every corrupted
+datagram was forwarded (`rejected` 0); endpoint TCP/UDP checksums discarded them.
+The first v2 attempt exposed a fault-proxy artifact (a reordered packet held
+until the next packet could stall a quiet iperf control connection); the hold
+is now bounded to 20 ms. The v1 integration still passes with the same proxy.
+
+Private client staging (source+vendor, release binary, PSK 0600) lives in a
+task directory outside any checkout on CLIENT_HOST; it must be deleted in X6.
+Next: X4 — copy PSK/binary to SERVER_HOST privately, open source-restricted
+runtime firewalld rule, capture from before startup, cross-host validation.
 
 All v1 checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
 cross-host forwarding/NAT, bounded measurements, sanitized report and cleanup are
@@ -335,3 +354,4 @@ requested or performed.
   24-byte random per-packet nonces, static PSK, no handshake/Poly1305/replay window.
   Planning only; user explicitly deferred implementation/testing to a later agent.
 - 2026-10-24: user started v2. X0 conventions recorded; remote baselines inspected read-only.
+- 2026-10-24: X1–X3 v2 modes, unit tests and namespace integration passed (macOS+Linux); v1 regression integration passed.

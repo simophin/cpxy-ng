@@ -246,6 +246,201 @@ impl Rx {
     }
 }
 
+/// V2: handshake-free raw XChaCha20 with a random 24-byte nonce per packet.
+/// No tag, replay protection, authenticity or forward secrecy by design.
+pub mod xchacha {
+    use super::{ipv4, MTU};
+    use chacha20::{
+        cipher::{KeyIvInit, StreamCipher},
+        XChaCha20,
+    };
+    use hkdf::Hkdf;
+    use rand::{rngs::OsRng, RngCore};
+    use sha2::Sha256;
+    pub const NONCE: usize = 24;
+    pub const OVERHEAD: usize = 12 + NONCE;
+    const C2S: &[u8] = b"rtp-l3-poc/xchacha20/v2/client-to-server";
+    const S2C: &[u8] = b"rtp-l3-poc/xchacha20/v2/server-to-client";
+
+    /// Returns (transmit, receive) keys for this side.
+    pub fn keys(psk: &[u8; 32], client: bool) -> ([u8; 32], [u8; 32]) {
+        let h = Hkdf::<Sha256>::new(None, psk);
+        let (mut a, mut b) = ([0; 32], [0; 32]);
+        h.expand(C2S, &mut a).unwrap();
+        h.expand(S2C, &mut b).unwrap();
+        if client {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+    fn xor(key: &[u8; 32], nonce: &[u8; NONCE], data: &mut [u8]) {
+        XChaCha20::new(key.into(), nonce.into()).apply_keystream(data);
+    }
+    pub struct Tx {
+        key: [u8; 32],
+        ssrc: u32,
+        seq: u16,
+        offset: u32,
+    }
+    impl Tx {
+        pub fn new(key: [u8; 32]) -> Self {
+            Self {
+                key,
+                ssrc: OsRng.next_u32(),
+                seq: OsRng.next_u32() as u16,
+                offset: OsRng.next_u32(),
+            }
+        }
+        /// `ticks` is monotonic elapsed 90 kHz time; framing only.
+        pub fn seal(&mut self, ip: &[u8], ticks: u32) -> Option<Vec<u8>> {
+            let mut nonce = [0; NONCE];
+            OsRng.fill_bytes(&mut nonce);
+            self.seal_with(ip, ticks, &nonce)
+        }
+        fn seal_with(&mut self, ip: &[u8], ticks: u32, nonce: &[u8; NONCE]) -> Option<Vec<u8>> {
+            if !ipv4(ip) {
+                return None;
+            }
+            let mut p = Vec::with_capacity(OVERHEAD + ip.len());
+            p.extend([0x80, 96]);
+            p.extend(self.seq.to_be_bytes());
+            p.extend(self.offset.wrapping_add(ticks).to_be_bytes());
+            p.extend(self.ssrc.to_be_bytes());
+            p.extend(nonce);
+            p.extend(ip);
+            xor(&self.key, nonce, &mut p[OVERHEAD..]);
+            self.seq = self.seq.wrapping_add(1);
+            Some(p)
+        }
+    }
+    /// Stateless: sequence, timestamp and SSRC never affect decryption.
+    pub fn open(key: &[u8; 32], p: &[u8]) -> Option<Vec<u8>> {
+        if p.len() < OVERHEAD + 20 || p.len() > OVERHEAD + MTU || p[..2] != [0x80, 96] {
+            return None;
+        }
+        let nonce: &[u8; NONCE] = p[12..OVERHEAD].try_into().unwrap();
+        let mut ip = p[OVERHEAD..].to_vec();
+        xor(key, nonce, &mut ip);
+        ipv4(&ip).then_some(ip)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        fn ip(n: usize) -> Vec<u8> {
+            let mut p: Vec<u8> = (0..n).map(|i| i as u8).collect();
+            p[0] = 0x45;
+            p[2..4].copy_from_slice(&(n as u16).to_be_bytes());
+            p
+        }
+        fn hex(s: &str) -> Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect()
+        }
+        #[test]
+        fn libsodium_counter_zero_vector() {
+            // libsodium crypto_stream_xchacha20_xor (counter 0) of ip(40) under
+            // key 0x80..0x9f and nonce 0x40..0x57, generated independently.
+            let key: [u8; 32] = core::array::from_fn(|i| 0x80 + i as u8);
+            let nonce: [u8; NONCE] = core::array::from_fn(|i| 0x40 + i as u8);
+            let mut t = Tx::new(key);
+            let p = t.seal_with(&ip(40), 0, &nonce).unwrap();
+            assert_eq!(&p[12..OVERHEAD], &nonce);
+            assert_eq!(
+                p[OVERHEAD..],
+                hex("3e181fa8f764f69e0146654083b473f757dd7a60bce7a787c56a9a6a9fe419ca81ea051b7f2514b8")
+            );
+            assert_eq!(open(&key, &p), Some(ip(40)));
+        }
+        #[test]
+        fn draft_xchacha_vector() {
+            // draft-arciszewski-xchacha-03 A.3.2 keystream starts at block 1.
+            let key: [u8; 32] = core::array::from_fn(|i| 0x80 + i as u8);
+            let nonce: [u8; NONCE] = hex("404142434445464748494a4b4c4d4e4f5051525354555658")
+                .try_into()
+                .unwrap();
+            let mut ks = [0u8; 96];
+            xor(&key, &nonce, &mut ks);
+            assert_eq!(
+                ks[64..],
+                hex("29624b4b1b140ace53740e405b2168540fd7d630c1f536fecd722fc3cddba7f4")
+            );
+        }
+        #[test]
+        fn directional_roundtrip_without_setup() {
+            let (ctx, crx) = keys(&[7; 32], true);
+            let (stx, srx) = keys(&[7; 32], false);
+            assert_eq!((ctx, crx), (srx, stx));
+            assert_ne!(ctx, crx);
+            let (mut c, mut s) = (Tx::new(ctx), Tx::new(stx));
+            let p = c.seal(&ip(MTU), 0).unwrap();
+            assert_eq!(p.len(), MTU + 36);
+            assert_eq!(open(&srx, &p), Some(ip(MTU)));
+            assert!(open(&crx, &p).is_none());
+            let q = s.seal(&ip(20), 0).unwrap();
+            assert_eq!(open(&crx, &q), Some(ip(20)));
+            assert!(open(&srx, &q).is_none());
+        }
+        #[test]
+        fn framing_rollover_loss_reorder_replay_and_restart() {
+            let (tx, _) = keys(&[9; 32], true);
+            let (_, rx) = keys(&[9; 32], false);
+            let mut t = Tx::new(tx);
+            t.seq = 65534;
+            t.offset = u32::MAX;
+            let ps: Vec<_> = (0..4).map(|i| t.seal(&ip(60), i).unwrap()).collect();
+            assert_eq!(ps[2][2..4], [0, 0]);
+            assert_eq!(ps[1][4..8], [0, 0, 0, 0]);
+            for i in [3, 0, 2, 2, 3] {
+                assert_eq!(open(&rx, &ps[i]), Some(ip(60)));
+            }
+            // A restarted sender has new SSRC/sequence but remains decryptable.
+            let mut restarted = Tx::new(tx);
+            let r = restarted.seal(&ip(60), 0).unwrap();
+            assert_eq!(open(&rx, &r), Some(ip(60)));
+            let mut nonces = std::collections::HashSet::new();
+            for p in ps.iter().chain([&r]) {
+                assert!(nonces.insert(p[12..OVERHEAD].to_vec()));
+            }
+        }
+        #[test]
+        fn nonce_fresh_per_packet() {
+            let mut t = Tx::new([1; 32]);
+            let mut seen = std::collections::HashSet::new();
+            for _ in 0..10000 {
+                let p = t.seal(&ip(20), 0).unwrap();
+                assert!(seen.insert(p[12..OVERHEAD].to_vec()));
+            }
+        }
+        #[test]
+        fn length_and_header_checks() {
+            let (tx, _) = keys(&[3; 32], true);
+            let (_, rx) = keys(&[3; 32], false);
+            let mut t = Tx::new(tx);
+            assert!(t.seal(&ip(MTU + 1), 0).is_none());
+            assert!(t.seal(&ip(19), 0).is_none());
+            let p = t.seal(&ip(100), 0).unwrap();
+            assert!(open(&rx, &p[..p.len() - 1]).is_none());
+            assert!(open(&rx, &p[..OVERHEAD + 19]).is_none());
+            let mut long = p.clone();
+            long.resize(OVERHEAD + MTU + 1, 0);
+            assert!(open(&rx, &long).is_none());
+            let mut bad = p.clone();
+            bad[1] = 97;
+            assert!(open(&rx, &bad).is_none());
+            // No tag: a flipped payload bit outside the checked header fields
+            // decrypts to a modified packet rather than being rejected.
+            let mut flipped = p.clone();
+            flipped[OVERHEAD + 50] ^= 1;
+            let opened = open(&rx, &flipped).unwrap();
+            assert_ne!(opened, ip(100));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
