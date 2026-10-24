@@ -188,10 +188,22 @@ Do not compare the early smoke RTT as simultaneous evidence of an advantage.
 The first capture is bounded and may represent only early uploads; separate
 bounded download/UDP samples must be mapped to their actual case windows.
 
-Next: complete sequential matched direct/tunnel TCP and paced UDP measurements with
-idle/loaded ping and CPU/RSS sampling. Keep raw artifacts private, publish sanitized
-aggregates only. Then stop the supervisor, verify all owned processes/interfaces/
-namespaces/firewall rules absent, remove staged keys/files, and commit P5/P6.
+Primary tunnel matrix has completed 12 TCP and six UDP cases. Upload UDP at
+5/10/20/50 Mbit/s had zero receiver loss; 100 Mbit/s delivered about 50.3 Mbit/s
+with 48.8% loss. Download 5 Mbit/s had 3.43% loss and stopped; a quiet-interval
+repeat had 6.03% loss with zero local receive-overflow/replay/send/TUN drops.
+Primary client cumulative RX overflow was 6366, all accumulated before the final
+UDP download case. Direct supplemental upload UDP 5/10 Mbit/s had zero loss;
+next rate failed two bounded control connections. A single direct download
+5 Mbit/s comparison is the last active network test. No further throughput
+matrix is planned. Some completed-capture copies occurred during UDP tests and
+must be disclosed as possible interference; remaining evidence transfer waits
+until network tests end.
+
+Next: retrieve all raw evidence privately, write sanitized aggregate JSON/report
+including timestamps, partial baseline and all setup failures, then stop the
+server supervisor and verify/remove all task processes, runtime rules, interfaces,
+namespace and staged key/files. Final P5/P6 commits must record cleanup evidence.
 
 ## Progress log
 
@@ -203,3 +215,4 @@ namespaces/firewall rules absent, remove staged keys/files, and commit P5/P6.
 - 2026-10-24: P4 cross-host TUN, MTU ping and controlled forwarding/NAT passed; bounded deployment active.
 - 2026-10-24: P5 tools saved during active deployment; direct baseline initial connection timeout under diagnosis/retry.
 - 2026-10-24: direct baseline partial after bounded failures; tunnel matrix progressing; packet-shape parser independently validated on synthetic rollover/reorder/duplicate fixture.
+- 2026-10-24: primary tunnel matrix completed; quiet down5M repeat confirms loss; final direct down5M check active.

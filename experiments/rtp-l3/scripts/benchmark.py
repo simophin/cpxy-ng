@@ -18,6 +18,8 @@ p.add_argument('--target', required=True)
 p.add_argument('--port', type=int, required=True)
 p.add_argument('--out', required=True)
 p.add_argument('--kind', choices=['direct', 'tunnel'], required=True)
+p.add_argument('--protocol', choices=['all','tcp','udp'], default='all')
+p.add_argument('--udp-direction', choices=['both','up','down'], default='both')
 p.add_argument('--tcp-seconds', type=int, default=20)
 p.add_argument('--repetitions', type=int, default=3)
 p.add_argument('--udp-seconds', type=int, default=10)
@@ -47,7 +49,7 @@ def ping_summary(text):
     return {'samples': len(values), 'median_ms': q(.5), 'p95_ms': q(.95), 'p99_ms': q(.99),
             'sent': int(m[1]) if m else None, 'received': int(m[2]) if m else None}
 
-meta = {'kind': a.kind, 'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+meta = {'kind': a.kind, 'protocol':a.protocol, 'udp_direction':a.udp_direction, 'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'clock_ticks': os.sysconf('SC_CLK_TCK'), 'tcp_seconds': a.tcp_seconds,
         'repetitions': a.repetitions, 'udp_seconds': a.udp_seconds,
         'udp_payload_bytes': 1000, 'udp_stop_loss_percent': 2,
@@ -108,7 +110,7 @@ def run(name, extra, duration, attributes):
         try:
             return run_once(name,extra,duration,attributes)
         except (RuntimeError,subprocess.TimeoutExpired) as error:
-            summary.setdefault('failed_attempts',[]).append({'case':name,'attempt':attempt,'error':str(error)})
+            summary.setdefault('failed_attempts',[]).append({'case':name,'attempt':attempt,'error':str(error),'epoch':time.time()})
             raw_path=out/(name+'.json')
             if raw_path.exists():
                 raw_path.rename(out/(name+'-failed-attempt%d.json'%attempt))
@@ -117,19 +119,21 @@ def run(name, extra, duration, attributes):
                 raise
             time.sleep(2)
 
-for direction in ('up','down'):
-    for streams in (1,4):
-        for repetition in range(1,a.repetitions+1):
-            run('tcp-%s-p%d-r%d'%(direction,streams,repetition),
-                ['-P',str(streams)]+(['-R'] if direction=='down' else []),a.tcp_seconds,
-                dict(protocol='tcp',direction=direction,streams=streams,repetition=repetition))
-for direction in ('up','down'):
-    for rate in a.udp_rates.split(','):
-        row = run('udp-%s-%s'%(direction,rate), ['-u','-b',rate,'-l','1000']+
-                  (['-R'] if direction=='down' else []),a.udp_seconds,
-                  dict(protocol='udp',direction=direction,offered_rate=rate))
-        if (row['loss_percent'] or 0) > 2:
-            print('stopping UDP ladder after loss threshold',direction,flush=True)
-            break
+if a.protocol != 'udp':
+    for direction in ('up','down'):
+        for streams in (1,4):
+            for repetition in range(1,a.repetitions+1):
+                run('tcp-%s-p%d-r%d'%(direction,streams,repetition),
+                    ['-P',str(streams)]+(['-R'] if direction=='down' else []),a.tcp_seconds,
+                    dict(protocol='tcp',direction=direction,streams=streams,repetition=repetition))
+if a.protocol != 'tcp':
+    for direction in (('up','down') if a.udp_direction=='both' else (a.udp_direction,)):
+        for rate in a.udp_rates.split(','):
+            row = run('udp-%s-%s'%(direction,rate), ['-u','-b',rate,'-l','1000']+
+                      (['-R'] if direction=='down' else []),a.udp_seconds,
+                      dict(protocol='udp',direction=direction,offered_rate=rate))
+            if (row['loss_percent'] or 0) > 2:
+                print('stopping UDP ladder after loss threshold',direction,flush=True)
+                break
 summary['end_utc'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 (out/'summary.json').write_text(json.dumps(summary,indent=2))
