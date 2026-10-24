@@ -37,7 +37,8 @@ unbounded user queue, a requested 4 MiB kernel socket buffer, and 1200-byte inne
 MTU. It emits JSON counters every five seconds and on SIGTERM/SIGINT. Socket
 send/TUN write failures are counted and dropped. Authentication failures and
 replays share a counter; iperf's receiver report supplies final UDP loss/jitter.
-Counters include UDP payload bytes, excluding outer IP/UDP overhead; IPv4 wire
+The Linux SO_RXQ_OVFL counter records cumulative local receive-buffer drops
+(observed on the next received packet). Counters include UDP payload bytes, excluding outer IP/UDP overhead; IPv4 wire
 size is inner length + 56 bytes. UDP setup packets are separate.
 
 See `docs/rtp-l3-poc-handoff.md` at repository root for wire design, checkpoints,
@@ -46,3 +47,9 @@ bounded reordering. Gaps of half a sequence cycle or longer require restarting
 both peers. There is no reconnect timer, congestion controller, pacing, FEC,
 fragmentation, certificate authentication or forward secrecy. Endpoint TCP retains
 its own congestion control. Use bounded paced UDP experiments only.
+
+For isolated Linux integration, run `sh scripts/local-integration.sh CRATE_DIR
+PRIVATE_KEY_FILE OUTPUT_DIR` with absolute paths. It creates disposable nested
+namespaces, transfers 100 MiB each way across RTP rollovers, retries a lost
+CHALLENGE/READY, and injects bounded periodic loss, duplicates, reorder and
+ciphertext corruption. The script bounds waits and validates receiver JSON.

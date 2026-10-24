@@ -24,9 +24,13 @@ script = '''
 poc_pid=$!
 trap 'kill -TERM "$poc_pid" 2>/dev/null; wait "$poc_pid"' EXIT INT TERM
 poc_wait=0
-until ip link show "$POC_IFACE" >/dev/null 2>&1; do
+until ip -o -4 addr show dev "$POC_IFACE" 2>/dev/null | grep -Fq " $POC_CIDR "; do
   kill -0 "$poc_pid" 2>/dev/null || exit 1
   poc_wait=$((poc_wait+1)); [ "$poc_wait" -lt 100 ] || exit 1
+  sleep 0.1
+done
+until ip -o link show up dev "$POC_IFACE" 2>/dev/null | grep -q .; do
+  kill -0 "$poc_pid" 2>/dev/null || exit 1
   sleep 0.1
 done
 sh "$POC_RUN"

@@ -51,13 +51,57 @@ mod linux {
         invalid: u64,
         tun_drops: u64,
         socket_drops: u64,
+        kernel_rx_drops: u32,
     }
     impl Counts {
         fn report(&self, elapsed: f64, final_report: bool) {
             eprintln!(
                 "{}",
-                serde_json::json!({"event":if final_report{"final"}else{"stats"},"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"invalid_or_replay":self.invalid,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops})
+                serde_json::json!({"event":if final_report{"final"}else{"stats"},"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"invalid_or_replay":self.invalid,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops})
             );
+        }
+    }
+    fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, Option<u32>)> {
+        unsafe {
+            let mut addr: libc::sockaddr_in = std::mem::zeroed();
+            let mut control = [0usize; 8];
+            let mut iov = libc::iovec {
+                iov_base: b.as_mut_ptr() as *mut _,
+                iov_len: b.len(),
+            };
+            let mut msg: libc::msghdr = std::mem::zeroed();
+            msg.msg_name = &mut addr as *mut _ as *mut _;
+            msg.msg_namelen = std::mem::size_of_val(&addr) as _;
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            msg.msg_control = control.as_mut_ptr() as *mut _;
+            msg.msg_controllen = std::mem::size_of_val(&control);
+            let n = libc::recvmsg(socket.as_raw_fd(), &mut msg, 0);
+            if n < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if msg.msg_flags & libc::MSG_TRUNC != 0 || addr.sin_family != libc::AF_INET as u16 {
+                return Err(io::Error::other("truncated/non-IPv4 UDP"));
+            }
+            let mut drops = None;
+            let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
+            while !cmsg.is_null() {
+                if (*cmsg).cmsg_level == libc::SOL_SOCKET
+                    && (*cmsg).cmsg_type == libc::SO_RXQ_OVFL
+                    && (*cmsg).cmsg_len >= libc::CMSG_LEN(4) as usize
+                {
+                    drops = Some(std::ptr::read_unaligned(libc::CMSG_DATA(cmsg) as *const u32));
+                }
+                cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
+            }
+            Ok((
+                n as usize,
+                SocketAddr::new(
+                    std::net::Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr)).into(),
+                    u16::from_be(addr.sin_port),
+                ),
+                drops,
+            ))
         }
     }
     fn key(path: &str) -> io::Result<[u8; 32]> {
@@ -130,6 +174,22 @@ mod linux {
         } else {
             UdpSocket::bind(&a[5])?
         };
+        if !socket.local_addr()?.is_ipv4() {
+            return Err(io::Error::other("IPv4 socket required"));
+        }
+        let enabled: libc::c_int = 1;
+        if unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RXQ_OVFL,
+                &enabled as *const _ as *const _,
+                4,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
         let size: libc::c_int = 4 * 1024 * 1024;
         for opt in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
             unsafe {
@@ -160,7 +220,7 @@ mod linux {
         }
         eprintln!(
             "{}",
-            serde_json::json!({"event":"ready","client":client,"mtu":MTU,"socket_receive_buffer":{let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v}})
+            serde_json::json!({"event":"ready","client":client,"mtu":MTU,"socket_receive_buffer":({let mut v:libc::c_int=0;let mut l:libc::socklen_t=4;unsafe{libc::getsockopt(socket.as_raw_fd(),libc::SOL_SOCKET,libc::SO_RCVBUF,&mut v as *mut _ as *mut _,&mut l);}v})})
         );
         let mut handshake = ServerHandshake::default();
         let mut peer: Option<SocketAddr> = None;
@@ -190,8 +250,11 @@ mod linux {
             }
             if polls[0].revents & libc::POLLIN != 0 {
                 for _ in 0..64 {
-                    match socket.recv_from(&mut b) {
-                        Ok((n, source)) => {
+                    match receive(&socket, &mut b) {
+                        Ok((n, source, drops)) => {
+                            if let Some(d) = drops {
+                                counters.kernel_rx_drops = d;
+                            }
                             if b[..n].starts_with(b"R3P1") {
                                 if !client {
                                     if let Some(m) = Control::decode(&b[..n], &k) {

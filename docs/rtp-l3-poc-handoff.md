@@ -91,7 +91,7 @@ full conversation; access details remain exclusively in private session context.
 - [x] P0: inspect local baseline and remote prerequisites; commit handoff first.
 - [x] P1: prove unprivileged namespace/socket/TUN path; specify wire/crypto lifecycle.
 - [x] P2: implement tunnel and focused correctness tests; commit.
-- [ ] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
+- [x] P3: local/namespace integration, rollover/restart and loss/reordering checks; commit.
 - [ ] P4: deploy temporary server/client, validate forwarded traffic and capture shape.
 - [ ] P5: complete bounded measurement matrix; commit sanitized report and commands.
 - [ ] P6: remove remote processes, runtime firewall openings and network changes;
@@ -152,18 +152,28 @@ not codec-valid media or standardized SRTP.
 
 ## Current state
 
-P1/P2 complete. Standalone crate in `experiments/rtp-l3` provides portable protocol
-code, Linux nonblocking TUN/UDP runtime, and host-socket/unprivileged-namespace
-launcher. Seven focused tests pass on the local platform: control/data tampering,
-replay, bounded reorder/rollover, stale session, directional packet separation,
-nonce exhaustion, challenge expiry, wrong peer and duplicate FINISH/READY.
-No remote deployment is active, and no firewall rules or host changes remain.
+P1/P2/P3 complete. Linux release build and seven portable protocol tests pass.
+Disposable nested namespace integration transferred 100 MiB TCP each direction
+(client TX 136795 / RX 133572 IP packets, crossing RTP sequence rollovers), then
+replaced the session and completed TCP both directions plus UDP under injected
+loss, duplication, reordering and ciphertext tampering. First CHALLENGE and READY
+were deliberately dropped, proving HELLO/FINISH retry recovery. The clean local
+saturation run recorded 196 client UDP receive-buffer drops; fault run recorded
+zero receive-buffer drops and 2409 invalid/replay rejections. Runtime now reports
+SO_RXQ_OVFL and waits for client TUN address/link readiness before applications.
+Local test processes/namespaces exited; no host routes/interfaces were changed.
+Private staged build/key/results remain on the client for deployment (outside
+checkout), and must be removed at P6. Private tested binary/key are also staged on the server; no server task processes/rules exist yet.
 
-Next: build on authorized Linux client (offline vendored dependencies privately
-staged outside checkout), perform local namespace integration and fault checks,
-then commit P3. Before deployment record all owned firewall/network changes and
-cleanup actions in a private deployment ledger. Capture raw artifacts only outside
-checkout. P4/P5 must include forwarding proof and bounded bidirectional benchmarks.
+Linux clippy passes with warnings denied; the integration rerun additionally
+validated receiver byte counts, absent JSON errors, and both control drops.
+
+Next: create a private deployment/cleanup ledger, then start the staged binary. Use a source-restricted runtime outer UDP rule and temporary
+task-only TUN/veth interfaces. Prove forwarding to a controlled server egress
+namespace without probing third-party services. Server forwarding is already
+enabled, so no sysctl change is expected; no NAT is needed for this routed test.
+Record P4 state immediately after deployment. Then bounded direct/tunnel matrix,
+filtered packet shape capture, aggregate report, explicit cleanup and final commit.
 
 ## Progress log
 
@@ -171,3 +181,4 @@ checkout. P4/P5 must include forwarding proof and bounded bidirectional benchmar
   User requires temporary firewalld openings on the public server and cleanup.
 - 2026-10-24: P1 inherited-socket/TUN echo passed; proof rule and files removed.
 - 2026-10-24: P2 runtime/library/launcher implemented; seven protocol tests passed.
+- 2026-10-24: P3 Linux offline build/tests and disposable namespace fault integration passed.

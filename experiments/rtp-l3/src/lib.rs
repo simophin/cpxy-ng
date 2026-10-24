@@ -63,17 +63,10 @@ impl Control {
     }
 }
 
+#[derive(Default)]
 pub struct ServerHandshake {
     pending: Option<(Control, String, Instant)>,
     installed: Option<(Control, String)>,
-}
-impl Default for ServerHandshake {
-    fn default() -> Self {
-        Self {
-            pending: None,
-            installed: None,
-        }
-    }
 }
 impl ServerHandshake {
     /// Only decoded/authenticated control messages may enter here.
