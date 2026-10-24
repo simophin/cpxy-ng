@@ -286,7 +286,47 @@ timeout exception strings can contain full command arguments and must not be
 published. A framing/crypto change alone does not establish valid media camouflage
 or expensive classification; continue to label the result as RTP-framed IP.
 
+## Final protocol: v3, 16 random nonce bytes (IN PROGRESS)
+
+The user chose v3 as the **final decision**: after a matched comparison it
+replaces v1, and the v1 handshake/AEAD code is removed. V2 remains documented
+above as the 24-byte variant; v3 differs only in nonce construction and labels.
+
+### v3 conventions (Y0)
+
+- Packet: `RTP header (12) | random (16) | XChaCha20(inner IPv4)`. IPv4 overhead
+  is **56 bytes** (20 + 8 + 12 + 16), the same as v1. A 1200-byte inner packet
+  is 1256 bytes; a 1000-byte inner UDP payload is 1084 bytes.
+- 24-byte XChaCha20 nonce = RTP header bytes 2..10 (16-bit sequence, 32-bit
+  timestamp, first two SSRC bytes) followed by the 16 random bytes. The random
+  bytes come from the OS CSPRNG for every packet. The receiver rebuilds the
+  nonce from the received header, so it stays stateless. Rollover, loss,
+  reordering and restarts never affect decryption.
+- Uniqueness rests on the 128 random bits alone; the header prefix is a bonus.
+  Probability of any repeat among n packets under one key is about n^2/2^129:
+  ~1.5e-16 for a year at 10k packets/s and ~1e-10 at 2^48 packets. A repeat
+  would expose only that pair's XOR of plaintexts, never the key.
+- Keys: HKDF-SHA256 as v2 but with info `rtp-l3-poc/xchacha20/v3/client-to-server`
+  and `.../v3/server-to-client`. Block counter 0, fresh cipher per packet.
+- Receiver accepts byte 0 `0x80`, byte 1 exactly 96, UDP payload 48–1228 bytes,
+  and a well-formed IPv4 packet after XOR. Header tampering now garbles the
+  decrypted packet (no authentication either way).
+- Server return routing is configured out of band, as in v2.
+
+### v3 plan
+
+- [x] Y0: record conventions (this section).
+- [ ] Y1: implement v3 in place of the 24-byte v2 format, with unit vectors.
+- [ ] Y2: Linux build/tests/clippy and namespace integration.
+- [ ] Y3: cross-host validation and first-packet capture.
+- [ ] Y4: adjacent v3 / v1 / v3 bounded matrix as in X5.
+- [ ] Y5: verified remote cleanup; sanitized report.
+- [ ] Y6: remove v1 (handshake, AEAD, replay state, control-message tooling);
+      v3 becomes plain `client` / `server`; tests and integration pass.
+
 ## Current state
+
+**V3 in progress (Y0 done)**; next Y1. V2 below remains complete.
 
 **V2 complete (X0–X6).** Report: `docs/rtp-l3-poc-v2-results.md`; endpoint-free
 aggregate: `experiments/rtp-l3/results/2026-10-24-v2-summary.json`. V1 results
@@ -338,3 +378,4 @@ obligations remain.
 - 2026-10-24: X4 cross-host v2 passed: no-setup first packet, MTU/forwarded ping, NAT, capture shows only RTP-framed data.
 - 2026-10-24: X5 adjacent v2/v1/v2 matrix completed with no failed cases; X6 cleanup
   verified against pre-task snapshots; sanitized v2 report and aggregate committed.
+- 2026-10-24: user chose a 16-random-byte nonce (v3) as the final protocol; Y0 conventions recorded.
