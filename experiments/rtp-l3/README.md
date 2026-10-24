@@ -109,8 +109,26 @@ rollover, inherited socket `AF_UNSPEC`/`sendto` across namespaces and restarts
 of both peers. Through the per-port loopback `fault-proxy.py` it also injects
 bounded periodic loss, duplicates, reordering (held at most 20 ms) and
 ciphertext corruption. The script bounds waits and validates receiver JSON and
-v4 counters. Two-client masquerade, conntrack rebinding, forced fallback and
-sustained rotation transfers remain Z3.
+v4 counters.
+
+For the Z3 matrix, run `timeout 360 unshare -Urn python3
+scripts/z3-integration.py CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` on Linux with
+absolute paths. It needs Python 3.9+, ip, iptables, nsenter, unshare and iperf3.
+Two clients with the same local UDP port use separate outer namespaces behind
+a masquerading router, then inherit sockets into their TUN namespaces. With a
+10-second rotation mean and 5-second keepalive mean it checks concurrent paced
+100 MiB TCP transfers each way, at least three new ports per transfer, receiver
+interval stalls below five seconds, lost announcements/retries, missed-secret
+recovery by PING, conntrack flush with forced source-port rebinding, base fallback
+and server restart while clients stay running. The conntrack flush uses netlink;
+no conntrack executable is needed. All firewall and routing changes live inside
+disposable namespaces. Raw logs stay in the private output directory; only
+`summary.json` is suitable for publishing after review. The private key and
+output directory remain caller-owned and must be removed after validation.
+
+`POC_TRACE_PATHS=1` enables JSON path/rotation/registration events used by this
+harness. They include port, epoch, instance-change and tuple-change indicators,
+never keys or peer addresses. Session ids in registration events are ephemeral.
 
 `benchmark.py` runs sequential TCP upload/download with one/four streams and
 three 20-second repetitions, followed by a paced 1000-byte UDP ladder (ten
@@ -124,7 +142,10 @@ establish one-way delay.
 
 `capture-shape.py PRIVATE_PCAP SERVER_IPV4 [MAX_IPV4_LEN]` emits endpoint-free
 IPv4 packet sizes, arrival gaps, burst lengths, RTP sequence observations,
-timestamp deltas and non-RTP UDP counts from an Ethernet pcap. Capture at least
+timestamp deltas and non-RTP UDP counts from an Ethernet pcap. Server ports are
+numbered without publishing their values. Per-port gaps include idle time
+across SSRC changes; per-stream rows separate port and SSRC. Only packets to or
+from the supplied server are included. Capture at least
 the 12-byte RTP header; retain original packet lengths. Publish its aggregates
 with the exact capture/case window and tcpdump's capture-drop counts. Passive
 sequence gaps are not final receiver/path loss. On hosts whose tcpdump AppArmor

@@ -14,6 +14,7 @@ import sys
 server = ipaddress.IPv4Address(sys.argv[2]).packed
 max_len = int(sys.argv[3]) if len(sys.argv) > 3 else 1256
 flows = {}
+ports = {}
 non_rtp = collections.Counter()
 first = last = None
 with open(sys.argv[1], 'rb') as f:
@@ -37,16 +38,21 @@ with open(sys.argv[1], 'rb') as f:
         ihl=(ip[0]&15)*4
         if ip[0]>>4!=4 or ip[9]!=17 or len(ip)<ihl+8:
             continue
+        if server not in (ip[12:16], ip[16:20]):
+            continue
         length=struct.unpack('!H',ip[2:4])[0]
         payload=ip[ihl+8:]
         direction='download' if ip[12:16]==server else 'upload'
+        source_port, destination_port = struct.unpack('!HH', ip[ihl:ihl+4])
+        port = source_port if direction == 'download' else destination_port
         first=t if first is None else min(first,t)
         last=t if last is None else max(last,t)
         if len(payload)<12 or payload[:2]!=b'\x80\x60':
             non_rtp[direction]+=1
             continue
         seq,stamp,ssrc=struct.unpack('!HII',payload[2:12])
-        k=(direction,ssrc)
+        ports.setdefault((direction, port), []).append(t)
+        k=(direction,port,ssrc)
         if k not in flows:
             flows[k]={'times':[],'lengths':[],'stamps':[],'indices':set(),'highest':None,'reorders':0,'duplicates':0}
         v=flows[k]
@@ -67,7 +73,8 @@ def quantiles(values):
     return {name:values[round((len(values)-1)*q)] for name,q in [('min',0),('median',.5),('p95',.95),('p99',.99),('max',1)]}
 
 rows=[]
-for (direction,_),v in flows.items():
+port_numbers = {p: i+1 for i, p in enumerate(sorted({p for _, p in ports}))}
+for (direction,port,_),v in flows.items():
     gaps=[(b-a)*1000 for a,b in zip(v['times'],v['times'][1:])]
     bursts=[];n=1
     for gap in gaps:
@@ -75,7 +82,8 @@ for (direction,_),v in flows.items():
         else:bursts.append(n);n=1
     bursts.append(n)
     stamp_delta=[(b-a)&0xffffffff for a,b in zip(v['stamps'],v['stamps'][1:])]
-    rows.append({'direction':direction,'session_number':len(rows)+1,'packets':len(v['times']),
+    rows.append({'direction':direction,'server_port_number':port_numbers[port],
+                 'session_number':len(rows)+1,'packets':len(v['times']),
                  'start_epoch':v['times'][0],'end_epoch':v['times'][-1],
                  'ipv4_length_bytes':quantiles(v['lengths']),
                  'ipv4_length_top_counts':collections.Counter(v['lengths']).most_common(8),
@@ -85,6 +93,9 @@ for (direction,_),v in flows.items():
                  'rtp_sequence_duplicates_observed':v['duplicates'],'rtp_reorder_observations':v['reorders'],
                  'rtp_sequence_missing_in_capture_span':max(v['indices'])-min(v['indices'])+1-len(v['indices']),
                  'note':'Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them.'})
+port_rows = [{'direction': d, 'server_port_number': port_numbers[p], 'packets': len(times),
+              'interarrival_ms': quantiles([(b-a)*1000 for a,b in zip(times,times[1:])])}
+             for (d,p),times in sorted(ports.items())]
 print(json.dumps({'start_utc':datetime.datetime.fromtimestamp(first,datetime.timezone.utc).isoformat() if first else None,
                   'end_utc':datetime.datetime.fromtimestamp(last,datetime.timezone.utc).isoformat() if last else None,
-                  'non_rtp_udp_packets':dict(non_rtp),'flows':rows},indent=2))
+                  'non_rtp_udp_packets':dict(non_rtp),'server_ports':port_rows,'flows':rows},indent=2))
