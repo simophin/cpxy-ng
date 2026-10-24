@@ -366,27 +366,60 @@ control apart by the first decrypted byte:
 Control body: `type (1) | version (1) | length (2) | fields | zero padding`,
 followed on the wire by `tag (16)`. Encrypt-then-MAC:
 `tag = HMAC-SHA256(control_key, RTP header || random || encrypted body)[..16]`.
-`control_key` comes from the PSK via HKDF with info
-`rtp-l3-poc/xchacha20/v4/control-client-to-server` or `.../control-server-to-client`.
-Data labels stay at v3. This re-adds the `hmac` dependency, for control only.
+On the base port, `control_key` comes from the PSK via HKDF with info
+`rtp-l3-poc/xchacha20/v4/control-client-to-server` or `.../control-server-to-client`,
+and data keys stay at the v3 labels. Rotation ports use per-port keys (see
+"Per-port keys" below). This re-adds the `hmac` dependency, for control only.
 Control traffic is rare, so the cost is negligible.
 
-Padding: control bodies are padded to a random total of 60–160 bytes (tunable),
-the range of small data packets such as TCP ACKs (108 B on the wire in v3). No
-fixed-size control packets.
+Padding: each control packet is padded to a random IPv4 size between its
+unpadded size and 260 bytes (tunable). That overlaps small data packets such as
+TCP ACKs (108 B on the wire in v3). No control packet has a fixed size.
 
 Messages (all fields big-endian):
 
 | Type | Direction | Fields |
 |------|-----------|--------|
 | `0x01 PING` | client → server | session id (8), inner IPv4 (4), ping seq (4), known server instance (8), known epoch (4) |
-| `0x02 STATE` | server → client | session id (8), echoed ping seq (4, 0 if unsolicited), server instance (8), epoch (4), current port (2), base port (2), grace seconds (2) |
+| `0x02 STATE` | server → client | session id (8), echoed ping seq (4, 0 if unsolicited), server instance (8), epoch (4), current port (2), current port secret (32), base port (2), grace seconds (2) |
 
 PING is both registration and keepalive. Every PING carries the client's full
 state and every STATE the server's, so any single exchange resynchronises both
 sides. No message needs a reliable-delivery layer of its own. An announcement
 is an unsolicited STATE with a higher epoch. The client acknowledges it by
 sending a PING to the new port.
+
+### Per-port keys
+
+- **Port secret.** When the server opens a rotation port it draws a fresh
+  32-byte secret for that port from the OS RNG. The secret lives only in server
+  memory and in STATE messages.
+- **Key derivation.** For a rotation port, all four directional keys (data and
+  control, each direction) come from HKDF-SHA256 with the port secret as input
+  and a PSK-derived salt (info `rtp-l3-poc/xchacha20/v4/port-salt`). The
+  labels are `rtp-l3-poc/xchacha20/v4/port/{data,control}-{client-to-server,server-to-client}`.
+  The salt ties the port keys to the PSK. The base port always uses the
+  PSK-derived keys, so a client can always bootstrap or fall back.
+- **Delivery.** STATE carries the current port and its secret. It travels on
+  the client's current path, so it is protected by that path's keys, which
+  chain back to the PSK. Every STATE carries the secret, including PING
+  replies, so a client that missed an announcement still gets the secret from
+  its next keepalive.
+- **Key selection.** The port picks the key, so the receiver never tries
+  several keys and the packet carries no key hint. The server uses the key of
+  the socket a packet arrived on. The client uses the key of the server source
+  port. During grace the old port keeps its old secret; the secret is erased
+  when the port closes.
+- **Shared, not per client.** One shared PSK stays the model (Z0). Every client
+  on a port gets that port's secret, so port keys separate ports and limit how
+  long one key is used. They do not separate clients.
+- **Server restart.** Secrets are lost on restart. A client on a rotation port
+  gets no answer, falls back to the base port and receives the new instance's
+  port and secret.
+- **No forward secrecy.** Someone who holds the PSK and recorded the STATE
+  messages can recover every port secret. Exchanging ephemeral X25519 keys in
+  PING/STATE would add forward secrecy; that is a possible follow-up, not part
+  of v4.
 
 ### Session and state model
 
@@ -417,7 +450,7 @@ sending a PING to the new port.
 - **Session expiry.** A session expires after 90 s (tunable) with no valid
   packet from its tuple.
 - **Shared PSK.** All clients share one PSK for the POC, so any key holder can
-  impersonate another session. Per-client keys are an open question (below).
+  impersonate another session. This is accepted (Z0 decision 1).
 
 Replay rules:
 
@@ -517,10 +550,13 @@ Replay rules:
 
 ### Plan
 
-- [ ] Z0: confirm or adjust the open questions below and the defaults above.
-- [ ] Z1: control codec and state machines in `lib.rs`. Unit tests:
+- [x] Z0: decisions recorded below; per-port keys added.
+- [ ] Z1: control codec, per-port key derivation and state machines in
+  `lib.rs`. Unit tests:
   - control round trip, and rejection of any flipped bit in the header, random
     bytes, body or tag;
+  - per-port keys differ by port and direction from each other and from the base
+    keys; a packet sealed for one port does not open with another port's keys;
   - data and control told apart by the first byte, and padding lengths within
     range;
   - session create/move only from a fresh PING; replayed PINGs and STATEs
@@ -541,7 +577,9 @@ Replay rules:
     next PING;
   - blocking the current rotation port ends in base-port fallback;
   - a server restart is detected through the instance id, and sessions
-    re-register.
+    re-register;
+  - each rotation port uses its own keys, and a client that missed an
+    announcement picks up the secret from its next keepalive.
 - [ ] Z4: cross-host validation. Firewalld runtime rules open the base port and
   rotation range for the client's /32 source only.
   1. Measure the client NAT's UDP mapping timeout and per-destination port
@@ -556,22 +594,21 @@ Replay rules:
 - [ ] Z6: verified cleanup of runtime rules, processes, interfaces, staging
   and keys; sanitized report.
 
-### Open questions (defaults apply unless changed in Z0)
+### Decisions (Z0, 2026-10-24)
 
-1. **Keys.** Keep a shared PSK with session ids (default), or use per-client
-   keys. With per-client keys the server must find the right key, either by
-   trial decryption or through a key hint, which would be an observable field.
-2. **Rotation cadence.** Mean 300 s ±50% (default). Shorter intervals spread
-   load across more ports but add more switch events and NAT mappings.
-3. **Client local port.** Keep one local socket (default). Rotating it as well
-   would need more sockets created outside the namespace. It would also cure
-   the observed fixed-port return problem automatically.
-4. **Cover traffic.** Accept that idle keepalive cadence is observable
-   (default), or add low-rate padding traffic while idle.
+1. **Keys.** One shared PSK with session ids; no per-client keys, so no trial
+   decryption and no key hint. Added: each rotation port gets an ephemeral
+   secret delivered in STATE (see "Per-port keys").
+2. **Rotation cadence.** Mean 300 s ±50%. Shorter intervals spread load across
+   more ports but add more switch events and NAT mappings.
+3. **Client local port.** Keep one local socket. Rotating it as well would need
+   more sockets created outside the namespace; it stays a possible follow-up,
+   since it would also avoid the observed fixed-port return problem.
+4. **Cover traffic.** None; idle keepalive cadence is accepted as observable.
 
 ## Current state
 
-**Next: v4 control channel, port rotation and keepalive (planned, Z0 open; see above).**
+**Next: v4 control channel, port rotation and keepalive (planned; Z0 decided, Z1 next; see above).**
 
 **V3 complete (Y0–Y6); it is the final protocol.** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Y6 removed v1: handshake/control messages, ChaCha20-Poly1305, HMAC, replay window and their dependencies; `client`/`server` now run v3 (server takes the client tuple as a 6th argument; the launcher takes an optional bind port instead of a mode). The v3 integration script replaced the v1 one, the fault proxy lost its control-drop logic, and `capture-shape.py` counts non-RTP UDP instead of `R3P1` types. Six unit tests pass on macOS and Linux, Linux release build and clippy pass, and the namespace integration passes. Client staging/key deleted again; no remote resources or cleanup obligations remain.
 
@@ -629,3 +666,4 @@ obligations remain.
 - 2026-10-24: Y1–Y5 v3 implemented, validated cross-host, matched against v1 (no measurable difference); cleanup verified.
 - 2026-10-24: Y6 removed v1 from the code; v3 is the only protocol. Linux tests, clippy and integration pass.
 - 2026-10-24: planned v4: authenticated PING/STATE control, server port rotation with announcements, keepalive/fallback, multi-client sessions (Z0–Z6). Not implemented.
+- 2026-10-24: Z0 decided: shared PSK, 300 s ±50% rotation, one client local port, no cover traffic; added ephemeral per-port secrets delivered in STATE.
