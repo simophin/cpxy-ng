@@ -318,15 +318,15 @@ above as the 24-byte variant; v3 differs only in nonce construction and labels.
 - [x] Y0: record conventions (this section).
 - [x] Y1: implement v3 in place of the 24-byte v2 format, with unit vectors.
 - [x] Y2: Linux build/tests/clippy and namespace integration.
-- [ ] Y3: cross-host validation and first-packet capture.
-- [ ] Y4: adjacent v3 / v1 / v3 bounded matrix as in X5.
-- [ ] Y5: verified remote cleanup; sanitized report.
+- [x] Y3: cross-host validation and first-packet capture.
+- [x] Y4: adjacent v3 / v1 / v3 bounded matrix as in X5.
+- [x] Y5: verified remote cleanup; sanitized report.
 - [ ] Y6: remove v1 (handshake, AEAD, replay state, control-message tooling);
       v3 becomes plain `client` / `server`; tests and integration pass.
 
 ## Current state
 
-**V3 in progress (Y0–Y2 done).** v3 replaced the 24-byte v2 packet format in `client-x`/`server-x` (v1 still present for comparison). 13 unit tests (6 v3, incl. a new libsodium vector for the header-prefix nonce, identical-header RNG freshness, and header-tamper behaviour) pass on macOS and Linux; Linux release build and clippy pass; v3 and v1 namespace integrations pass. Next: Y3 cross-host. V2 below remains complete.
+**V3 in progress (Y0–Y5 done).** Report: `docs/rtp-l3-poc-v3-results.md`; aggregate: `experiments/rtp-l3/results/2026-10-24-v3-summary.json`. Cross-host validation and the adjacent v3/v1/v3 matrix (10:59–11:19 UTC) showed no measurable difference from v1 (the path drifted during the window), identical 1256/108-byte data/ACK sizes, and 0 non-RTP packets for v3. Cleanup verified against fresh pre-deployment snapshots; remote staging and PSKs deleted. Next: Y6 remove v1 from the code.
 
 **V2 complete (X0–X6).** Report: `docs/rtp-l3-poc-v2-results.md`; endpoint-free
 aggregate: `experiments/rtp-l3/results/2026-10-24-v2-summary.json`. V1 results
@@ -379,3 +379,4 @@ obligations remain.
 - 2026-10-24: X5 adjacent v2/v1/v2 matrix completed with no failed cases; X6 cleanup
   verified against pre-task snapshots; sanitized v2 report and aggregate committed.
 - 2026-10-24: user chose a 16-random-byte nonce (v3) as the final protocol; Y0 conventions recorded.
+- 2026-10-24: Y1–Y5 v3 implemented, validated cross-host, matched against v1 (no measurable difference); cleanup verified.

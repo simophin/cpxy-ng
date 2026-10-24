@@ -1,0 +1,2299 @@
+{
+ "note": "Endpoint-free aggregate; directions from client perspective; CPU is percent of one core.",
+ "runs": {
+  "y4-v3": {
+   "start_utc": "2026-10-24T10:59:05.239255+00:00",
+   "end_utc": "2026-10-24T11:05:08.513955+00:00",
+   "host_settings": {
+    "tcp_congestion_control": "cubic",
+    "tcp_rmem": "4096\t131072\t6291456",
+    "tcp_wmem": "4096\t16384\t4194304",
+    "rmem_max": "212992",
+    "wmem_max": "212992"
+   },
+   "idle_rtt": {
+    "samples": 100,
+    "median_ms": 237.0,
+    "p95_ms": 237.0,
+    "p99_ms": 237.0,
+    "sent": 102,
+    "received": 100
+   },
+   "failed_attempts": [],
+   "tcp_summary": {
+    "up-p1": {
+     "median_mbps": 25.438621769921486,
+     "range_mbps": [
+      23.73027187628519,
+      31.70947289901834
+     ],
+     "median_client_cpu_percent": 12.548163459668851,
+     "median_server_cpu_percent": 7.709690468199026,
+     "median_retransmits": 930
+    },
+    "up-p4": {
+     "median_mbps": 43.881371896834615,
+     "range_mbps": [
+      41.344175319567846,
+      43.883167147821
+     ],
+     "median_client_cpu_percent": 20.90108935802385,
+     "median_server_cpu_percent": 13.220096386259387,
+     "median_retransmits": 1876
+    },
+    "down-p1": {
+     "median_mbps": 31.87491265492626,
+     "range_mbps": [
+      20.34123427381895,
+      34.12886387256373
+     ],
+     "median_client_cpu_percent": 14.673195975298919,
+     "median_server_cpu_percent": 8.567437163035239,
+     "median_retransmits": 1476
+    },
+    "down-p4": {
+     "median_mbps": 121.57571269337315,
+     "range_mbps": [
+      111.14290979708822,
+      125.29791555506135
+     ],
+     "median_client_cpu_percent": 28.943167899380196,
+     "median_server_cpu_percent": 31.031364292352286,
+     "median_retransmits": 7102
+    }
+   },
+   "cases": [
+    {
+     "name": "tcp-up-p1-r1",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792839555.4548934,
+     "end_epoch": 1792839577.1313722,
+     "receiver_mbps": 25.438621769921486,
+     "retransmits": 2382,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 12.548163459668851,
+     "client_tunnel_rss_bytes": 2322432,
+     "loaded_rtt": {
+      "samples": 207,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 242.0,
+      "sent": 216,
+      "received": 207
+     },
+     "server_tunnel_cpu_percent": 7.709690468199026,
+     "server_tunnel_rss_bytes_max": 2445312
+    },
+    {
+     "name": "tcp-up-p1-r2",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792839578.1370432,
+     "end_epoch": 1792839600.4927013,
+     "receiver_mbps": 23.73027187628519,
+     "retransmits": 251,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 11.49597114856441,
+     "client_tunnel_rss_bytes": 2322432,
+     "loaded_rtt": {
+      "samples": 214,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 239.0,
+      "sent": 222,
+      "received": 214
+     },
+     "server_tunnel_cpu_percent": 7.234763548725409,
+     "server_tunnel_rss_bytes_max": 2445312
+    },
+    {
+     "name": "tcp-up-p1-r3",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792839601.4977548,
+     "end_epoch": 1792839623.1695926,
+     "receiver_mbps": 31.70947289901834,
+     "retransmits": 930,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 14.304278334167748,
+     "client_tunnel_rss_bytes": 2322432,
+     "loaded_rtt": {
+      "samples": 208,
+      "median_ms": 236.0,
+      "p95_ms": 238.0,
+      "p99_ms": 238.0,
+      "sent": 216,
+      "received": 208
+     },
+     "server_tunnel_cpu_percent": 9.565478300803282,
+     "server_tunnel_rss_bytes_max": 2449408
+    },
+    {
+     "name": "tcp-up-p4-r1",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792839624.1752043,
+     "end_epoch": 1792839646.5671873,
+     "receiver_mbps": 43.883167147821,
+     "retransmits": 2061,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 21.302266945875274,
+     "client_tunnel_rss_bytes": 2326528,
+     "loaded_rtt": {
+      "samples": 216,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 240.0,
+      "sent": 223,
+      "received": 216
+     },
+     "server_tunnel_cpu_percent": 13.220096386259387,
+     "server_tunnel_rss_bytes_max": 2453504
+    },
+    {
+     "name": "tcp-up-p4-r2",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792839647.5739644,
+     "end_epoch": 1792839669.9651418,
+     "receiver_mbps": 43.881371896834615,
+     "retransmits": 1876,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 20.90108935802385,
+     "client_tunnel_rss_bytes": 2326528,
+     "loaded_rtt": {
+      "samples": 213,
+      "median_ms": 236.0,
+      "p95_ms": 238.0,
+      "p99_ms": 239.0,
+      "sent": 223,
+      "received": 213
+     },
+     "server_tunnel_cpu_percent": 13.325686679773602,
+     "server_tunnel_rss_bytes_max": 2453504
+    },
+    {
+     "name": "tcp-up-p4-r3",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792839670.9720762,
+     "end_epoch": 1792839693.3601868,
+     "receiver_mbps": 41.344175319567846,
+     "retransmits": 1605,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 19.385289228911397,
+     "client_tunnel_rss_bytes": 2326528,
+     "loaded_rtt": {
+      "samples": 216,
+      "median_ms": 237.0,
+      "p95_ms": 239.0,
+      "p99_ms": 242.0,
+      "sent": 223,
+      "received": 216
+     },
+     "server_tunnel_cpu_percent": 12.279168352059285,
+     "server_tunnel_rss_bytes_max": 2457600
+    },
+    {
+     "name": "tcp-down-p1-r1",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792839694.3670504,
+     "end_epoch": 1792839716.0399115,
+     "receiver_mbps": 31.87491265492626,
+     "retransmits": 1476,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 12.919383311591377,
+     "client_tunnel_rss_bytes": 2334720,
+     "loaded_rtt": {
+      "samples": 208,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 216,
+      "received": 208
+     },
+     "server_tunnel_cpu_percent": 8.567437163035239,
+     "server_tunnel_rss_bytes_max": 2457600
+    },
+    {
+     "name": "tcp-down-p1-r2",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792839717.0451374,
+     "end_epoch": 1792839738.7173965,
+     "receiver_mbps": 20.34123427381895,
+     "retransmits": 921,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 14.903845447025807,
+     "client_tunnel_rss_bytes": 2338816,
+     "loaded_rtt": {
+      "samples": 211,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 216,
+      "received": 211
+     },
+     "server_tunnel_cpu_percent": 8.281326931545467,
+     "server_tunnel_rss_bytes_max": 2457600
+    },
+    {
+     "name": "tcp-down-p1-r3",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792839739.7231555,
+     "end_epoch": 1792839761.3953257,
+     "receiver_mbps": 34.12886387256373,
+     "retransmits": 1908,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 14.673195975298919,
+     "client_tunnel_rss_bytes": 2342912,
+     "loaded_rtt": {
+      "samples": 207,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 216,
+      "received": 207
+     },
+     "server_tunnel_cpu_percent": 9.694976267476152,
+     "server_tunnel_rss_bytes_max": 2461696
+    },
+    {
+     "name": "tcp-down-p4-r1",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792839762.4011345,
+     "end_epoch": 1792839784.7898378,
+     "receiver_mbps": 111.14290979708822,
+     "retransmits": 7102,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 28.943167899380196,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 211,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 241.0,
+      "sent": 223,
+      "received": 211
+     },
+     "server_tunnel_cpu_percent": 30.075239276033372,
+     "server_tunnel_rss_bytes_max": 2469888
+    },
+    {
+     "name": "tcp-down-p4-r2",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792839785.7925293,
+     "end_epoch": 1792839808.1830502,
+     "receiver_mbps": 121.57571269337315,
+     "retransmits": 6946,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 32.20112681091284,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 213,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 240.0,
+      "sent": 223,
+      "received": 213
+     },
+     "server_tunnel_cpu_percent": 31.031364292352286,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "tcp-down-p4-r3",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792839809.1858027,
+     "end_epoch": 1792839831.8804867,
+     "receiver_mbps": 125.29791555506135,
+     "retransmits": 8379,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 28.685131688939748,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 212,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 243.0,
+      "sent": 226,
+      "received": 212
+     },
+     "server_tunnel_cpu_percent": 31.799611333760975,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "udp-up-5M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "5M",
+     "start_epoch": 1792839832.8835695,
+     "end_epoch": 1792839844.3168302,
+     "receiver_mbps": 4.884422289210582,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 6251,
+     "jitter_ms": 0.1327215805169459,
+     "client_tunnel_cpu_percent": 6.122487885461455,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 111,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 238.0,
+      "sent": 114,
+      "received": 111
+     },
+     "server_tunnel_cpu_percent": 2.3988037162463214,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "udp-up-10M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "10M",
+     "start_epoch": 1792839845.321738,
+     "end_epoch": 1792839856.7561712,
+     "receiver_mbps": 9.768491555464484,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 12502,
+     "jitter_ms": 0.224372660585992,
+     "client_tunnel_cpu_percent": 11.019348100226821,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 106,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 106
+     },
+     "server_tunnel_cpu_percent": 3.9979029298088276,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "udp-up-20M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "20M",
+     "start_epoch": 1792839857.7605112,
+     "end_epoch": 1792839869.1899614,
+     "receiver_mbps": 19.535569192251103,
+     "retransmits": null,
+     "loss_percent": 0.003999840006399744,
+     "lost_packets": 1,
+     "packets": 25001,
+     "jitter_ms": 0.1020626673515478,
+     "client_tunnel_cpu_percent": 19.336013081236086,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 108,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 108
+     },
+     "server_tunnel_cpu_percent": 6.796659118627336,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "udp-up-50M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "50M",
+     "start_epoch": 1792839870.1950002,
+     "end_epoch": 1792839881.6287863,
+     "receiver_mbps": 48.84591016992761,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 62507,
+     "jitter_ms": 0.14240278693617736,
+     "client_tunnel_cpu_percent": 10.932511621142165,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 111,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 111
+     },
+     "server_tunnel_cpu_percent": 12.793204293449936,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "udp-up-100M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "100M",
+     "start_epoch": 1792839882.6338851,
+     "end_epoch": 1792839894.0652792,
+     "receiver_mbps": 50.018679142353825,
+     "retransmits": null,
+     "loss_percent": 48.80040959672323,
+     "lost_packets": 61001,
+     "packets": 125000,
+     "jitter_ms": 0.0774341974918663,
+     "client_tunnel_cpu_percent": 21.519684987146785,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 52,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 112,
+      "received": 52
+     },
+     "server_tunnel_cpu_percent": 13.808703426256876,
+     "server_tunnel_rss_bytes_max": 2473984
+    },
+    {
+     "name": "udp-down-5M",
+     "protocol": "udp",
+     "direction": "down",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "5M",
+     "start_epoch": 1792839895.070102,
+     "end_epoch": 1792839907.5090485,
+     "receiver_mbps": 4.86744997815247,
+     "retransmits": null,
+     "loss_percent": 2.59415533677137,
+     "lost_packets": 166,
+     "packets": 6251,
+     "jitter_ms": 0.126706308525361,
+     "client_tunnel_cpu_percent": 5.06473760244406,
+     "client_tunnel_rss_bytes": 2351104,
+     "loaded_rtt": {
+      "samples": 118,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 124,
+      "received": 118
+     },
+     "server_tunnel_cpu_percent": 1.9990342211118814,
+     "server_tunnel_rss_bytes_max": 2473984
+    }
+   ],
+   "client_final_counters": {
+    "event": "final",
+    "protocol": "xchacha20-v3",
+    "rejected": 0,
+    "rx_packets": 1231001,
+    "rx_plain_bytes": 1227738581,
+    "rx_udp_payload_bytes": 1262206609,
+    "seconds": 363.691270882,
+    "socket_receive_drops": 3483,
+    "socket_send_drops": 0,
+    "tun_write_drops": 0,
+    "tx_packets": 879840,
+    "tx_plain_bytes": 822173651,
+    "tx_udp_payload_bytes": 846809171
+   },
+   "server_final_counters": {
+    "event": "final",
+    "protocol": "xchacha20-v3",
+    "rejected": 0,
+    "rx_packets": 812061,
+    "rx_plain_bytes": 751393395,
+    "rx_udp_payload_bytes": 774131103,
+    "seconds": 415.743653546,
+    "socket_receive_drops": 4408,
+    "socket_send_drops": 5,
+    "tun_write_drops": 0,
+    "tx_packets": 1261827,
+    "tx_plain_bytes": 1260044680,
+    "tx_udp_payload_bytes": 1295375836
+   },
+   "capture_shape": {
+    "start_utc": "2026-10-24T10:59:04.254787+00:00",
+    "end_utc": "2026-10-24T11:00:10.982355+00:00",
+    "control_type_counts": {},
+    "flows": [
+     {
+      "direction": "download",
+      "session_number": 1,
+      "packets": 61341,
+      "ipv4_length_bytes": {
+       "min": 96,
+       "median": 108,
+       "p95": 128,
+       "p99": 140,
+       "max": 433
+      },
+      "ipv4_length_top_counts": [
+       [
+        108,
+        55831
+       ],
+       [
+        136,
+        2041
+       ],
+       [
+        96,
+        1604
+       ],
+       [
+        120,
+        779
+       ],
+       [
+        140,
+        633
+       ],
+       [
+        128,
+        423
+       ],
+       [
+        109,
+        17
+       ],
+       [
+        116,
+        6
+       ]
+      ],
+      "ip_bytes": 6701512,
+      "max_expected_ipv4_len": 1256,
+      "oversize_ip_packets": 0,
+      "interarrival_ms": {
+       "min": 0.0050067901611328125,
+       "median": 0.02002716064453125,
+       "p95": 1.6090869903564453,
+       "p99": 31.625986099243164,
+       "max": 1014.2819881439209
+      },
+      "burst_packets_gap_at_most_1ms": {
+       "min": 1,
+       "median": 5,
+       "p95": 57,
+       "p99": 101,
+       "max": 225
+      },
+      "rtp_timestamp_delta_ticks": {
+       "min": 0,
+       "median": 2,
+       "p95": 145,
+       "p99": 2846,
+       "max": 91284
+      },
+      "rtp_sequence_duplicates_observed": 0,
+      "rtp_reorder_observations": 0,
+      "rtp_sequence_missing_in_capture_span": 0,
+      "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them."
+     },
+     {
+      "direction": "upload",
+      "session_number": 2,
+      "packets": 138659,
+      "ipv4_length_bytes": {
+       "min": 96,
+       "median": 1256,
+       "p95": 1256,
+       "p99": 1256,
+       "max": 1256
+      },
+      "ipv4_length_top_counts": [
+       [
+        1256,
+        137966
+       ],
+       [
+        140,
+        633
+       ],
+       [
+        108,
+        26
+       ],
+       [
+        116,
+        6
+       ],
+       [
+        145,
+        6
+       ],
+       [
+        112,
+        5
+       ],
+       [
+        109,
+        4
+       ],
+       [
+        232,
+        3
+       ]
+      ],
+      "ip_bytes": 173385318,
+      "max_expected_ipv4_len": 1256,
+      "oversize_ip_packets": 0,
+      "interarrival_ms": {
+       "min": 0.0,
+       "median": 0.0,
+       "p95": 0.47206878662109375,
+       "p99": 8.168935775756836,
+       "max": 777.1639823913574
+      },
+      "burst_packets_gap_at_most_1ms": {
+       "min": 1,
+       "median": 14,
+       "p95": 146,
+       "p99": 296,
+       "max": 1292
+      },
+      "rtp_timestamp_delta_ticks": {
+       "min": 0,
+       "median": 3,
+       "p95": 37,
+       "p99": 847,
+       "max": 4294967295
+      },
+      "rtp_sequence_duplicates_observed": 0,
+      "rtp_reorder_observations": 125,
+      "rtp_sequence_missing_in_capture_span": 1,
+      "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them."
+     }
+    ]
+   },
+   "capture_tcpdump_stats": [
+    "200000 packets captured",
+    "200346 packets received by filter",
+    "0 packets dropped by kernel"
+   ],
+   "capture_framing": {
+    "packets": 200000,
+    "non_rtp_packets": 0,
+    "r3p1_control_packets": 0,
+    "distinct_ssrc": {
+     "up": 1,
+     "down": 1
+    },
+    "min_udp_payload": 68,
+    "max_ipv4_len": 1256
+   }
+  },
+  "y4-v1": {
+   "start_utc": "2026-10-24T11:06:03.270155+00:00",
+   "end_utc": "2026-10-24T11:12:05.978551+00:00",
+   "host_settings": {
+    "tcp_congestion_control": "cubic",
+    "tcp_rmem": "4096\t131072\t6291456",
+    "tcp_wmem": "4096\t16384\t4194304",
+    "rmem_max": "212992",
+    "wmem_max": "212992"
+   },
+   "idle_rtt": {
+    "samples": 100,
+    "median_ms": 237.0,
+    "p95_ms": 237.0,
+    "p99_ms": 237.0,
+    "sent": 106,
+    "received": 100
+   },
+   "failed_attempts": [],
+   "tcp_summary": {
+    "up-p1": {
+     "median_mbps": 25.179377343854224,
+     "range_mbps": [
+      18.703882987362462,
+      38.3913594851551
+     ],
+     "median_client_cpu_percent": 14.903140458316718,
+     "median_server_cpu_percent": 9.376051478044769,
+     "median_retransmits": 162
+    },
+    "up-p4": {
+     "median_mbps": 39.99661805282296,
+     "range_mbps": [
+      37.458411241943836,
+      42.379247836496425
+     ],
+     "median_client_cpu_percent": 21.348460113216166,
+     "median_server_cpu_percent": 13.231093814808814,
+     "median_retransmits": 3169
+    },
+    "down-p1": {
+     "median_mbps": 29.4107774479644,
+     "range_mbps": [
+      28.36240526838734,
+      30.302135844431582
+     ],
+     "median_client_cpu_percent": 15.225855267769358,
+     "median_server_cpu_percent": 9.445274889936972,
+     "median_retransmits": 1954
+    },
+    "down-p4": {
+     "median_mbps": 105.32355054881423,
+     "range_mbps": [
+      103.80329405816799,
+      108.05015439949437
+     ],
+     "median_client_cpu_percent": 30.510735036144077,
+     "median_server_cpu_percent": 32.29929922172682,
+     "median_retransmits": 8697
+    }
+   },
+   "cases": [
+    {
+     "name": "tcp-up-p1-r1",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792839973.903652,
+     "end_epoch": 1792839995.5763247,
+     "receiver_mbps": 38.3913594851551,
+     "retransmits": 162,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 19.379243385096384,
+     "client_tunnel_rss_bytes": 2416640,
+     "loaded_rtt": {
+      "samples": 208,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 240.0,
+      "sent": 216,
+      "received": 208
+     },
+     "server_tunnel_cpu_percent": 13.193319046500013,
+     "server_tunnel_rss_bytes_max": 2498560
+    },
+    {
+     "name": "tcp-up-p1-r2",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792839996.5818386,
+     "end_epoch": 1792840018.254208,
+     "receiver_mbps": 18.703882987362462,
+     "retransmits": 120,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 10.474166205411443,
+     "client_tunnel_rss_bytes": 2416640,
+     "loaded_rtt": {
+      "samples": 210,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 239.0,
+      "sent": 216,
+      "received": 210
+     },
+     "server_tunnel_cpu_percent": 6.806191819154174,
+     "server_tunnel_rss_bytes_max": 2502656
+    },
+    {
+     "name": "tcp-up-p1-r3",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840019.2598286,
+     "end_epoch": 1792840040.9331129,
+     "receiver_mbps": 25.179377343854224,
+     "retransmits": 2306,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 14.903140458316718,
+     "client_tunnel_rss_bytes": 2420736,
+     "loaded_rtt": {
+      "samples": 202,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 242.0,
+      "sent": 215,
+      "received": 202
+     },
+     "server_tunnel_cpu_percent": 9.376051478044769,
+     "server_tunnel_rss_bytes_max": 2502656
+    },
+    {
+     "name": "tcp-up-p4-r1",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840041.938692,
+     "end_epoch": 1792840064.3294036,
+     "receiver_mbps": 37.458411241943836,
+     "retransmits": 3169,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 20.008296702886568,
+     "client_tunnel_rss_bytes": 2420736,
+     "loaded_rtt": {
+      "samples": 215,
+      "median_ms": 237.0,
+      "p95_ms": 239.0,
+      "p99_ms": 247.0,
+      "sent": 223,
+      "received": 215
+     },
+     "server_tunnel_cpu_percent": 13.04077977474628,
+     "server_tunnel_rss_bytes_max": 2502656
+    },
+    {
+     "name": "tcp-up-p4-r2",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840065.3364449,
+     "end_epoch": 1792840087.7268186,
+     "receiver_mbps": 39.99661805282296,
+     "retransmits": 6169,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 21.348460113216166,
+     "client_tunnel_rss_bytes": 2424832,
+     "loaded_rtt": {
+      "samples": 212,
+      "median_ms": 237.0,
+      "p95_ms": 239.0,
+      "p99_ms": 249.0,
+      "sent": 223,
+      "received": 212
+     },
+     "server_tunnel_cpu_percent": 13.231093814808814,
+     "server_tunnel_rss_bytes_max": 2506752
+    },
+    {
+     "name": "tcp-up-p4-r3",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840088.7336864,
+     "end_epoch": 1792840111.1246734,
+     "receiver_mbps": 42.379247836496425,
+     "retransmits": 1068,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 22.464396134505428,
+     "client_tunnel_rss_bytes": 2428928,
+     "loaded_rtt": {
+      "samples": 210,
+      "median_ms": 237.0,
+      "p95_ms": 240.0,
+      "p99_ms": 242.0,
+      "sent": 223,
+      "received": 210
+     },
+     "server_tunnel_cpu_percent": 14.355975202139087,
+     "server_tunnel_rss_bytes_max": 2506752
+    },
+    {
+     "name": "tcp-down-p1-r1",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840112.1308475,
+     "end_epoch": 1792840133.8032153,
+     "receiver_mbps": 29.4107774479644,
+     "retransmits": 1954,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 15.27290432146032,
+     "client_tunnel_rss_bytes": 2437120,
+     "loaded_rtt": {
+      "samples": 207,
+      "median_ms": 237.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 216,
+      "received": 207
+     },
+     "server_tunnel_cpu_percent": 9.445274889936972,
+     "server_tunnel_rss_bytes_max": 2527232
+    },
+    {
+     "name": "tcp-down-p1-r2",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840134.8088098,
+     "end_epoch": 1792840156.4801888,
+     "receiver_mbps": 28.36240526838734,
+     "retransmits": 1824,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 14.858306832819865,
+     "client_tunnel_rss_bytes": 2437120,
+     "loaded_rtt": {
+      "samples": 211,
+      "median_ms": 237.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 216,
+      "received": 211
+     },
+     "server_tunnel_cpu_percent": 9.37639673666336,
+     "server_tunnel_rss_bytes_max": 2539520
+    },
+    {
+     "name": "tcp-down-p1-r3",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840157.4858956,
+     "end_epoch": 1792840179.159555,
+     "receiver_mbps": 30.302135844431582,
+     "retransmits": 2364,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 15.225855267769358,
+     "client_tunnel_rss_bytes": 2445312,
+     "loaded_rtt": {
+      "samples": 200,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 238.0,
+      "sent": 215,
+      "received": 200
+     },
+     "server_tunnel_cpu_percent": 9.61401840037602,
+     "server_tunnel_rss_bytes_max": 2555904
+    },
+    {
+     "name": "tcp-down-p4-r1",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840180.165165,
+     "end_epoch": 1792840203.56795,
+     "receiver_mbps": 108.05015439949437,
+     "retransmits": 8917,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 29.95369987457516,
+     "client_tunnel_rss_bytes": 2449408,
+     "loaded_rtt": {
+      "samples": 223,
+      "median_ms": 236.0,
+      "p95_ms": 238.0,
+      "p99_ms": 242.0,
+      "sent": 233,
+      "received": 223
+     },
+     "server_tunnel_cpu_percent": 31.527248800317544,
+     "server_tunnel_rss_bytes_max": 2588672
+    },
+    {
+     "name": "tcp-down-p4-r2",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840204.5700843,
+     "end_epoch": 1792840226.9539313,
+     "receiver_mbps": 105.32355054881423,
+     "retransmits": 7280,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 30.781125338059763,
+     "client_tunnel_rss_bytes": 2453504,
+     "loaded_rtt": {
+      "samples": 211,
+      "median_ms": 236.0,
+      "p95_ms": 238.0,
+      "p99_ms": 242.0,
+      "sent": 223,
+      "received": 211
+     },
+     "server_tunnel_cpu_percent": 32.29929922172682,
+     "server_tunnel_rss_bytes_max": 2621440
+    },
+    {
+     "name": "tcp-down-p4-r3",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840227.957077,
+     "end_epoch": 1792840250.3426406,
+     "receiver_mbps": 103.80329405816799,
+     "retransmits": 8697,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 30.510735036144077,
+     "client_tunnel_rss_bytes": 2453504,
+     "loaded_rtt": {
+      "samples": 217,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 240.0,
+      "sent": 223,
+      "received": 217
+     },
+     "server_tunnel_cpu_percent": 32.69553263631562,
+     "server_tunnel_rss_bytes_max": 2641920
+    },
+    {
+     "name": "udp-up-5M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "5M",
+     "start_epoch": 1792840251.3456776,
+     "end_epoch": 1792840262.7788517,
+     "receiver_mbps": 4.883960047003526,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 6251,
+     "jitter_ms": 0.18009729008285869,
+     "client_tunnel_cpu_percent": 6.909717203545508,
+     "client_tunnel_rss_bytes": 2453504,
+     "loaded_rtt": {
+      "samples": 107,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 107
+     },
+     "server_tunnel_cpu_percent": 2.498800436334953,
+     "server_tunnel_rss_bytes_max": 2646016
+    },
+    {
+     "name": "udp-up-10M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "10M",
+     "start_epoch": 1792840263.7810478,
+     "end_epoch": 1792840275.2151747,
+     "receiver_mbps": 9.768983010069356,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 12501,
+     "jitter_ms": 0.20638419525705212,
+     "client_tunnel_cpu_percent": 11.71930324997161,
+     "client_tunnel_rss_bytes": 2457600,
+     "loaded_rtt": {
+      "samples": 104,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 104
+     },
+     "server_tunnel_cpu_percent": 3.816388244058908,
+     "server_tunnel_rss_bytes_max": 2646016
+    },
+    {
+     "name": "udp-up-20M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "20M",
+     "start_epoch": 1792840276.2204666,
+     "end_epoch": 1792840287.6555283,
+     "receiver_mbps": 19.53659673860025,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 25003,
+     "jitter_ms": 0.1097174141618264,
+     "client_tunnel_cpu_percent": 18.801822479717057,
+     "client_tunnel_rss_bytes": 2457600,
+     "loaded_rtt": {
+      "samples": 108,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 108
+     },
+     "server_tunnel_cpu_percent": 7.595914910968671,
+     "server_tunnel_rss_bytes_max": 2646016
+    },
+    {
+     "name": "udp-up-50M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "50M",
+     "start_epoch": 1792840288.6607451,
+     "end_epoch": 1792840300.0935597,
+     "receiver_mbps": 48.843840523368165,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 62506,
+     "jitter_ms": 0.10435066268600507,
+     "client_tunnel_cpu_percent": 12.245453540676591,
+     "client_tunnel_rss_bytes": 2457600,
+     "loaded_rtt": {
+      "samples": 110,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 110
+     },
+     "server_tunnel_cpu_percent": 14.901704870852853,
+     "server_tunnel_rss_bytes_max": 2646016
+    },
+    {
+     "name": "udp-up-100M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "100M",
+     "start_epoch": 1792840301.0988204,
+     "end_epoch": 1792840312.5332499,
+     "receiver_mbps": 50.06565481546133,
+     "retransmits": null,
+     "loss_percent": 48.74453056882084,
+     "lost_packets": 60937,
+     "packets": 125011,
+     "jitter_ms": 0.10877670619245834,
+     "client_tunnel_cpu_percent": 23.43798631815658,
+     "client_tunnel_rss_bytes": 2457600,
+     "loaded_rtt": {
+      "samples": 34,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 111,
+      "received": 34
+     },
+     "server_tunnel_cpu_percent": 15.391812912319322,
+     "server_tunnel_rss_bytes_max": 2646016
+    },
+    {
+     "name": "udp-down-5M",
+     "protocol": "udp",
+     "direction": "down",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "5M",
+     "start_epoch": 1792840313.5379198,
+     "end_epoch": 1792840324.9735947,
+     "receiver_mbps": 4.881794657462475,
+     "retransmits": null,
+     "loss_percent": 2.3128613845913426,
+     "lost_packets": 148,
+     "packets": 6251,
+     "jitter_ms": 0.12225579314771609,
+     "client_tunnel_cpu_percent": 6.558423583912143,
+     "client_tunnel_rss_bytes": 2457600,
+     "loaded_rtt": {
+      "samples": 110,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 110
+     },
+     "server_tunnel_cpu_percent": 2.6350595666043404,
+     "server_tunnel_rss_bytes_max": 2646016
+    }
+   ],
+   "client_final_counters": {
+    "event": "final",
+    "invalid_or_replay": 0,
+    "protocol": "v1",
+    "rx_packets": 1145641,
+    "rx_plain_bytes": 1126387992,
+    "rx_udp_payload_bytes": 1158465940,
+    "seconds": 363.093024388,
+    "socket_receive_drops": 1437,
+    "socket_send_drops": 0,
+    "tun_write_drops": 0,
+    "tx_packets": 853434,
+    "tx_plain_bytes": 800789872,
+    "tx_udp_payload_bytes": 824686024
+   },
+   "server_final_counters": {
+    "event": "final",
+    "invalid_or_replay": 0,
+    "protocol": "v1",
+    "rx_packets": 786532,
+    "rx_plain_bytes": 731077640,
+    "rx_udp_payload_bytes": 753100536,
+    "seconds": 419.265311436,
+    "socket_receive_drops": 5888,
+    "socket_send_drops": 278,
+    "tun_write_drops": 0,
+    "tx_packets": 1182438,
+    "tx_plain_bytes": 1163977088,
+    "tx_udp_payload_bytes": 1197085352
+   },
+   "capture_shape": {
+    "start_utc": "2026-10-24T11:06:02.621112+00:00",
+    "end_utc": "2026-10-24T11:07:04.569644+00:00",
+    "control_type_counts": {
+     "1": 1,
+     "2": 1,
+     "3": 1,
+     "4": 1
+    },
+    "flows": [
+     {
+      "direction": "upload",
+      "session_number": 1,
+      "packets": 138200,
+      "ipv4_length_bytes": {
+       "min": 108,
+       "median": 1256,
+       "p95": 1256,
+       "p99": 1256,
+       "max": 1256
+      },
+      "ipv4_length_top_counts": [
+       [
+        1256,
+        137554
+       ],
+       [
+        140,
+        590
+       ],
+       [
+        108,
+        26
+       ],
+       [
+        116,
+        6
+       ],
+       [
+        145,
+        6
+       ],
+       [
+        112,
+        5
+       ],
+       [
+        109,
+        4
+       ],
+       [
+        232,
+        3
+       ]
+      ],
+      "ip_bytes": 172858834,
+      "max_expected_ipv4_len": 1256,
+      "oversize_ip_packets": 0,
+      "interarrival_ms": {
+       "min": 0.0,
+       "median": 0.0,
+       "p95": 0.4990100860595703,
+       "p99": 6.114959716796875,
+       "max": 776.9770622253418
+      },
+      "burst_packets_gap_at_most_1ms": {
+       "min": 1,
+       "median": 13,
+       "p95": 128,
+       "p99": 237,
+       "max": 621
+      },
+      "rtp_timestamp_delta_ticks": {
+       "min": 0,
+       "median": 3,
+       "p95": 46,
+       "p99": 605,
+       "max": 4294967295
+      },
+      "rtp_sequence_duplicates_observed": 0,
+      "rtp_reorder_observations": 128,
+      "rtp_sequence_missing_in_capture_span": 0,
+      "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them."
+     },
+     {
+      "direction": "download",
+      "session_number": 2,
+      "packets": 61796,
+      "ipv4_length_bytes": {
+       "min": 96,
+       "median": 108,
+       "p95": 108,
+       "p99": 136,
+       "max": 434
+      },
+      "ipv4_length_top_counts": [
+       [
+        108,
+        57854
+       ],
+       [
+        96,
+        1682
+       ],
+       [
+        120,
+        905
+       ],
+       [
+        140,
+        588
+       ],
+       [
+        136,
+        428
+       ],
+       [
+        128,
+        313
+       ],
+       [
+        109,
+        16
+       ],
+       [
+        116,
+        6
+       ]
+      ],
+      "ip_bytes": 6702427,
+      "max_expected_ipv4_len": 1256,
+      "oversize_ip_packets": 0,
+      "interarrival_ms": {
+       "min": 0.0059604644775390625,
+       "median": 0.02193450927734375,
+       "p95": 1.9958019256591797,
+       "p99": 23.556947708129883,
+       "max": 1014.0950679779053
+      },
+      "burst_packets_gap_at_most_1ms": {
+       "min": 1,
+       "median": 4,
+       "p95": 50,
+       "p99": 81,
+       "max": 181
+      },
+      "rtp_timestamp_delta_ticks": {
+       "min": 0,
+       "median": 2,
+       "p95": 179,
+       "p99": 2119,
+       "max": 91268
+      },
+      "rtp_sequence_duplicates_observed": 0,
+      "rtp_reorder_observations": 0,
+      "rtp_sequence_missing_in_capture_span": 0,
+      "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them."
+     }
+    ]
+   },
+   "capture_tcpdump_stats": [
+    "200000 packets captured",
+    "201310 packets received by filter",
+    "0 packets dropped by kernel"
+   ],
+   "capture_framing": {
+    "packets": 200000,
+    "non_rtp_packets": 4,
+    "r3p1_control_packets": 4,
+    "distinct_ssrc": {
+     "up": 1,
+     "down": 1
+    },
+    "min_udp_payload": 68,
+    "max_ipv4_len": 1256
+   }
+  },
+  "y4-v3b": {
+   "start_utc": "2026-10-24T11:13:09.314158+00:00",
+   "end_utc": "2026-10-24T11:18:49.724598+00:00",
+   "host_settings": {
+    "tcp_congestion_control": "cubic",
+    "tcp_rmem": "4096\t131072\t6291456",
+    "tcp_wmem": "4096\t16384\t4194304",
+    "rmem_max": "212992",
+    "wmem_max": "212992"
+   },
+   "idle_rtt": {
+    "samples": 100,
+    "median_ms": 237.0,
+    "p95_ms": 237.0,
+    "p99_ms": 237.0,
+    "sent": 108,
+    "received": 100
+   },
+   "failed_attempts": [],
+   "tcp_summary": {
+    "up-p1": {
+     "median_mbps": 22.53730078541258,
+     "range_mbps": [
+      15.75033790382379,
+      34.24776510331616
+     ],
+     "median_client_cpu_percent": 11.397257264743859,
+     "median_server_cpu_percent": 7.095694000735266,
+     "median_retransmits": 44
+    },
+    "up-p4": {
+     "median_mbps": 43.83076147198816,
+     "range_mbps": [
+      43.4679602904586,
+      44.244036606953514
+     ],
+     "median_client_cpu_percent": 19.73961001617292,
+     "median_server_cpu_percent": 12.719862581026492,
+     "median_retransmits": 3008
+    },
+    "down-p1": {
+     "median_mbps": 27.103929199798472,
+     "range_mbps": [
+      26.476173333573332,
+      28.676937654563165
+     ],
+     "median_client_cpu_percent": 13.057394029626249,
+     "median_server_cpu_percent": 8.376960312648924,
+     "median_retransmits": 2009
+    },
+    "down-p4": {
+     "median_mbps": 106.68664421658829,
+     "range_mbps": [
+      84.25228120332856,
+      108.15456315219164
+     ],
+     "median_client_cpu_percent": 26.880434890034756,
+     "median_server_cpu_percent": 26.804904667109643,
+     "median_retransmits": 8540
+    }
+   },
+   "cases": [
+    {
+     "name": "tcp-up-p1-r1",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840400.144546,
+     "end_epoch": 1792840421.813364,
+     "receiver_mbps": 34.24776510331616,
+     "retransmits": 43,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 15.275406348705808,
+     "client_tunnel_rss_bytes": 2248704,
+     "loaded_rtt": {
+      "samples": 205,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 242.0,
+      "sent": 216,
+      "received": 205
+     },
+     "server_tunnel_cpu_percent": 10.041477219902392,
+     "server_tunnel_rss_bytes_max": 2441216
+    },
+    {
+     "name": "tcp-up-p1-r2",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840422.8189175,
+     "end_epoch": 1792840444.491926,
+     "receiver_mbps": 15.75033790382379,
+     "retransmits": 106,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 7.982278992949709,
+     "client_tunnel_rss_bytes": 2248704,
+     "loaded_rtt": {
+      "samples": 208,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 240.0,
+      "sent": 216,
+      "received": 208
+     },
+     "server_tunnel_cpu_percent": 4.950033405900782,
+     "server_tunnel_rss_bytes_max": 2441216
+    },
+    {
+     "name": "tcp-up-p1-r3",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 1,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840445.4970322,
+     "end_epoch": 1792840467.168913,
+     "receiver_mbps": 22.53730078541258,
+     "retransmits": 44,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 11.397257264743859,
+     "client_tunnel_rss_bytes": 2248704,
+     "loaded_rtt": {
+      "samples": 209,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 241.0,
+      "sent": 215,
+      "received": 209
+     },
+     "server_tunnel_cpu_percent": 7.095694000735266,
+     "server_tunnel_rss_bytes_max": 2445312
+    },
+    {
+     "name": "tcp-up-p4-r1",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840468.173936,
+     "end_epoch": 1792840490.5654624,
+     "receiver_mbps": 43.83076147198816,
+     "retransmits": 1041,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 19.73961001617292,
+     "client_tunnel_rss_bytes": 2248704,
+     "loaded_rtt": {
+      "samples": 216,
+      "median_ms": 237.0,
+      "p95_ms": 239.0,
+      "p99_ms": 242.0,
+      "sent": 223,
+      "received": 216
+     },
+     "server_tunnel_cpu_percent": 12.719862581026492,
+     "server_tunnel_rss_bytes_max": 2445312
+    },
+    {
+     "name": "tcp-up-p4-r2",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840491.5723946,
+     "end_epoch": 1792840513.9624765,
+     "receiver_mbps": 44.244036606953514,
+     "retransmits": 3008,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 19.696220956884517,
+     "client_tunnel_rss_bytes": 2252800,
+     "loaded_rtt": {
+      "samples": 210,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 244.0,
+      "sent": 223,
+      "received": 210
+     },
+     "server_tunnel_cpu_percent": 13.46890601344605,
+     "server_tunnel_rss_bytes_max": 2449408
+    },
+    {
+     "name": "tcp-up-p4-r3",
+     "protocol": "tcp",
+     "direction": "up",
+     "streams": 4,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840514.968575,
+     "end_epoch": 1792840537.356158,
+     "receiver_mbps": 43.4679602904586,
+     "retransmits": 3117,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 20.145095593861008,
+     "client_tunnel_rss_bytes": 2252800,
+     "loaded_rtt": {
+      "samples": 211,
+      "median_ms": 237.0,
+      "p95_ms": 238.0,
+      "p99_ms": 243.0,
+      "sent": 223,
+      "received": 211
+     },
+     "server_tunnel_cpu_percent": 12.565068460507131,
+     "server_tunnel_rss_bytes_max": 2449408
+    },
+    {
+     "name": "tcp-down-p1-r1",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840538.3626938,
+     "end_epoch": 1792840560.0326788,
+     "receiver_mbps": 26.476173333573332,
+     "retransmits": 2080,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 13.19797864474402,
+     "client_tunnel_rss_bytes": 2260992,
+     "loaded_rtt": {
+      "samples": 209,
+      "median_ms": 237.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 216,
+      "received": 209
+     },
+     "server_tunnel_cpu_percent": 8.595854040926747,
+     "server_tunnel_rss_bytes_max": 2453504
+    },
+    {
+     "name": "tcp-down-p1-r2",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840561.038415,
+     "end_epoch": 1792840583.727159,
+     "receiver_mbps": 28.676937654563165,
+     "retransmits": 2009,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 12.120547491480188,
+     "client_tunnel_rss_bytes": 2269184,
+     "loaded_rtt": {
+      "samples": 217,
+      "median_ms": 237.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 226,
+      "received": 217
+     },
+     "server_tunnel_cpu_percent": 7.814191337886468,
+     "server_tunnel_rss_bytes_max": 2457600
+    },
+    {
+     "name": "tcp-down-p1-r3",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 1,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840584.7330532,
+     "end_epoch": 1792840606.406597,
+     "receiver_mbps": 27.103929199798472,
+     "retransmits": 1677,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 13.057394029626249,
+     "client_tunnel_rss_bytes": 2269184,
+     "loaded_rtt": {
+      "samples": 206,
+      "median_ms": 237.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 215,
+      "received": 206
+     },
+     "server_tunnel_cpu_percent": 8.376960312648924,
+     "server_tunnel_rss_bytes_max": 2457600
+    },
+    {
+     "name": "tcp-down-p4-r1",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 1,
+     "offered_rate": null,
+     "start_epoch": 1792840607.411807,
+     "end_epoch": 1792840629.806674,
+     "receiver_mbps": 106.68664421658829,
+     "retransmits": 9670,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 30.364100921869376,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 208,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 241.0,
+      "sent": 223,
+      "received": 208
+     },
+     "server_tunnel_cpu_percent": 29.030839045313023,
+     "server_tunnel_rss_bytes_max": 2465792
+    },
+    {
+     "name": "tcp-down-p4-r2",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 2,
+     "offered_rate": null,
+     "start_epoch": 1792840630.8094933,
+     "end_epoch": 1792840654.2094123,
+     "receiver_mbps": 108.15456315219164,
+     "retransmits": 8257,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 26.880434890034756,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 227,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 239.0,
+      "sent": 233,
+      "received": 227
+     },
+     "server_tunnel_cpu_percent": 26.804904667109643,
+     "server_tunnel_rss_bytes_max": 2469888
+    },
+    {
+     "name": "tcp-down-p4-r3",
+     "protocol": "tcp",
+     "direction": "down",
+     "streams": 4,
+     "repetition": 3,
+     "offered_rate": null,
+     "start_epoch": 1792840655.2122407,
+     "end_epoch": 1792840678.2937372,
+     "receiver_mbps": 84.25228120332856,
+     "retransmits": 8540,
+     "loss_percent": null,
+     "lost_packets": null,
+     "packets": null,
+     "jitter_ms": null,
+     "client_tunnel_cpu_percent": 26.774693773101564,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 217,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 239.0,
+      "sent": 230,
+      "received": 217
+     },
+     "server_tunnel_cpu_percent": 22.806625845308748,
+     "server_tunnel_rss_bytes_max": 2469888
+    },
+    {
+     "name": "udp-up-5M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "5M",
+     "start_epoch": 1792840679.2967741,
+     "end_epoch": 1792840690.7266207,
+     "receiver_mbps": 4.884840242925271,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 6251,
+     "jitter_ms": 0.15855993167782736,
+     "client_tunnel_cpu_percent": 6.911728851815975,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 106,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 106
+     },
+     "server_tunnel_cpu_percent": 2.453247721327751,
+     "server_tunnel_rss_bytes_max": 2469888
+    },
+    {
+     "name": "udp-up-10M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "10M",
+     "start_epoch": 1792840691.7282057,
+     "end_epoch": 1792840703.1563494,
+     "receiver_mbps": 9.76869197128547,
+     "retransmits": null,
+     "loss_percent": 0,
+     "lost_packets": 0,
+     "packets": 12501,
+     "jitter_ms": 0.18656549192048547,
+     "client_tunnel_cpu_percent": 11.287922425394932,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 108,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 108
+     },
+     "server_tunnel_cpu_percent": 4.197882094788382,
+     "server_tunnel_rss_bytes_max": 2469888
+    },
+    {
+     "name": "udp-up-20M",
+     "protocol": "udp",
+     "direction": "up",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "20M",
+     "start_epoch": 1792840704.161288,
+     "end_epoch": 1792840716.2806208,
+     "receiver_mbps": 18.405233946893222,
+     "retransmits": null,
+     "loss_percent": 5.791305043394793,
+     "lost_packets": 1448,
+     "packets": 25003,
+     "jitter_ms": 0.10663460500992558,
+     "client_tunnel_cpu_percent": 15.429892324478145,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 117,
+      "median_ms": 236.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 121,
+      "received": 117
+     },
+     "server_tunnel_cpu_percent": 5.997096427137465,
+     "server_tunnel_rss_bytes_max": 2469888
+    },
+    {
+     "name": "udp-down-5M",
+     "protocol": "udp",
+     "direction": "down",
+     "streams": null,
+     "repetition": null,
+     "offered_rate": "5M",
+     "start_epoch": 1792840717.285777,
+     "end_epoch": 1792840728.7200568,
+     "receiver_mbps": 4.790671588923741,
+     "retransmits": null,
+     "loss_percent": 4.0943897483981875,
+     "lost_packets": 262,
+     "packets": 6251,
+     "jitter_ms": 0.13363199358725658,
+     "client_tunnel_cpu_percent": 5.772116989055961,
+     "client_tunnel_rss_bytes": 2277376,
+     "loaded_rtt": {
+      "samples": 107,
+      "median_ms": 237.0,
+      "p95_ms": 237.0,
+      "p99_ms": 237.0,
+      "sent": 114,
+      "received": 107
+     },
+     "server_tunnel_cpu_percent": 2.0898681280948237,
+     "server_tunnel_rss_bytes_max": 2469888
+    }
+   ],
+   "client_final_counters": {
+    "event": "final",
+    "protocol": "xchacha20-v3",
+    "rejected": 0,
+    "rx_packets": 1082939,
+    "rx_plain_bytes": 1061133183,
+    "rx_udp_payload_bytes": 1091455475,
+    "seconds": 340.826189428,
+    "socket_receive_drops": 1500,
+    "socket_send_drops": 0,
+    "tun_write_drops": 0,
+    "tx_packets": 658473,
+    "tx_plain_bytes": 611518115,
+    "tx_udp_payload_bytes": 629955359
+   },
+   "server_final_counters": {
+    "event": "final",
+    "protocol": "xchacha20-v3",
+    "rejected": 0,
+    "rx_packets": 652359,
+    "rx_plain_bytes": 604218375,
+    "rx_udp_payload_bytes": 622484427,
+    "seconds": 399.420820155,
+    "socket_receive_drops": 3777,
+    "socket_send_drops": 507,
+    "tun_write_drops": 0,
+    "tx_packets": 1121017,
+    "tx_plain_bytes": 1099631987,
+    "tx_udp_payload_bytes": 1131020463
+   },
+   "capture_shape": {
+    "start_utc": "2026-10-24T11:13:07.954766+00:00",
+    "end_utc": "2026-10-24T11:14:18.346283+00:00",
+    "control_type_counts": {},
+    "flows": [
+     {
+      "direction": "download",
+      "session_number": 1,
+      "packets": 60498,
+      "ipv4_length_bytes": {
+       "min": 96,
+       "median": 108,
+       "p95": 108,
+       "p99": 140,
+       "max": 434
+      },
+      "ipv4_length_top_counts": [
+       [
+        108,
+        58074
+       ],
+       [
+        96,
+        912
+       ],
+       [
+        120,
+        762
+       ],
+       [
+        140,
+        667
+       ],
+       [
+        128,
+        54
+       ],
+       [
+        109,
+        16
+       ],
+       [
+        116,
+        6
+       ],
+       [
+        107,
+        3
+       ]
+      ],
+      "ip_bytes": 6555128,
+      "max_expected_ipv4_len": 1256,
+      "oversize_ip_packets": 0,
+      "interarrival_ms": {
+       "min": 0.0050067901611328125,
+       "median": 0.0209808349609375,
+       "p95": 1.5430450439453125,
+       "p99": 34.00707244873047,
+       "max": 1013.4930610656738
+      },
+      "burst_packets_gap_at_most_1ms": {
+       "min": 1,
+       "median": 5,
+       "p95": 52,
+       "p99": 100,
+       "max": 240
+      },
+      "rtp_timestamp_delta_ticks": {
+       "min": 0,
+       "median": 2,
+       "p95": 139,
+       "p99": 3064,
+       "max": 91215
+      },
+      "rtp_sequence_duplicates_observed": 0,
+      "rtp_reorder_observations": 0,
+      "rtp_sequence_missing_in_capture_span": 0,
+      "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them."
+     },
+     {
+      "direction": "upload",
+      "session_number": 2,
+      "packets": 139502,
+      "ipv4_length_bytes": {
+       "min": 108,
+       "median": 1256,
+       "p95": 1256,
+       "p99": 1256,
+       "max": 1256
+      },
+      "ipv4_length_top_counts": [
+       [
+        1256,
+        138779
+       ],
+       [
+        140,
+        668
+       ],
+       [
+        108,
+        28
+       ],
+       [
+        116,
+        6
+       ],
+       [
+        145,
+        6
+       ],
+       [
+        112,
+        5
+       ],
+       [
+        109,
+        4
+       ],
+       [
+        232,
+        3
+       ]
+      ],
+      "ip_bytes": 174407591,
+      "max_expected_ipv4_len": 1256,
+      "oversize_ip_packets": 0,
+      "interarrival_ms": {
+       "min": 0.0,
+       "median": 0.0,
+       "p95": 0.4730224609375,
+       "p99": 7.040977478027344,
+       "max": 776.9811153411865
+      },
+      "burst_packets_gap_at_most_1ms": {
+       "min": 1,
+       "median": 14,
+       "p95": 149,
+       "p99": 268,
+       "max": 439
+      },
+      "rtp_timestamp_delta_ticks": {
+       "min": 0,
+       "median": 3,
+       "p95": 38,
+       "p99": 790,
+       "max": 4294967295
+      },
+      "rtp_sequence_duplicates_observed": 0,
+      "rtp_reorder_observations": 121,
+      "rtp_sequence_missing_in_capture_span": 1,
+      "note": "Passive capture gaps/reorder are not authenticated receiver/path loss; offload/capture boundaries may affect them."
+     }
+    ]
+   },
+   "capture_tcpdump_stats": [
+    "200000 packets captured",
+    "201465 packets received by filter",
+    "0 packets dropped by kernel"
+   ],
+   "capture_framing": {
+    "packets": 200000,
+    "non_rtp_packets": 0,
+    "r3p1_control_packets": 0,
+    "distinct_ssrc": {
+     "up": 1,
+     "down": 1
+    },
+    "min_udp_payload": 68,
+    "max_ipv4_len": 1256
+   }
+  }
+ },
+ "experiment": "v3 raw XChaCha20 (RTP header prefix + 16 random nonce bytes) vs v1 ChaCha20-Poly1305, adjacent A-B-A windows",
+ "order": [
+  "y4-v3",
+  "y4-v1",
+  "y4-v3b"
+ ],
+ "inner_mtu": 1200,
+ "ipv4_overhead_bytes": {
+  "y4-v3": 56,
+  "y4-v1": 56,
+  "y4-v3b": 56
+ },
+ "ping_note": "sent minus received includes probes still in flight (~236 ms RTT, 0.1 s interval) when ping stops; it is not purely loss.",
+ "y3_validation": {
+  "capture": {
+   "packets": 59219,
+   "non_rtp_packets": 0,
+   "r3p1_control_packets": 0,
+   "max_ipv4_len": 1256
+  },
+  "kernel_drops": 0,
+  "client_first_packet": {
+   "ipv4_len": 140,
+   "inner_ipv4_len": 84,
+   "inner": "ICMP echo request",
+   "rtp_v2_pt96": true
+  },
+  "pings": {
+   "first_without_setup": "1/1",
+   "mtu_1200": "10/10",
+   "forwarded_egress": "10/10"
+  },
+  "smoke_tcp_5s_mbps": {
+   "tunnel_up": 31.42,
+   "tunnel_down": 24.53,
+   "forwarded_up": 12.01
+  }
+ }
+}
