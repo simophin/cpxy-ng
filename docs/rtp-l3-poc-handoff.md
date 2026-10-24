@@ -154,7 +154,7 @@ Authentication succeeds before replay, session or peer state changes. A fresh
 session rejects stale data. The custom control exchange is observable; this is
 not codec-valid media or standardized SRTP.
 
-## Next experiment: handshake-free XChaCha20 (v2, IN PROGRESS)
+## Next experiment: handshake-free XChaCha20 (v2, COMPLETE)
 
 ### Objective and accepted threat model
 
@@ -268,14 +268,14 @@ rather than inventing a cipher or modifying the AEAD internals.
       when this experiment is started. Capture from before process startup and
       prove that the first outbound packet is RTP-framed encrypted data. Verify
       forwarding/NAT to the controlled endpoint as before; keep captures private.
-- [ ] X5: repeat the bounded TCP/UDP, idle/loaded RTT, CPU/RSS and packet-shape
+- [x] X5: repeat the bounded TCP/UDP, idle/loaded RTT, CPU/RSS and packet-shape
       measurements. Report setup/first-packet failures, receiver loss and ping
       delivery alongside RTT percentiles. Compare to v1 with matched settings and
       adjacent measurement windows where feasible; do not claim a speedup from
       old unmatched samples. Record the extra 8 bytes per packet and achieved
       socket buffer sizes. Keep buffer/batching optimization a separate change
       so its effect is distinguishable from the crypto/protocol change.
-- [ ] X6: remove every task-owned runtime firewall rule, process, interface,
+- [x] X6: remove every task-owned runtime firewall rule, process, interface,
       namespace and key/staging file; independently verify cleanup. Commit a
       sanitized report and final handoff, retaining key-free raw evidence privately.
 
@@ -288,86 +288,34 @@ or expensive classification; continue to label the result as RTP-framed IP.
 
 ## Current state
 
-**V2 in progress.** X0–X3 done. `client-x`/`server-x` implemented beside v1
-(`chacha20` 0.9 raw XChaCha20, already locked). 13 unit tests pass on macOS and
-Linux (7 v1 + 6 v2: libsodium counter-0 packet vector generated independently
-via `crypto_stream_xchacha20_xor`, draft-arciszewski-xchacha-03 A.3.2 keystream,
-directional keys, rollover/loss/reorder/replay/restart decryptability, 10k
-distinct nonces, length/header checks and documented non-detection of a
-flipped payload bit). Linux release build and clippy `-D warnings` pass (fixed
-a newer-rustc `function_casts_as_integer` lint on the signal handler cast).
+**V2 complete (X0–X6).** Report: `docs/rtp-l3-poc-v2-results.md`; endpoint-free
+aggregate: `experiments/rtp-l3/results/2026-10-24-v2-summary.json`. V1 results
+remain in `docs/rtp-l3-poc-results.md`.
 
-`scripts/local-integration-x.sh` passed in disposable namespaces: first ping
-without setup, MTU-sized ping, 100 MiB each way (over 130k packets, crossing
-RTP sequence rollover), restart of both peers with fresh SSRC/sequence/nonces,
-and the fault proxy (loss/dup/reorder/1-byte corruption). Every corrupted
-datagram was forwarded (`rejected` 0); endpoint TCP/UDP checksums discarded them.
-The first v2 attempt exposed a fault-proxy artifact (a reordered packet held
-until the next packet could stall a quiet iperf control connection); the hold
-is now bounded to 20 ms. The v1 integration still passes with the same proxy.
+Summary: v2 delivered the first packet with no setup, and its captures held
+only RTP-framed datagrams (0 non-RTP, 0 `R3P1`; v1 shows 4 control packets).
+In adjacent A-B-A windows (v2, v1, v2; 09:56–10:18 UTC) TCP goodput, UDP
+ladders, RTT and drop counters overlapped v1 within run-to-run variation. The
+four-stream tunnel CPU was slightly lower in both v2 runs, which is not
+established. V2 costs +8 bytes per packet (1264 vs 1256 max IPv4). New
+observable: `server-x` forwards TUN-originated packets to the configured peer
+before the client speaks. Out-of-band return-tuple configuration is the main
+operational cost behind client NAT.
 
-X4 cross-host validation passed (2026-10-24, about 12:50–12:55 UTC). Server
-runtime-only changes: a public-zone rich rule accepting the tunnel UDP port
-from the client's public /32 only; trusted-zone assignment of the task TUN and
-egress veth host end; a trusted-zone masquerade rich rule scoped to tunnel
-subnet -> egress /30; an egress namespace with an iperf3 endpoint and no return
-route to the tunnel subnet. IP forwarding was already enabled (unchanged).
+X5 notes: `capture-shape.py` now takes an optional max IPv4 length (1264 for
+v2). A direct baseline was not repeated. Socket buffers were still 425,984
+bytes, and receive overflow is still the main local drop source. Buffer or batching
+changes remain a separate experiment.
 
-- Client-side NAT rewrites the source port. Return routing used the private
-  operator procedure: start `server-x` with a placeholder peer (bound socket,
-  so stray datagrams elicit no ICMP), send one plain datagram from the fixed
-  client port, read the external tuple from a server capture, restart
-  `server-x` with it, then start the client within seconds from the same port.
-  The NAT mapping stayed stable across restarts within that window.
-- Fixed client ports in one range received **no return UDP at all**, even for
-  a plain-UDP echo, while ephemeral and other fixed ports worked. Cause not
-  established (client-side NAT or path filtering); a working fixed port was
-  chosen by plain-UDP echo before tunnel use. Not a v2 protocol issue.
-- First ping without any setup succeeded; 1200-byte MTU pings 10/10; pings to
-  the egress endpoint 10/10. Egress iperf3 logged connections only from the
-  egress veth host address, proving masquerade. Five-second smoke TCP: tunnel
-  up 22.42, down 22.22, forwarded 8.21 Mbit/s (smoke only; idle RTT ~235 ms in
-  this window versus ~178 ms during v1's window).
-- Capture proof (client restart against a running server, capture started
-  first): 23 packets, 0 kernel drops, **0 non-RTP and 0 `R3P1` packets**. The
-  client's first outbound datagram was RTP v2/PT 96 carrying an 84-byte ICMP
-  echo (148 IPv4 bytes = 84 + 64). Largest observed IPv4 length 1264.
-- Debian's tcpdump AppArmor profile denies `-w` into the root-only task dir;
-  write captures as `tcpdump -w - > FILE` instead.
-- Server v2 `rejected` stayed 0; server socket receive overflow 571 in X4.
-
-Private staging: client task dir (source+vendor, binary, PSK 0600, run
-outputs) and server task dir (binary, PSK 0600, scripts, logs, captures,
-baseline firewall/link snapshots, ledger). Server egress namespace/veth and the
-firewall rules remain active for X5. Cleanup: run the server task cleanup
-script, then delete both task dirs (X6).
-Next: X5 adjacent v2/v1 (and direct if feasible) bounded measurement matrix.
-
-All v1 checkpoints P0–P6 complete. Code, correctness/fault integration, authorized
-cross-host forwarding/NAT, bounded measurements, sanitized report and cleanup are
-finished. Results: `docs/rtp-l3-poc-results.md`; detailed endpoint-free aggregate:
-`experiments/rtp-l3/results/2026-10-24-summary.json`.
-
-Primary tunnel completed twelve TCP and six UDP cases. Direct baseline is partial
-with bounded setup/control failures preserved. The final report separates clean
-primary/final-direct observations from two supplemental cases overlapping private
-evidence transfers, and records CPU, RSS, local socket drops and packet shape.
-No censorship-resistance or media-valid camouflage claim is made.
-
-**Cleanup complete and independently verified:** all owned firewalld runtime
-rules/interface assignments, task listeners/processes, TUN/veth and egress
-namespace are absent. Original trusted interfaces and IP forwarding are retained.
-Client task namespace resources exited. Remote task staging/archive files and all
-local/remote PSKs were removed. Private local source/vendor/binary deployment
-staging was also deleted; only key-excluding raw evidence and analysis remain
-outside checkout. There are no outstanding remote cleanup obligations.
-
-Final verification: seven protocol tests passed on macOS/Linux; Linux release
-build and clippy with warnings denied passed; local final tests/clippy/fmt, Python
-syntax, shell syntax, diff whitespace and public-identity scans passed. A separate
-agent reviewed source, reproduced primary numeric results, checked public artifact
-hygiene, and independently verified remote teardown. No GitHub publication was
-requested or performed.
+**Cleanup complete and verified (X6):** all task runtime firewalld rules and
+interface assignments were removed. Task processes, TUN, veth and egress
+namespace are gone. The zone/policy listings, IP forwarding and link list
+exactly match the pre-task snapshots. Permanent firewalld config was never
+touched. The host's pre-existing iperf3 service was untouched. The server and
+client task directories (source, vendor, binaries, PSKs, logs, captures) were
+deleted, and local build staging was deleted. Only key-free raw evidence is
+retained privately outside the checkout. No outstanding remote cleanup
+obligations remain.
 
 ## Progress log
 
@@ -388,3 +336,5 @@ requested or performed.
 - 2026-10-24: user started v2. X0 conventions recorded; remote baselines inspected read-only.
 - 2026-10-24: X1–X3 v2 modes, unit tests and namespace integration passed (macOS+Linux); v1 regression integration passed.
 - 2026-10-24: X4 cross-host v2 passed: no-setup first packet, MTU/forwarded ping, NAT, capture shows only RTP-framed data.
+- 2026-10-24: X5 adjacent v2/v1/v2 matrix completed with no failed cases; X6 cleanup
+  verified against pre-task snapshots; sanitized v2 report and aggregate committed.

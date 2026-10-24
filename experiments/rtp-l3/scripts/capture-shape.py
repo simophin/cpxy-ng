@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Summarize bounded Ethernet/IPv4 pcap without publishing endpoint identity.
-Usage: capture-shape.py PRIVATE_PCAP SERVER_IPV4 > SANITIZED_SUMMARY.json
+Usage: capture-shape.py PRIVATE_PCAP SERVER_IPV4 [MAX_IPV4_LEN] > SANITIZED_SUMMARY.json
+MAX_IPV4_LEN defaults to 1256 (v1); use 1264 for v2.
 Capture observations are not authenticated receiver loss measurements.
 """
 import collections
@@ -11,6 +12,7 @@ import struct
 import sys
 
 server = ipaddress.IPv4Address(sys.argv[2]).packed
+max_len = int(sys.argv[3]) if len(sys.argv) > 3 else 1256
 flows = {}
 controls = collections.Counter()
 first = last = None
@@ -79,7 +81,7 @@ for (direction,_),v in flows.items():
                  'start_epoch':v['times'][0],'end_epoch':v['times'][-1],
                  'ipv4_length_bytes':quantiles(v['lengths']),
                  'ipv4_length_top_counts':collections.Counter(v['lengths']).most_common(8),
-                 'ip_bytes':sum(v['lengths']),'oversize_ip_packets':sum(n>1256 for n in v['lengths']),
+                 'ip_bytes':sum(v['lengths']),'max_expected_ipv4_len':max_len,'oversize_ip_packets':sum(n>max_len for n in v['lengths']),
                  'interarrival_ms':quantiles(gaps),'burst_packets_gap_at_most_1ms':quantiles(bursts),
                  'rtp_timestamp_delta_ticks':quantiles(stamp_delta),
                  'rtp_sequence_duplicates_observed':v['duplicates'],'rtp_reorder_observations':v['reorders'],

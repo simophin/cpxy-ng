@@ -63,7 +63,7 @@ the matrix. Supply target/port/output arguments and keep raw output private.
 `sample-process.py` independently samples a task-owned server PID. The scripts
 measure process CPU as percent of one core. They do not establish one-way delay.
 
-`capture-shape.py PRIVATE_PCAP SERVER_IPV4` emits endpoint-free IPv4 packet sizes,
+`capture-shape.py PRIVATE_PCAP SERVER_IPV4 [MAX_IPV4_LEN]` (1264 for v2) emits endpoint-free IPv4 packet sizes,
 arrival gaps, burst lengths, RTP sequence observations and timestamp deltas from
 an Ethernet pcap. Capture at least the 12-byte RTP header; retain original packet
 lengths. Publish its aggregates with the exact capture/case window and tcpdump's
