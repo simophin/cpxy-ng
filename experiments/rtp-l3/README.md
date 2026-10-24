@@ -98,8 +98,9 @@ counters count data only. Separate control packet counters, `sessions`,
 lifecycle.
 
 See `docs/rtp-l3-poc-handoff.md` at repository root for the protocol decisions,
-checkpoints and cleanup evidence, and `docs/rtp-l3-poc-v3-results.md` for the
-final measurements. There is no congestion controller, pacing, FEC or
+checkpoints and cleanup evidence, and `docs/rtp-l3-poc-v4-results.md` for cross-host measurements, including the
+failed idle-retention criterion. The v3 report remains the earlier data-format
+comparison. There is no congestion controller, pacing, FEC or
 fragmentation. Endpoint TCP retains its own congestion control. Use bounded
 paced UDP experiments only.
 

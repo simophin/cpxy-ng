@@ -11,9 +11,10 @@ the existing proxy are requested. Keep the experiment in a standalone Rust crate
 Branch: `poc/rtp-l3-tunnel`, created from local `main` / `origin/main` at
 `e112599400ec1b9c9705a136f5e41b458dfc104e`. The first commit is this handoff.
 
-**Current runtime: v4 (Z3 complete)** adds authenticated control, session
-registration and per-port rotation keys to the v3 data format. Z4 onward remains
-pending. The earlier **v3 data protocol** (raw XChaCha20, RTP header prefix + 16
+**Current runtime: v4 (Z3 implemented; Z4/Z5 measured, Z6 cleaned)** adds authenticated control, session
+registration and per-port rotation keys to the v3 data format. Z4 idle
+retention failed on the public path; it remains an open acceptance criterion.
+Z5 comparison and Z6 cleanup are complete. See `docs/rtp-l3-poc-v4-results.md`. The earlier **v3 data protocol** (raw XChaCha20, RTP header prefix + 16
 random nonce bytes; see the v3 sections below) is still used for data. V1 (PSK handshake + ChaCha20-Poly1305) was removed in Y6; its last
 version is at `f980c51` (v1 measurements at `4e1ab87`). V2 (24 random nonce
 bytes) was superseded by v3 and lives only in history. The v1 and v2 sections
@@ -581,7 +582,7 @@ Replay rules:
     re-register;
   - each rotation port uses its own keys, and a client that missed an
     announcement picks up the secret from its next keepalive.
-- [ ] Z4: cross-host validation. Firewalld runtime rules open the base port and
+- [ ] Z4: cross-host validation **measured; idle-retention acceptance failed**. Firewalld runtime rules open the base port and
   rotation range for the client's /32 source only.
   1. Measure the client NAT's UDP mapping timeout and per-destination port
      behaviour with idle probes at 30, 60, 120 and 180 s and with several
@@ -589,10 +590,10 @@ Replay rules:
   2. Run rotation every 30 s for 10 minutes under continuous paced UDP and
      ping, then leave the tunnel idle for 10 minutes and confirm keepalives
      hold the mapping.
-- [ ] Z5: bounded comparison of rotation (20 s) against none. Measure TCP
+- [x] Z5: bounded comparison of rotation (20 s) against none. Measure TCP
   goodput, plus 5 Mbit/s UDP loss and gaps around each switch. Run packet-shape
   captures, including what the base port sees.
-- [ ] Z6: verified cleanup of runtime rules, processes, interfaces, staging
+- [x] Z6: verified cleanup of runtime rules, processes, interfaces, staging
   and keys; sanitized report.
 
 ### Decisions (Z0, 2026-10-24)
@@ -609,9 +610,29 @@ Replay rules:
 
 ## Current state
 
-**Z4 measured: load completes; idle retention fails. Z5 comparison in progress.** The runtime runs v4 with
-learned client sessions, authenticated control, per-port keys, rotation and
-keepalive/fallback. See the crate README for CLI, counter and harness details.
+**Z4/Z5 measurements finished; Z6 cleanup verified. Z4 idle retention remains
+failed.** The ten-minute rotated upload completed at 4.968 Mbit/s with 0.626%
+loss, but the following ten idle minutes produced 49 base fallbacks. A separate
+five-second keepalive diagnostic also fell back. No validated keepalive setting
+or exact return-path cause is claimed. Post-idle traffic recovered.
+
+The fixed versus 20-second-mean rotation comparison completed with one initial
+UDP setup failure and one bounded retry. The fixed server had zero scheduled
+rotations, but its client also fell back once. Single samples, a restart,
+return-path loss and server receive-buffer drops prevent a causal performance
+claim. Full results, per-switch windows and limitations are in
+`docs/rtp-l3-poc-v4-results.md`; sanitized evidence is
+`experiments/rtp-l3/results/2026-10-25-z4-z6-summary.json`.
+
+Runtime firewalld zones/policies, links and IPv4 forwarding exactly match their
+pre-task snapshots. Permanent firewall configuration and unrelated services
+were untouched. Both hosts have no task processes; all remote staging/builds,
+interfaces/namespaces, captures and key copies are removed. Local private
+staging/key are also removed. No cleanup obligations remain. Next acceptance
+work is targeted public return-path diagnosis before accepting Z4. The runtime
+still uses one local client socket; no speculative networking change was made.
+
+Earlier Z3 implementation/namespace evidence follows:
 
 Validation (2026-10-25): 18 portable tests on macOS and Linux, one Linux
 inherited-socket test, offline Linux release build and warning-denied clippy
@@ -792,3 +813,5 @@ obligations remain.
 - 2026-10-25: Z4 full idle window completed (600.000 s): 49 fallbacks, no application data during interior 590 s; 222 control sends versus 84 receives. Post-idle MTU ping 17/20; reverse UDP 4.250 Mbit/s, 14.725% loss. Active loaded ping 2481/2988, RTT median/p95/p99 183/241/241 ms. Capture has 386433 packets and zero kernel drops; max active upload gap 315.732 ms. Runtime-correlated +/-3 s receiver/capture windows retained; observed port transitions include reordering. Z4 idle-retention acceptance failed at both tested keepalive means (short diagnostic at 5 s); no path cause claimed. Z5 fixed-port matrix active; cleanup pending.
 
 - 2026-10-25: Z5 fixed-port matrix complete (zero rotations/capture drops). First 20-second-mean rotation attempt completed TCP upload (1/4 streams), then UDP setup failed with an iperf stream-socket error and zero UDP samples. Preserved failed artifacts and started one bounded retry for the remaining four cases after server/client restart. Helpers now retain independent failures and support explicit continuation. Z4/Z5 partial sanitized aggregate updated; cleanup still pending.
+
+- 2026-10-25: Z5 retry completed all remaining cases; report/aggregate retain the initial UDP setup failure and fixed-client fallback. Z6 cleanup verified: runtime firewall zones/policies and links match snapshots, forwarding unchanged, permanent firewall untouched, task processes absent on both hosts, all remote/local staging and keys removed. Sanitized v4 report complete; Z4 idle-retention criterion remains failed and explicitly unchecked.
