@@ -7,9 +7,7 @@ use cpxy_ng::ws_stream::new_ws_stream;
 use cpxy_ng::{Key, http_protocol, protocol};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::time::timeout;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::instrument;
 
 #[instrument(ret, skip(conn, key, router), level = "info")]
@@ -63,30 +61,19 @@ pub async fn handle_connection(
             .await
             .context("Error writing initial plaintext")?;
 
-        // Try to read some initial data if sent
-        let mut initial_response = vec![0u8; 4096];
-
-        match timeout(
-            Duration::from_millis(500),
-            upstream.read(&mut initial_response),
-        )
-        .await
-        {
-            Ok(Ok(n)) => initial_response.truncate(n),
-            Ok(Err(e)) => return Err(e).context("Error reading initial response from upstream"),
-            Err(_) => initial_response.clear(), // Timeout
-        }
-
-        anyhow::Ok((upstream, initial_response))
+        // Confirm the tunnel immediately. Client-first protocols (including TLS) cannot
+        // produce a response until the client receives this confirmation and starts relaying.
+        // Server greetings and replies to initial_plaintext travel through the relay below.
+        anyhow::Ok(upstream)
     };
 
     match upstream.await {
-        Ok((mut upstream, initial_response)) => {
+        Ok(mut upstream) => {
             tracing::debug!("Server: upstream connection established");
 
             http_protocol::Response {
                 response: protocol::Response::Success {
-                    initial_response,
+                    initial_response: Vec::new(),
                     timestamp_epoch_seconds: now_epoch_seconds(),
                 },
                 websocket_key: req.websocket_key,
@@ -130,8 +117,13 @@ mod tests {
     use cpxy_ng::key_util::derive_password;
     use cpxy_ng::outbound::Outbound;
     use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::time::timeout;
+
+    trait TunnelStream: AsyncRead + AsyncWrite + Unpin {}
+    impl<S: AsyncRead + AsyncWrite + Unpin> TunnelStream for S {}
 
     async fn spawn_echo_server() -> SocketAddr {
         let echo_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -144,10 +136,14 @@ mod tests {
         echo_addr
     }
 
-    /// Opens a tunnel through a single-connection cpxy server using `router`, with the
-    /// client connecting via `server_host` (which becomes the `Host` header), then
-    /// verifies an echo round-trip to `echo_addr`.
-    async fn assert_tunnel_echo(router: Router, server_host: &str, echo_addr: SocketAddr) {
+    /// Opens a tunnel through the full HTTP/WebSocket/cipher stack. The deadline catches
+    /// waiting for destination bytes before acknowledging a client-first connection.
+    async fn open_tunnel(
+        router: Router,
+        server_host: &str,
+        destination: SocketAddr,
+        initial_plaintext: Vec<u8>,
+    ) -> Box<dyn TunnelStream> {
         let cpxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let cpxy_addr = cpxy_listener.local_addr().unwrap();
         let key: Key = derive_password("integration_test_key").into();
@@ -164,15 +160,23 @@ mod tests {
             key: derive_password("integration_test_key").into(),
             tls: false,
         };
-        let mut stream = ProtocolOutbound(config)
-            .send(OutboundRequest {
+        let stream = timeout(
+            Duration::from_millis(300),
+            ProtocolOutbound(config).send(OutboundRequest {
                 host: OutboundHost::Domain("127.0.0.1".to_string()),
-                port: echo_addr.port(),
+                port: destination.port(),
                 tls: false,
-                initial_plaintext: vec![],
-            })
-            .await
-            .expect("tunnel setup failed");
+                initial_plaintext,
+            }),
+        )
+        .await
+        .expect("tunnel setup waited for destination data")
+        .expect("tunnel setup failed");
+        Box::new(stream)
+    }
+
+    async fn assert_tunnel_echo(router: Router, server_host: &str, echo_addr: SocketAddr) {
+        let mut stream = open_tunnel(router, server_host, echo_addr, vec![]).await;
 
         let msg = b"hello cpxy tunnel!";
         stream.write_all(msg).await.unwrap();
@@ -188,6 +192,56 @@ mod tests {
     async fn full_tunnel_echo() {
         let echo_addr = spawn_echo_server().await;
         assert_tunnel_echo(Router::default(), "127.0.0.1", echo_addr).await;
+    }
+
+    #[tokio::test]
+    async fn initial_payload_response_is_relayed() {
+        let echo_addr = spawn_echo_server().await;
+        let payload = b"initial request";
+        let mut stream =
+            open_tunnel(Router::default(), "127.0.0.1", echo_addr, payload.to_vec()).await;
+        let mut reply = vec![0; payload.len()];
+        timeout(Duration::from_secs(5), stream.read_exact(&mut reply))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reply, payload);
+        stream.write_all(b"next").await.unwrap();
+        let mut reply = [0; 4];
+        timeout(Duration::from_secs(5), stream.read_exact(&mut reply))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&reply, b"next");
+    }
+
+    #[tokio::test]
+    async fn server_greeting_is_relayed_after_confirmation() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (confirmed_tx, confirmed_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            // A delayed server greeting must not hold up tunnel confirmation.
+            confirmed_rx.await.unwrap();
+            stream.write_all(b"SSH-2.0-test\r\n").await.unwrap();
+            let mut reply = [0; 5];
+            stream.read_exact(&mut reply).await.unwrap();
+            assert_eq!(&reply, b"hello");
+        });
+        let mut stream = open_tunnel(Router::default(), "127.0.0.1", address, vec![]).await;
+        confirmed_tx.send(()).unwrap();
+        let mut greeting = [0; 14];
+        timeout(Duration::from_secs(5), stream.read_exact(&mut greeting))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&greeting, b"SSH-2.0-test\r\n");
+        stream.write_all(b"hello").await.unwrap();
+        timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     /// A minimal single-connection SOCKS5 server. Sends the requested `host:port`
