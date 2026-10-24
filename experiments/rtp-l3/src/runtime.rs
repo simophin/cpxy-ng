@@ -4,6 +4,23 @@ use rand::{rngs::OsRng, Rng, RngCore};
 use state::{keepalive_delay, rotation_delay, Client, Path, Send, Server};
 use std::collections::BTreeMap;
 
+fn control_metadata(message: &Control) -> serde_json::Value {
+    match message {
+        Control::Ping {
+            session,
+            seq,
+            epoch,
+            ..
+        } => serde_json::json!({"kind":"ping", "session":session, "seq":seq, "epoch":epoch}),
+        Control::State {
+            session,
+            echo,
+            epoch,
+            ..
+        } => serde_json::json!({"kind":"state", "session":session, "echo":echo, "epoch":epoch}),
+    }
+}
+
 struct Stream {
     keys: PortKeys,
     tx: Tx,
@@ -153,8 +170,47 @@ struct Runtime {
     drops: BTreeMap<u16, u32>,
     counts: Counts,
     started: Instant,
+    trace_control: bool,
 }
 impl Runtime {
+    fn trace(&self, mut fields: serde_json::Value) {
+        if !self.trace_control {
+            return;
+        }
+        use std::time::{SystemTime, UNIX_EPOCH};
+        fields["event"] = "control_trace".into();
+        fields["role"] = if self.client.is_some() {
+            "client"
+        } else {
+            "server"
+        }
+        .into();
+        fields["mono_us"] = (self.started.elapsed().as_micros() as u64).into();
+        fields["unix_us"] = (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as u64)
+            .into();
+        report_event(fields);
+    }
+    fn packet_trace(
+        &self,
+        stage: &str,
+        port: u16,
+        packet: &[u8],
+        detail: impl FnOnce() -> serde_json::Value,
+    ) {
+        if !self.trace_control {
+            return;
+        }
+        use sha2::{Digest, Sha256};
+        let mut fields = detail();
+        fields["stage"] = stage.into();
+        fields["port"] = port.into();
+        fields["bytes"] = packet.len().into();
+        fields["packet"] = format!("{:x}", Sha256::digest(packet)).into();
+        self.trace(fields);
+    }
     fn ticks(&self) -> u32 {
         (self.started.elapsed().as_nanos() * 90000 / 1000000000) as u32
     }
@@ -197,6 +253,8 @@ impl Runtime {
             );
             return;
         }
+        let metadata = control_metadata(&action.message);
+        self.trace(serde_json::json!({"stage":"control_generated", "port":action.path.port, "control":metadata}));
         let ticks = self.ticks();
         if let Some(s) = self.streams.get_mut(&action.path.port) {
             let p =
@@ -205,7 +263,14 @@ impl Runtime {
             if matches!(action.message, Control::Ping { .. }) {
                 self.counts.pings_sent += 1;
             }
-            if self.send(action.path, &p) {
+            let sent = self.send(action.path, &p);
+            self.packet_trace(
+                "send",
+                action.path.port,
+                &p,
+                || serde_json::json!({"sent":sent, "control":metadata}),
+            );
+            if sent {
                 self.counts.control_tx += 1;
                 self.counts.tx_wire += p.len() as u64;
             }
@@ -228,9 +293,25 @@ impl Runtime {
         self.drops.remove(&port);
     }
     fn incoming(&mut self, port: u16, source: SocketAddr, b: &[u8], now: u64, dev: &mut fs::File) {
+        self.packet_trace(
+            "receive",
+            if self.client.is_some() {
+                source.port()
+            } else {
+                port
+            },
+            b,
+            || serde_json::json!({}),
+        );
         if let Some(peer) = self.peer {
             if source.ip() != peer.ip() || !self.client.as_ref().unwrap().knows(source.port(), now)
             {
+                self.packet_trace(
+                    "decode",
+                    source.port(),
+                    b,
+                    || serde_json::json!({"result":"foreign_or_unknown_source"}),
+                );
                 self.counts.invalid += 1;
                 return;
             }
@@ -241,11 +322,18 @@ impl Runtime {
             port
         };
         let Some(s) = self.streams.get(&port) else {
+            self.packet_trace(
+                "decode",
+                port,
+                b,
+                || serde_json::json!({"result":"missing_stream"}),
+            );
             self.counts.invalid += 1;
             return;
         };
         match open_packet(&s.keys.rx_data, &s.keys.rx_control, b) {
             Some(Packet::Data(p)) => {
+                self.packet_trace("decode", port, b, || serde_json::json!({"result":"data"}));
                 let valid = if let Some(c) = &mut self.client {
                     c.received_data(port, now)
                 } else {
@@ -266,6 +354,12 @@ impl Runtime {
                 }
             }
             Some(Packet::Control(msg)) => {
+                self.packet_trace(
+                    "decode",
+                    port,
+                    b,
+                    || serde_json::json!({"result":"control", "control":control_metadata(&msg)}),
+                );
                 self.counts.control_rx += 1;
                 self.counts.rx_wire += b.len() as u64;
                 if let Some(c) = &mut self.client {
@@ -274,7 +368,19 @@ impl Runtime {
                         return;
                     }
                     let instance = c.instance;
-                    let reply = c.state(port, &msg, now);
+                    let pending = c.pending_sequence();
+                    let result = c.accept_state(port, &msg, now);
+                    let outcome = match &result {
+                        Ok(_) => "accepted",
+                        Err(reason) => *reason,
+                    };
+                    let reply = result.ok().flatten();
+                    let current = c.current;
+                    self.packet_trace("state", port, b, || {
+                        serde_json::json!({"result":outcome, "pending":pending,
+                            "current":current, "control":control_metadata(&msg)})
+                    });
+                    let c = self.client.as_ref().unwrap();
                     if reply.is_some() {
                         self.counts.switches += 1;
                         if env::var_os("POC_TRACE_PATHS").is_some() {
@@ -306,6 +412,8 @@ impl Runtime {
                             .unwrap()
                             .ping(Path { port, peer: source }, &msg, now)
                     {
+                        self.packet_trace("ping", port, b,
+                            || serde_json::json!({"result":"accepted", "control":control_metadata(&msg)}));
                         if env::var_os("POC_TRACE_PATHS").is_some() {
                             report_event(serde_json::json!({"event":"registration", "seconds":now,
                                 "session":id, "port":port, "new":old.is_none(),
@@ -314,6 +422,8 @@ impl Runtime {
                         }
                         self.control(reply);
                     } else {
+                        self.packet_trace("ping", port, b,
+                            || serde_json::json!({"result":"rejected", "control":control_metadata(&msg)}));
                         self.counts.control_rejected += 1;
                     }
                 } else {
@@ -321,6 +431,12 @@ impl Runtime {
                 }
             }
             None => {
+                self.packet_trace(
+                    "decode",
+                    port,
+                    b,
+                    || serde_json::json!({"result":"rejected"}),
+                );
                 // Encrypted malformed traffic cannot reliably be classified as
                 // data vs control; count decoder failures in both categories.
                 self.counts.invalid += 1;
@@ -392,6 +508,7 @@ pub fn main() -> io::Result<()> {
         drops: BTreeMap::new(),
         counts: Counts::default(),
         started: Instant::now(),
+        trace_control: env::var_os("POC_TRACE_CONTROL").is_some(),
     };
     let (low, high) = if client {
         (0, 0)
@@ -465,12 +582,21 @@ pub fn main() -> io::Result<()> {
     while RUN.load(Ordering::Relaxed) {
         let now = rt.started.elapsed().as_secs();
         if let Some(c) = &mut rt.client {
+            let before = (c.pending_sequence(), c.current, c.fallbacks);
             let ping = c.tick(now);
+            let after = (c.pending_sequence(), c.current, c.fallbacks);
             rt.counts.fallbacks = c.fallbacks;
             rt.counts.pings_unanswered = c.pings_unanswered;
             rt.counts.sessions = usize::from(c.instance.is_some());
             if ping.is_some() {
                 c.set_keepalive_interval(keepalive_delay(keepalive).unwrap());
+            }
+            if before != after {
+                rt.trace(
+                    serde_json::json!({"stage":"timer", "pending_before":before.0,
+                    "pending_after":after.0, "port_before":before.1, "port":after.1,
+                    "fallback":after.2 > before.2}),
+                );
             }
             rt.sync_client(now);
             if let Some(ping) = ping {

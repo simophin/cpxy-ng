@@ -409,6 +409,16 @@ impl Client {
     /// Runtime first authenticates using the key of the source port and checks
     /// the configured server IP. An echo is consumed exactly once.
     pub fn state(&mut self, source: u16, msg: &Control, now: u64) -> Option<Control> {
+        self.accept_state(source, msg, now).ok().flatten()
+    }
+    /// Distinguish accepted completion (Ok(None)) from an ignored reply.
+    /// Reasons contain no secrets and are stable diagnostic labels.
+    pub fn accept_state(
+        &mut self,
+        source: u16,
+        msg: &Control,
+        now: u64,
+    ) -> Result<Option<Control>, &'static str> {
         let Control::State {
             session,
             echo,
@@ -420,20 +430,24 @@ impl Client {
             grace,
         } = *msg
         else {
-            return None;
+            return Err("wrong_direction");
         };
         let fresh_echo = echo != 0 && self.pending.as_ref().is_some_and(|p| p.seq == echo);
-        if session != self.session
-            || base != self.base
-            || port == 0
-            || port == base
-            || !self.knows(source, now)
-        {
-            return None;
+        if session != self.session {
+            return Err("wrong_session");
+        }
+        if base != self.base {
+            return Err("wrong_base");
+        }
+        if port == 0 || port == base {
+            return Err("invalid_rotation_port");
+        }
+        if !self.knows(source, now) {
+            return Err("unknown_source_port");
         }
         let changed = self.instance != Some(instance);
         if changed && !fresh_echo {
-            return None;
+            return Err("instance_requires_fresh_echo");
         }
         if !changed
             && (epoch < self.epoch
@@ -443,12 +457,16 @@ impl Client {
                         .as_ref()
                         .is_some_and(|p| p.port != port || p.secret != secret)))
         {
-            return None;
+            return Err("stale_epoch_or_conflicting_secret");
         }
         // Equal-epoch unsolicited/replayed STATE must be a no-op; it cannot
         // reset keepalive retries or extend the previous port's grace.
         if !changed && epoch == self.epoch && !fresh_echo {
-            return None;
+            return Err(if echo == 0 {
+                "equal_epoch_announcement"
+            } else {
+                "echo_not_pending"
+            });
         }
         let switched = changed || epoch > self.epoch || self.current != port;
         if changed {
@@ -471,10 +489,13 @@ impl Client {
         self.recovering = false;
         self.backoff = 1;
         if switched {
-            self.ping(now)
+            Ok(self.ping(now))
         } else {
-            None
+            Ok(None)
         }
+    }
+    pub fn pending_sequence(&self) -> Option<u32> {
+        self.pending.as_ref().map(|p| p.seq)
     }
     /// Call startup ping explicitly. Retries use fresh sequences, since the
     /// server deliberately ignores duplicate PINGs. Only the latest is pending.
@@ -785,6 +806,37 @@ mod tests {
         assert!(c.state(4000, &announcement, 10).is_some());
         assert_eq!(c.rotation.as_ref().unwrap().secret, [99; 32]);
         assert!(c.previous.is_none());
+    }
+
+    #[test]
+    fn diagnostic_outcomes_distinguish_completion_and_superseded_echo() {
+        let mut c = client(1, 2);
+        c.ping(0).unwrap();
+        assert!(c
+            .accept_state(4000, &state(1, 77, 0, 4001), 0)
+            .unwrap()
+            .is_some());
+        // Bootstrap generated seq 2 on the new path; its completion sends nothing.
+        assert_eq!(c.pending_sequence(), Some(2));
+        assert!(matches!(
+            c.accept_state(4001, &state(2, 77, 0, 4001), 1),
+            Ok(None)
+        ));
+        assert_eq!(c.pending_sequence(), None);
+        c.ping(15).unwrap();
+        c.tick(17).unwrap(); // seq 4 supersedes seq 3
+        assert_eq!(c.pending_sequence(), Some(4));
+        assert!(matches!(
+            c.accept_state(4001, &state(3, 77, 0, 4001), 17),
+            Err("echo_not_pending")
+        ));
+        assert_eq!(c.pending_sequence(), Some(4));
+        assert!(matches!(
+            c.accept_state(4001, &state(4, 77, 0, 4001), 18),
+            Ok(None)
+        ));
+        assert_eq!(c.pending_sequence(), None);
+        assert_eq!(c.fallbacks, 0);
     }
 
     #[test]

@@ -55,10 +55,20 @@ current protocol names. Removed implementation history remains in Git.
   runtime-correlated switch windows, packet shape and base-port observations.
 - [x] Z6: verified firewall/network/process cleanup and sanitized report.
 
-The explicit next task is **diagnose public return delivery/control completion**
-before accepting Z4:
+The first diagnosis item completed with opt-in correlated traces and a bounded
+public-path run: [control completion report](rtp-l3-control-trace-results.md),
+[endpoint-free evidence](../experiments/rtp-l3/results/2026-10-25-control-trace-summary.json).
+All nine server-captured replies in three exhausted PING groups were absent
+from client runtime reception; every received solicited STATE was accepted.
+Two ignored unsolicited bootstrap announcements did not explain fallback.
+Three-minute application-idle diagnosis reproduced three fallbacks and failed
+post-idle MTU ping (0/5). It is not a ten-minute Z4 acceptance run. No exact NAT
+cause or fix is claimed.
 
-- [ ] Trace fresh PING sequences, server reply generation/transmission, client
+The explicit next task is **isolate destination-port dependence and NAT
+mapping/filtering from ordinary loss**, before accepting Z4:
+
+- [x] Trace fresh PING sequences, server reply generation/transmission, client
   receipt, decoder result and state-machine acceptance with synchronized,
   endpoint-free event correlation. Distinguish packets missing on the return
   path from replies received but ignored or superseded by a newer sequence.
@@ -77,8 +87,9 @@ before accepting Z4:
 - [ ] Update acceptance, preserve failed attempts and matched measurement
   settings, publish sanitized evidence, and verify cleanup again.
 
-This is a diagnosis request in the handoff, not a claim that diagnosis or a fix
-has already happened. Consolidating the specification does not complete Z4.
+The first trace/completion diagnosis is complete; the loss location and cause
+remain unresolved. Neither instrumentation nor the bounded diagnosis completes Z4.
+Keep the control instrumentation available for the next controlled experiment.
 
 ## Validation record
 
@@ -143,3 +154,20 @@ No public-server deployment or cleanup obligations remain.
 Commit each coherent checkpoint with handoff updates. Before interruption,
 record exact next work, current validation and any cleanup obligations. Never
 rewrite historical measurements to imply the current implementation passed.
+
+## Control trace checkpoint
+
+Added opt-in `POC_TRACE_CONTROL`, explicit accepted/ignored STATE outcomes,
+wall/monotonic microseconds and encrypted-datagram fingerprints. The analyzer
+joins fresh PING sequences to STATE sends, optional server-capture fingerprints,
+client reception, decoder and state outcomes, publishing numbered ports/sessions.
+Protocol and retry/keepalive policy are unchanged. Validation: 19 portable tests,
+20 Linux tests, warning-denied Linux clippy, offline release build, four analyzer
+fixtures and final traced namespace regression (100 MiB each way, idle rotation,
+restarts and UDP faults). The first namespace attempt exposed the harness's
+ready-first-log assumption; two runs passed after allowing startup trace events.
+The public sample preceded a final allocation/trace-enable optimization only;
+final code passed the Linux checks and namespace regression. Server runtime
+firewall/network snapshots were restored exactly, task-process/interface absence
+verified, and both hosts' staging/builds/keys plus local private captures and keys
+removed. No outstanding deployment or cleanup obligations remain.

@@ -140,6 +140,30 @@ STATE and its retries while that marker file exists, emitting
 uses this only for the missed-secret case; the other loss case drops short UDP
 packets with router firewall rules. Leave the hook unset for normal runs.
 
+`POC_TRACE_CONTROL=1` enables opt-in return-delivery diagnostics on both peers.
+Each event records wall-clock and monotonic microseconds, a SHA-256 fingerprint
+of the encrypted UDP payload, and receive/decode/PING/STATE/send stages. Control
+metadata contains only ephemeral session id, sequence/echo and epoch; no secret,
+inner address or peer address is logged. Timer events expose pending-sequence
+replacement and fallback. STATE outcomes distinguish accepted completion from
+ignored announcements, superseded echoes and invalid state. The existing
+state-machine policy and wire format are unchanged. Successful send means
+kernel acceptance, not proven wire delivery. Trace all received packets to
+identify decoder failures; use bounded low-rate diagnostics because hashing and
+JSON logging can affect performance. Startup trace events may precede `ready`.
+
+Run `python3 scripts/control-trace.py CLIENT_JSONL SERVER_JSONL
+[SERVER_ETHERNET_PCAP]` to correlate datagrams independently of clock alignment,
+join each fresh PING to its solicited STATE, and emit endpoint-free aggregates
+with numbered ports/sessions. Optional full-payload Ethernet pcap fingerprints
+separate server-capture observation from runtime reception. No keys are needed.
+Publish capture-drop counts and run boundaries with the aggregate; missing
+receive events alone cannot locate network loss or exclude logging/boundary
+limitations. Relative clock-offset bounds use matched datagrams and assume a
+stable offset and nonnegative transit times. They do not establish one-way delay.
+`python3 scripts/test-control-trace.py` checks loss, ignored replies, successful
+completion, duplication, send failures and pcap payload parsing.
+
 `benchmark.py` runs sequential TCP upload/download with one/four streams and
 three 20-second repetitions, followed by a paced 1000-byte UDP ladder (ten
 seconds per rate, stop above 2% receiver loss). It records 100 idle ping probes,
