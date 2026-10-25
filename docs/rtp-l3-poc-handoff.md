@@ -74,8 +74,9 @@ See the [independent delayed-probe report](rtp-l3-idle-matrix-results.md) and
 The historical one-mapping immediate baseline is unchanged. Neither sample
 identifies the responsible device or establishes the tunnel-specific cause.
 
-The explicit next task is **match tunnel PING/STATE traces to the observed
-mapping, source-port and idle behavior**, before accepting Z4:
+The explicit next task is **complete Z4 acceptance of the committed repair**,
+using one full active/idle session. The repair checkpoints below supersede the
+earlier diagnosis-only next steps:
 
 - [x] Trace fresh PING sequences, server reply generation/transmission, client
   receipt, decoder result and state-machine acceptance with synchronized,
@@ -89,15 +90,17 @@ mapping, source-port and idle behavior**, before accepting Z4:
   contact-history comparison found four stable destination-dependent mappings;
   48/48 same-source replies and 0/144 cross-source replies arrived. This differs
   from the prior 192/192 one-mapping baseline; preserve both samples.
-- [ ] Compare matched tunnel traces and socket behavior with these plain-UDP
-  observations, and locate return loss with client-interface evidence where
-  available. The current unprivileged client lacks capture tools/capabilities;
+- [x] Compare matched tunnel traces and socket behavior with these plain-UDP
+  observations. Server captures confirmed exact reverse-tuple replies, and the
+  same-payload cohort demonstrated persistent per-flow failures. Client-interface
+  evidence remains unavailable; no exact loss location is claimed. The current unprivileged client lacks capture tools/capabilities;
   server capture alone cannot locate loss. No exact NAT timeout or device is
   identified, and the earlier five-second keepalive failure remains unexplained.
-- [ ] Establish the cause before changing socket/port strategy or keepalive
-  timing. One local client socket remains the design; rotating local ports is
-  only a hypothesis for a later experiment. Shortening keepalive to five
-  seconds did not resolve the observed failure.
+- [x] Establish the actionable failure mechanism before remediation: retries on
+  persistently failed tuples, unvalidated migration, and slow detection of a
+  later established-flow failure. Candidate validation, a host socket broker and
+  bounded same-port repair address these failures. The exact network device is
+  unknown. The application-idle keepalive mean remains 15 seconds.
 - [ ] After a justified fix, repeat the ten-minute continuous paced UDP/ping
   rotation run and ten-minute application-idle run, followed by MTU ping and
   reverse UDP. Confirm retained connectivity and investigate unexplained
@@ -105,9 +108,9 @@ mapping, source-port and idle behavior**, before accepting Z4:
 - [ ] Update acceptance, preserve failed attempts and matched measurement
   settings, publish sanitized evidence, and verify cleanup again.
 
-The first trace/completion diagnosis is complete; the loss location and cause
-remain unresolved. Neither instrumentation nor the bounded diagnosis completes Z4.
-Keep the control instrumentation available for the next controlled experiment.
+The completed diagnoses alone did not satisfy Z4. The committed repair now
+passes targeted loss, rebinding and restart regressions; full final acceptance
+and cleanup remain required. Keep control instrumentation available to audit it.
 
 ## Validation record
 
@@ -325,9 +328,10 @@ Mbit/s received and 0.267% UDP loss, but the harness exited before idle: its tex
 interval parser reused the `end` variable holding iperf's final summary and then
 called `.get` on a float. This completed active sample is retained separately;
 it is not full Z4 acceptance. The parser now uses separate interval boundary
-names. Three process-level fixtures cover text output with preserved summary
-metadata, JSON receiver output, and failure-preserving continuation when receiver
-intervals are missing. The Rust implementation and binary are unchanged.
+names. Four process-level fixtures cover text output with preserved summary
+metadata, JSON receiver output, failure-preserving continuation when intervals
+are missing, and the complete endurance/idle/post-check orchestration with fake
+CLI processes and a skipped fixture-only idle sleep. The Rust implementation and binary are unchanged.
 All server firewall, link, route and forwarding snapshots matched after cleanup;
 processes, TUN, remote staging and key copies were removed. Next: repeat the full
 active/idle sequence with the corrected reporting harness.

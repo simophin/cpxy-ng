@@ -12,7 +12,7 @@ SCRIPT = pathlib.Path(__file__).with_name('cross-host-run.py')
 
 
 class Reporting(unittest.TestCase):
-    def run_fixture(self, server_format):
+    def run_fixture(self, server_format, mode='comparison'):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             bin_dir = root/'bin'
@@ -37,8 +37,14 @@ class Reporting(unittest.TestCase):
                 path.write_text('#!'+sys.executable+'\n'+source)
                 path.chmod(0o700)
             out = root/'out'
-            outcome = subprocess.run([sys.executable, str(SCRIPT), 'comparison',
-                                      '192.0.2.1', '12345', str(out), '--continue-on-error'],
+            command = [sys.executable, str(SCRIPT)]
+            if mode == 'endurance':
+                # Exercise the complete orchestration without a real ten-minute
+                # sleep or traffic; fake executables still run as subprocesses.
+                wrapper = ('import runpy,sys,time;time.sleep=lambda seconds:None;'
+                           'sys.argv=sys.argv[1:];runpy.run_path(sys.argv[0],run_name="__main__")')
+                command = [sys.executable, '-c', wrapper, str(SCRIPT)]
+            outcome = subprocess.run(command+[mode, '192.0.2.1', '12345', str(out), '--continue-on-error'],
                                      env=dict(os.environ, PATH=str(bin_dir)+os.pathsep+os.environ['PATH']),
                                      capture_output=True, text=True, timeout=10)
             return outcome, json.loads((out/'summary.json').read_text())
@@ -67,6 +73,16 @@ class Reporting(unittest.TestCase):
         self.assertEqual(summary['status'], 'completed_with_failures')
         self.assertEqual([v['name'] for v in summary['failed_cases']], ['udp-up'])
         self.assertEqual(len(summary['cases']), 5)
+
+    def test_complete_endurance_reporting_reaches_idle_and_post_checks(self):
+        outcome, summary = self.run_fixture('text', mode='endurance')
+        self.assertEqual(outcome.returncode, 0, outcome.stderr)
+        self.assertEqual(summary['status'], 'complete')
+        self.assertEqual([v['name'] for v in summary['cases']],
+                         ['active-udp-up', 'post-idle-udp-down'])
+        self.assertIn('idle_start_epoch', summary)
+        self.assertIn('idle_end_epoch', summary)
+        self.assertEqual(summary['post_idle_ping'], {'sent': 20, 'received': 20})
 
 
 if __name__ == '__main__':
