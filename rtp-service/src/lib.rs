@@ -8,7 +8,6 @@ pub mod config;
 pub mod forwarding;
 pub mod network;
 pub mod ports;
-pub mod relay;
 
 use config::{FirewallMode, Role, Settings};
 use port_admission::firewalld::{DbusFirewall, Firewall, ManagedFirewall, Policy};
@@ -110,15 +109,7 @@ fn admission(settings: &Settings, events: &Events) -> io::Result<(Box<dyn Admiss
         )?),
         None => Box::new(AdministratorManaged),
     };
-    let admission = match &settings.relay {
-        Some(config) => Box::new(relay::Coordinated {
-            local,
-            config: config.clone(),
-            boots: Mutex::new(std::collections::HashMap::new()),
-        }),
-        None => local,
-    };
-    Ok((admission, managed))
+    Ok((local, managed))
 }
 
 use rtp_l3::linux::{self, Events, Resources, SocketProvider, WorkerConfig};

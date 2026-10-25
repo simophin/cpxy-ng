@@ -395,10 +395,10 @@ jobs:
       - name: Test the image
         run: packaging/docker/test/bundle.sh cpxy-bundle:test target/release/server
 
-  # cpxy-rtp and cpxy-udp-relay against real TUNs, routing and firewalld, in network namespaces.
+  # cpxy-rtp against real TUNs, routing and firewalld, in network namespaces.
   # Each firewalld test starts its own instance on a private bus; the runner's firewall is untouched.
   test_rtp:
-    name: Test RTP service and relay
+    name: Test RTP service
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -407,11 +407,11 @@ jobs:
           key: rtp
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test crates
-        run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission -p udp-relay
+        run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission
       - name: Build lab executables
         # Separate commands: --example would otherwise limit the build to that example.
         run: |
-          cargo build --locked -p rtp-service -p udp-relay -p port-admission
+          cargo build --locked -p rtp-service -p port-admission
           cargo build --locked -p mobile-engine --example rtp-packet
       - name: Prepare namespace lab
         run: |
@@ -433,10 +433,8 @@ jobs:
         run: |
           unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
           RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
-      - name: Test relayed and coordinated relay paths
+      - name: Test direct packet engine path
         run: |
-          unshare -Urnm bash udp-relay/tests/linux-rtp.sh
-          unshare -Urnm bash udp-relay/tests/linux-coordinated.sh
           unshare -Urnm bash mobile-engine/tests/linux-rtp-packet.sh
 
   # Self-contained static binaries: copy to any Linux host, no libc or packaging needed.
@@ -462,15 +460,13 @@ jobs:
       - name: Build
         run: >
           cross build --release --locked --target ${{ matrix.target }}
-          -p rtp-service -p udp-relay --bin cpxy-rtp --bin cpxy-udp-relay
+          -p rtp-service --bin cpxy-rtp
       - name: Check the binaries are static
         run: |
           mkdir -p rtp-bins
-          for bin in cpxy-rtp cpxy-udp-relay; do
-            path=target/${{ matrix.target }}/release/$bin
-            file "$path" | tee /dev/stderr | grep -Eq 'static(-pie)? linked|statically linked'
-            cp "$path" rtp-bins/
-          done
+          path=target/${{ matrix.target }}/release/cpxy-rtp
+          file "$path" | tee /dev/stderr | grep -Eq 'static(-pie)? linked|statically linked'
+          cp "$path" rtp-bins/
       - name: Run the x86_64 binary
         if: startsWith(matrix.target, 'x86_64')
         run: rtp-bins/cpxy-rtp --help

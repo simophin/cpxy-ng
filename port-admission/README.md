@@ -1,7 +1,7 @@
 # Delegated UDP admission
 
-This crate has no RTP dependency. `Admission`, `LeaseManager` and the local
-`port-admission AGENT.json` agent can also serve a generic UDP relay.
+This crate has no RTP dependency. Its `Admission` and `LeaseManager` interfaces
+and local `port-admission AGENT.json` agent are available to host services.
 The agent invokes the firewalld runtime D-Bus API through `busctl` with a
 one-second call timeout. It never invokes a shell or firewall-cmd. Runtime
 operations add/query/remove exact rich rules, without host-wide reloads,

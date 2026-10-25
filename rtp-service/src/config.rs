@@ -109,8 +109,8 @@ pub struct Settings {
     pub outbound_interface: Option<String>,
     pub address: String,
     pub transport: Role,
-    /// Optional deterministic initial data port; the relay adapter owns this
-    /// RTP-specific choice. Scheduled rotations still use the configured pool.
+    /// Optional deterministic initial data port inside the rotation pool.
+    /// Scheduled rotations still use the configured pool.
     #[serde(default)]
     pub initial_rotation_port: Option<u16>,
     #[serde(default)]
@@ -121,8 +121,6 @@ pub struct Settings {
     pub firewall: FirewallMode,
     #[serde(default)]
     pub firewalld: Firewalld,
-    #[serde(default)]
-    pub relay: Option<crate::relay::RelayConfig>,
 }
 impl Settings {
     pub fn inner(&self) -> io::Result<(Ipv4Addr, u8)> {
@@ -143,17 +141,6 @@ impl Settings {
     }
     pub fn validate(&self) -> io::Result<()> {
         self.inner()?;
-        if let Some(relay) = &self.relay {
-            if !matches!(self.transport, Role::Endpoint { .. })
-                || relay.management.owner != self.profile
-                || !relay.listen_ip.is_ipv4()
-                || !relay.endpoint_ip.is_ipv4()
-            {
-                return Err(io::Error::other(
-                    "relay requires endpoint and same profile owner with IPv4 hops",
-                ));
-            }
-        }
         if let Some(network) = &self.network {
             network.validate(self)?;
         }
