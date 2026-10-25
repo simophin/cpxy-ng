@@ -45,6 +45,11 @@ config defaults 'defaults'
 
 	# cpxy-router: 1 answers all IPv4 DNS from the instance's networks with its dns_split
 	option router_dns '1'
+	# Opt in to kernel IPv4 regional forwarding (no extra GeoIP/PBR package).
+	# Disable firewall software/hardware flow offloading before enabling.
+	# Router IPv6 is independently off in this mode; the shared ipv6 option still serves tsgw.
+	option router_geoip '0'
+	option router_ipv6 'off'
 
 	# Optional offline traffic page and read-only API. No authentication; defaults to loopback.
 	# Reach it with an SSH tunnel, or set router_api_listen in an instance to a management IP.

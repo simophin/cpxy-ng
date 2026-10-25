@@ -29,6 +29,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/data/usr/bin" "$work/data/lib/apk/packages" "$work/scripts"
 cp -R "$here/files/." "$work/data/"
 cp "$here/../common/net.sh" "$work/data/usr/libexec/cpxy/net.sh"
+cp "$here/../common/geo.sh" "$work/data/usr/libexec/cpxy/geo.sh"
 for bin in cpxy-router cpxy-client cpxy-tsgw; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done

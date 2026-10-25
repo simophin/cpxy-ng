@@ -12,6 +12,7 @@ STOP=10
 . /lib/functions/network.sh
 . /usr/libexec/cpxy/instance.sh
 . /usr/libexec/cpxy/net.sh
+. /usr/libexec/cpxy/geo.sh
 . /usr/libexec/cpxy/firewall.sh
 
 CPXY_STATE="$CPXY_RUN/instances"
@@ -45,7 +46,7 @@ _validate_network() {
 }
 
 _validate_instance() {
-	local tun="$CPXY_TUN" table="$CPXY_TABLE" priority="$CPXY_PRIORITY" old iface dns_port=-
+	local tun="$CPXY_TUN" table="$CPXY_TABLE" priority="$CPXY_PRIORITY" old iface dns_port=- entry geo_hash=- uplink='- -' mode="$CPXY_IPV6"
 	SECTION="$1"
 	[ "$CPXY_ROUTER" = 1 ] || return 0
 	[ -n "$CPXY_NETWORKS" ] || return 0
@@ -60,10 +61,54 @@ _validate_instance() {
 		return
 	}
 	_cpxy_uint "$priority" 1 32762 || { _invalid "$SECTION: rule_priority must be 1..32762"; return; }
+	if [ "$CPXY_GEOIP" = 1 ]; then
+		[ "$CPXY_ROUTER_IPV6" = off ] || { _invalid "$SECTION: router_geoip requires router_ipv6 off"; return; }
+		mode=off
+		[ "$table" -le 55535 ] || { _invalid "$SECTION: GeoIP routing_table must leave room for staging table +10000"; return; }
+		for entry in flow_offloading flow_offloading_hw; do
+			[ "$(uci -q get "firewall.@defaults[0].$entry")" != 1 ] || {
+				_invalid "$SECTION: disable $entry before enabling router_geoip"
+				return
+			}
+		done
+		uplink="$(cpxy_geo_uplink)" || { _invalid "$SECTION: router_geoip requires one simple main-table IPv4 default"; return; }
+		set -- --export-direct-routes
+		for entry in $CPXY_PROXY_ROUTES; do
+			case "$entry" in *:*) _invalid "$SECTION: router_geoip accepts IPv4 proxy_route only"; return ;; esac
+			set -- "$@" --proxy-route "$entry"
+		done
+		"$CPXY_BIN/cpxy-router" "$@" >"$PLAN/routes/$SECTION" || { _invalid "$SECTION: route export failed"; return; }
+		geo_hash="$(cksum <"$PLAN/routes/$SECTION")"
+		# Resource changes must not remove the running instance's guard before replacement.
+		if [ -f "$CPXY_STATE/$SECTION" ]; then
+			[ "$(sed -n '8p' "$CPXY_STATE/$SECTION")" = 1 ] || {
+				_invalid "$SECTION: stop cpxy-router before enabling router_geoip"
+				return
+			}
+			old="$(head -n 3 "$CPXY_STATE/$SECTION")"
+			[ "$old" = "$(printf '%s\n%s\n%s' "$tun" "$table" "$priority")" ] || {
+				_invalid "$SECTION: stop cpxy-router before changing GeoIP tun/table/priorities"
+				return
+			}
+		fi
+		# Never flush a table/priority range claimed by a different service.
+		if [ ! -f "$CPXY_STATE/$SECTION" ]; then
+			for entry in "$table" "$((table + 10000))"; do
+				[ -z "$(ip -4 route show table "$entry" 2>/dev/null)" ] || _invalid "$SECTION: routing table $entry is already occupied"
+			done
+			for entry in "$priority" "$((priority + 1))" "$((priority + 2))" "$((priority + 3))" "$((priority + 4))"; do
+				[ -z "$(ip -4 rule show priority "$entry")$(ip -6 rule show priority "$entry")" ] || _invalid "$SECTION: rule priority $entry is already occupied"
+			done
+		fi
+	fi
 	case " $TUNS " in *" $tun "*) _invalid "$SECTION: duplicate tun '$tun'" ;; esac
 	case " $TABLES " in *" $table "*) _invalid "$SECTION: duplicate routing_table '$table'" ;; esac
+	if [ "$CPXY_GEOIP" = 1 ]; then
+		case " $TABLES " in *" $((table + 10000)) "*) _invalid "$SECTION: duplicate staging table" ;; esac
+		TABLES="$TABLES $((table + 10000))"
+	fi
 	for old in $PRIORITIES; do
-		[ "$priority" -gt "$((old + 3))" ] || [ "$((priority + 3))" -lt "$old" ] || _invalid "$SECTION: overlapping rule priorities"
+		[ "$priority" -gt "$((old + 4))" ] || [ "$((priority + 4))" -lt "$old" ] || _invalid "$SECTION: overlapping rule priorities"
 	done
 	TUNS="$TUNS $tun"
 	TABLES="$TABLES $table"
@@ -74,12 +119,13 @@ _validate_instance() {
 		_validate_network "$iface"
 	done
 	[ "$CPXY_ROUTER_DNS" = 1 ] && dns_port="$(_cpxy_port "$CPXY_DNS_LISTEN")"
-	printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" "$CPXY_IPV6" >"$PLAN/$SECTION"
+	printf '%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" "$mode" "$CPXY_GEOIP" "$uplink" "$geo_hash" >"$PLAN/$SECTION"
 }
 
 _prepare_plan() {
 	cpxy_validate || return 1
 	PLAN="$(mktemp -d /tmp/cpxy-plan.XXXXXX)" || return 1
+	mkdir "$PLAN/routes" || return 1
 	VALID=1 NETWORKS="" DEVICES="" TUNS="" TABLES="" PRIORITIES=""
 	cpxy_foreach _validate_instance
 	# Never assign a protected bridge as a TUN, even across different instances.
@@ -103,6 +149,8 @@ _read_state() {
 		read -r DNS_PORT
 		# For cpxy_net_up
 		read -r CPXY_IPV6
+		read -r GEOIP || GEOIP=0
+		read -r UPLINK || UPLINK='- -'
 	} <"$1"
 	cpxy_net_select "$TUN" "$TABLE" "$PRIORITY"
 }
@@ -111,6 +159,9 @@ _start_worker() {
 	local entry
 	procd_open_instance "${1}_tun"
 	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN" --ipv6 "$CPXY_IPV6"
+	# Kernel owns the direct decision. Every TCP packet still reaching TUN must use cpxy,
+	# including during policy reloads; never let an old worker reclassify it as direct.
+	[ "$GEOIP" != 1 ] || procd_append_param command --proxy-route 0.0.0.0/0
 	[ "$CPXY_ROUTER_API" = 0 ] || procd_append_param command --api-listen "$CPXY_ROUTER_API_LISTEN"
 	for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
 	if [ "$DNS_PORT" != - ]; then
@@ -136,10 +187,17 @@ _start_instance() {
 	[ -f "$state" ] || return 0
 	ROUTED=1
 	_read_state "$state"
-	if [ ! -f "$CPXY_STATE/$1" ] || ! cmp -s "$state" "$CPXY_STATE/$1" || ! ip link show "$TUN" >/dev/null 2>&1; then
+	if [ ! -f "$CPXY_STATE/$1" ] || ! cmp -s "$state" "$CPXY_STATE/$1" || ! ip link show "$TUN" >/dev/null 2>&1 ||
+		{ [ "$GEOIP" = 1 ] && ! cpxy_geo_healthy "$PLAN/routes/$1" $LAN_DEVS; }; then
 		# Record before setup so partial failures remain removable.
+		if [ "$GEOIP" = 1 ]; then
+			[ -f "$CPXY_STATE/$1" ] || cp "$state" "$CPXY_STATE/$1"
+			cpxy_geo_up "$PLAN/routes/$1" $UPLINK $LAN_DEVS || { cpxy_log "$1: GeoIP route generation failed; protection retained"; APPLY_OK=0; return 1; }
+		else
+			cp "$state" "$CPXY_STATE/$1"
+			cpxy_net_up $LAN_DEVS || { cpxy_log "$1: could not set up policy routing"; APPLY_OK=0; return 1; }
+		fi
 		cp "$state" "$CPXY_STATE/$1"
-		cpxy_net_up $LAN_DEVS || { cpxy_log "$1: could not set up policy routing"; return 1; }
 	fi
 	_start_worker "$1"
 }
@@ -147,6 +205,16 @@ _start_instance() {
 _apply_plan() {
 	local state section
 	mkdir -p "$CPXY_STATE"
+	# Install protection before firewall changes or replacement of legacy route selectors.
+	for state in "$PLAN"/*; do
+		[ -f "$state" ] || continue
+		_read_state "$state"
+		if [ "$GEOIP" = 1 ]; then
+			section="${state##*/}"
+			[ -f "$CPXY_STATE/$section" ] || cp "$state" "$CPXY_STATE/$section"
+			cpxy_geo_guard "$TUN" $LAN_DEVS || { rm -rf "$PLAN"; return 1; }
+		fi
+	done
 	# procd replaces/removes workers when this service update is published.
 	# Calling procd_kill here would overwrite the in-progress procd JSON message.
 	# Reconcile old resource assignments, including deleted and disabled instances.
@@ -156,7 +224,16 @@ _apply_plan() {
 		if [ ! -f "$PLAN/$section" ] || ! cmp -s "$state" "$PLAN/$section"; then
 			_read_state "$state"
 			# A device change needs a new worker, but a bridge-only change does not.
-			if [ ! -f "$PLAN/$section" ] || [ "$TUN" != "$(head -n 1 "$PLAN/$section")" ]; then
+			if [ "$GEOIP" = 1 ] && [ -f "$PLAN/$section" ]; then
+				[ "$(sed -n '8p' "$PLAN/$section")" = 1 ] || {
+					cpxy_log "$section: stop cpxy-router before disabling router_geoip"
+					rm -rf "$PLAN"; return 1
+				}
+				# Keep the old complete generation and terminal guards through staging.
+				continue
+			elif [ "$GEOIP" = 1 ]; then
+				cpxy_geo_down
+			elif [ ! -f "$PLAN/$section" ] || [ "$TUN" != "$(head -n 1 "$PLAN/$section")" ]; then
 				cpxy_net_down_routing
 			else
 				_cpxy_net_down_rules
@@ -166,11 +243,13 @@ _apply_plan() {
 	done
 	cpxy_firewall_sync "$PLAN" || { cpxy_log "firewall update failed"; rm -rf "$PLAN"; return 1; }
 	ROUTED=0
-	cpxy_foreach _start_instance
+	APPLY_OK=1
+	cpxy_foreach _start_instance || APPLY_OK=0
 	rm -rf "$PLAN"
 	if [ "$ROUTED" = 1 ] && [ "$(uci -q get firewall.@defaults[0].flow_offloading_hw)" = 1 ]; then
 		cpxy_log "warning: hardware flow offloading may bypass the proxy"
 	fi
+	[ "$APPLY_OK" = 1 ]
 }
 
 start_service() {
@@ -189,7 +268,7 @@ stop_service() {
 	for state in "$CPXY_STATE"/*; do
 		[ -f "$state" ] || continue
 		_read_state "$state"
-		cpxy_net_down_routing
+		if [ "$GEOIP" = 1 ]; then cpxy_geo_down; else cpxy_net_down_routing; fi
 	done
 	cpxy_firewall_sync "" || cpxy_log "could not remove instance firewall configuration"
 	rm -rf "$CPXY_STATE"
@@ -205,6 +284,8 @@ _trigger_instance() {
 
 service_triggers() {
 	procd_add_reload_trigger cpxy firewall
+	# The direct prefixes contain the effective gateway/device; reconcile WAN renewals too.
+	procd_add_raw_trigger "interface.*" 1000 /etc/init.d/cpxy-router reload
 	config_load cpxy
 	cpxy_foreach _trigger_instance
 }

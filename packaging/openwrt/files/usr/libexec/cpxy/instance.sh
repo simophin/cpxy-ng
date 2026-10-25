@@ -115,6 +115,8 @@ cpxy_instance() {
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
 	cpxy_get_bool CPXY_TSGW "$name" tsgw 1
 	cpxy_get CPXY_IPV6 "$name" ipv6 full
+	cpxy_get_bool CPXY_GEOIP "$name" router_geoip 0
+	cpxy_get CPXY_ROUTER_IPV6 "$name" router_ipv6 off
 
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
 	cpxy_get_bool CPXY_SOCKS5 "$name" client_socks5 0
