@@ -143,6 +143,7 @@ def summarize(client, server, capture=None):
     server_sends = collections.defaultdict(list)
     client_results = collections.defaultdict(list)
     server_pings = {}
+    server_probes = {}
     sessions = {}
     for row in server:
         control = row.get('control', {})
@@ -150,13 +151,16 @@ def summarize(client, server, capture=None):
             server_sends[(control['session'], control['echo'])].append(row)
         if row['stage'] == 'ping':
             server_pings[row['packet']] = row['result']
+        if row['stage'] == 'probe':
+            server_probes[row['packet']] = row['result']
     for row in client:
         if row['stage'] in ('receive', 'decode', 'state'):
             client_results[row['packet']].append(row)
     report['ping_lifecycles'] = []
+    report['probe_lifecycles'] = []
     for row in client:
         control = row.get('control', {})
-        if row['stage'] != 'send' or control.get('kind') != 'ping':
+        if row['stage'] != 'send' or control.get('kind') not in ('ping', 'probe'):
             continue
         session = sessions.setdefault(control['session'], 'session-' + str(len(sessions) + 1))
         replies = []
@@ -169,10 +173,12 @@ def summarize(client, server, capture=None):
             if capture is not None:
                 detail['server_capture_seen'] = reply['packet'] in capture
             replies.append(detail)
-        report['ping_lifecycles'].append({
+        kind = control['kind']
+        results = server_pings if kind == 'ping' else server_probes
+        report[kind+'_lifecycles'].append({
             'session': session, 'seq': control['seq'], 'port': port_label(row['port']),
             'client_mono_us': row['mono_us'], 'sent': row['sent'],
-            'server_ping_result': server_pings.get(row['packet']), 'replies': replies,
+            'server_'+kind+'_result': results.get(row['packet']), 'replies': replies,
         })
     report['client_timer_events'] = [
         {k: row[k] for k in ('mono_us', 'pending_before', 'pending_after', 'fallback')}

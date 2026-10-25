@@ -316,3 +316,12 @@ Candidate diagnostics add `path_candidates`, `candidate_probes`, `candidate_retr
 and `socket_renewals` counters. `POC_TRACE_CONTROL` fingerprints packets within
 the 260-byte control IPv4 bound; large data packets remain counted without
 per-packet tracing. `connected` reports initial validated registration.
+
+Active uploads also request a liveness PING after two seconds without input.
+An unanswered PING starts a same-port candidate repair on a separate descriptor;
+registration still commits the replacement tuple only after validation. Active
+repair probing is bounded to eight seconds before ordinary base recovery resumes.
+`active_repairs` counts these events separately from base `fallbacks`. Run
+`sh scripts/repair-integration.sh CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` to block
+a previously working tuple and verify same-port recovery with a sub-five-second
+conservative receiver stall bound. The 15-second application-idle mean is unchanged.

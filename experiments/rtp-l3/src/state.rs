@@ -472,7 +472,9 @@ impl Client {
         match self.accept_state(source, msg, now) {
             Ok(reply) => {
                 self.candidate = None;
-                Ok(reply)
+                // A validated replacement socket on the same server port also
+                // needs PING to register its new tuple before carrying data.
+                Ok(reply.or_else(|| self.ping(now)))
             }
             Err(reason) => {
                 self.pending = previous_pending;
@@ -599,6 +601,12 @@ impl Client {
     pub fn pending_sequence(&self) -> Option<u32> {
         self.pending.as_ref().map(|p| p.seq)
     }
+    pub fn cancel_pending(&mut self) {
+        self.pending = None;
+    }
+    pub fn receive_idle(&self, now: u64) -> u64 {
+        now.saturating_sub(self.last_rx)
+    }
     /// Call startup ping explicitly. Retries use fresh sequences, since the
     /// server deliberately ignores duplicate PINGs. Only the latest is pending.
     pub fn tick(&mut self, now: u64) -> Option<Control> {
@@ -638,7 +646,12 @@ impl Client {
             self.backoff = (self.backoff * 2).min(30);
             return None;
         }
-        if now.saturating_sub(self.last_tx) >= self.interval
+        let upload_needs_health = self.current != self.base
+            && self.instance.is_some()
+            && now.saturating_sub(self.last_tx) <= 1
+            && self.receive_idle(now) >= 2;
+        if upload_needs_health
+            || now.saturating_sub(self.last_tx) >= self.interval
             || now.saturating_sub(self.last_rx) >= self.interval
         {
             self.ping(now)
@@ -1010,6 +1023,30 @@ mod tests {
         let registration = c.accept_probe(4002, &reply, seq, 7).unwrap().unwrap();
         s.ping(fresh_tuple, &registration, 7).unwrap();
         assert_eq!(s.downstream(addr(2), 7), Some(fresh_tuple));
+        assert_eq!(c.fallbacks, 0);
+    }
+
+    #[test]
+    fn active_upload_checks_return_liveness_and_same_port_probe_reregisters() {
+        let mut c = client(1, 2);
+        c.ping(0).unwrap();
+        c.state(4000, &state(1, 77, 0, 4001), 0).unwrap();
+        c.accept_state(4001, &state(2, 77, 0, 4001), 0).unwrap();
+        c.sent_data(1);
+        assert!(c.tick(1).is_none());
+        c.sent_data(2);
+        assert!(matches!(c.tick(2), Some(Control::Ping { .. })));
+        c.cancel_pending();
+        c.candidate = c.rotation.clone();
+        let probe = c.probe_message(77, 0).unwrap();
+        let Control::Probe { seq, .. } = probe else {
+            panic!()
+        };
+        let reply = c
+            .accept_probe(4001, &state(seq, 77, 0, 4001), seq, 3)
+            .unwrap();
+        assert!(matches!(reply, Some(Control::Ping { .. })));
+        assert_eq!(c.current, 4001);
         assert_eq!(c.fallbacks, 0);
     }
 

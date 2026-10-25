@@ -65,6 +65,17 @@ class Correlation(unittest.TestCase):
         with self.assertRaises(ValueError):
             trace.summarize([], [])
 
+    def test_candidate_probe_lifecycle_is_separate_from_registration(self):
+        reply = send('state', 'reply', 130)
+        reply['control'] = dict(kind='state', session=999, echo=1)
+        client = [send('probe'), event('receive', 'reply', 140),
+                  event('state', 'reply', 141, result='accepted')]
+        result = trace.summarize(client, [event('probe', result='accepted'), reply], {'reply': 1})
+        self.assertEqual(result['ping_lifecycles'], [])
+        self.assertEqual(result['probe_lifecycles'][0]['server_probe_result'], 'accepted')
+        self.assertTrue(result['probe_lifecycles'][0]['replies'][0]['client_received'])
+        self.assertNotIn('999', str(result))
+
     def test_pcap_payload_length_padding_and_truncation(self):
         payload = b'fingerprint'
         ip = bytearray(20)

@@ -79,12 +79,13 @@ mod linux {
         candidate_probes: u64,
         candidate_retries: u64,
         socket_renewals: u64,
+        active_repairs: u64,
     }
     impl Counts {
         fn report(&self, elapsed: f64, final_report: bool) {
             // There is no replay detection: `rejected` only covers malformed,
             // non-IPv4-after-XOR or foreign-source datagrams.
-            let j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":PROTOCOL,"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops,"rejected":self.invalid,"sessions":self.sessions,"rotations":self.rotations,"announces_sent":self.announces_sent,"announce_retries":self.announce_retries,"switches":self.switches,"pings_sent":self.pings_sent,"pings_unanswered":self.pings_unanswered,"fallbacks":self.fallbacks,"control_rejected":self.control_rejected,"unknown_destination":self.unknown_destination,"session_conflicts":self.session_conflicts,"rotation_bind_failures":self.rotation_bind_failures,"control_tx_packets":self.control_tx,"control_rx_packets":self.control_rx,"path_candidates":self.path_candidates,"candidate_probes":self.candidate_probes,"candidate_retries":self.candidate_retries,"socket_renewals":self.socket_renewals});
+            let j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":PROTOCOL,"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops,"rejected":self.invalid,"sessions":self.sessions,"rotations":self.rotations,"announces_sent":self.announces_sent,"announce_retries":self.announce_retries,"switches":self.switches,"pings_sent":self.pings_sent,"pings_unanswered":self.pings_unanswered,"fallbacks":self.fallbacks,"control_rejected":self.control_rejected,"unknown_destination":self.unknown_destination,"session_conflicts":self.session_conflicts,"rotation_bind_failures":self.rotation_bind_failures,"control_tx_packets":self.control_tx,"control_rx_packets":self.control_rx,"path_candidates":self.path_candidates,"candidate_probes":self.candidate_probes,"candidate_retries":self.candidate_retries,"socket_renewals":self.socket_renewals,"active_repairs":self.active_repairs});
             report_event(j);
         }
     }

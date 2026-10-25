@@ -94,6 +94,8 @@ struct Candidate {
     seq: u32,
     attempts: u8,
     deadline: u128,
+    socket: Option<UdpSocket>,
+    stream: Stream,
 }
 fn advertisement(message: &Control) -> Control {
     let mut value = message.clone();
@@ -101,6 +103,26 @@ fn advertisement(message: &Control) -> Control {
         *echo = 0;
     }
     value
+}
+
+fn stale_candidate(candidate: &Control, incoming: &Control) -> bool {
+    match (candidate, incoming) {
+        (
+            Control::State {
+                instance: old_instance,
+                epoch: old_epoch,
+                ..
+            },
+            Control::State {
+                instance, epoch, ..
+            },
+        ) => {
+            instance == old_instance
+                && (epoch < old_epoch
+                    || epoch == old_epoch && advertisement(incoming) != *candidate)
+        }
+        _ => true,
+    }
 }
 
 struct Stream {
@@ -257,6 +279,8 @@ struct Runtime {
     candidate: Option<Candidate>,
     interface: String,
     connected: bool,
+    test_blocked_path: Option<Path>,
+    repair_started: Option<Instant>,
 }
 impl Runtime {
     fn trace(&self, mut fields: serde_json::Value) {
@@ -343,6 +367,38 @@ impl Runtime {
         self.trace(serde_json::json!({"stage":"socket_renewed", "port":port}));
         Ok(())
     }
+    fn repair_active(&mut self) {
+        self.repair_started.get_or_insert_with(Instant::now);
+        let c = self.client.as_mut().unwrap();
+        c.cancel_pending();
+        if self.candidate.is_none() {
+            let Some(path) = c.rotation.clone() else {
+                return;
+            };
+            let state = Control::State {
+                session: c.session,
+                echo: 0,
+                instance: c.instance.unwrap(),
+                epoch: c.epoch,
+                port: path.port,
+                secret: path.secret,
+                base: self.base,
+                grace: 60,
+            };
+            self.candidate = Some(Candidate {
+                state,
+                seq: 0,
+                attempts: 0,
+                deadline: 0,
+                socket: None,
+                stream: Stream::new(PortKeys::rotation(&self.psk, &path.secret, true)),
+            });
+            c.candidate = Some(path);
+            self.counts.path_candidates += 1;
+        }
+        self.counts.active_repairs += 1;
+        self.candidate_tick();
+    }
     fn candidate_tick(&mut self) {
         let Some(candidate) = &self.candidate else {
             return;
@@ -362,16 +418,28 @@ impl Runtime {
             unreachable!()
         };
         if candidate.attempts == 0 || candidate.attempts >= 3 {
-            if self.renew_socket(port).is_err() {
+            let fresh = self
+                .broker
+                .as_ref()
+                .ok_or_else(|| io::Error::other("socket broker required"))
+                .and_then(|broker| broker_socket(broker, port));
+            let Ok(socket) = fresh else {
                 self.counts.socket_drops += 1;
                 self.candidate.as_mut().unwrap().deadline =
                     self.started.elapsed().as_millis() + 2000;
                 return;
-            }
+            };
             if self.candidate.as_ref().unwrap().attempts >= 3 {
                 self.counts.candidate_retries += 1;
             }
-            self.candidate.as_mut().unwrap().attempts = 0;
+            let candidate = self.candidate.as_mut().unwrap();
+            candidate.attempts = 0;
+            candidate.socket = Some(socket);
+            candidate.stream = Stream::new(candidate.stream.keys.clone());
+            self.counts.socket_renewals += 1;
+            self.trace(
+                serde_json::json!({"stage":"socket_renewed", "port":port, "candidate":true}),
+            );
         }
         let Some(probe) = self.client.as_mut().unwrap().probe_message(instance, epoch) else {
             return;
@@ -395,6 +463,7 @@ impl Runtime {
         port: u16,
         msg: &Control,
         now: u64,
+        from_candidate: bool,
     ) -> Result<Option<Control>, &'static str> {
         let Control::State {
             port: target,
@@ -408,7 +477,8 @@ impl Runtime {
             return Err("wrong_direction");
         };
         if let Some(candidate) = &self.candidate {
-            if port == target
+            if from_candidate
+                && port == target
                 && port
                     == self
                         .client
@@ -427,13 +497,23 @@ impl Runtime {
                         .as_mut()
                         .unwrap()
                         .accept_probe(port, msg, candidate.seq, now)?;
-                self.candidate = None;
+                let mut candidate = self.candidate.take().unwrap();
+                self.sockets.insert(port, candidate.socket.take().unwrap());
+                self.streams.insert(port, candidate.stream);
+                self.repair_started = None;
                 return Ok(reply);
             }
         }
         let c = self.client.as_ref().unwrap();
         let changes_path = c.instance != Some(instance) || epoch > c.epoch || c.current != target;
         if changes_path {
+            if self
+                .candidate
+                .as_ref()
+                .is_some_and(|p| stale_candidate(&p.state, msg))
+            {
+                return Err("stale_candidate_advertisement");
+            }
             self.client
                 .as_mut()
                 .unwrap()
@@ -449,6 +529,8 @@ impl Runtime {
                     seq: 0,
                     attempts: 0,
                     deadline: 0,
+                    socket: None,
+                    stream: Stream::new(PortKeys::rotation(&self.psk, &secret, true)),
                 });
                 self.counts.path_candidates += 1;
                 self.sync_client(now);
@@ -457,6 +539,7 @@ impl Runtime {
             return Ok(None);
         }
         let reply = self.client.as_mut().unwrap().accept_state(port, msg, now)?;
+        self.repair_started = None;
         if !self.connected && port == self.client.as_ref().unwrap().current && port != self.base {
             if ip(&["link", "set", "dev", &self.interface, "up"]).is_err() {
                 return Err("tun_activation_failed");
@@ -482,7 +565,13 @@ impl Runtime {
         let metadata = control_metadata(&action.message);
         self.trace(serde_json::json!({"stage":"control_generated", "port":action.path.port, "control":metadata}));
         let ticks = self.ticks();
-        if let Some(s) = self.streams.get_mut(&action.path.port) {
+        let probing = matches!(action.message, Control::Probe { .. });
+        let stream = if probing {
+            self.candidate.as_mut().map(|c| &mut c.stream)
+        } else {
+            self.streams.get_mut(&action.path.port)
+        };
+        if let Some(s) = stream {
             let p =
                 s.tx.seal_control(&s.keys.tx_control, &action.message, ticks, MAX_CONTROL_IPV4)
                     .unwrap();
@@ -492,7 +581,20 @@ impl Runtime {
             if matches!(action.message, Control::Probe { .. }) {
                 self.counts.candidate_probes += 1;
             }
-            let sent = self.send(action.path, &p);
+            let sent = if probing {
+                let sent = self
+                    .candidate
+                    .as_ref()
+                    .and_then(|c| c.socket.as_ref())
+                    .and_then(|s| s.send_to(&p, action.path.peer).ok())
+                    == Some(p.len());
+                if !sent {
+                    self.counts.socket_drops += 1;
+                }
+                sent
+            } else {
+                self.send(action.path, &p)
+            };
             self.packet_trace(
                 "send",
                 action.path.port,
@@ -521,7 +623,35 @@ impl Runtime {
         self.streams.remove(&port);
         self.drops.remove(&port);
     }
-    fn incoming(&mut self, port: u16, source: SocketAddr, b: &[u8], now: u64, dev: &mut fs::File) {
+    fn incoming(
+        &mut self,
+        port: u16,
+        source: SocketAddr,
+        b: &[u8],
+        now: u64,
+        dev: &mut fs::File,
+        from_candidate: bool,
+    ) {
+        if let Some(server) = &self.server {
+            let inject = env::var_os("POC_TEST_DROP_ACTIVE_PATH_FILE")
+                .is_some_and(|p| std::path::Path::new(&p).exists());
+            let path = Path { port, peer: source };
+            if inject
+                && self.test_blocked_path.is_none()
+                && server.sessions().values().any(|s| s.path == path)
+            {
+                self.test_blocked_path = Some(path);
+                report_event(
+                    serde_json::json!({"event":"test_active_path_blocked", "seconds":now}),
+                );
+            }
+            if !inject {
+                self.test_blocked_path = None;
+            }
+            if self.test_blocked_path == Some(path) {
+                return;
+            }
+        }
         self.packet_trace(
             "receive",
             if self.client.is_some() {
@@ -562,6 +692,10 @@ impl Runtime {
         };
         match open_packet(&s.keys.rx_data, &s.keys.rx_control, b) {
             Some(Packet::Data(p)) => {
+                if from_candidate {
+                    self.counts.invalid += 1;
+                    return;
+                }
                 self.packet_trace("decode", port, b, || serde_json::json!({"result":"data"}));
                 let valid = if let Some(c) = &mut self.client {
                     c.received_data(port, now)
@@ -598,7 +732,7 @@ impl Runtime {
                     }
                     let instance = c.instance;
                     let pending = c.pending_sequence();
-                    let result = self.client_state(port, &msg, now);
+                    let result = self.client_state(port, &msg, now, from_candidate);
                     let outcome = match &result {
                         Ok(_) => "accepted",
                         Err(reason) => *reason,
@@ -772,6 +906,8 @@ pub fn main() -> io::Result<()> {
         candidate: None,
         interface: a[3].clone(),
         connected: false,
+        test_blocked_path: None,
+        repair_started: None,
     };
     let (low, high) = if client {
         (0, 0)
@@ -846,7 +982,18 @@ pub fn main() -> io::Result<()> {
         let now = rt.started.elapsed().as_secs();
         if let Some(c) = &mut rt.client {
             let before = (c.pending_sequence(), c.current, c.fallbacks);
-            let ping = c.tick(now);
+            let unanswered = c.pings_unanswered;
+            let repairing = rt
+                .repair_started
+                .is_some_and(|start| start.elapsed() < Duration::from_secs(8))
+                && rt.candidate.is_some();
+            let mut ping = if repairing { None } else { c.tick(now) };
+            let repair = c.current != rt.base
+                && c.pings_unanswered > unanswered
+                && c.receive_idle(now) >= 2
+                && rt
+                    .repair_started
+                    .is_none_or(|start| start.elapsed() < Duration::from_secs(8));
             let after = (c.pending_sequence(), c.current, c.fallbacks);
             rt.counts.fallbacks = c.fallbacks;
             rt.counts.pings_unanswered = c.pings_unanswered;
@@ -866,6 +1013,10 @@ pub fn main() -> io::Result<()> {
                 && rt.renew_socket(rt.base).is_err()
             {
                 rt.counts.socket_drops += 1;
+            }
+            if repair {
+                rt.repair_active();
+                ping = None;
             }
             rt.sync_client(now);
             if let Some(ping) = ping {
@@ -926,6 +1077,14 @@ pub fn main() -> io::Result<()> {
                 revents: 0,
             })
             .collect();
+        let candidate_index = polls.len();
+        if let Some(socket) = rt.candidate.as_ref().and_then(|c| c.socket.as_ref()) {
+            polls.push(libc::pollfd {
+                fd: socket.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
         polls.push(libc::pollfd {
             fd: dev.as_raw_fd(),
             events: libc::POLLIN,
@@ -952,7 +1111,7 @@ pub fn main() -> io::Result<()> {
                             let prev = rt.drops.insert(*port, d).unwrap_or(0);
                             rt.counts.kernel_rx_drops += d.wrapping_sub(prev) as u64;
                         }
-                        rt.incoming(*port, source, &b[..n], now, &mut dev);
+                        rt.incoming(*port, source, &b[..n], now, &mut dev, false);
                     }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     // ICMP errors from a closed rotation port must not kill fallback.
@@ -968,6 +1127,24 @@ pub fn main() -> io::Result<()> {
                         rt.counts.invalid += 1;
                     }
                     Err(e) => return Err(e),
+                }
+            }
+        }
+        if candidate_index + 1 < polls.len() && polls[candidate_index].revents & libc::POLLIN != 0 {
+            for _ in 0..64 {
+                let Some(candidate) = &rt.candidate else {
+                    break;
+                };
+                let Control::State { port, .. } = candidate.state else {
+                    unreachable!()
+                };
+                let Some(socket) = &candidate.socket else {
+                    break;
+                };
+                match receive(socket, &mut b) {
+                    Ok((n, source, _)) => rt.incoming(port, source, &b[..n], now, &mut dev, true),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(_) => break,
                 }
             }
         }
@@ -1031,6 +1208,112 @@ pub fn main() -> io::Result<()> {
 #[cfg(test)]
 mod runtime_tests {
     use super::*;
+
+    #[test]
+    fn reordered_advertisement_cannot_replace_a_newer_pending_candidate() {
+        let candidate = Control::State {
+            session: 1,
+            echo: 0,
+            instance: 7,
+            epoch: 3,
+            port: 4003,
+            secret: [3; 32],
+            base: 4000,
+            grace: 60,
+        };
+        let mut incoming = candidate.clone();
+        if let Control::State { echo, .. } = &mut incoming {
+            *echo = 9;
+        }
+        assert!(!stale_candidate(&candidate, &incoming));
+        if let Control::State { epoch, .. } = &mut incoming {
+            *epoch = 2;
+        }
+        assert!(stale_candidate(&candidate, &incoming));
+        if let Control::State { epoch, secret, .. } = &mut incoming {
+            *epoch = 3;
+            *secret = [9; 32];
+        }
+        assert!(stale_candidate(&candidate, &incoming));
+        if let Control::State { epoch, .. } = &mut incoming {
+            *epoch = 4;
+        }
+        assert!(!stale_candidate(&candidate, &incoming));
+    }
+
+    fn broker_reply(
+        wrong_label: bool,
+        descriptors: usize,
+    ) -> (fs::File, std::thread::JoinHandle<Vec<SocketAddr>>) {
+        use std::os::{fd::IntoRawFd, unix::net::UnixDatagram};
+        let (client, parent) = UnixDatagram::pair().unwrap();
+        let task = std::thread::spawn(move || {
+            let mut label = [0u8; 2];
+            assert_eq!(parent.recv(&mut label).unwrap(), 2);
+            if wrong_label {
+                label[0] ^= 1;
+            }
+            let sockets: Vec<_> = (0..descriptors)
+                .map(|_| UdpSocket::bind("127.0.0.1:0").unwrap())
+                .collect();
+            let addresses = sockets.iter().map(|s| s.local_addr().unwrap()).collect();
+            let rights: Vec<_> = sockets.iter().map(AsRawFd::as_raw_fd).collect();
+            unsafe {
+                let mut ancillary = [0usize; 8];
+                let mut iov = libc::iovec {
+                    iov_base: label.as_mut_ptr().cast(),
+                    iov_len: 2,
+                };
+                let mut msg: libc::msghdr = std::mem::zeroed();
+                msg.msg_iov = &mut iov;
+                msg.msg_iovlen = 1;
+                msg.msg_control = ancillary.as_mut_ptr().cast();
+                msg.msg_controllen = libc::CMSG_SPACE((rights.len() * 4) as _) as _;
+                let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                (*cmsg).cmsg_level = libc::SOL_SOCKET;
+                (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+                (*cmsg).cmsg_len = libc::CMSG_LEN((rights.len() * 4) as _) as _;
+                std::ptr::copy_nonoverlapping(
+                    rights.as_ptr(),
+                    libc::CMSG_DATA(cmsg).cast(),
+                    rights.len(),
+                );
+                assert_eq!(libc::sendmsg(parent.as_raw_fd(), &msg, 0), 2);
+            }
+            addresses
+        });
+        (unsafe { fs::File::from_raw_fd(client.into_raw_fd()) }, task)
+    }
+
+    #[test]
+    fn broker_transfers_a_usable_host_socket() {
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let (channel, parent) = broker_reply(false, 1);
+        let socket = broker_socket(&channel, 4001).unwrap();
+        let address = parent.join().unwrap()[0];
+        assert_eq!(socket.local_addr().unwrap(), address);
+        socket
+            .send_to(b"candidate", receiver.local_addr().unwrap())
+            .unwrap();
+        let mut bytes = [0; 16];
+        let (length, source) = receiver.recv_from(&mut bytes).unwrap();
+        assert_eq!(&bytes[..length], b"candidate");
+        assert_eq!(source, address);
+    }
+
+    #[test]
+    fn broker_rejects_mislabeled_or_extra_rights_without_leaking_sockets() {
+        for (wrong_label, descriptors) in [(true, 1), (false, 2)] {
+            let (channel, parent) = broker_reply(wrong_label, descriptors);
+            assert!(broker_socket(&channel, 4001).is_err());
+            for address in parent.join().unwrap() {
+                UdpSocket::bind(address).unwrap();
+            }
+        }
+    }
 
     #[test]
     fn disconnect_preserves_tuple_and_sends_to_multiple_ports() {

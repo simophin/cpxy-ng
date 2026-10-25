@@ -288,3 +288,31 @@ TUNs, remote staging and key copies. Private local evidence/builds/key remain
 outside the checkout while the repair is being validated. Next: final-code
 namespace checks and the complete ten-minute active/ten-minute idle Z4 run;
 keep Z4 open until acceptance and final cleanup are verified.
+
+
+## Established-path repair checkpoint
+
+The first full acceptance attempt was stopped after a partial active phase. It
+recorded one base fallback at 229 seconds: a previously validated flow stopped
+reaching the server, and PING sequences 29–31 were absent from both server capture
+and runtime. This partial attempt is preserved, not counted as a Z4 pass. The
+15-second receive-idle timer delayed detection while upload traffic continued.
+
+Active uploads now request liveness after two seconds without input. A timed-out
+PING starts a same-port replacement probe while retaining the original UDP
+socket; a validated replacement always sends registration PING, even at the same
+port/epoch. Repair probing has an eight-second budget so an unavailable/restarted
+server still recovers through base. Candidate and active sockets are separate,
+including during same-port repair. Pending advertisements reject epoch rollback.
+The application-idle keepalive remains 15 seconds ±20%.
+
+The targeted established-flow-loss namespace regression passed: one active
+repair, authenticated same-server-port tuple change, zero base fallbacks and a
+4.502-second conservative receiver stall bound. The suite has 22 library and
+four Linux runtime tests, including descriptor transfer/cleanup and pending
+advertisement ordering; warning-denied clippy passed. Five control-analyzer
+fixtures pass and now correlate PROBE separately from PING. The earlier full Z3
+matrix passed on the candidate-probing build; final build regression and the
+full Z4 active/idle acceptance remain required. All completed public deployments
+restored firewall/network snapshots and removed task resources; the private
+local build/key/evidence staging remains until final validation and sanitization.

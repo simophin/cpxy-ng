@@ -150,12 +150,14 @@ return path; unknown destinations are dropped. Idle sessions expire after
 control replay suppression is scoped to live state, not a persistent database.
 
 A client checks the server IP and known source port before decoding. It accepts
-a changed instance only when STATE echoes its latest outstanding PING; that
+a changed-instance advertisement only when STATE echoes its latest outstanding
+PING, and commits the new path only after a fresh candidate PROBE echo; each
 echo is consumed once. For the same instance, older epochs are rejected;
 equal-epoch STATE cannot change the port/secret. Equal-epoch unsolicited or
 replayed STATE is a no-op: it cannot reset retries or extend grace. A fresh
-solicited equal-epoch reply can complete liveness without switching. Higher
-epoch STATE installs the new path and prompts an immediate PING there.
+solicited equal-epoch reply can complete liveness without switching. A higher
+epoch STATE advertises a candidate while the established data path remains in
+use. Candidate validation precedes switching and registration PING.
 
 ## Rotation, keepalive and fallback
 
@@ -185,8 +187,19 @@ traffic and keepalives continue on the established path. Newer advertisements
 replace older candidates. Old candidate echoes cannot validate a replacement.
 Candidate challenges share the session sequence space with PING; active PING
 completion takes priority. No candidate may create or displace a server session.
+An older/conflicting advertisement cannot replace a newer pending candidate.
 
-At most base/current/previous sockets remain installed. A previous socket
+An established path can fail after initial validation. During active uploads,
+two seconds without receive activity schedules a liveness PING even when data
+transmission continues. A timed-out PING with no recent input starts a same-port
+candidate repair; the original UDP descriptor remains active until the replacement
+proves its return path. Validation sends registration PING even when the server
+port/epoch did not change, so the server learns the replacement tuple. An active
+repair has an eight-second probing budget; if it cannot validate a path, normal
+PING retries/base recovery resume, including recovery from server restart. These
+health checks do not shorten the application-idle keepalive mean.
+
+At most base/current/previous server sockets remain installed. A previous socket
 retires only after both 60-second grace and its last session leaving. A later
 rotation can evict the oldest socket early to keep the limit. Clients stranded
 there must recover through base. Reusing a numeric port replaces its secret;

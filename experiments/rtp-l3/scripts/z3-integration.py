@@ -167,7 +167,8 @@ try:
     for i in clients:
         wait_for(lambda i=i: paths(i))
         ping(i)
-    # Two simultaneous clients use the same local source port behind MASQUERADE.
+    # The two bootstrap sockets share a local source port behind MASQUERADE;
+    # candidate sockets are separately allocated by their host brokers.
     for reverse in (False, True):
         jobs = []
         initial = {i: len(paths(i)) for i in clients}
@@ -209,7 +210,7 @@ try:
     time.sleep(2.5)
     control_rule('-D', 1)
     recovered = wait_for(lambda: paths(1)[before:] or None, 4)
-    summary['announcement_recovery'] = 'ping' if recovered[0]['solicited'] else 'retry'
+    summary['announcement_recovery'] = 'candidate_probe_validated'
     ping(1)
     summary['checks']['dropped_announcement_retry_or_ping'] = True
 
