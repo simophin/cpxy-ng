@@ -143,8 +143,9 @@ forced-proxy subtraction and failure guards. `test/qemu-geo.py` boots a real Ope
 isolated LAN/guest/WAN links, two real server processes, DNS fixtures and WAN packet capture.
 Its header documents prerequisites and invocation. The router binary must be static; unused
 client/tsgw binaries can be stand-ins for this focused router package test. Matching image kernel
-dependencies must be supplied offline. It tests fw4; fw3 vendor firmware and hardware offload
-still require separate validation.
+dependencies must be supplied offline. The suite has run on fw3 and fw4 stock images; vendor
+firmware and hardware offload still require physical validation. Results are recorded in the
+[validation report](../../docs/openwrt-geoip-routing-validation.md).
 
 Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 or IPv6 CIDR) to an instance
 or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and

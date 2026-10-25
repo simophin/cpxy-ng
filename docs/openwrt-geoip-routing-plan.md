@@ -93,8 +93,8 @@ The effective order for protected ingress is:
 1. Kernel local-address handling and existing connected/local-network exceptions.
 2. Existing DNS handling and protocol/port restrictions.
 3. Existing ordinary-IPv4-UDP handling.
-4. Lookup the instance table for captured traffic.
-5. Terminal refusal if the instance lookup has no route.
+4. Lookup the instance table for captured IPv4 TCP.
+5. Terminal refusal if that lookup has no route, or the forwarded protocol is unsupported.
 
 Scope rules to the instance's LAN devices. Keep return routing from its TUN separate: do not
 send return packets through the GeoIP decision again. Keep the existing local-network exception

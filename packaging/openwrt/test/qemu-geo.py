@@ -176,6 +176,7 @@ def main():
     ns('inet', 'sysctl', '-qw', 'net.ipv4.ip_forward=1')
     ns('inet', 'ip', '-6', 'addr', 'add', '2001:db8:100::34/128', 'dev', 'lo', 'nodad')
     ns('inet', 'ip', '-6', 'addr', 'add', '2001:db8:2::1/64', 'dev', 'nic', 'nodad')
+    ns('inet', 'ip', '-6', 'route', 'add', '2001:db8:8::/64', 'via', '2001:db8:2::2')
     ns('lan', 'ip', '-6', 'addr', 'add', '2001:db8:8::50/64', 'dev', 'nic', 'nodad')
     ns('lan', 'ip', '-6', 'route', 'add', 'default', 'via', '2001:db8:8::1')
     processes = []
@@ -273,10 +274,15 @@ def main():
             print('PASS: VM split DNS, proxied alternative, IPv4-only answers', flush=True)
             console.command('ip -6 addr add 2001:db8:8::1/64 dev br-lan nodad; ip -6 addr add 2001:db8:2::2/64 dev eth1 nodad; ip -6 route add default via 2001:db8:2::1')
             ns('lan', 'ping', '-6', '-c1', '-W3', '2001:db8:8::1')
+            # Establish that the fixture has a working routed IPv6 path, then restore
+            # refusal. Otherwise a missing return route could produce a false pass.
+            console.command('ip -6 rule add priority 9103 iif br-lan lookup main')
+            assert fetch('[2001:db8:100::34]') == '2001:db8:8::50'
+            console.command('ip -6 rule del priority 9103 iif br-lan lookup main')
             try:
                 fetch('[2001:db8:100::34]')
-            except subprocess.CalledProcessError:
-                pass
+            except subprocess.CalledProcessError as error:
+                assert error.returncode == 7, f'Expected prompt IPv6 refusal, got {error.stderr}'
             else:
                 raise AssertionError('IPv6 bypassed the IPv4 policy')
             print('PASS: VM local IPv6 remains reachable; internet IPv6 is refused', flush=True)
