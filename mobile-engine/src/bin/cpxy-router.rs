@@ -5,6 +5,9 @@ mod cli {
 
     #[derive(Parser)]
     pub struct Options {
+        /// Print exact IPv4 direct CIDRs, excluding --proxy-route, then exit without a worker.
+        #[arg(long)]
+        pub export_direct_routes: bool,
         /// CIDRs forced through the proxy (repeatable or comma-separated).
         #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
         pub proxy_route: Vec<ipnet::IpNet>,
@@ -82,6 +85,25 @@ fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::fmt::init();
     let options = Options::parse();
+    if options.export_direct_routes {
+        use std::io::Write;
+        let proxy = options
+            .proxy_route
+            .iter()
+            .filter_map(|net| match net {
+                ipnet::IpNet::V4(net) => {
+                    Some((u32::from(net.network()), u32::from(net.broadcast())))
+                }
+                ipnet::IpNet::V6(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+        for (addr, prefix) in geoip_data::routes::direct_ipv4(&proxy) {
+            writeln!(out, "{}/{prefix}", std::net::Ipv4Addr::from(addr))?;
+        }
+        out.flush()?;
+        return Ok(());
+    }
     let server = std::env::var("SERVER")
         .map_err(|_| anyhow::anyhow!("SERVER is required"))?
         .parse()
