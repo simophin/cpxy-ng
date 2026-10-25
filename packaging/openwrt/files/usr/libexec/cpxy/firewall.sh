@@ -124,6 +124,20 @@ cpxy_firewall_sync() (
 	(
 		uci() { command uci -c "$work" -P "$work/delta" "$@"; }
 		cpxy_firewall_clear
+		# Keep this include while next-boot assignments exist, including an explicit
+		# service stop. Its runtime stopped marker allows ordinary forwarding then.
+		uci -q delete firewall.cpxy_boot_guard
+		for state in /etc/cpxy/router-guards/*; do
+			[ -f "$state" ] || continue
+			uci -q batch <<UCI
+set firewall.cpxy_boot_guard=include
+set firewall.cpxy_boot_guard.type='script'
+set firewall.cpxy_boot_guard.path='/usr/libexec/cpxy/boot-firewall.sh'
+set firewall.cpxy_boot_guard.fw4_compatible='1'
+set firewall.cpxy_boot_guard.reload='1'
+UCI
+			break
+		done
 		if [ -n "$plan" ]; then
 			for state in "$plan"/*; do
 				[ -f "$state" ] || continue

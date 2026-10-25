@@ -35,6 +35,7 @@ for bin in cpxy-router cpxy-client cpxy-tsgw; do
 done
 chmod 0755 "$work/data/etc/init.d/"*
 chmod 0644 "$work/data/lib/upgrade/keep.d/cpxy" "$work/data/usr/libexec/cpxy/"*
+chmod 0755 "$work/data/usr/libexec/cpxy/boot-firewall.sh"
 chmod 0600 "$work/data/etc/config/cpxy"
 # OpenWrt's lifecycle/sysupgrade helpers consume these instead of opkg metadata.
 cp "$here/control/conffiles" "$work/data/lib/apk/packages/cpxy.conffiles"

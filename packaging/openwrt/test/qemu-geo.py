@@ -16,6 +16,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 
@@ -178,6 +179,8 @@ def main():
     ns('lan', 'ip', '-6', 'addr', 'add', '2001:db8:8::50/64', 'dev', 'nic', 'nodad')
     ns('lan', 'ip', '-6', 'route', 'add', 'default', 'via', '2001:db8:8::1')
     processes = []
+    stop_probes = threading.Event()
+    probe_thread = None
     with contextlib.ExitStack() as stack:
         def background(args, log):
             handle = stack.enter_context(open(results / log, 'wb'))
@@ -233,6 +236,17 @@ def main():
 
             console.command('sleep 3; ip -4 rule show; ip -4 route show table 100 | wc -l')
             (results / 'enforce').touch()
+            def probe():
+                while not stop_probes.is_set():
+                    try:
+                        source = ns('lan', 'curl', '-fsS', '--noproxy', '*', '--max-time', '1', 'http://93.184.216.34:8000/')
+                        if source != '93.184.216.34':
+                            (results / 'leak').write_text(f'Continuous TCP probe escaped via {source}')
+                    except subprocess.CalledProcessError:
+                        pass  # Refusal/unavailability is permitted during a transition.
+                    stop_probes.wait(0.2)
+            probe_thread = threading.Thread(target=probe, daemon=True)
+            probe_thread.start()
             paths()
             assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
             assert fetch('114.114.114.114', 'guest') == '192.0.2.2'
@@ -260,7 +274,7 @@ def main():
             ns('inet', 'ip', 'addr', 'add', '192.0.2.254/24', 'dev', 'nic')
             console.command('uci set network.wan.gateway=192.0.2.254; uci commit network; /etc/init.d/network reload; sleep 5', 120)
             # netifd's interface event is asynchronous, especially under software emulation.
-            console.command("for n in $(seq 1 30); do { ip -4 route show table 100; ip -4 route show table 10100; } | grep -q 'via 192.0.2.254' && break; sleep 1; done", 120)
+            console.command("for n in $(seq 1 60); do active=$(ip -4 rule show priority 9103 | awk '/lookup/ {print $NF; exit}'); ip -4 route show table \"$active\" | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route show table \"$active\" | grep -q 'via 192.0.2.254'", 150)
             paths()
             console.command("ip -4 route show table 100 | grep -q 'via 192.0.2.254' || ip -4 route show table 10100 | grep -q 'via 192.0.2.254'")
             print('PASS: VM netifd gateway change reconciles direct routes', flush=True)
@@ -277,21 +291,35 @@ def main():
             console.command("uci add_list cpxy.main.proxy_route=114.0.0.0/8; uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 2", 120)
             assert fetch('114.114.114.114') == '114.114.114.114'
             print('PASS: VM worker failure and broad proxy override', flush=True)
+            console.command("before=$(pidof cpxy-router); cp /usr/bin/cpxy-router /tmp/router-next; printf '\\n' >>/tmp/router-next; chmod 755 /tmp/router-next; mv /tmp/router-next /usr/bin/cpxy-router; /etc/init.d/cpxy-router reload; sleep 3; test \"$before\" != \"$(pidof cpxy-router)\"", 120)
+            assert fetch('93.184.216.34') == '93.184.216.34'
+            print('PASS: VM binary/data replacement restarts DNS and packet workers', flush=True)
             console.send('reboot')
             console.until(rb'Please press Enter to activate this console', 150)
             console.send('')
             console.until(rb'root@[^\r\n]*#')
-            console.command('sleep 25; pidof cpxy-router', 120)
+            console.command("for n in $(seq 1 90); do test \"$(pidof cpxy-router | wc -w)\" -eq 2 && netstat -lnt | grep -q ':5335 ' && netstat -lnt | grep -q ':5345 ' && break; sleep 1; done; netstat -lnt | grep -q ':5335 '; netstat -lnt | grep -q ':5345 '", 150)
             assert fetch('114.114.114.114') == '114.114.114.114'
             assert fetch('93.184.216.34') == '93.184.216.34'
             assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
             print('PASS: VM persistent config and service restart after reboot', flush=True)
+            stop_probes.set()
+            probe_thread.join(timeout=3)
             assert not (results / 'leak').exists(), (results / 'leak').read_text()
+            print('PASS: VM continuous probes and WAN capture show no TCP bypass through reboot/reloads', flush=True)
             (results / 'enforce').unlink()
             console.command('/etc/init.d/cpxy-router stop; opkg remove cpxy; ip -4 rule show; uci show firewall', 120)
             assert fetch('93.184.216.34') == '192.0.2.2'
             print('PASS: VM stop/removal restores WAN', flush=True)
+        except Exception:
+            if 'console' in locals():
+                with contextlib.suppress(Exception):
+                    console.command('ip -4 rule show; ip -4 route show table main; logread -e cpxy | tail -40', 30)
+            raise
         finally:
+            stop_probes.set()
+            if probe_thread:
+                probe_thread.join(timeout=3)
             for process in reversed(processes):
                 process.terminate()
             for process in processes:

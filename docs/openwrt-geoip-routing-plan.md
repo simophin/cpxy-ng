@@ -7,6 +7,15 @@ Implementation note: the first delivery is opt-in via `router_geoip`, with an in
 stop/start migration and two table generations (`routing_table` and `routing_table + 10000`).
 OpenWrt's procd service lock serializes reconciliation. Hardware/software flow offloading must
 be disabled. Offloading support and seamless live resource reassignment are deferred.
+The early `cpxy-route-guard` service restores the last applied guard before firewall/network
+startup; router shutdown retains protection and explicit stop removes runtime protection. Resource snapshots
+under `/etc/cpxy/router-guards/` are updated atomically only when their content changes.
+They survive stop/upgrade for the next enabled boot; disabled/deleted/legacy instances are
+excluded by the guard, and successful reconfiguration or uninstall removes obsolete snapshots.
+Continuous reboot testing found that netifd clears early policy rules. A package-owned firewall
+script include supplies a temporary per-ingress forwarding barrier until capture/terminal rules
+are ready. It handles fw4/nftables and fw3/iptables without country sets; GeoIP remains a route
+decision. See netifd's [rule reset implementation](https://github.com/openwrt/netifd/blob/master/system-linux.c).
 
 Use Linux policy routing and destination routes, generated from cpxy's bundled GeoIP data.
 cpxy owns their lifecycle. Do not add a separate OpenWrt GeoIP/PBR package or a downloaded

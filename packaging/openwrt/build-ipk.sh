@@ -35,6 +35,7 @@ if [ -n "${CPXY_FEED_URL:-}" ]; then
 	chmod 0644 "$work/data/etc/opkg/cpxy.conf"
 fi
 chmod 0644 "$work/data/etc/config/cpxy" "$work/data/lib/upgrade/keep.d/cpxy" "$work/data/usr/libexec/cpxy/"*
+chmod 0755 "$work/data/usr/libexec/cpxy/boot-firewall.sh"
 
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/control/control.in" >"$work/control/control"
 cp "$here/control/conffiles" "$here/control/postinst" "$here/control/prerm" "$here/control/postrm" "$work/control/"

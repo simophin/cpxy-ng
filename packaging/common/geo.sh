@@ -120,11 +120,14 @@ cpxy_geo_up() (
 )
 
 cpxy_geo_down() {
-	local fam
-	_cpxy_net_down_rules
+	local fam prio
 	for fam in -4 -6; do
-		_cpxy_flush_rules "$fam" "$((CPXY_PRIO_MAIN + 4))"
+		for prio in "$CPXY_PRIO_MAIN" "$CPXY_PRIO_QUIC" "$CPXY_PRIO_UDP" "$CPXY_PRIO_TUN" "$((CPXY_PRIO_MAIN + 4))"; do
+			_cpxy_flush_rules "$fam" "$prio"
+		done
 	done
+	# GeoIP mode never owns an IPv6 route table.
+	ip -4 route flush table "$CPXY_TABLE" 2>/dev/null
 	ip -4 route flush table "$((CPXY_TABLE + 10000))" 2>/dev/null
 	ip link del "$CPXY_TUN" 2>/dev/null
 	return 0

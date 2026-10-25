@@ -134,6 +134,9 @@ all TCP still entering TUN through cpxy. It reserves two table generations and a
 rule priority; its router DNS runs with IPv6 off. See the
 [operator guide](../../docs/openwrt.md#optional-kernel-ipv4-geoip-routing) for activation and limits.
 No separate country-list/PBR dependency is added.
+The early guard and persistent firewall include prevent startup forwarding before policy setup;
+the include does not classify destinations. Non-secret next-boot assignments live under
+`/etc/cpxy/router-guards/`; stop retains them for the next enabled boot and uninstall removes them.
 
 `test/lab.sh` includes `test/geo-lab.sh` for full-dataset kernel routes, native direct forwarding,
 forced-proxy subtraction and failure guards. `test/qemu-geo.py` boots a real OpenWrt image with

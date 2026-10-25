@@ -46,6 +46,11 @@ cat >/etc/init.d/firewall <<'FW'
 echo "firewall $*" >>/tmp/calls.txt
 FW
 chmod +x /etc/init.d/firewall
+cat >/usr/libexec/cpxy/boot-firewall.sh <<'FW'
+#!/bin/sh
+echo "boot_fw $*" >>/tmp/calls.txt
+FW
+chmod +x /usr/libexec/cpxy/boot-firewall.sh
 . /lib/functions.sh
 procd_open_instance() { echo "instance $1" >>"$LOG"; }
 procd_close_instance() { :; }
@@ -80,6 +85,8 @@ service() (
 		cpxy_geo_healthy() { return 0; }
 		cpxy_geo_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "geo_up $CPXY_TUN $CPXY_TABLE" >>"$LOG"; }
 		cpxy_geo_down() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "geo_down $CPXY_TUN" >>"$LOG"; }
+	elif [ "$1" = cpxy-route-guard ]; then
+		cpxy_geo_guard() { echo "boot_guard $*" >>"$LOG"; }
 	fi
 	"$2"
 )
@@ -354,6 +361,8 @@ want 'guard cpxy0 br-lan br-extra'
 want 'geo_up cpxy0 100'
 want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 off'
 want 'append command --proxy-route 0.0.0.0/0'
+want 'append file /usr/bin/cpxy-router'
+[ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
 uci set cpxy.main.router_ipv6=full
 if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP IPv6 accepted'; fi
 grep -q 'requires router_ipv6 off' /tmp/err || fail 'missing GeoIP IPv6 error'
@@ -369,6 +378,17 @@ uci delete cpxy.main.routing_table
 : >"$LOG"
 router stop_service
 want 'geo_down cpxy0'
+[ -f /etc/cpxy/router-guards/main ] || fail 'stop lost next-boot assignments'
+: >"$LOG"
+service cpxy-route-guard start
+want 'boot_guard cpxy0 br-lan br-extra'
+[ -f /tmp/cpxy/instances/main ] || fail 'boot guard did not record owned resources'
+router stop_service
+uci set cpxy.main.router_geoip=0
+router start_service
+[ ! -f /etc/cpxy/router-guards/main ] || fail 'legacy mode retained a stale boot snapshot'
+if uci -q get firewall.cpxy_boot_guard; then fail 'legacy mode retained boot firewall include'; fi
+router stop_service
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

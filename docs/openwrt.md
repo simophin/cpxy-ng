@@ -19,6 +19,18 @@ the router service. Changing between legacy and kernel GeoIP mode, or changing a
 instance's TUN/table/priorities, requires an explicit stop/start. Stop restores ordinary WAN
 access, so use a maintenance window if continuous protection is required.
 
+After the first successful start, the package saves resource assignments (no server keys) under
+`/etc/cpxy/router-guards/`. Its `cpxy-route-guard` helper restores protection before OpenWrt starts
+network forwarding on subsequent boots. Keep that helper enabled. Shutdown retains protection;
+an explicit router-service stop removes runtime protection while retaining assignments for the
+next enabled boot. Uninstall removes the saved assignments. Unchanged reloads do not rewrite
+these files. Apply and verify a new configuration before rebooting it into service.
+
+A package-owned `cpxy_boot_guard` firewall include temporarily refuses forwarding until the
+capture and terminal rules are installed. It bridges netifd's startup rule flush; it performs no
+GeoIP classification. The include remains after stop for the next enabled boot, while a runtime
+marker disables its barrier during an explicit stop. Uninstall removes the include and snapshots.
+
 The initial implementation supports one simple IPv4 default in `main`, including gateway-based
 and point-to-point uplinks. ECMP and third-party policy-routing configurations need separate
 integration. Each GeoIP instance reserves its configured routing table and that table plus

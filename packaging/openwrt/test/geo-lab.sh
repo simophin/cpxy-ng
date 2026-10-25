@@ -1,6 +1,7 @@
 #!/bin/sh
 # Sourced by lab.sh after the legacy checks; uses that lab's isolated topology and assertions.
 GEO="$(dirname "$NET")/geo.sh"
+in_router ip -6 route add unreachable 2001:db8:ffff::/48 table 100
 "$BIN/cpxy-router" --export-direct-routes >"$WORK/direct.cidrs"
 geo_up() { in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r lan0r"; }
 geo_direct() { in_lan curl -fsS --max-time 3 --noproxy '*' http://114.114.114.114:8000/index.html; }
@@ -76,5 +77,6 @@ expect_not_direct "GeoIP deleted TUN has no WAN fallback"
 kill "$TUN_PID" "$SERVER_PID" "$GUEST_PID"
 check "GeoIP guest stop cleans its generations" in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select cpxy1 101 9110; cpxy_geo_down"
 check "GeoIP stop cleans both generations" in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_down"
+check "GeoIP stop preserves unrelated IPv6 table contents" in_router sh -c "ip -6 route show table 100 | grep -q '2001:db8:ffff::/48'"
 mark; check "GeoIP stop restores ordinary WAN" fetch
 expect_seen "GeoIP stop uses WAN source" 192.0.2.2

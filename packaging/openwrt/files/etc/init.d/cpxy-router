@@ -16,6 +16,7 @@ STOP=10
 . /usr/libexec/cpxy/firewall.sh
 
 CPXY_STATE="$CPXY_RUN/instances"
+CPXY_BOOT_STATE=/etc/cpxy/router-guards
 
 _invalid() { cpxy_log "$*"; VALID=0; }
 
@@ -183,6 +184,8 @@ _start_worker() {
 	# The server URL holds the key: in the environment, out of the process list. dns_split asks
 	# the servers given with ?via=cpxy through it.
 	cpxy_procd_env "router-$1" SERVER="$CPXY_SERVER" NO_COLOR=1
+	# A package/data update must also replace DNS workers using the old embedded dataset.
+	procd_append_param file "$CPXY_BIN/cpxy-router"
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1
 	procd_set_param stderr 1
@@ -213,12 +216,32 @@ _start_instance() {
 _apply_plan() {
 	local state section
 	mkdir -p "$CPXY_STATE"
+	rm -f "$CPXY_RUN/geo-stopped"
+	# A successful configuration can retire snapshots retained across an explicit stop.
+	for state in "$CPXY_BOOT_STATE"/*; do
+		[ -f "$state" ] || continue
+		section="${state##*/}"
+		if [ ! -f "$PLAN/$section" ] || [ "$(sed -n '8p' "$PLAN/$section")" != 1 ]; then
+			rm -f "$state"
+		fi
+	done
 	# Install protection before firewall changes or replacement of legacy route selectors.
 	for state in "$PLAN"/*; do
 		[ -f "$state" ] || continue
 		_read_state "$state"
 		if [ "$GEOIP" = 1 ]; then
 			section="${state##*/}"
+			# Boot needs resource assignments, not volatile gateway/policy identity. Avoid
+			# writing flash for DHCP renewals and policy reloads that keep those resources.
+			head -n 8 "$state" >"$PLAN/routes/$section.boot" || return 1
+			if ! cmp -s "$PLAN/routes/$section.boot" "$CPXY_BOOT_STATE/$section"; then
+				mkdir -p "$CPXY_BOOT_STATE" && chmod 700 "$CPXY_BOOT_STATE" &&
+					cp "$PLAN/routes/$section.boot" "$CPXY_BOOT_STATE/.$section.new" &&
+					mv -f "$CPXY_BOOT_STATE/.$section.new" "$CPXY_BOOT_STATE/$section" || {
+					cpxy_log "$section: could not save early-boot protection"
+					rm -rf "$PLAN"; return 1
+				}
+			fi
 			[ -f "$CPXY_STATE/$section" ] || cp "$state" "$CPXY_STATE/$section"
 			cpxy_geo_guard "$TUN" $LAN_DEVS || { rm -rf "$PLAN"; return 1; }
 		fi
@@ -241,6 +264,7 @@ _apply_plan() {
 				continue
 			elif [ "$GEOIP" = 1 ]; then
 				cpxy_geo_down
+				rm -f "$CPXY_BOOT_STATE/$section"
 			elif [ ! -f "$PLAN/$section" ] || [ "$TUN" != "$(head -n 1 "$PLAN/$section")" ]; then
 				cpxy_net_down_routing
 			else
@@ -253,6 +277,7 @@ _apply_plan() {
 	ROUTED=0
 	APPLY_OK=1
 	cpxy_foreach _start_instance || APPLY_OK=0
+	/usr/libexec/cpxy/boot-firewall.sh || { cpxy_log "could not reconcile boot forwarding barrier"; APPLY_OK=0; }
 	rm -rf "$PLAN"
 	if [ "$ROUTED" = 1 ] && [ "$(uci -q get firewall.@defaults[0].flow_offloading_hw)" = 1 ]; then
 		cpxy_log "warning: hardware flow offloading may bypass the proxy"
@@ -273,13 +298,23 @@ reload_service() {
 
 stop_service() {
 	local state
+	mkdir -p "$CPXY_RUN"
+	: >"$CPXY_RUN/geo-stopped"
 	for state in "$CPXY_STATE"/*; do
 		[ -f "$state" ] || continue
 		_read_state "$state"
 		if [ "$GEOIP" = 1 ]; then cpxy_geo_down; else cpxy_net_down_routing; fi
 	done
 	cpxy_firewall_sync "" || cpxy_log "could not remove instance firewall configuration"
+	/usr/libexec/cpxy/boot-firewall.sh clear || cpxy_log "could not remove boot forwarding barrier"
 	rm -rf "$CPXY_STATE"
+	# Keep non-secret assignments for the next enabled boot, including after a manual stop.
+}
+
+# rc.common's normal shutdown calls stop, which intentionally restores WAN access. Retain
+# rules, persistent TUNs and boot snapshots during shutdown; the reboot clears kernel/tmp state.
+shutdown() {
+	procd_kill cpxy-router
 }
 
 _trigger_instance() {
