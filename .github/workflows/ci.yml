@@ -409,7 +409,10 @@ jobs:
       - name: Test crates
         run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission -p udp-relay
       - name: Build lab executables
-        run: cargo build --locked -p rtp-service -p udp-relay -p port-admission -p mobile-engine --example rtp-packet
+        # Separate commands: --example would otherwise limit the build to that example.
+        run: |
+          cargo build --locked -p rtp-service -p udp-relay -p port-admission
+          cargo build --locked -p mobile-engine --example rtp-packet
       - name: Prepare namespace lab
         run: |
           # Install firewalld without letting the package start it on the runner.
