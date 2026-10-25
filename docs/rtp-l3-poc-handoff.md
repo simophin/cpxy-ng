@@ -72,10 +72,15 @@ mapping/filtering from ordinary loss**, before accepting Z4:
   receipt, decoder result and state-machine acceptance with synchronized,
   endpoint-free event correlation. Distinguish packets missing on the return
   path from replies received but ignored or superseded by a newer sequence.
+- [x] Repeated immediate destination-port baseline: one socket, randomized
+  four-port requests and cross-source replies; 192/192 delivered, one mapping.
 - [ ] Investigate destination-port dependence and NAT mapping/filtering separately
   from ordinary loss. Existing probes received no delayed replies at
   30/60/120/180 s, but shorter probes had mixed delivery; this does not identify
   an exact NAT timeout. The server capture alone cannot locate return loss.
+  A repeated immediate four-port baseline received 192/192 replies with one
+  observed mapping; delayed/shape-matched isolation remains pending.
+  See [destination-port report](rtp-l3-port-matrix-results.md).
 - [ ] Establish the cause before changing socket/port strategy or keepalive
   timing. One local client socket remains the design; rotating local ports is
   only a hypothesis for a later experiment. Shortening keepalive to five
@@ -179,4 +184,13 @@ randomized destination order, one client socket, all-source replies and sanitize
 numbered mapping/delivery output. Private server JSONL records observed tuples
 and successful send calls. Loopback integration and CLI-bound fixtures passed
 with network access enabled (the sandbox forbids UDP sockets). Public-path
-measurement is in progress; Z4 and the cause-isolation TODO remain open.
+measurement completed: 48/48 same-source and 144/144 cross-source replies, with
+one server-observed mapping. This immediate plain UDP baseline does not reproduce
+the tunnel failure. [Report](rtp-l3-port-matrix-results.md) and
+[sanitized evidence](../experiments/rtp-l3/results/2026-10-25-port-matrix-summary.json)
+preserve its settings and limits. Z4 and the cause-isolation TODO remain open.
+Next: repeated delayed probes on independently silent sockets with matched
+immediate controls and client-interface evidence, then matched tunnel traces.
+Server runtime firewall/link snapshots matched after cleanup; a subsequent check
+verified all test ports free and remote staging absent. Private logs/staging and
+local probe artifacts were removed. No outstanding cleanup obligations remain.
