@@ -20,13 +20,25 @@ needed. Standard RTP version 2 and IPv4 are unrelated to those former labels.
 
 ## Current state
 
-The runtime and namespace matrix are implemented. Public-path measurements
-completed, including a failed idle-retention criterion. The ten-minute rotated
-upload delivered 4.968 Mbit/s with 0.626% loss. Ten subsequent idle minutes
+Z4 **passed** on implementation `fb754b7` after candidate-path validation,
+host-socket renewal and bounded established-flow repair. The same client session
+completed ten minutes of paced UDP/ping, 600.001 application-idle seconds,
+20/20 post-idle MTU pings and 5.000 Mbit/s reverse UDP with zero loss. No base
+fallback occurred; 42 validated path changes, 17 candidate replacements and one
+same-port repair were recorded. Keepalive remained 15 seconds ±20%, with a
+30-second rotation mean ±50%.
+
+See the [repair acceptance report](rtp-l3-z4-repair-results.md) and
+[sanitized evidence](../experiments/rtp-l3/results/2026-10-25-z4-repair-summary.json).
+All final regressions and cleanup checks passed. No deployment remains.
+
+The following earlier measurements are retained historical evidence. The runtime
+and namespace matrix were implemented, but the original idle-retention criterion
+failed. The ten-minute rotated upload delivered 4.968 Mbit/s with 0.626% loss. Ten subsequent idle minutes
 produced 49 base fallbacks. A separate five-second keepalive diagnostic also
-fell back (three times; stopped after 147 seconds total). No validated
-keepalive setting or exact return-path cause is claimed. Post-idle traffic
-recovered; reverse UDP loss was 14.725%.
+fell back (three times; stopped after 147 seconds total). Those attempts did not
+validate a keepalive setting or identify the exact network device responsible.
+Post-idle traffic recovered; reverse UDP loss was 14.725%.
 
 The scheduled-rotation versus fixed-port comparison completed after one UDP
 setup failure and one bounded remaining-case retry. Fixed mode disables
@@ -50,7 +62,8 @@ current protocol names. Removed implementation history remains in Git.
 - [x] Z3: two clients behind disposable masquerade, sustained transfers across
   rotations, lost announcements/secret recovery, conntrack rebinding, blocked
   rotation-port fallback and live server restart.
-- [ ] Z4: public-path idle retention. Measurements ran; acceptance **failed**.
+- [x] Z4: public-path idle retention. Full repaired active/idle acceptance
+  **passed**; the original failed measurements are preserved.
 - [x] Z5: bounded fixed-port/rotation comparison, including receiver loss,
   runtime-correlated switch windows, packet shape and base-port observations.
 - [x] Z6: verified firewall/network/process cleanup and sanitized report.
@@ -74,9 +87,8 @@ See the [independent delayed-probe report](rtp-l3-idle-matrix-results.md) and
 The historical one-mapping immediate baseline is unchanged. Neither sample
 identifies the responsible device or establishes the tunnel-specific cause.
 
-The explicit next task is **complete Z4 acceptance of the committed repair**,
-using one full active/idle session. The repair checkpoints below supersede the
-earlier diagnosis-only next steps:
+Z4 acceptance and the diagnosis/repair checklist are complete. The checkpoints
+below preserve the earlier attempts and the implementation's validation history:
 
 - [x] Trace fresh PING sequences, server reply generation/transmission, client
   receipt, decoder result and state-machine acceptance with synchronized,
@@ -93,24 +105,24 @@ earlier diagnosis-only next steps:
 - [x] Compare matched tunnel traces and socket behavior with these plain-UDP
   observations. Server captures confirmed exact reverse-tuple replies, and the
   same-payload cohort demonstrated persistent per-flow failures. Client-interface
-  evidence remains unavailable; no exact loss location is claimed. The current unprivileged client lacks capture tools/capabilities;
-  server capture alone cannot locate loss. No exact NAT timeout or device is
-  identified, and the earlier five-second keepalive failure remains unexplained.
+  evidence remains unavailable; no exact loss location, NAT timeout or device
+  is claimed. Persistent failed tuples explain why timing reduction alone
+  did not resolve the earlier failure.
 - [x] Establish the actionable failure mechanism before remediation: retries on
   persistently failed tuples, unvalidated migration, and slow detection of a
   later established-flow failure. Candidate validation, a host socket broker and
   bounded same-port repair address these failures. The exact network device is
   unknown. The application-idle keepalive mean remains 15 seconds.
-- [ ] After a justified fix, repeat the ten-minute continuous paced UDP/ping
-  rotation run and ten-minute application-idle run, followed by MTU ping and
-  reverse UDP. Confirm retained connectivity and investigate unexplained
-  fallback; choose keepalive from evidence rather than assuming success.
-- [ ] Update acceptance, preserve failed attempts and matched measurement
-  settings, publish sanitized evidence, and verify cleanup again.
+- [x] Repeat the full ten-minute paced UDP/ping rotation run and ten-minute
+  application-idle run, then MTU ping and reverse UDP on matching repaired peers.
+  Zero base fallbacks, 20/20 MTU replies and zero reverse UDP loss; the idle
+  keepalive remained 15 seconds. This validates one public-path sample.
+- [x] Update acceptance, preserve failed attempts/settings, publish sanitized
+  evidence and verify all deployment, firewall/network, process and key cleanup.
 
-The completed diagnoses alone did not satisfy Z4. The committed repair now
-passes targeted loss, rebinding and restart regressions; full final acceptance
-and cleanup remain required. Keep control instrumentation available to audit it.
+The diagnoses alone did not satisfy Z4. The repaired implementation now passes
+full acceptance and targeted loss, rebinding and restart regressions. Keep
+control instrumentation available for future audits; no Z4 work remains.
 
 ## Validation record
 
@@ -335,3 +347,28 @@ CLI processes and a skipped fixture-only idle sleep. The Rust implementation and
 All server firewall, link, route and forwarding snapshots matched after cleanup;
 processes, TUN, remote staging and key copies were removed. Next: repeat the full
 active/idle sequence with the corrected reporting harness.
+
+
+## Final Z4 acceptance checkpoint
+
+The final same-session public IPv4 run passed: ten-minute upload at 4.948 Mbit/s
+with 1.018% receiver loss, all 601 intervals nonempty; loaded ping 2970/3000;
+600.001 seconds application idle with zero data-counter advances and zero base
+fallbacks; post-idle MTU ping 20/20; ten-second reverse UDP at 5.000 Mbit/s with
+zero loss. Control traces show 17 failed candidate sockets replaced and one
+same-port established-flow repair without restarting TUN/apps. The single
+client session had zero base fallbacks across its 1225.570-second lifetime.
+
+Final validation passed 22 library tests, four Linux runtime tests, warning-denied
+clippy, offline locked release build, both targeted candidate/established-loss
+regressions, existing 100 MiB/restart/UDP-fault integration and the full two-client
+NAT/rebinding/blocked-port/server-restart matrix. Five control-analysis and four
+reporting fixtures passed. The report preserves the baseline failures, partial
+active fallback and completed upload whose earlier reporting harness failed.
+
+Final capture: 6427 packets, zero kernel capture drops. Both peer binaries
+matched by SHA-256. All eight deployment cleanup records restored their snapshots;
+independent checks found no staging, task process or TUN and all 72 test ports
+free. Private local builds/evidence and all key copies were removed. No deployment
+or cleanup obligations remain. Z4 is complete; the sample does not establish
+production readiness or a universal NAT/keepalive recommendation.

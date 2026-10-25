@@ -5,8 +5,8 @@ header, **not codec media, SRTP, or demonstrated censorship resistance**. No
 production integration.
 
 The binary implements one experimental protocol: authenticated padded
-PING/STATE control, learned client sessions, server UDP port rotation with ephemeral per-port keys, and client
-keepalive/fallback. The portable `control` and `state` modules implement the
+PING/STATE/PROBE control, learned client sessions, server UDP port rotation with
+ephemeral per-port keys, and client keepalive/fallback. The portable `control` and `state` modules implement the
 codec and lifecycle; the Linux runtime owns sockets, timers and counters.
 
 Every data datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`,
@@ -109,9 +109,10 @@ counters count data only. Separate control packet counters, `sessions`,
 lifecycle.
 
 See the [protocol specification](../../docs/rtp-l3-protocol.md),
-[handoff and diagnosis checklist](../../docs/rtp-l3-poc-handoff.md), and
-[cross-host results](../../docs/rtp-l3-cross-host-results.md), including the
-failed idle-retention criterion. Earlier measured configurations are historical
+[handoff and diagnosis checklist](../../docs/rtp-l3-poc-handoff.md),
+[Z4 repair acceptance](../../docs/rtp-l3-z4-repair-results.md), and
+[historical cross-host results](../../docs/rtp-l3-cross-host-results.md), including
+the preserved original idle failure. Earlier measured configurations are historical
 evidence, not supported modes. There is no congestion controller, pacing,
 FEC or fragmentation. Endpoint TCP retains its own congestion control. Use
 bounded paced UDP experiments only.
@@ -130,8 +131,8 @@ scripts/z3-integration.py CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR` on Linux with
 absolute paths. It needs Python 3.9+, ip, iptables, nsenter, unshare and iperf3.
 If administrative tools are outside the unprivileged shell PATH, prepend
 `/usr/sbin:/sbin` before invoking the harness.
-Two clients with the same local UDP port use separate outer namespaces behind
-a masquerading router, then inherit sockets into their TUN namespaces. With a
+Two clients with the same initial bootstrap UDP port use separate outer
+namespaces behind a masquerading router, then inherit sockets into their TUN namespaces. With a
 10-second rotation mean and 5-second keepalive mean it checks concurrent paced
 100 MiB TCP transfers each way, at least three new ports per transfer, receiver
 interval stalls below five seconds, lost announcements/retries, missed-secret
@@ -153,8 +154,8 @@ packets with router firewall rules. Leave the hook unset for normal runs.
 
 `POC_TRACE_CONTROL=1` enables opt-in return-delivery diagnostics on both peers.
 Each event records wall-clock and monotonic microseconds, a SHA-256 fingerprint
-of the encrypted UDP payload, and receive/decode/PING/STATE/send stages. Control
-metadata contains only ephemeral session id, sequence/echo and epoch; no secret,
+of the encrypted UDP payload, and receive/decode/PING/PROBE/STATE/send stages.
+Control metadata contains only ephemeral session id, sequence/echo and epoch; no secret,
 inner address or peer address is logged. Timer events expose pending-sequence
 replacement and fallback. STATE outcomes distinguish accepted completion from
 ignored announcements, superseded echoes and invalid state. The existing

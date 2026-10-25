@@ -246,7 +246,8 @@ counters on graceful termination. CLI, counters, fault hooks and validation
 commands are in the [crate README](../experiments/rtp-l3/README.md).
 
 The [handoff](rtp-l3-poc-handoff.md) owns acceptance status and next work.
-Public-path idle retention remains failed; consolidated naming/key labels and
-the reserved-zero header do not fix that failure. Historical measurements used
-earlier experimental key labels/header markers and are not a cross-host test
-of the consolidated wire bytes. No old-mode decoder or migration path exists.
+Public-path retention passed with the candidate-validation/socket-repair runtime:
+see the [Z4 repair report](rtp-l3-z4-repair-results.md). The earlier failed samples
+remain historical evidence and do not validate current control behavior. Both
+peers must run matching updated builds; no old-mode decoder or migration path
+exists.
