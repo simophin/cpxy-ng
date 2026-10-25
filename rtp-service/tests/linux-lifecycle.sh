@@ -48,7 +48,7 @@ connected(){
     if [ "$(grep -Ec '"event":"connected"' "$work/c.log")" -ge "$1" ]; then return; fi
     sleep .1
   done
-  echo "client did not connect" >&2; tail -20 "$work/c.log" "$work/s.log" >&2 || true; exit 1
+  echo "client did not connect" >&2; tail -n 40 "$work/c.log" "$work/s.log" "$work/c.out" "$work/s.out" >&2 || true; exit 1
 }
 connected 1
 ip netns exec c ping -c 4 -W 2 10.88.0.1
