@@ -78,6 +78,9 @@ def analyze(client_path, server_path, client_pcap=None, server_pcap=None):
     server_rx = {v['token']: v for v in server if v['event'] == 'received'}
     server_tx = {v['token']: v for v in server if v['event'] == 'sent'}
     client_rx = {v['token']: v for v in client if v['event'] == 'received'}
+    socket_rx = collections.Counter(v['token'] for v in client if v['event'] == 'socket_received')
+    accepted_rx = collections.Counter(v['token'] for v in client if v['event'] == 'received')
+    all_receives = any(v.get('records_all_socket_receives') for v in client if v['event'] == 'start')
     wanted = {v['fingerprint'] for v in transmissions+list(server_tx.values())}
     captures = dict(client=capture_counts(client_pcap, wanted),
                     server=capture_counts(server_pcap, wanted))
@@ -89,7 +92,9 @@ def analyze(client_path, server_path, client_pcap=None, server_pcap=None):
         row = dict(trial=sent['trial'], leg=sent['leg'], destination=sent['destination'],
                    source=sent['source'], delay_seconds=sent['delay_seconds'],
                    server_received=rx is not None, server_sent=tx is not None,
-                   client_received=token in client_rx)
+                   client_received=token in client_rx,
+                   client_socket_packets=socket_rx[token] if all_receives else None,
+                   client_rejected_packets=socket_rx[token]-accepted_rx[token] if all_receives else None)
         if rx:
             mapping = tuple(rx['observed_peer'])
             mappings.setdefault(mapping, len(mappings))

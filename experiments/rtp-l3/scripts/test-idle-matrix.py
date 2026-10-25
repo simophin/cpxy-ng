@@ -4,11 +4,13 @@ import importlib.util
 import io
 import json
 import pathlib
+import select
 import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -90,6 +92,8 @@ class IdleMatrixTest(unittest.TestCase):
                 self.assertEqual(joined['server_pending_replies'], [0])
                 self.assertTrue(all(v['server_received'] and v['server_sent'] and v['client_received']
                                     for v in joined['legs']))
+                self.assertTrue(all(v['client_socket_packets'] == 1 and v['client_rejected_packets'] == 0
+                                    for v in joined['legs']))
                 for output in (result, joined):
                     encoded = json.dumps(output)
                     for private in ('127.0.0.1', 'observed_peer', 'token', 'local_port', 'fingerprint'):
@@ -119,6 +123,7 @@ class IdleMatrixTest(unittest.TestCase):
                 self.assertTrue(row['server_sent'])
                 self.assertFalse(row['client_received'])
                 self.assertIsNone(row['client_capture_reply_packets'])
+                self.assertIsNone(row['client_socket_packets'])
                 self.assertEqual(row['server_capture_reply_packets'], 1)
                 # Removing a send event must not turn missing evidence into a
                 # zero captured reply: there is no known fingerprint to match.
@@ -142,6 +147,44 @@ class IdleMatrixTest(unittest.TestCase):
             self.assertTrue(all(not leg['received'] for row in result['trials']
                                 for leg in row['legs'].values()))
             self.assertEqual(result['mapping_count'], 0)
+
+    def test_rejected_datagrams_are_distinct_from_missing_delivery(self):
+        sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
+        stop = threading.Event()
+        for sock in sockets:
+            sock.bind(('127.0.0.1', 0))
+
+        def respond():
+            while not stop.is_set():
+                ready, _, _ = select.select(sockets, [], [], .02)
+                for sock in ready:
+                    request, peer = sock.recvfrom(2048)
+                    req = json.loads(request)
+                    reply = dict(token='wrong', source=req['source'],
+                                 destination=sockets.index(sock), observed_peer=peer)
+                    sockets[req['source']].sendto(matrix.wire(reply), peer)
+                    reply['token'] = req['token']
+                    sockets[req['source']].sendto(matrix.wire(reply), peer)
+
+        thread = threading.Thread(target=respond)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                client_log, server_log = pathlib.Path(temp)/'client', pathlib.Path(temp)/'server'
+                with client_log.open('w') as log:
+                    result = matrix.probe('127.0.0.1', [s.getsockname()[1] for s in sockets],
+                                          [.05], 1, .1, 1, 0, log)
+                server_log.write_text('')
+                joined = evidence.analyze(client_log, server_log)
+                self.assertTrue(all(v['client_received'] and v['client_socket_packets'] == 2
+                                    and v['client_rejected_packets'] == 1 for v in joined['legs']))
+                self.assertTrue(all(leg['received'] for row in result['trials']
+                                    for leg in row['legs'].values()))
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+            for sock in sockets:
+                sock.close()
 
     def test_bounds_and_exclusive_private_log(self):
         with tempfile.TemporaryDirectory() as temp:

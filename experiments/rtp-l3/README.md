@@ -285,7 +285,10 @@ payload fingerprints in interface captures. `--client-pcap` and
 `--client-capture-drops` add client-interface evidence when available. Classic
 Ethernet, raw IPv4 and Linux cooked captures are supported; use full snaplen and
 record capture coverage and final drop counts. Missing capture evidence is null,
-not zero. Output contains only numbered trials/ports/mappings. A successful
+not zero. Client logs also record every socket receive before validation;
+the analyzer separates accepted replies from rejected datagrams. Older logs
+without this instrumentation produce null socket/rejection counts. Output
+contains only numbered trials/ports/mappings. A successful
 send, captured packet or matched immediate control does not prove that a silent
 mapping survives, identify an exact NAT timeout or complete Z4. Matched tunnel
 traces and justified remediation remain separate work.

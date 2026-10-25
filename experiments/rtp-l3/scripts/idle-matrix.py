@@ -119,7 +119,8 @@ def probe(host, ports, delays, rounds, window, seed, launch_gap, log):
             serial += 1
             heapq.heappush(queue, (started+trial*launch_gap+offset, serial, row, leg))
     mappings = {}
-    event(log, 'start', trials=len(plan), payload_bytes=PAYLOAD_BYTES)
+    event(log, 'start', trials=len(plan), payload_bytes=PAYLOAD_BYTES,
+          records_all_socket_receives=True)
     with selectors.DefaultSelector() as selector:
         try:
             while queue or selector.get_map():
@@ -157,6 +158,8 @@ def probe(host, ports, delays, rounds, window, seed, launch_gap, log):
                     data, peer = key.fileobj.recvfrom(2048)
                     state = key.data
                     row, leg = state['row'], state['leg']
+                    event(log, 'socket_received', trial=row['trial'], leg=leg,
+                          token=state['token'], peer=peer, fingerprint=fingerprint(data))
                     try:
                         reply = json.loads(data)
                         observed = reply['observed_peer']

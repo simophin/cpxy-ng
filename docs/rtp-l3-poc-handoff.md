@@ -213,3 +213,9 @@ capture correlation on four link types. The initial sandbox attempt could not
 create UDP sockets; the same tests passed with network access enabled.
 Public-path delayed measurements are pending at this checkpoint. Z4 remains
 failed/open; local fixtures cannot establish public-path retention or its cause.
+
+The client additionally records every socket receive before source/token/body
+validation. The analyzer distinguishes accepted replies, rejected datagrams and
+no socket delivery, retaining null counts for older logs. Five fixtures now
+pass, including injected wrong-token replies followed by valid replies. This
+instrumentation does not alter probe framing, timing or tunnel behavior.
