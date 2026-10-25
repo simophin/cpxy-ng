@@ -171,3 +171,12 @@ final code passed the Linux checks and namespace regression. Server runtime
 firewall/network snapshots were restored exactly, task-process/interface absence
 verified, and both hosts' staging/builds/keys plus local private captures and keys
 removed. No outstanding deployment or cleanup obligations remain.
+
+## Destination-port diagnosis checkpoint
+
+Added `scripts/port-matrix.py`: bounded repeated immediate plain UDP probes,
+randomized destination order, one client socket, all-source replies and sanitized
+numbered mapping/delivery output. Private server JSONL records observed tuples
+and successful send calls. Loopback integration and CLI-bound fixtures passed
+with network access enabled (the sandbox forbids UDP sockets). Public-path
+measurement is in progress; Z4 and the cause-isolation TODO remain open.

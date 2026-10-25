@@ -240,3 +240,21 @@ The runtime reports `protocol: "rtp-l3"`. There is one format and no legacy
 mode or negotiation. Both peers must use the unified key labels and
 reserved-zero control header documented in the specification. Historical JSON
 artifacts retain their recorded identifiers and do not imply compatibility.
+
+### Controlled destination-port probe
+
+`python3 scripts/port-matrix.py server BIND_IP PORT1,PORT2,... --seconds 100`
+starts a bounded plain UDP responder. Use source-restricted temporary runtime
+firewall rules, with operator-owned cleanup. Its JSONL contains private observed
+endpoints: never commit raw server output. Each request gets an immediate reply
+from every bound source port to the tuple observed for that destination.
+
+`python3 scripts/port-matrix.py client SERVER PORT1,PORT2,... --rounds 12 --window .5 --seed 25`
+uses one bound socket, shuffles destination order each round, and publishes only
+numbered ports/mappings and per-trial delivery/latency. Correlation tokens reject
+late replies from previous trials. Run `python3 scripts/test-port-matrix.py`
+for loopback delivery, sanitization and CLI-bound checks. No tunnel wire format,
+socket strategy, rotation or keepalive setting changes. First-contact cross-port
+replies and already-contacted ports have different filtering history. Missing
+socket delivery alone cannot distinguish filtering from network loss; this
+immediate plain UDP diagnostic does not measure idle timeout or complete Z4.
