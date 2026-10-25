@@ -74,7 +74,7 @@ cleanup() {
   done
 }
 trap cleanup EXIT
-for i in $(seq 1 80); do
+for i in $(seq 1 300); do
   if grep -Eq '"event":"connected"' "$work/c.log"; then break; fi
   sleep .1
 done

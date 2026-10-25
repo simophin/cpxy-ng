@@ -42,10 +42,15 @@ cleanup() {
   done
 }
 trap cleanup EXIT
-for i in $(seq 1 80); do
-  if grep -Eq '"event":"connected"' "$work/c.log"; then break; fi
-  sleep .1
-done
+# Debug builds derive the Argon2 key slowly on CI; allow a generous connect.
+connected(){
+  for i in $(seq 1 300); do
+    if [ "$(grep -Ec '"event":"connected"' "$work/c.log")" -ge "$1" ]; then return; fi
+    sleep .1
+  done
+  echo "client did not connect" >&2; tail -20 "$work/c.log" "$work/s.log" >&2 || true; exit 1
+}
+connected 1
 ip netns exec c ping -c 4 -W 2 10.88.0.1
 if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then
   # The same ping process stays alive while the active tuple is blackholed.
@@ -75,7 +80,7 @@ kill -HUP "$client"
 wait "$client"
 if ip -n c link show rtpc 2>/dev/null; then exit 1; fi
 ip netns exec c "${client_env[@]}" "$bin" client >>"$work/c.out" 2>>"$work/c.log" & client=$!
-sleep 2
+connected 2
 ip netns exec c ping -c 4 -W 2 10.88.0.1
 kill -TERM "$client" "$server"
 wait "$client"
