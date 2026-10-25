@@ -39,8 +39,7 @@ impl Config {
     pub fn validate(&self) -> io::Result<()> {
         let mut ids = HashSet::new();
         let mut addresses = HashSet::new();
-        if self.mappings.is_empty()
-            || self.mappings.len() > 64
+        if self.mappings.len() > 64
             || self.max_flows == 0
             || self.max_flows > 16384
             || self.max_source_flows == 0
@@ -119,6 +118,7 @@ struct Flow {
     last: Instant,
 }
 struct Listener {
+    active: bool,
     config: Mapping,
     socket: UdpSocket,
     overflow: u32,
@@ -242,6 +242,7 @@ impl Relay {
         let mut listeners = Vec::new();
         for m in &config.mappings {
             listeners.push(Listener {
+                active: true,
                 config: m.clone(),
                 socket: socket(m.listen, config.socket_buffer)?,
                 overflow: 0,
@@ -260,6 +261,47 @@ impl Relay {
             counters: Counters::default(),
         })
     }
+    /// Called only by packet owner after control-plane admission completes.
+    pub fn install(&mut self, config: Mapping, socket: UdpSocket) -> io::Result<()> {
+        if self.listeners.len() >= 64
+            || self
+                .listeners
+                .iter()
+                .any(|l| l.config.listen == config.listen)
+        {
+            return Err(io::Error::other("listener conflict"));
+        }
+        self.listeners.push(Listener {
+            active: true,
+            config,
+            socket,
+            overflow: 0,
+            flows: HashMap::new(),
+            budget: Budget::default(),
+            counters: Counters::default(),
+        });
+        Ok(())
+    }
+    pub fn disable(&mut self, id: &str, generation: &str) {
+        for l in &mut self.listeners {
+            if l.config.id == id && l.config.generation == generation {
+                l.active = false;
+            }
+        }
+    }
+    pub fn remove(&mut self, id: &str, generation: &str) {
+        self.listeners.retain(|l| {
+            if l.config.id == id && l.config.generation == generation {
+                for peer in l.flows.keys() {
+                    self.sources.get_mut(&peer.ip()).unwrap().flows -= 1;
+                }
+                self.counters.active -= l.flows.len();
+                false
+            } else {
+                true
+            }
+        });
+    }
     pub fn inventory(&self) -> serde_json::Value {
         serde_json::json!({"counters":self.counters,"mappings":self.listeners.iter().map(|m|serde_json::json!({"id":m.config.id,"generation":m.config.generation,"flows":m.flows.len(),"counters":m.counters})).collect::<Vec<_>>()})
     }
@@ -277,6 +319,9 @@ impl Relay {
             }
         }
         for l in &mut self.listeners {
+            if !l.active {
+                continue;
+            }
             let old = l.flows.len();
             l.flows.retain(|peer, f| {
                 if now.duration_since(f.last) >= Duration::from_secs(self.config.idle_seconds) {
@@ -467,3 +512,5 @@ fn charge(c: &Config, g: &mut Budget, m: &mut Budget, s: Option<&mut Budget>, n:
     }
     true
 }
+
+pub mod management;

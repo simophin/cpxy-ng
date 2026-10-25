@@ -222,3 +222,22 @@ of unsafe automatic DNS settings. No public host deployment is implied.
 managed endpoint, a nested isolated client application, real ICMP over UDP across
 repeated candidate socket replacements, TUN teardown and unchanged host IPv4
 routes/rules. The fixture creates its own outer user/network namespace.
+
+Coordinated relay profiles add the optional endpoint-only `relay` field shown in
+[`endpoint-relay-field.json`](../udp-relay/examples/endpoint-relay-field.json).
+Merge this object as `relay` in an otherwise ordinary endpoint profile; its
+management owner must equal the profile name. The adapter always maps each base,
+initial and rotating numeric port to that same number on the relay and endpoint.
+The management peer/address and certificates are independent of the public IPv4
+data addresses and VPN key file. Configure the relay authority and both local
+agent policies for the same delegated pool; do not open the whole pool externally.
+
+Local socket/firewall preparation and generation-bound remote READY+commit finish
+before protocol STATE. Reconciliation renews active leases and recovers a new
+relay boot/inventory; failures degrade health and freeze new rotations. Existing
+base/current/draining sockets remain under protocol grace/session rules. Exact
+remote retirement must succeed before local release and numeric reuse. Endpoint
+restart first retires its journaled old generations on both hosts; unavailable
+management fails readiness, preserving journaled cleanup for retry. There is no
+silent direct/external-admission fallback. See the generic relay README for
+management deadline/outage-grace, dedicated CA authority and supervisor limits.

@@ -88,6 +88,8 @@ pub struct Settings {
     pub keepalive_seconds: u64,
     /// Explicit external admission or a policy-restricted local firewalld agent.
     pub admission: AdmissionMode,
+    #[serde(default)]
+    pub relay: Option<crate::relay::RelayConfig>,
 }
 impl Settings {
     pub fn load(path: &std::path::Path) -> io::Result<Self> {
@@ -113,6 +115,17 @@ impl Settings {
     }
     pub fn validate(&self) -> io::Result<()> {
         self.inner()?;
+        if let Some(relay) = &self.relay {
+            if !matches!(self.transport, Role::Endpoint { .. })
+                || relay.management.owner != self.profile
+                || !relay.listen_ip.is_ipv4()
+                || !relay.endpoint_ip.is_ipv4()
+            {
+                return Err(io::Error::other(
+                    "relay requires endpoint and same profile owner with IPv4 hops",
+                ));
+            }
+        }
         if let Some(network) = &self.network {
             network.validate(self)?;
         }

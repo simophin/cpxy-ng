@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-25",
+  "topology": "isolated local client -> public IPv4 relay -> public IPv4 endpoint -> separate backend namespace",
+  "mtu": 1200,
+  "application": {
+    "duration_seconds": 120,
+    "http_successes": 54,
+    "udp_successes": 54,
+    "transient_retries": 2,
+    "same_process_through_relay_restart": true
+  },
+  "recovery": {
+    "same_port_repair_pairs": 2,
+    "relay_worker_forced_deaths": 1,
+    "independent_cleanup_repetitions": 2,
+    "relay_boot_identities": 2
+  },
+  "rotation": {
+    "traced_rotations": 9,
+    "distinct_numeric_ports": 7,
+    "all_rotation_events_follow_matching_relay_commit": true
+  },
+  "physical_capture": {
+    "duration_seconds": 144.5,
+    "client_to_relay_datagrams": 287,
+    "relay_to_client_datagrams": 245,
+    "relay_to_endpoint_datagrams": 281,
+    "endpoint_to_relay_datagrams": 245,
+    "all_data_hop_addresses_public_ipv4": true,
+    "both_remote_hops_use_expected_physical_interfaces": true
+  },
+  "cleanup": {
+    "endpoint_original_firewall_routes_forwarding_preserved": true,
+    "relay_original_firewall_routes_forwarding_preserved": true,
+    "owned_journals_empty": true,
+    "acceptance_udp_listeners_absent": true,
+    "owned_interfaces_absent": true,
+    "backend_namespace_absent": true,
+    "public_zone_interface_bindings_restored": true,
+    "remote_staging_directories_and_credentials_removed": true,
+    "local_private_keys_deleted": true
+  },
+  "limitations": [
+    "Scoped application integration acceptance; no throughput, sustained load or long soak claim.",
+    "Existing experimental RTP data-crypto choices unchanged.",
+    "Automatic DNS management is deferred; any private DNS policy is externally managed.",
+    "Packet worker remains in privileged TUN-owning process; no OS privilege sandbox claim."
+  ],
+  "verification": {
+    "independent_review": true,
+    "rotation_generations_distinct_and_committed_before_each_rotation": true,
+    "base_and_initial_relay_commits_precede_endpoint_ready": true,
+    "capture_review": "Parsed private Ethernet/IPv4/UDP pcap; all four expected public data directions matched configured public peers.",
+    "cleanup_review": "Compared all six original snapshot fields on each host; checked final empty journals, absent owned links/namespaces, and no remaining local private-key files.",
+    "remote_staging_removal": "Verified by deployment coordinator; independent reviewer inspected its sanitized summary."
+  }
+}

@@ -6,17 +6,26 @@ pub mod broker;
 pub mod config;
 pub mod network;
 pub mod ports;
+pub mod relay;
 
 use config::{Role, Settings};
 use ports::{AdministratorManaged, Admission, LeaseManager};
 fn admission(settings: &Settings) -> Box<dyn Admission> {
-    match &settings.admission {
+    let local: Box<dyn Admission> = match &settings.admission {
         config::AdmissionMode::AdministratorManaged => Box::new(AdministratorManaged),
         config::AdmissionMode::Firewalld { agent_socket } => {
             Box::new(port_admission::agent::Client {
                 socket: agent_socket.clone(),
             })
         }
+    };
+    match &settings.relay {
+        Some(config) => Box::new(relay::Coordinated {
+            local,
+            config: config.clone(),
+            boots: Mutex::new(std::collections::HashMap::new()),
+        }),
+        None => local,
     }
 }
 use rtp_l3::linux::{self, Events, Resources, SocketProvider, WorkerConfig};

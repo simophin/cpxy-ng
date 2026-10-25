@@ -1,14 +1,14 @@
 # Generic UDP relay
 
-Status: static standalone tool implemented as `cpxy-udp-relay` in the
-`udp-relay/` workspace crate; dynamic management below remains proposed. It forwards UDP datagrams between configured
+Status: standalone tool implemented as `cpxy-udp-relay` in the
+`udp-relay/` workspace crate; optional mTLS dynamic management implemented in A5. It forwards UDP datagrams between configured
 listeners and upstreams. Its core has no RTP decoder, tunnel keys, TUN device,
 VPN session state or transport-specific epochs.
 
 The [RTP application plan](rtp-l3-application-plan.md) is one consumer. RTP-specific
 port coordination belongs to that application's controller/adapter, not the relay.
 The static implementation and local verification are documented in
-[`udp-relay/README.md`](../udp-relay/README.md). No public deployment is claimed.
+[`udp-relay/README.md`](../udp-relay/README.md). The scoped A5 public application acceptance and complete cleanup are recorded in the [application plan](rtp-l3-application-plan.md).
 
 ## Static mappings and forwarding
 

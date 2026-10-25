@@ -3,9 +3,7 @@
 `cargo build -p udp-relay --locked` produces `target/debug/cpxy-udp-relay`.
 Run `cpxy-udp-relay run CONFIG.json` as a local administrator/service identity.
 Configuration is trusted administrator input, protected through local filesystem
-and service-manager permissions. There is no network management listener in this
-static delivery. Packet senders cannot choose upstreams. The crate has only
-serde/JSON/libc dependencies; it does not load RTP, TUN, VPN keys or payload codecs.
+and service-manager permissions. The `run` command has no network management listener. Packet senders cannot choose upstreams. The forwarding engine has no RTP dependency; it does not load RTP, TUN, VPN keys or payload codecs.
 
 Example (documentation addresses):
 
@@ -99,4 +97,93 @@ base 30000 plus selected non-base 30001. Remaining rotation ports are bindable.
 Both clients reach backend TCP/UDP, existing ping processes survive injected
 same-port tuple repair and relay restart, and service shutdown removes its TUNs
 and empties journals. The relay receives no key. This is local namespace evidence;
-public deployment and coordinated dynamic/mTLS management are A5 work.
+A5 adds coordinated dynamic/mTLS management and scoped public acceptance.
+
+## Managed listener leases (A5)
+
+`cpxy-udp-relay managed examples/managed.json` adds an optional management TCP
+listener protected by mutual TLS. Use a dedicated management CA and separate
+relay/server and controller/client certificates, with server DNS/IP SAN and
+appropriate serverAuth/clientAuth usages. Every client certificate signed by
+this dedicated CA has authority over the single configured owner; this version
+does not multiplex differently authorized certificate identities. Restrict the
+management listener with deployment firewall policy. VPN PSKs never enter this
+crate. Its additional dependencies are rustls/PEM and the generic port-admission
+crate; the RTP controller adapter lives in `rtp-service/src/relay.rs`.
+
+[managed.json](examples/managed.json) is a complete relay configuration with
+documentation addresses. Managed mode requires an empty static `mappings` list;
+only the authority's configured listen/upstream IPs, explicit numeric port
+allowlist and bounded flow limits can be requested. Generic requests may
+translate between allowed ports. `agent_socket:null` explicitly chooses external
+administrator admission; a configured socket uses the restricted local
+firewalld agent and the matching owner/bind/pool policy. No fallback occurs on
+agent failure. Provision the management TCP rule and host forwarding policies
+separately. The relay itself requires no kernel forwarding or TUN.
+
+The wire format is one JSON object/newline in each mTLS connection. Requests are
+`{"operation":"inventory"}`, `{"operation":"prepare","spec":SPEC}`,
+`{"operation":"commit","spec":SPEC,"boot":"READY_BOOT"}`,
+`{"operation":"renew","spec":SPEC,"boot":"READY_BOOT"}` and
+`{"operation":"retire","spec":SPEC}`. SPEC contains `owner`, `generation`,
+`listen` and `upstream` (numeric socket addresses). The response contains `boot`,
+`ready`, `entries` and nullable `error`. Every entry contains `spec`, `committed`,
+`retiring` and Unix-second `expires`. READY requires an installed bound socket,
+forwarding and verified admission. Commit/renew require the exact live generation
+and current agent boot. Renew requires a committed entry. Repeated prepare does
+not extend staged lifetime. A late staged commit fails; exact repeated retirement
+is safe and cannot remove a replacement generation. Inventory is reconciled
+before serving management on restart, with a fresh boot identity.
+
+The journal is exclusively locked, atomically saved and fsynced before admission
+mutations. Protect its directory/configuration with service identity permissions.
+Live unexpired generations are rebound/restored after relay restart; flows are
+recreated by incoming traffic. Staged preparations expire after `staged_seconds`
+(2–120); committed leases require renewal within `outage_seconds` (10–86400).
+Use 30/120 for the initial RTP deployment with at most four live ports. Both
+controller and agent periodically reconcile; local/remote failure freezes new
+RTP rotations while current/base/draining paths remain held. There is no atomic
+two-host commit, and client validation/recovery remains necessary after READY.
+
+TLS I/O has an absolute five-second deadline, a two-second connect timeout and a
+64-KiB request/response cap. The serialized control thread performs bounded local
+agent calls, so expiry/reconciliation can lag by one pending operation plus a
+one-second poll; these are software deadlines, not native firewall timers.
+Firewall reload may interrupt traffic until reconciliation restores admission.
+Control work never executes in the packet poll: bounded channel commands only
+install, disable or remove prepared descriptors. On retirement/expiry forwarding
+is disabled before firewall release; failed release keeps the socket and journal
+for retry, preventing numeric reuse. All expired leases are eventually retired
+when the agent becomes available. A killed relay cannot execute software expiry:
+use the independent `cpxy-udp-relay cleanup CONFIG` command through the supplied
+[service template](deploy/cpxy-udp-relay@.service). It locks out live workers,
+releases exact persisted generations via the local agent, and preserves failures
+for retry. Stop relay/controller before the local agent/firewalld. If every
+supervisor is lost, untimed admission persists until restart/explicit cleanup.
+
+Verify network-enabled fixtures:
+
+```sh
+cargo test -p udp-relay -p rtp-service -p port-admission -p rtp-l3 --locked
+cargo build -p udp-relay -p rtp-service -p port-admission --locked
+python3 udp-relay/tests/management.py
+unshare -Urnm bash udp-relay/tests/linux-coordinated.sh
+```
+
+The loopback fixture uses actual mTLS and opaque echo traffic: unauthorized TLS,
+missing acknowledgement/retry, stale boot, conflict, late staged commit, occupied
+socket, relay crash/restart, numeric reuse/stale retirement, committed controller
+outage grace/expiry and independent cleanup. The namespace fixture uses two
+clients, backend TCP/UDP applications, separate private firewalld/D-Bus/agent
+instances on relay and endpoint, repeated dynamic rotation/numeric reuse, relay
+firewall reload, management disconnect, same-port repair and forced relay death
+with independent generation cleanup. Short UDP exchanges use bounded application
+retry; no zero-loss rotation/soak guarantee is claimed. No worker OS sandbox or
+public deployment is implied by these disposable local checks.
+
+The scoped three-node public IPv4 acceptance also passed: one application process
+completed 54 HTTP and 54 UDP exchanges over 120 seconds across rotation and a
+forced relay restart, with two transient retries. Both public data hops were
+captured, and original host state was restored after removing the temporary
+deployment. See the [sanitized results](../docs/rtp-l3-a5-results.json) and
+[A5 evidence](../docs/rtp-l3-application-plan.md#a5--coordinated-relay-rotation-and-firewall-lifecycle).

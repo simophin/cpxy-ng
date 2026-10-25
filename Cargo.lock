@@ -3644,6 +3644,7 @@ dependencies = [
  "rtp-l3",
  "serde",
  "serde_json",
+ "udp-relay",
 ]
 
 [[package]]
@@ -4729,6 +4730,9 @@ name = "udp-relay"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "port-admission",
+ "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
 ]

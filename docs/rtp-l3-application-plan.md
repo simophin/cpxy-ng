@@ -1,11 +1,11 @@
 # RTP L3 application and relay plan
 
-Status: proposed implementation plan, 2026-10-25. This replaces the completed
+Status: A1–A5 implemented and verified, A6 pending, 2026-10-25. This replaces the completed
 [PoC plan](rtp-l3-poc-handoff.md). The validated baseline is `451a27c`;
 [Z4 acceptance](rtp-l3-z4-repair-results.md) is closed. Further ISP/soak campaigns
 are not prerequisites for this phase. Checks below exercise the new features.
 A1 now provides workspace core/service code and isolated Linux verification.
-No host deployment is implied by the checked milestones.
+A5 includes one scoped public application acceptance; its temporary deployment was fully removed.
 
 ## First useful application
 
@@ -195,7 +195,7 @@ not managed or tested. Forwarding/firewall policy is never globally enabled by
 startup. Existing experimental shared-key/data-authentication limits remain;
 allowlisted addresses are not independent cryptographic client identities.
 See [`rtp-service/README.md`](../rtp-service/README.md) for deployment/ownership
-requirements and explicit disconnect behavior. Public deployment remains pending.
+requirements and explicit disconnect behavior. Public acceptance is recorded in A5 below.
 
 ### A4 — Generic UDP relay, then fixed-port RTP integration
 
@@ -262,17 +262,92 @@ management is claimed by A4; A5 adds mTLS coordination and public-path evidence.
 
 ### A5 — Coordinated relay rotation and firewall lifecycle
 
-- [ ] The RTP endpoint controller prepares the same numeric port on both hosts and
+- [x] The RTP endpoint controller prepares the same numeric port on both hosts and
   receives a generation-bound relay readiness acknowledgement before STATE.
-- [ ] Add authenticated management RPC, idempotent lease operations, staged
+- [x] Add authenticated management RPC, idempotent lease operations, staged
   deadlines, committed-lease renewal and restart reconciliation.
-- [ ] Preserve base and draining paths; defer rotation when either host cannot
+- [x] Preserve base and draining paths; defer rotation when either host cannot
   prepare. Prevent stale retirement from closing a newer reuse of a port.
-- [ ] Test missing/late acknowledgements, port conflicts, firewall reload,
+- [x] Test missing/late acknowledgements, port conflicts, firewall reload,
   controller disconnect, relay crash and numeric port reuse under traffic.
 
 Done when rotation and repair work across all three nodes, no advertised port
 is unprepared on either hop, and failures have bounded recovery/cleanup.
+
+A5 local evidence (2026-10-25): the generic relay now provides optional
+mutual-TLS JSON management with a dedicated management CA, separate controller
+and relay certificates, policy-limited opaque generation leases and an agent
+boot identity in READY. Its forwarding engine still imports no RTP core, PSK,
+TUN or payload codec. The RTP-only `rtp-service` admission adapter prepares and
+commits the same numeric base/initial/rotation port on both hosts before STATE;
+failed local/remote admission or reconciliation freezes new rotations. Existing
+base/current/draining paths remain under protocol bounds. Exact remote release
+must succeed before local release and numeric reuse.
+
+Staged deadlines, idempotent prepare/commit/renew/retire/inventory, committed
+outage grace, locked atomic durable journals, restart inventory restoration and
+fresh boot checks are implemented. Expiry/retirement disables forwarding before
+firewall release; failed release retains the bound socket and journal for retry.
+The separate control thread performs management/firewall work; the packet poll
+only installs/disables/removes descriptors through a bounded channel. Independent
+`cpxy-udp-relay cleanup CONFIG` and the supplied ExecStopPost template release
+journaled exact generations after forced death and reject cleanup of a live
+worker. Reconciliation re-commits recreated active leases after post-crash cleanup
+rather than renewing an uncommitted staged generation.
+
+All 6 shared admission, 26 core, 7 service and 3 generic real-socket regressions
+pass. The actual loopback mTLS fixture
+[`management.py`](../udp-relay/tests/management.py) passed at
+`/tmp/relay-mtls-qq47rhi9`: unauthenticated client rejection, missing ACK/retry,
+stale boot, conflicting/occupied ports, late staged commit, relay crash/restart,
+stale retirement after numeric reuse under opaque traffic, committed controller
+outage grace/expiry and independent repeated cleanup. The real five-namespace
+fixture [`linux-coordinated.sh`](../udp-relay/tests/linux-coordinated.sh) passed
+at `/tmp/rtp-a5-2pdQ`: two clients reach separate TCP/UDP backend applications
+through 26 rotations with numeric reuse, separate real private firewalld/D-Bus
+agents on both hosts, both-host reload, management disconnect/frozen rotation,
+same-port repair, relay SIGKILL, independent cleanup twice and restart recovery.
+Existing ping processes recover; final relay/endpoint/agent journals are empty,
+TUNs are absent and unrelated runtime ports remain. Each traced rotation follows
+a generation-bound relay commit. The fixture's explicit public-zone assignments
+and scoped forwarding rules belong to its disposable deployment topology.
+
+A5 public acceptance (2026-10-25) is complete. An isolated local client reached
+separate HTTP/TCP and UDP backend applications through the public IPv4 relay and
+public IPv4 RTP endpoint. The same application process ran for 120 seconds,
+recording 54 HTTP and 54 UDP successes with two transient retries, including a
+forced relay worker SIGKILL, independent cleanup twice and restart. Client logs
+contain two ordered same-port repairing/repaired pairs. Nine traced endpoint
+rotations used seven numeric ports; independent review matched each rotation to
+its own earlier generation-bound relay commit, and base/initial relay commits
+preceded endpoint readiness. Two relay boot identities were observed.
+
+Independent private-pcap parsing confirmed actual UDP traffic in both directions
+on both public data hops over 144.5 seconds: 287 client-to-relay, 245
+relay-to-client, 281 relay-to-endpoint and 245 endpoint-to-relay datagrams. Public
+physical-interface route assertions and capture were verified separately from
+management traffic. The final original firewall/rich-rule/runtime/permanent-port,
+route/rule and forwarding snapshots match exactly on both hosts; owned journals
+are empty, acceptance UDP listeners/TUN/backend namespace are absent, and public
+zone interface assignments are restored. Temporary remote deployment directories
+and credentials were removed; local private-key files were deleted. Addresses,
+credentials and raw captures remain outside git. The sanitized, independently
+reviewed record is [`rtp-l3-a5-results.json`](rtp-l3-a5-results.json).
+
+Limits: this was scoped application integration acceptance, not sustained load,
+throughput or long soak verification. UDP/application retries and transient
+reload/repair loss are expected; no
+zero-loss or high-throughput claim is made. One dedicated CA authorizes one
+configured relay owner; per-certificate multi-owner authorization is deferred.
+Software expiry can lag one pending bounded control operation and a periodic
+poll. A killed process cannot execute expiry: independent supervisor cleanup or
+restart is required, and unavailable agent/firewalld leaves cleanup journaled.
+If every supervisor is lost, untimed rules persist until explicit recovery. The
+packet worker still has no OS privilege sandbox. Automatic DNS and mobile
+adapters remain deferred as already documented. Runnable configuration contracts,
+management framing and deployment prerequisites are in the
+[`relay README`](../udp-relay/README.md) and
+[`RTP service README`](../rtp-service/README.md).
 
 ### A6 — Application profiles and platform adapters
 
