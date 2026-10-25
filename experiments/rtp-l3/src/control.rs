@@ -64,6 +64,14 @@ pub enum Control {
         instance: u64,
         epoch: u32,
     },
+    /// Test a return path without moving the registered data path.
+    Probe {
+        session: u64,
+        inner: Ipv4Addr,
+        seq: u32,
+        instance: u64,
+        epoch: u32,
+    },
     State {
         session: u64,
         echo: u32,
@@ -86,8 +94,19 @@ impl Control {
                 seq,
                 instance,
                 epoch,
+            }
+            | Self::Probe {
+                session,
+                inner,
+                seq,
+                instance,
+                epoch,
             } => {
-                b[0] = 1;
+                b[0] = if matches!(self, Self::Probe { .. }) {
+                    3
+                } else {
+                    1
+                };
                 b.extend(session.to_be_bytes());
                 b.extend(inner.octets());
                 b.extend(seq.to_be_bytes());
@@ -133,6 +152,13 @@ impl Control {
         let u64_at = |i| u64::from_be_bytes(b[i..i + 8].try_into().unwrap());
         match (b[0], len) {
             (1, 32) => Some(Self::Ping {
+                session: u64_at(4),
+                inner: Ipv4Addr::from(u32_at(12)),
+                seq: u32_at(16),
+                instance: u64_at(20),
+                epoch: u32_at(28),
+            }),
+            (3, 32) => Some(Self::Probe {
                 session: u64_at(4),
                 inner: Ipv4Addr::from(u32_at(12)),
                 seq: u32_at(16),
@@ -235,6 +261,15 @@ mod tests {
             grace: 60,
         }
     }
+    fn probe() -> Control {
+        Control::Probe {
+            session: 42,
+            inner: Ipv4Addr::new(10, 0, 0, 2),
+            seq: 8,
+            instance: 9,
+            epoch: 3,
+        }
+    }
     #[test]
     fn codec_roundtrip_padding_and_every_single_bit() {
         for rotation in [false, true] {
@@ -248,12 +283,13 @@ mod tests {
             } else {
                 PortKeys::base(&[7; 32], false)
             };
-            for msg in [ping(), state()] {
-                let (sender, receiver) = if matches!(msg, Control::Ping { .. }) {
-                    (&c, &s)
-                } else {
-                    (&s, &c)
-                };
+            for msg in [ping(), probe(), state()] {
+                let (sender, receiver) =
+                    if matches!(msg, Control::Ping { .. } | Control::Probe { .. }) {
+                        (&c, &s)
+                    } else {
+                        (&s, &c)
+                    };
                 let mut tx = Tx::new(sender.tx_data);
                 for max in [28 + OVERHEAD + msg.body().len() + TAG, MAX_CONTROL_IPV4] {
                     let p = tx.seal_control(&sender.tx_control, &msg, 0, max).unwrap();
@@ -310,7 +346,7 @@ mod tests {
     }
     #[test]
     fn malformed_body_and_data_dispatch() {
-        for msg in [ping(), state()] {
+        for msg in [ping(), probe(), state()] {
             let b = msg.body();
             assert!(Control::parse(&b) == Some(msg));
             for len in 0..b.len() {

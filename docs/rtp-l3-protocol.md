@@ -20,7 +20,8 @@ replay, or provide forward secrecy. A modified/replayed packet that parses as
 IPv4 can be forwarded. Header tampering changes the data keystream.
 
 Control has a truncated HMAC-SHA256 tag and live-session sequence/epoch checks.
-Authenticated PING alone creates or moves a session. All clients share the PSK;
+Authenticated PING alone creates or moves a session. Authenticated PROBE tests
+a candidate return path without moving data routing. All clients share the PSK;
 any key holder can impersonate another client. An on-path attacker can race a
 fresh PING from another tuple. Captured STATE secrets can be recovered by a
 later PSK holder, so rotating secrets does not provide forward secrecy.
@@ -94,7 +95,7 @@ not individualized per client.
 ## Control messages
 
 The decrypted body's first byte distinguishes data (high nibble 4) from control
-(types in `0x01`–`0x0f`; only the two below are implemented). Other values are
+(types in `0x01`–`0x0f`; the three below are implemented). Other values are
 rejected. Control uses this body, with big-endian fields:
 
 ```text
@@ -117,10 +118,11 @@ occurs until control authentication and direction checks pass.
 | --- | --- | --- | ---: |
 | `0x01 PING` | client → server | session (8), inner IPv4 (4), sequence (4), known server instance (8), known epoch (4) | 32 |
 | `0x02 STATE` | server → client | session (8), echoed sequence (4), instance (8), epoch (4), current port (2), port secret (32), base port (2), grace seconds (2) | 66 |
+| `0x03 PROBE` | client → server | same fields as PING | 32 |
 
 A zero echoed sequence means unsolicited STATE. Each control packet chooses a
 random padded outer IPv4 size between its minimum and 260 bytes inclusive.
-Minimum outer sizes are 104 bytes for PING and 138 for STATE. Size overlap with
+Minimum outer sizes are 104 bytes for PING/PROBE and 138 for STATE. Size overlap with
 small data packets does not make this valid media or hide idle cadence.
 
 ## Sessions, replay checks and routing
@@ -168,8 +170,21 @@ A successful rotation binds first, generates the fresh secret, advances epoch,
 and announces through each session's existing path. Retries occur at +1, +2
 and +4 seconds until a PING on the new port acknowledges instance and epoch.
 The server never relies on unsolicited traffic from a new port opening NAT.
-The client sends registration PING and upstream data to the new port in the
-same flight. Data may overtake registration and be dropped.
+The client first sends authenticated PROBE on a fresh host-network socket for
+the advertised port. The server requires an existing session, matching inner
+address/current instance/epoch and a strictly newer sequence; it advances replay
+state and replies with STATE from the probed port, while preserving the
+registered data path and announcement retries. Only a matching fresh candidate
+echo with the advertised instance/epoch/port/secret can validate that socket.
+The client then switches and sends registration PING before data on that socket.
+Only PING commits the server route. Data may overtake registration and be dropped.
+
+Candidate challenges use three attempts with fresh sequences and full one-second
+monotonic deadlines. Exhaustion replaces only the candidate socket and retries;
+traffic and keepalives continue on the established path. Newer advertisements
+replace older candidates. Old candidate echoes cannot validate a replacement.
+Candidate challenges share the session sequence space with PING; active PING
+completion takes priority. No candidate may create or displace a server session.
 
 At most base/current/previous sockets remain installed. A previous socket
 retires only after both 60-second grace and its last session leaving. A later
@@ -177,12 +192,21 @@ rotation can evict the oldest socket early to keep the limit. Clients stranded
 there must recover through base. Reusing a numeric port replaces its secret;
 the client does not retain ambiguous previous keys for that same port.
 
-The client retains one local UDP socket. Its host-network socket is opened by
-the launcher before entering the TUN/app user/network namespace. The runtime
-reads the peer, disconnects with AF_UNSPEC and uses sendto for multiple server
-ports, restoring the original local tuple if Linux clears the implicit binding.
-The socket remains in its original network namespace. Each destination can
-have a different external NAT mapping, learned through its PING.
+The launcher retains a private host-network socket broker and passes its Unix
+`SOCK_SEQPACKET` channel into the TUN/app namespace. It creates fresh bound UDP
+sockets and transfers their descriptors with SCM_RIGHTS; payloads and keys never
+traverse this channel. The runtime retains at most base, active, previous and
+candidate sockets, selected by server port. It keeps the working data path while
+probing a candidate and drops retired descriptors. Candidate retries and base
+recovery can replace unusable mappings without restarting the TUN/apps.
+The optional launcher bind port selects the initial bootstrap socket only.
+
+The initial connected host socket is disconnected with AF_UNSPEC, restoring its
+original local port if Linux clears the implicit binding. Broker sockets are
+unconnected from creation and preserve their host network namespace. Fresh local
+ports do not establish a particular NAT implementation or bypass every failure.
+Client TUN activation waits for candidate validation and a completed registration
+PING; applications start after that confirmed path is usable.
 
 PING is sent at startup before data, and when either send or receive activity
 has been idle for the sampled keepalive interval. Default mean is 15 seconds
@@ -193,7 +217,9 @@ suppressed. Valid control/data refresh the corresponding liveness state.
 
 Each PING expects STATE within two seconds, for three attempts total. Missing
 all three selects base; probes there back off 1, 2, 4, 8, 16, 30, 30… seconds
-until valid STATE restores the rotation path. Data continues during retries
+until valid STATE advertises a candidate and fresh PROBE/STATE validation
+restores the rotation path. Recovery attempts renew the base socket rather than
+reusing a persistently unusable return tuple. Data continues during retries
 and may use base during fallback. Base therefore carries bootstrap/fallback
 data as well as control. The server responds to PING and announces rotation;
 it does not originate periodic keepalives. Cover traffic is absent.

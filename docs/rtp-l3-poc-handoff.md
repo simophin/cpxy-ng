@@ -254,3 +254,37 @@ and permanent firewall snapshots, links and forwarding matched after cleanup;
 task processes exited, test ports were free and staging was removed. Local
 private artifacts were removed after sanitization. No cleanup obligations remain.
 Next: matched tunnel traces, then justified remediation and Z4 revalidation.
+
+
+## Z4 repair implementation checkpoint
+
+The baseline actual tunnel reproduced a complete return failure despite
+server-accepted authenticated PINGs and exact reverse-tuple STATE transmission.
+A same-destination, same-payload cohort observed persistent socket-specific return
+failures across wildcard, explicit-address, disconnected and connected bindings:
+11/32 sockets received 0/3 echoes, 20 received 3/3 and one received 2/3. The server
+captured 95/96 requests and 95 echoes across all 32 tuples. This does not locate
+the failing device, but identifies why retries on a fixed failed tuple cannot
+recover. Earlier private shape/language comparisons varied with fresh sockets;
+neither Rust nor RTP framing was a consistent discriminator.
+
+The repair keeps the established route while authenticating a candidate with
+PROBE/STATE. PROBE cannot create/move a session; only registration PING commits
+routing. A launcher-owned host socket broker replaces failed candidate/base
+mappings without restarting TUN/apps. Candidate retries use three full one-second
+monotonic deadlines; keepalive remains 15 seconds ±20%. TUN/application startup
+waits for confirmed registration. Both peers need the updated build.
+
+Initial validation: 21 library tests and the Linux inherited-socket test passed,
+warning-denied clippy passed, and the existing 100 MiB/restart/UDP-fault regression
+passed. A new namespace fault regression dropped four candidate replies, renewed
+its socket, and delivered all 650 pings with every paced UDP receiver interval
+nonempty and zero fallbacks. A preliminary public 180-second idle diagnostic
+passed with six switches, zero fallbacks and 5/5 post-idle MTU pings. That sample
+preceded final monotonic candidate timing and broker/poll cleanup refinements;
+final acceptance remains pending. Every completed deployment restored runtime
+and permanent firewall snapshots, links and forwarding and removed processes,
+TUNs, remote staging and key copies. Private local evidence/builds/key remain
+outside the checkout while the repair is being validated. Next: final-code
+namespace checks and the complete ten-minute active/ten-minute idle Z4 run;
+keep Z4 open until acceptance and final cleanup are verified.

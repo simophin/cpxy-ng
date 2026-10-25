@@ -10,7 +10,7 @@ keepalive/fallback. The portable `control` and `state` modules implement the
 codec and lifecycle; the Linux runtime owns sockets, timers and counters.
 
 Every data datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`,
-with no tag on data. An authenticated PING precedes the first data flight; STATE
+with no tag on data. Authenticated PING/STATE and candidate PROBE validation precede the first data flight; STATE
 returns the current rotation port and secret. Control uses the same framing with
 a padded encrypted body and a 16-byte HMAC tag (104–260 outer IPv4 bytes for
 PING, 138–260 for STATE). The 24-byte XChaCha20 nonce is RTP header bytes 2..10
@@ -50,7 +50,8 @@ The server learns each client's source tuple and inner IPv4 from authenticated
 PINGs. TUN destinations select the return session; unknown destinations are
 dropped. The session table is capped at 1024 entries, idle expiry is 90 seconds,
 and conflicting inner addresses replace the older session and are counted. Only
-PING may move a tuple after NAT rebinding.
+PING may move a tuple after NAT rebinding. PROBE authenticates a candidate
+without moving the established data route.
 
 The base port remains open for bootstrap/fallback. The server immediately opens
 a rotation port, then rotates every 300 seconds ±50% by default. ROTATE_SECS
@@ -69,17 +70,27 @@ the maximum jitter and retries fit the fixed 60-second grace). Each port uses a
 fresh RTP transmit stream. Under continuous bidirectional data, idle keepalives
 are suppressed. Startup data may be lost if it overtakes registration.
 
-The launcher creates and connects UDP **before** entering `unshare -Urn`. The
-runtime reads the server address, disconnects with `AF_UNSPEC` and uses `sendto`
-on that same inherited socket, preserving its local port. The socket retains
-host networking while the TUN and `RUN_SCRIPT` applications live in an isolated
-network namespace. `RUN_SCRIPT` can configure a default route via the TUN if
-server forwarding is configured. IP addresses, endpoints, firewall rules and
-private deployment locations are operator-supplied, never hardcoded. Server does
-not alter firewall, forwarding sysctls or NAT automatically. Restrict its
-temporary base and rotation UDP firewall openings to the test source. Use
-runtime rules only and explicitly remove them afterwards. Closing TUN FDs
-removes task interfaces.
+The launcher creates and connects the bootstrap UDP socket **before** entering
+`unshare -Urn`. The runtime disconnects it with AF_UNSPEC, restoring the initial
+local tuple if Linux clears the implicit binding. A private Unix socket broker
+remains in the host namespace and supplies fresh bound, unconnected UDP sockets
+via SCM_RIGHTS. It does not handle keys or tunnel payloads. The optional launcher
+bind port fixes only the initial bootstrap port.
+
+STATE advertises a candidate; authenticated PROBE/STATE validates its return path
+before the client switches and sends registration PING. The server keeps routing
+data on the established path until that PING. Three unanswered one-second
+candidate challenges replace the candidate socket, while data and keepalives
+continue on the working socket. Base recovery also renews failed sockets. The
+client retains at most base/active/previous/candidate descriptors. The TUN comes
+up, and RUN_SCRIPT starts, only after validated-path registration completes.
+Both peers must be rebuilt together for the added PROBE control message.
+
+`RUN_SCRIPT` can configure a default route via the TUN if server forwarding is
+configured. Addresses, endpoints, firewall rules and private deployment locations
+are operator-supplied. Server does not alter firewall, forwarding sysctls or NAT
+automatically. Restrict temporary public UDP openings to test source /32s, use
+runtime rules only, and explicitly remove them afterwards.
 
 The event loop polls nonblocking TUN/UDP with bounded 64-packet batches, no
 unbounded user queue, a requested 4 MiB kernel socket buffer, and 1200-byte
@@ -236,6 +247,10 @@ Failures are recorded separately and the process exits nonzero if any fail.
 Keep the failed attempt, restart/window boundaries and retry count in reports;
 never merge failed setup attempts into successful UDP samples.
 
+Run `sh scripts/candidate-integration.sh CRATE_DIR PRIVATE_KEY_FILE OUTPUT_DIR`
+for an isolated regression that drops candidate replies, forces a socket
+replacement and checks uninterrupted UDP/ping delivery on the established path.
+
 The runtime reports `protocol: "rtp-l3"`. There is one format and no legacy
 mode or negotiation. Both peers must use the unified key labels and
 reserved-zero control header documented in the specification. Historical JSON
@@ -296,3 +311,8 @@ traces and justified remediation remain separate work.
 Run `python3 scripts/test-idle-matrix.py` with UDP socket access for real delayed
 delivery/isolation, negative delivery, private-file bounds, capture correlation
 and sanitization fixtures.
+
+Candidate diagnostics add `path_candidates`, `candidate_probes`, `candidate_retries`
+and `socket_renewals` counters. `POC_TRACE_CONTROL` fingerprints packets within
+the 260-byte control IPv4 bound; large data packets remain counted without
+per-packet tracing. `connected` reports initial validated registration.

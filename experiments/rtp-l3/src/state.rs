@@ -215,6 +215,35 @@ impl Server {
             false
         }
     }
+    /// An authenticated candidate probe advances replay protection, but never
+    /// moves the registered path or acknowledges a rotation. Only a later PING
+    /// commits a path after the client has received its candidate STATE.
+    pub fn probe(&mut self, path: Path, msg: &Control, now: u64) -> Option<Send> {
+        self.expire(now);
+        let Control::Probe {
+            session,
+            inner,
+            seq,
+            instance,
+            epoch,
+        } = *msg
+        else {
+            return None;
+        };
+        if !self.ports().contains(&path.port) || instance != self.instance || epoch != self.epoch {
+            return None;
+        }
+        let s = self.sessions.get_mut(&session)?;
+        if s.inner != inner || seq <= s.seq {
+            return None;
+        }
+        s.seq = seq;
+        s.last_seen = now;
+        Some(Send {
+            path,
+            message: self.state(session, seq),
+        })
+    }
     pub fn downstream(&mut self, inner: Ipv4Addr, now: u64) -> Option<Path> {
         self.expire(now);
         self.sessions
@@ -308,11 +337,13 @@ pub struct ClientPort {
     pub port: u16,
     pub secret: [u8; 32],
 }
+#[derive(Clone)]
 struct Pending {
     seq: u32,
     attempts: u8,
     deadline: u64,
 }
+#[derive(Clone)]
 pub struct Client {
     pub session: u64,
     pub inner: Ipv4Addr,
@@ -321,6 +352,7 @@ pub struct Client {
     pub current: u16,
     pub previous: Option<(ClientPort, u64)>,
     pub rotation: Option<ClientPort>,
+    pub candidate: Option<ClientPort>,
     base: u16,
     seq: u32,
     pending: Option<Pending>,
@@ -346,6 +378,7 @@ impl Client {
             current: base,
             previous: None,
             rotation: None,
+            candidate: None,
             base,
             seq: 0,
             pending: None,
@@ -379,6 +412,74 @@ impl Client {
             epoch: self.epoch,
         }
     }
+    pub fn probe_message(&mut self, instance: u64, epoch: u32) -> Option<Control> {
+        self.seq = self.seq.checked_add(1)?;
+        Some(Control::Probe {
+            session: self.session,
+            inner: self.inner,
+            seq: self.seq,
+            instance,
+            epoch,
+        })
+    }
+    /// Validate an advertisement and complete old-path liveness without moving
+    /// data to its untested port. The runtime independently probes that port.
+    pub fn observe_state(
+        &mut self,
+        source: u16,
+        msg: &Control,
+        now: u64,
+    ) -> Result<(), &'static str> {
+        let mut preview = self.clone();
+        preview.accept_state(source, msg, now)?;
+        self.last_rx = now;
+        self.pending = None;
+        self.retry_at = None;
+        self.recovering = false;
+        self.backoff = 1;
+        Ok(())
+    }
+    /// Commit only the fresh reply to the independently tracked candidate
+    /// challenge. A subsequent registration PING moves the server's data path.
+    pub fn accept_probe(
+        &mut self,
+        source: u16,
+        msg: &Control,
+        seq: u32,
+        now: u64,
+    ) -> Result<Option<Control>, &'static str> {
+        let Control::State {
+            echo, port, secret, ..
+        } = msg
+        else {
+            return Err("wrong_direction");
+        };
+        if *echo != seq
+            || source != *port
+            || !self
+                .candidate
+                .as_ref()
+                .is_some_and(|p| p.port == *port && p.secret == *secret)
+        {
+            return Err("candidate_mismatch");
+        }
+        let previous_pending = self.pending.take();
+        self.pending = Some(Pending {
+            seq,
+            attempts: 1,
+            deadline: now.saturating_add(2),
+        });
+        match self.accept_state(source, msg, now) {
+            Ok(reply) => {
+                self.candidate = None;
+                Ok(reply)
+            }
+            Err(reason) => {
+                self.pending = previous_pending;
+                Err(reason)
+            }
+        }
+    }
     /// The runtime may sample `keepalive_delay` for each new idle window;
     /// explicit intervals keep timer tests deterministic.
     pub fn set_keepalive_interval(&mut self, seconds: u64) -> bool {
@@ -401,6 +502,7 @@ impl Client {
     pub fn knows(&self, port: u16, now: u64) -> bool {
         port == self.base
             || self.rotation.as_ref().is_some_and(|p| p.port == port)
+            || self.candidate.as_ref().is_some_and(|p| p.port == port)
             || self
                 .previous
                 .as_ref()
@@ -836,6 +938,78 @@ mod tests {
             Ok(None)
         ));
         assert_eq!(c.pending_sequence(), None);
+        assert_eq!(c.fallbacks, 0);
+    }
+
+    #[test]
+    fn candidate_probe_proves_return_before_registration_moves_data() {
+        let mut s = server();
+        let mut c = client(1, 2);
+        let old = path(4000, 100);
+        let candidate = path(4001, 200);
+        let initial = c.ping(0).unwrap();
+        let advertised = s.ping(old, &initial, 0).unwrap().0.message;
+        c.observe_state(4000, &advertised, 0).unwrap();
+        assert_eq!(c.current, 4000);
+        c.candidate = Some(ClientPort {
+            port: 4001,
+            secret: [1; 32],
+        });
+        let probe = c.probe_message(77, 0).unwrap();
+        let Control::Probe { seq, .. } = probe else {
+            panic!()
+        };
+        let response = s.probe(candidate, &probe, 1).unwrap().message;
+        assert_eq!(s.downstream(addr(2), 1), Some(old));
+        assert!(!s.upstream(candidate, 1));
+        assert!(s.probe(candidate, &probe, 2).is_none());
+        assert_eq!(
+            c.accept_probe(4001, &response, seq + 1, 2).err(),
+            Some("candidate_mismatch")
+        );
+        let registration = c.accept_probe(4001, &response, seq, 2).unwrap().unwrap();
+        assert_eq!(c.current, 4001);
+        assert_eq!(s.downstream(addr(2), 2), Some(old));
+        let confirmed = s.ping(candidate, &registration, 2).unwrap().0.message;
+        assert!(matches!(c.accept_state(4001, &confirmed, 3), Ok(None)));
+        assert_eq!(s.downstream(addr(2), 3), Some(candidate));
+        assert_eq!(c.fallbacks, 0);
+    }
+
+    #[test]
+    fn lost_candidate_replies_leave_registered_data_path_usable() {
+        let mut s = server();
+        let mut c = client(1, 2);
+        let old = path(4001, 100);
+        let bootstrap = c.ping(0).unwrap();
+        let advertised = s.ping(path(4000, 100), &bootstrap, 0).unwrap().0.message;
+        let initial = c.state(4000, &advertised, 0).unwrap();
+        let confirmed = s.ping(old, &initial, 0).unwrap().0.message;
+        c.accept_state(4001, &confirmed, 0).unwrap();
+        let announcement = s.rotate(4002, [2; 32], 1).unwrap().0.remove(0).message;
+        c.observe_state(4001, &announcement, 1).unwrap();
+        c.candidate = Some(ClientPort {
+            port: 4002,
+            secret: [2; 32],
+        });
+        for time in [1, 3, 5] {
+            let probe = c.probe_message(77, 1).unwrap();
+            s.probe(path(4002, 200), &probe, time).unwrap(); // lose the reply
+            assert_eq!(s.downstream(addr(2), time), Some(old));
+            assert!(s.upstream(old, time));
+            assert!(c.received_data(4001, time));
+            assert!(c.tick(time).is_none());
+            assert_eq!(c.current, 4001);
+        }
+        let probe = c.probe_message(77, 1).unwrap();
+        let Control::Probe { seq, .. } = probe else {
+            panic!()
+        };
+        let fresh_tuple = path(4002, 300);
+        let reply = s.probe(fresh_tuple, &probe, 7).unwrap().message;
+        let registration = c.accept_probe(4002, &reply, seq, 7).unwrap().unwrap();
+        s.ping(fresh_tuple, &registration, 7).unwrap();
+        assert_eq!(s.downstream(addr(2), 7), Some(fresh_tuple));
         assert_eq!(c.fallbacks, 0);
     }
 

@@ -12,6 +12,12 @@ fn control_metadata(message: &Control) -> serde_json::Value {
             epoch,
             ..
         } => serde_json::json!({"kind":"ping", "session":session, "seq":seq, "epoch":epoch}),
+        Control::Probe {
+            session,
+            seq,
+            epoch,
+            ..
+        } => serde_json::json!({"kind":"probe", "session":session, "seq":seq, "epoch":epoch}),
         Control::State {
             session,
             echo,
@@ -19,6 +25,82 @@ fn control_metadata(message: &Control) -> serde_json::Value {
             ..
         } => serde_json::json!({"kind":"state", "session":session, "echo":echo, "epoch":epoch}),
     }
+}
+
+fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
+    let request = port.to_be_bytes();
+    unsafe {
+        if libc::send(
+            broker.as_raw_fd(),
+            request.as_ptr().cast(),
+            2,
+            libc::MSG_NOSIGNAL,
+        ) != 2
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut poll = libc::pollfd {
+            fd: broker.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        if libc::poll(&mut poll, 1, 1000) != 1 {
+            return Err(io::Error::other("socket broker unavailable"));
+        }
+        let mut label = [0u8; 2];
+        let mut ancillary = [0usize; 8];
+        let mut iov = libc::iovec {
+            iov_base: label.as_mut_ptr().cast(),
+            iov_len: 2,
+        };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = ancillary.as_mut_ptr().cast();
+        msg.msg_controllen = std::mem::size_of_val(&ancillary);
+        let received = libc::recvmsg(broker.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
+        if received < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // Own every delivered descriptor before validating the response.
+        let mut sockets = Vec::new();
+        let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
+        while !cmsg.is_null() {
+            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
+                let count = ((*cmsg).cmsg_len.saturating_sub(libc::CMSG_LEN(0) as usize)) / 4;
+                for index in 0..count {
+                    let fd =
+                        std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<i32>().add(index));
+                    sockets.push(UdpSocket::from_raw_fd(fd));
+                }
+            }
+            cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
+        }
+        if received != 2
+            || label != request
+            || msg.msg_flags & (libc::MSG_CTRUNC | libc::MSG_TRUNC) != 0
+            || sockets.len() != 1
+        {
+            return Err(io::Error::other("invalid socket broker label"));
+        }
+        let socket = sockets.pop().unwrap();
+        prepare(&socket)?;
+        Ok(socket)
+    }
+}
+
+struct Candidate {
+    state: Control,
+    seq: u32,
+    attempts: u8,
+    deadline: u128,
+}
+fn advertisement(message: &Control) -> Control {
+    let mut value = message.clone();
+    if let Control::State { echo, .. } = &mut value {
+        *echo = 0;
+    }
+    value
 }
 
 struct Stream {
@@ -171,6 +253,10 @@ struct Runtime {
     counts: Counts,
     started: Instant,
     trace_control: bool,
+    broker: Option<fs::File>,
+    candidate: Option<Candidate>,
+    interface: String,
+    connected: bool,
 }
 impl Runtime {
     fn trace(&self, mut fields: serde_json::Value) {
@@ -200,7 +286,7 @@ impl Runtime {
         packet: &[u8],
         detail: impl FnOnce() -> serde_json::Value,
     ) {
-        if !self.trace_control {
+        if !self.trace_control || packet.len() + 28 > MAX_CONTROL_IPV4 {
             return;
         }
         use sha2::{Digest, Sha256};
@@ -217,7 +303,13 @@ impl Runtime {
     fn sync_client(&mut self, now: u64) {
         let c = self.client.as_ref().unwrap();
         self.streams.retain(|port, _| c.knows(*port, now));
-        for p in c.rotation.iter().chain(c.previous.iter().map(|(p, _)| p)) {
+        self.sockets.retain(|port, _| c.knows(*port, now));
+        for p in c
+            .rotation
+            .iter()
+            .chain(c.previous.iter().map(|(p, _)| p))
+            .chain(c.candidate.iter())
+        {
             if !c.knows(p.port, now) {
                 continue;
             }
@@ -228,17 +320,151 @@ impl Runtime {
         }
     }
     fn send(&mut self, path: Path, packet: &[u8]) -> bool {
-        let socket = self.sockets.get(&if self.client.is_some() {
-            self.base
-        } else {
-            path.port
-        });
+        let socket = self.sockets.get(&path.port);
         if socket.and_then(|s| s.send_to(packet, path.peer).ok()) == Some(packet.len()) {
             true
         } else {
             self.counts.socket_drops += 1;
             false
         }
+    }
+    fn renew_socket(&mut self, port: u16) -> io::Result<()> {
+        let socket = broker_socket(
+            self.broker
+                .as_ref()
+                .ok_or_else(|| io::Error::other("socket broker required"))?,
+            port,
+        )?;
+        self.sockets.insert(port, socket);
+        if let Some(stream) = self.streams.get(&port) {
+            self.streams.insert(port, Stream::new(stream.keys.clone()));
+        }
+        self.counts.socket_renewals += 1;
+        self.trace(serde_json::json!({"stage":"socket_renewed", "port":port}));
+        Ok(())
+    }
+    fn candidate_tick(&mut self) {
+        let Some(candidate) = &self.candidate else {
+            return;
+        };
+        if self.started.elapsed().as_millis() < candidate.deadline
+            || self.client.as_ref().unwrap().pending_sequence().is_some()
+        {
+            return;
+        }
+        let Control::State {
+            port,
+            instance,
+            epoch,
+            ..
+        } = candidate.state
+        else {
+            unreachable!()
+        };
+        if candidate.attempts == 0 || candidate.attempts >= 3 {
+            if self.renew_socket(port).is_err() {
+                self.counts.socket_drops += 1;
+                self.candidate.as_mut().unwrap().deadline =
+                    self.started.elapsed().as_millis() + 2000;
+                return;
+            }
+            if self.candidate.as_ref().unwrap().attempts >= 3 {
+                self.counts.candidate_retries += 1;
+            }
+            self.candidate.as_mut().unwrap().attempts = 0;
+        }
+        let Some(probe) = self.client.as_mut().unwrap().probe_message(instance, epoch) else {
+            return;
+        };
+        let Control::Probe { seq, .. } = probe else {
+            unreachable!()
+        };
+        let candidate = self.candidate.as_mut().unwrap();
+        candidate.seq = seq;
+        candidate.attempts += 1;
+        candidate.deadline = self.started.elapsed().as_millis() + 1000;
+        let mut peer = self.peer.unwrap();
+        peer.set_port(port);
+        self.control(Send {
+            path: Path { port, peer },
+            message: probe,
+        });
+    }
+    fn client_state(
+        &mut self,
+        port: u16,
+        msg: &Control,
+        now: u64,
+    ) -> Result<Option<Control>, &'static str> {
+        let Control::State {
+            port: target,
+            secret,
+            instance,
+            epoch,
+            echo,
+            ..
+        } = *msg
+        else {
+            return Err("wrong_direction");
+        };
+        if let Some(candidate) = &self.candidate {
+            if port == target
+                && port
+                    == self
+                        .client
+                        .as_ref()
+                        .unwrap()
+                        .candidate
+                        .as_ref()
+                        .unwrap()
+                        .port
+            {
+                if echo == 0 || echo != candidate.seq || advertisement(msg) != candidate.state {
+                    return Err("candidate_echo_not_pending");
+                }
+                let reply =
+                    self.client
+                        .as_mut()
+                        .unwrap()
+                        .accept_probe(port, msg, candidate.seq, now)?;
+                self.candidate = None;
+                return Ok(reply);
+            }
+        }
+        let c = self.client.as_ref().unwrap();
+        let changes_path = c.instance != Some(instance) || epoch > c.epoch || c.current != target;
+        if changes_path {
+            self.client
+                .as_mut()
+                .unwrap()
+                .observe_state(port, msg, now)?;
+            let state = advertisement(msg);
+            if self.candidate.as_ref().is_none_or(|p| p.state != state) {
+                self.client.as_mut().unwrap().candidate = Some(state::ClientPort {
+                    port: target,
+                    secret,
+                });
+                self.candidate = Some(Candidate {
+                    state,
+                    seq: 0,
+                    attempts: 0,
+                    deadline: 0,
+                });
+                self.counts.path_candidates += 1;
+                self.sync_client(now);
+            }
+            self.candidate_tick();
+            return Ok(None);
+        }
+        let reply = self.client.as_mut().unwrap().accept_state(port, msg, now)?;
+        if !self.connected && port == self.client.as_ref().unwrap().current && port != self.base {
+            if ip(&["link", "set", "dev", &self.interface, "up"]).is_err() {
+                return Err("tun_activation_failed");
+            }
+            self.connected = true;
+            report_event(serde_json::json!({"event":"connected", "seconds":now}));
+        }
+        Ok(reply)
     }
     fn control(&mut self, action: Send) {
         // Explicit integration-only fault hook: lose announcements and their
@@ -262,6 +488,9 @@ impl Runtime {
                     .unwrap();
             if matches!(action.message, Control::Ping { .. }) {
                 self.counts.pings_sent += 1;
+            }
+            if matches!(action.message, Control::Probe { .. }) {
+                self.counts.candidate_probes += 1;
             }
             let sent = self.send(action.path, &p);
             self.packet_trace(
@@ -369,13 +598,13 @@ impl Runtime {
                     }
                     let instance = c.instance;
                     let pending = c.pending_sequence();
-                    let result = c.accept_state(port, &msg, now);
+                    let result = self.client_state(port, &msg, now);
                     let outcome = match &result {
                         Ok(_) => "accepted",
                         Err(reason) => *reason,
                     };
                     let reply = result.ok().flatten();
-                    let current = c.current;
+                    let current = self.client.as_ref().unwrap().current;
                     self.packet_trace("state", port, b, || {
                         serde_json::json!({"result":outcome, "pending":pending,
                             "current":current, "control":control_metadata(&msg)})
@@ -393,6 +622,27 @@ impl Runtime {
                     self.sync_client(now);
                     if let Some(msg) = reply {
                         self.ping(msg);
+                    }
+                } else if matches!(msg, Control::Probe { .. }) {
+                    if let Some(reply) =
+                        self.server
+                            .as_mut()
+                            .unwrap()
+                            .probe(Path { port, peer: source }, &msg, now)
+                    {
+                        self.packet_trace("probe", port, b, || serde_json::json!({"result":"accepted", "control":control_metadata(&msg)}));
+                        if env::var_os("POC_TEST_DROP_PROBE_REPLIES_FILE")
+                            .is_some_and(|p| std::path::Path::new(&p).exists())
+                        {
+                            report_event(
+                                serde_json::json!({"event":"test_probe_reply_drop", "seconds":now}),
+                            );
+                        } else {
+                            self.control(reply);
+                        }
+                    } else {
+                        self.counts.control_rejected += 1;
+                        self.packet_trace("probe", port, b, || serde_json::json!({"result":"rejected", "control":control_metadata(&msg)}));
                     }
                 } else if matches!(msg, Control::Ping { .. }) {
                     let id = match msg {
@@ -509,6 +759,19 @@ pub fn main() -> io::Result<()> {
         counts: Counts::default(),
         started: Instant::now(),
         trace_control: env::var_os("POC_TRACE_CONTROL").is_some(),
+        broker: if client {
+            let fd = env::var("POC_SOCKET_BROKER_FD")
+                .ok()
+                .and_then(|s| s.parse::<i32>().ok())
+                .filter(|fd| *fd >= 3)
+                .ok_or_else(|| io::Error::other("client requires inherited socket broker"))?;
+            Some(unsafe { fs::File::from_raw_fd(fd) })
+        } else {
+            None
+        },
+        candidate: None,
+        interface: a[3].clone(),
+        connected: false,
     };
     let (low, high) = if client {
         (0, 0)
@@ -561,7 +824,7 @@ pub fn main() -> io::Result<()> {
         rt.streams
             .insert(port, Stream::new(PortKeys::rotation(&psk, &secret, false)));
     }
-    let mut dev = tun(&a[3], &a[4])?;
+    let mut dev = tun(&a[3], &a[4], !client)?;
     nonblocking(dev.as_raw_fd())?;
     if client {
         ip(&["link", "set", "lo", "up"])?;
@@ -598,10 +861,17 @@ pub fn main() -> io::Result<()> {
                     "fallback":after.2 > before.2}),
                 );
             }
+            if after.1 == rt.base
+                && (after.2 > before.2 || ping.is_some() && after.2 > 0)
+                && rt.renew_socket(rt.base).is_err()
+            {
+                rt.counts.socket_drops += 1;
+            }
             rt.sync_client(now);
             if let Some(ping) = ping {
                 rt.ping(ping);
             }
+            rt.candidate_tick();
         } else {
             if now >= next_rotation {
                 match bind_rotation(address, low, high, &rt.server.as_ref().unwrap().ports()) {
@@ -673,7 +943,10 @@ pub fn main() -> io::Result<()> {
                 continue;
             }
             for _ in 0..64 {
-                match receive(&rt.sockets[port], &mut b) {
+                let Some(socket) = rt.sockets.get(port) else {
+                    break;
+                };
+                match receive(socket, &mut b) {
                     Ok((n, source, drops)) => {
                         if let Some(d) = drops {
                             let prev = rt.drops.insert(*port, d).unwrap_or(0);
