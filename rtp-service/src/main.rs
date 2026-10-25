@@ -16,13 +16,14 @@ fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() != 3 {
         return Err(io::Error::other(
-            "usage: cpxy-rtp run|doctor|cleanup PROFILE.json",
+            "usage: cpxy-rtp run|doctor|cleanup|cleanup-ports PROFILE.json",
         ));
     }
     let path = Path::new(&args[2]);
     let settings = Settings::load(path)?;
     match args[1].as_str() {
         "doctor" => println!("{}", rtp_service::doctor(&settings)),
+        "cleanup-ports" => rtp_service::cleanup_ports(&settings)?,
         "cleanup" => rtp_service::cleanup(&settings)?,
         "run" => {
             unsafe {

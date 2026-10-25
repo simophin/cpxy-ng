@@ -149,20 +149,53 @@ operation bounds and deployment prerequisites.
 
 ### A3 — RTP endpoint and application reachability
 
-- [ ] Configure an endpoint TUN pool, client address policy, service CIDRs and
+- [x] Configure an endpoint TUN pool, client address policy, service CIDRs and
   explicit return routing; optionally configure scoped SNAT when return routes
   cannot be installed. Forwarding is an explicit host deployment prerequisite.
-- [ ] Add a Linux client profile with tunnel identity, entry endpoint, secure key
+- [x] Add a Linux client profile with tunnel identity, entry endpoint, secure key
   reference, MTU, routes and optional private DNS resolver/suffixes. Configured
   backend CIDRs take precedence over existing private/CN-direct rules in RTP
   mode; existing proxy profiles keep their defaults.
-- [ ] Demonstrate TCP and UDP access to an actual service behind the endpoint,
+- [x] Demonstrate TCP and UDP access to an actual service behind the endpoint,
   not only ping/iperf to the endpoint's own TUN address.
-- [ ] Remove only profile-owned routes/DNS state on stop or failed startup.
+- [x] Remove only profile-owned routes/DNS state on stop or failed startup.
 
 Done when ordinary client applications reach configured backend services via
 the direct endpoint and selected traffic never silently falls back to direct
 Internet routing after an RTP failure.
+
+A3 evidence (2026-10-25): optional Linux `network` profiles now configure a
+canonical IPv4 tunnel pool, explicit client-address allowlist, selected service
+CIDRs, dedicated policy tables/priorities, MTU 1200 and key-file/profile identity.
+Endpoint/client decrypted packet policy enforces allowed source/destination
+addresses. Dedicated unreachable guards persist after process failure; restart
+and SIGHUP adopt guards without a direct-routing gap. Normal stop/explicit cleanup
+remove exact owned policy; service-manager `cleanup-ports` preserves guards on
+crash. Existing proxy profiles/defaults remain unchanged.
+
+The real-TUN three-namespace fixture
+[`linux-applications.sh`](../rtp-service/tests/linux-applications.sh) passed at
+`/tmp/rtp-a3-6UGQ`: ordinary TCP and UDP applications reach a separate backend,
+using explicitly provisioned forwarding and return routes. It verifies SIGKILL,
+a working physical default route that must remain inaccessible for selected
+traffic, admission-only post-crash cleanup, restart/SIGHUP, transport outage,
+unrelated routes/rules, failed startup over a preexisting interface, repeated
+cleanup and rejection of unsafe automatic DNS configuration. Three new network
+policy/configuration tests and all 26 retained core tests pass. Legacy lifecycle
+and same-port repair fixtures also pass (`/tmp/rtp-a1-aGKg`,
+`/tmp/rtp-a1-WJ1V`).
+
+Optional DNS is explicit `externally_managed_fail_closed` resolver/suffix metadata
+only; external persistent private-suffix/no-public-fallback policy is a deployment
+prerequisite, unverified by doctor. Automatic DNS mutation is deferred: per-TUN
+resolved state would disappear on crash and permit suffix fallback. No DNS
+success/no-leak verification or automatic DNS lifecycle is claimed. Explicit return
+routing is verified; optional administrator-provisioned scoped SNAT is documented,
+not managed or tested. Forwarding/firewall policy is never globally enabled by
+startup. Existing experimental shared-key/data-authentication limits remain;
+allowlisted addresses are not independent cryptographic client identities.
+See [`rtp-service/README.md`](../rtp-service/README.md) for deployment/ownership
+requirements and explicit disconnect behavior. Public deployment remains pending.
 
 ### A4 — Generic UDP relay, then fixed-port RTP integration
 

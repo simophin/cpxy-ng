@@ -3,6 +3,7 @@
 //! Workers use threads, not an OS privilege sandbox. Managed firewall admission
 //! is delegated to the separate policy-restricted local agent.
 pub mod config;
+pub mod network;
 pub mod ports;
 
 use config::{Role, Settings};
@@ -224,7 +225,12 @@ impl Service {
                     s
                 }
             };
+            network::prepare(&self.settings)?;
             let packet = tun(&self.settings)?;
+            if self.settings.network.is_some() {
+                ip(&["link", "set", "dev", &self.settings.interface, "up"])?;
+            }
+            network::activate(&self.settings)?;
             Ok::<_, io::Error>((socket, packet))
         })();
         let (socket, packet) = match setup {
@@ -279,7 +285,7 @@ impl Service {
         let final_health = self.health.clone();
         let final_events = self.events.clone();
         let thread = thread::Builder::new().name(format!("rtp-{}", self.settings.profile)).spawn(move || {
-            let result = linux::run(WorkerConfig { client, psk, inner, prefix, rotation_low: low, rotation_high: high, rotation_seconds: rotation, keepalive_seconds: worker_host.settings.keepalive_seconds }, Resources { packet: Box::new(packet), clock: Arc::new(linux::MonotonicClock::default()), socket, provider: worker_host.clone(), events: worker_events }, run);
+            let result = linux::run(WorkerConfig { client, psk, inner, prefix, rotation_low: low, rotation_high: high, rotation_seconds: rotation, keepalive_seconds: worker_host.settings.keepalive_seconds }, Resources { packet: Box::new(network::PolicyPacket { file: packet, settings: worker_host.settings.clone() }), clock: Arc::new(linux::MonotonicClock::default()), socket, provider: worker_host.clone(), events: worker_events }, run);
             let cleanup = worker_host.leases.cleanup();
             let result = result.and(cleanup);
             final_health.lock().unwrap().state = if result.is_ok() { "stopped" } else { "failed" }.into();
@@ -302,6 +308,9 @@ impl Service {
         Ok(())
     }
     pub fn stop(&mut self) -> io::Result<()> {
+        self.stop_inner(true)
+    }
+    fn stop_inner(&mut self, release_routes: bool) -> io::Result<()> {
         let Some(active) = self.active.take() else {
             return Ok(());
         };
@@ -312,14 +321,31 @@ impl Service {
             .map_err(|_| io::Error::other("packet worker panicked"))
             .and_then(|v| v);
         let cleanup = active.host.leases.cleanup();
-        result.and(cleanup)
+        // Unexpected worker failure retains unreachable guards. Explicit stop
+        // releases owned routing policy after the TUN descriptor is closed.
+        let network_cleanup = if result.is_ok() && release_routes {
+            network::cleanup(&self.settings)
+        } else {
+            Ok(())
+        };
+        result.and(cleanup).and(network_cleanup)
     }
     /// Reload validates configuration and secrets before stopping. Role/interface
     /// changes establish a new session; this is a controlled restart.
     pub fn reload(&mut self, settings: Settings) -> io::Result<()> {
         settings.validate()?;
         key(&settings.key_file)?;
-        self.stop()?;
+        if self.settings.network.is_some()
+            && (self.settings.network != settings.network
+                || self.settings.interface != settings.interface
+                || std::mem::discriminant(&self.settings.transport)
+                    != std::mem::discriminant(&settings.transport))
+        {
+            return Err(io::Error::other(
+                "network policy change requires explicit stop/cleanup before restart",
+            ));
+        }
+        self.stop_inner(false)?;
         self.settings = settings;
         self.start()
     }
@@ -330,7 +356,7 @@ impl Drop for Service {
     }
 }
 
-pub fn cleanup(settings: &Settings) -> io::Result<()> {
+pub fn cleanup_ports(settings: &Settings) -> io::Result<()> {
     settings.validate()?;
     LeaseManager::open(
         settings.journal.clone(),
@@ -338,6 +364,16 @@ pub fn cleanup(settings: &Settings) -> io::Result<()> {
         admission(settings),
     )?
     .cleanup()
+}
+pub fn cleanup(settings: &Settings) -> io::Result<()> {
+    settings.validate()?;
+    LeaseManager::open(
+        settings.journal.clone(),
+        settings.profile.clone(),
+        admission(settings),
+    )?
+    .cleanup()?;
+    network::cleanup(settings)
 }
 /// Read-only diagnostics: no keys, routes or firewall mutations.
 pub fn doctor(settings: &Settings) -> serde_json::Value {
@@ -353,5 +389,5 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
         Role::Client { entry, .. } => client_socket(settings, entry.into()),
         Role::Endpoint { listen, .. } => UdpSocket::bind(listen),
     };
-    serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "key":key(&settings.key_file).err().map(|e|e.to_string()), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.admission,"verified":false,"detail":"read-only diagnostics do not assert admission; managed service verifies via agent before readiness and periodically"}, "mtu":1200,"ipv4_only":true})
+    serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "key":key(&settings.key_file).err().map(|e|e.to_string()), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.admission,"verified":false,"detail":"read-only diagnostics do not assert admission; managed service verifies via agent before readiness and periodically"}, "network":settings.network,"dns_policy":{"mode":"externally_managed_only","verified":false,"detail":"service never mutates DNS; administrator must provision persistent fail-closed private suffix routing"},"fail_closed":"configured CIDRs use reserved policy rules and unreachable guard; explicit stop/cleanup releases policy", "mtu":1200,"ipv4_only":true})
 }

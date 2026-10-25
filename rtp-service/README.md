@@ -51,8 +51,8 @@ for the same profile. Journal paths are trusted administrator configuration.
 
 The service owns a nonpersistent TUN, its address, MTU 1200, and link activation.
 It refuses preexisting interface names. Descriptor teardown removes the TUN and
-its connected route on failure/stop/process death. It does not install service
-CIDRs, DNS, forwarding or NAT (A3). IPv4 is the only supported mode.
+its connected route on failure/stop/process death. Optional `network` policy installs only selected IPv4 service routes. The service
+never changes forwarding, NAT, or DNS. IPv4 is the only supported mode.
 
 Use `"admission":"administrator_managed"` for externally provisioned UDP
 policy, or `"admission":{"firewalld":{"agent_socket":"/run/cpxy-port-agent/agent.sock"}}`
@@ -76,7 +76,9 @@ The portable state APIs already receive monotonic time; the Linux worker also
 accepts a `Clock`, packet `PacketIo`, socket provider and structured event sink.
 
 The optional systemd template in `deploy/` runs independent journal cleanup
-via ExecStopPost, including after SIGKILL; configure its paths before installing.
+via `cleanup-ports` in ExecStopPost, including after SIGKILL; configure its paths
+before installing. This admission-only cleanup deliberately preserves routing
+guards after failure; normal SIGTERM stop releases the profile network policy.
 It intentionally contains no host-specific endpoint or privilege policy.
 
 Verification:
@@ -100,3 +102,88 @@ nftables. It verifies failed D-Bus calls, preexisting-rule conflicts while traff
 continues, occupied ports, two profiles/generation reuse, pending control calls,
 agent/firewalld restart and reload, unrelated rules and SIGKILL plus independent
 cleanup. It never touches the host firewall.
+
+For backend applications add the same `network` policy to the endpoint/client
+profiles (use separate table/priority reservations for profiles on one host):
+
+```json
+"network": {
+  "tunnel_pool": "10.88.0.0/24",
+  "client_addresses": ["10.88.0.2"],
+  "service_cidrs": ["10.90.0.0/24"],
+  "table": 18800,
+  "rule_priority": 1000
+}
+```
+
+The endpoint address is `10.88.0.1/24`, client `10.88.0.2/24`, and MTU remains
+1200. The configured pool must match the TUN address prefix. The endpoint accepts
+inner packets only from listed client addresses to selected service CIDRs; the
+client accepts returns only from selected services to its own address. This
+allowlist restricts decrypted packet forwarding. The existing experimental
+protocol uses a shared key and unauthenticated data encryption: it does not
+provide independent cryptographic client identities or authenticated inner IP
+packets. Use separately provisioned profile/key/endpoint namespaces when clients
+must be mutually isolated. The profile name is the local tunnel identity.
+
+Reserve an otherwise empty numeric table (10000..2000000000) and unused priority
+(100..30000) per profile. Startup refuses table/rule collisions and earlier custom
+policy rules, so selected CIDRs take precedence over routes in the main table,
+including existing private/direct routes. Choose a priority preceding other policy
+rules. The local kernel rule remains authoritative. Existing proxy profile code
+and defaults are unchanged. No default/internet route is supported here.
+
+Before startup administrators must provision endpoint IPv4 forwarding, scoped
+forward-firewall admission, and backend return routes for the client pool via the
+endpoint's backend interface. For the documentation subnet, the backend route is
+`10.88.0.0/24 via 10.90.0.1`. Startup never enables global forwarding or adds NAT.
+If return routes cannot be provisioned, an administrator may separately configure
+explicit SNAT restricted to the client pool, service CIDRs and backend egress;
+that policy and cleanup remain administrator-owned. This implementation/fixture
+uses explicit return routing and does not claim SNAT verification.
+
+Policy rules send selected destinations to a dedicated table containing the live
+TUN routes and an unreachable default. When the TUN disappears, the durable guard
+continues rejecting traffic instead of falling through to a physical default
+route. A sidecar `<journal>.network.json`, protected by the existing profile lock,
+records exact owned selectors with atomic fsync/rename before mutation. Restart
+adopts guards without removing rules; SIGHUP keeps guards throughout its controlled
+restart. Network/interface changes require explicit disconnect first. Do not
+manually reuse that table, priority or journal while guards exist.
+
+Normal stop and explicit `cleanup PROFILE.json` release the profile's rules and
+guard. Failed startup/worker death and `cleanup-ports PROFILE.json` retain them;
+this is intentional fail-closed behavior until restart or explicit disconnect.
+Systemd's ExecStopPost uses `cleanup-ports`, so automatic crash cleanup cannot
+expose selected traffic. Explicit cleanup restores administrator routing and may
+therefore allow direct traffic after disconnect. Cleanup never flushes a table,
+replaces administrator routes, or deletes an existing administrator interface.
+Host reboot removes kernel policy; arrange service startup before applications
+requiring guarded access. Protection assumes administrators do not change reserved
+policy resources or install higher-precedence bypass rules while the profile runs.
+
+Optional DNS is **externally managed metadata only**:
+
+```json
+"dns": {
+  "mode": "externally_managed_fail_closed",
+  "resolver": "10.90.0.53",
+  "suffixes": ["corp.example"]
+}
+```
+
+Place `dns` inside `network`. The resolver must lie in a selected service CIDR.
+Administrators must configure a persistent local resolver that sends these private
+suffixes only to this resolver and refuses public/default-resolver retry, including
+after tunnel/process failure. This service neither installs nor verifies that
+external DNS policy; doctor explicitly reports it unverified. Automatic DNS modes
+are rejected. Ordinary per-TUN systemd-resolved configuration is insufficient for
+this promise because its suffix state disappears with a crashed TUN. Automatic
+DNS lifecycle support is deferred; no automated DNS success/no-leak claim is made.
+
+`unshare -Urnm bash rtp-service/tests/linux-applications.sh` verifies TCP and UDP
+from ordinary sockets to a third backend namespace, explicit return routing,
+SIGKILL with a working physical fallback present, admission-only post-crash
+cleanup, restart, SIGHUP, transport outage, unrelated route/rule preservation,
+preexisting-interface failed startup, repeated explicit cleanup, and rejection
+of unsafe automatic DNS settings. No public host deployment is implied.

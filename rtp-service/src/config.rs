@@ -47,6 +47,8 @@ pub struct Settings {
     pub outbound_interface: Option<String>,
     pub address: String,
     pub transport: Role,
+    #[serde(default)]
+    pub network: Option<crate::network::Network>,
     #[serde(default = "keepalive")]
     pub keepalive_seconds: u64,
     /// Explicit external admission or a policy-restricted local firewalld agent.
@@ -76,6 +78,9 @@ impl Settings {
     }
     pub fn validate(&self) -> io::Result<()> {
         self.inner()?;
+        if let Some(network) = &self.network {
+            network.validate(self)?;
+        }
         if let AdmissionMode::Firewalld { agent_socket } = &self.admission {
             if !agent_socket.is_absolute() {
                 return Err(io::Error::other("agent_socket must be absolute"));
