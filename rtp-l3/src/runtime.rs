@@ -250,7 +250,30 @@ fn bind_rotation(
     }
     Err(io::Error::other("no available rotation port"))
 }
+// Joining on drop prevents a late firewall task from racing supervisor cleanup.
+struct Pending<T>(Option<std::thread::JoinHandle<T>>);
+impl<T: std::marker::Send + 'static> Pending<T> {
+    fn spawn(work: impl FnOnce() -> T + std::marker::Send + 'static) -> Self {
+        Self(Some(std::thread::spawn(work)))
+    }
+    fn poll(&mut self) -> Option<T> {
+        if self.0.as_ref()?.is_finished() {
+            Some(self.0.take().unwrap().join().expect("port task panicked"))
+        } else {
+            None
+        }
+    }
+}
+impl<T> Drop for Pending<T> {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            let _ = task.join();
+        }
+    }
+}
 struct Runtime {
+    retire_tasks: BTreeMap<u16, Pending<io::Result<()>>>,
+    retire_retry: BTreeMap<u16, Instant>,
     psk: [u8; 32],
     base: u16,
     peer: Option<SocketAddr>,
@@ -616,13 +639,32 @@ impl Runtime {
     }
     fn close(&mut self, port: u16) {
         self.retiring.insert(port);
-        if let Err(error) = self.provider.retire_port(port) {
+        if self
+            .retire_retry
+            .get(&port)
+            .is_some_and(|deadline| Instant::now() < *deadline)
+        {
+            return;
+        }
+        if !self.retire_tasks.contains_key(&port) {
+            let provider = self.provider.clone();
+            self.retire_tasks
+                .insert(port, Pending::spawn(move || provider.retire_port(port)));
+        }
+        let Some(result) = self.retire_tasks.get_mut(&port).unwrap().poll() else {
+            return;
+        };
+        self.retire_tasks.remove(&port);
+        if let Err(error) = result {
+            self.retire_retry
+                .insert(port, Instant::now() + Duration::from_secs(1));
             (self.events)(
                 serde_json::json!({"event":"degraded", "operation":"retire_port", "error":error.to_string()}),
             );
             return;
         }
         self.retiring.remove(&port);
+        self.retire_retry.remove(&port);
         self.sockets.remove(&port);
         self.streams.remove(&port);
         self.drops.remove(&port);
@@ -900,6 +942,8 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
         test_blocked_path: None,
         repair_started: None,
         retiring: Default::default(),
+        retire_tasks: Default::default(),
+        retire_retry: Default::default(),
     };
     if client {
         rt.client = Client::new(
@@ -939,6 +983,9 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
     }
     (rt.events)(serde_json::json!({"event":"ready","client":client,"protocol":PROTOCOL,"mtu":MTU}));
     let mut admission_ready = true;
+    let mut rotation_task: Option<Pending<io::Result<(u16, UdpSocket)>>> = None;
+    let mut reconcile_task: Option<Pending<io::Result<()>>> = None;
+    let mut next_reconcile = Instant::now();
     let mut last = Instant::now();
     let mut b = [0; 65536];
     while running.load(Ordering::Relaxed) {
@@ -989,21 +1036,31 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
             for port in rt.retiring.clone() {
                 rt.close(port);
             }
-            if now >= next_rotation && admission_ready && rt.retiring.is_empty() {
-                match bind_rotation(
-                    address,
-                    low,
-                    high,
-                    &rt.server.as_ref().unwrap().ports(),
-                    rt.provider.as_ref(),
-                ) {
+            if now >= next_rotation
+                && admission_ready
+                && rt.retiring.is_empty()
+                && rotation_task.is_none()
+                && reconcile_task.is_none()
+            {
+                let provider = rt.provider.clone();
+                let occupied = rt.server.as_ref().unwrap().ports();
+                rotation_task = Some(Pending::spawn(move || {
+                    let (port, socket) =
+                        bind_rotation(address, low, high, &occupied, provider.as_ref())?;
+                    if let Err(error) = provider.commit_port(port) {
+                        let _ = provider.retire_port(port);
+                        return Err(error);
+                    }
+                    Ok((port, socket))
+                }));
+            }
+            if let Some(result) = (admission_ready && reconcile_task.is_none())
+                .then(|| rotation_task.as_mut().and_then(Pending::poll))
+                .flatten()
+            {
+                rotation_task = None;
+                match result {
                     Ok((port, socket)) => {
-                        if rt.provider.commit_port(port).is_err() {
-                            let _ = rt.provider.retire_port(port);
-                            rt.counts.rotation_bind_failures += 1;
-                            next_rotation = now.saturating_add(rotation_delay(mean).unwrap());
-                            continue;
-                        }
                         let mut secret = [0; 32];
                         OsRng.fill_bytes(&mut secret);
                         if let Some((actions, closed)) =
@@ -1027,9 +1084,17 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
                             for action in actions {
                                 rt.control(action);
                             }
+                        } else {
+                            rt.sockets.insert(port, socket);
+                            rt.close(port);
                         }
                     }
-                    Err(_) => rt.counts.rotation_bind_failures += 1,
+                    Err(error) => {
+                        rt.counts.rotation_bind_failures += 1;
+                        (rt.events)(
+                            serde_json::json!({"event":"rotation_failed", "error":error.to_string()}),
+                        );
+                    }
                 }
                 next_rotation = now.saturating_add(rotation_delay(mean).unwrap());
             }
@@ -1175,25 +1240,32 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
                 }
             }
         }
+        if reconcile_task.is_none() && Instant::now() >= next_reconcile {
+            let provider = rt.provider.clone();
+            reconcile_task = Some(Pending::spawn(move || provider.reconcile_ports()));
+        }
+        if let Some(result) = reconcile_task.as_mut().and_then(Pending::poll) {
+            reconcile_task = None;
+            let was_ready = admission_ready;
+            admission_ready = result.is_ok();
+            next_reconcile = Instant::now() + Duration::from_secs(1);
+            if !was_ready && admission_ready {
+                (rt.events)(
+                    serde_json::json!({"event":"admission_restored", "connected":rt.connected}),
+                );
+            }
+            if let Err(error) = result {
+                (rt.events)(
+                    serde_json::json!({"event":"degraded", "operation":"reconcile_ports", "error":error.to_string()}),
+                );
+            }
+        }
         if last.elapsed() >= Duration::from_secs(5) {
             rt.counts.report(
                 rt.started.elapsed().as_secs_f64(),
                 false,
                 rt.events.as_ref(),
             );
-            let reconciliation = rt.provider.reconcile_ports();
-            let was_ready = admission_ready;
-            admission_ready = reconciliation.is_ok();
-            if !was_ready && admission_ready {
-                (rt.events)(
-                    serde_json::json!({"event":"admission_restored", "connected":rt.connected}),
-                );
-            }
-            if let Err(error) = reconciliation {
-                (rt.events)(
-                    serde_json::json!({"event":"degraded", "operation":"reconcile_ports", "error":error.to_string()}),
-                );
-            }
             last = Instant::now();
         }
     }

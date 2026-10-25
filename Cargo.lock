@@ -3169,6 +3169,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "port-admission"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3631,6 +3640,7 @@ name = "rtp-service"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "port-admission",
  "rtp-l3",
  "serde",
  "serde_json",

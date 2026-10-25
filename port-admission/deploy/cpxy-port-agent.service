@@ -1,0 +1,25 @@
+[Unit]
+Description=CPXY delegated UDP port admission agent
+After=dbus.service firewalld.service
+Wants=firewalld.service
+Before=cpxy-rtp@.service
+
+[Service]
+Type=simple
+User=root
+RuntimeDirectory=cpxy-port-agent
+RuntimeDirectoryMode=0755
+StateDirectory=cpxy-port-agent
+StateDirectoryMode=0700
+# RuntimeDirectory removes the stale socket only after the old process exits.
+ExecStart=/usr/local/bin/port-admission /etc/cpxy-port-agent.json
+Restart=on-failure
+RestartSec=1
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/cpxy-port-agent /run/cpxy-port-agent
+
+[Install]
+WantedBy=multi-user.target

@@ -97,28 +97,55 @@ empty final journals and absent final TUNs. Its repair mode keeps one ping
 process alive across an injected blackholed tuple and observes same-port
 repairing/repaired events before successful post-repair traffic.
 
-The A1 packet/control ownership seam currently uses threads and injected
-providers, not an OS privilege sandbox. Admission calls are synchronous and
-must be bounded; A2 must move pending firewall operations off packet polling.
-Only explicit administrator-managed admission ships here: doctor labels firewall
-readiness unverified. A2 remains responsible for real privileged firewalld
+The packet/control ownership seam uses threads and injected providers, not an
+OS privilege sandbox. A2 moves scheduled admission, retirement and reconciliation
+off packet polling.
+A1 originally supplied explicit administrator-managed admission; doctor labels
+readiness unverified outside a running service. A2 adds managed firewalld
 operations/failure integration; A3 owns service routes, DNS and backend
 application reachability. The service includes independent journal cleanup and
 an optional systemd ExecStopPost template, but no host deployment is claimed.
 
 ### A2 — firewalld-backed dynamic UDP ports (recommended first feature PR)
 
-- [ ] Implement the local port lease adapter and fake adapter failure fixtures.
-- [ ] Open the base/initial port before client readiness. For rotation, bind and
+- [x] Implement the local port lease adapter and fake adapter failure fixtures.
+- [x] Open the base/initial port before client readiness. For rotation, bind and
   admit the candidate before committing the epoch or emitting STATE.
-- [ ] Retain old sockets/rules under the protocol's existing grace/session rules;
+- [x] Retain old sockets/rules under the protocol's existing grace/session rules;
   remove only owned retired leases. Handle reload, daemon loss and crash cleanup.
-- [ ] Exercise real firewalld in an isolated Linux fixture: failed add/query,
+- [x] Exercise real firewalld in an isolated Linux fixture: failed add/query,
   occupied port, repeated release, reload/restart and unrelated-rule preservation.
 
 Done when the direct endpoint rotates while exactly the live/staged ports are
 managed, an admission failure leaves the current path working, and a killed
 worker leaves no orphaned application rules after supervisor cleanup.
+
+A2 evidence (2026-10-25): the protocol-independent `port-admission` crate
+provides a policy-validated Unix-socket agent, bounded firewalld D-Bus operations,
+canonical-rule journal and per-allocation generation checks. `rtp-service` uses
+that agent in explicit managed mode. Base and initial admission finish before
+readiness; scheduled preparation/commit, retirement and periodic reconciliation
+run outside packet polling. Pending tasks join before supervisor cleanup. Six
+shared admission/journal failure tests and all 26 retained core tests pass.
+
+The real isolated fixture `rtp-service/tests/linux-firewalld.sh` passed (final
+artifacts `/tmp/rtp-a2-JKWL`, fixture log `/tmp/rtp-a2-final-fixture.log`) with
+private D-Bus and firewalld, actual TUN traffic, failed D-Bus add/query replies,
+occupied sockets, preexisting-rule preparation failures with zero-loss current
+traffic, paused-agent pending calls with zero-loss traffic, agent restart, two
+profiles, stale/repeated release, firewalld reload/restart, and
+SIGKILL followed by independent cleanup twice. Final journals/rich-rule inventory
+are empty; unrelated runtime/permanent ports remain. This is a disposable local
+fixture, not host deployment or remote public-path acceptance.
+
+The worker still runs in the privileged TUN-owning service process; no OS worker
+sandbox is claimed. The separate agent restricts firewall RPC to administrator
+policy and a peer UID. One-second periodic reconciliation detects reload/daemon
+loss instead of D-Bus signal subscriptions; brief admission outages during
+reload are possible. Independent cleanup requires a working agent/firewalld;
+failed cleanup stays journaled for retry, including after service-manager loss.
+See [`port-admission/README.md`](../port-admission/README.md) for templates,
+operation bounds and deployment prerequisites.
 
 ### A3 — RTP endpoint and application reachability
 

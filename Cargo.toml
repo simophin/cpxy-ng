@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["cpxy-ng", "client", "server", "geoip-data", "geoip-v2ray", "mobile-engine", "tsgw", "rtp-l3", "rtp-service"]
+members = ["cpxy-ng", "client", "server", "geoip-data", "geoip-v2ray", "mobile-engine", "tsgw", "rtp-l3", "rtp-service", "port-admission"]
 
 [profile."release"]
 strip = true

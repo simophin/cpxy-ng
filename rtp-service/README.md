@@ -1,6 +1,6 @@
-# Managed Linux RTP service (A1)
+# Managed Linux RTP service
 
-`cargo build -p rtp-service --locked` builds `target/debug/cpxy-rtp`. It invokes
+`cargo build -p port-admission -p rtp-service --locked` builds `target/debug/cpxy-rtp`. It invokes
 no Python launcher. The authoritative codec/session/recovery code and its 26
 regressions now live in `rtp-l3`; the historical experiment imports that crate.
 The existing experimental crypto/security properties are unchanged.
@@ -54,21 +54,24 @@ It refuses preexisting interface names. Descriptor teardown removes the TUN and
 its connected route on failure/stop/process death. It does not install service
 CIDRs, DNS, forwarding or NAT (A3). IPv4 is the only supported mode.
 
-A1 explicitly requires `administrator_managed` admission: administrators must
-provision the required UDP policy. `doctor` reports this as **unverified**, never
-as firewall readiness. A2 supplies a real firewalld adapter. `Admission` in
-`src/ports.rs` is protocol agnostic; `LeaseManager` journals prepare/commit/
-retire/reconcile, independently of packets and keys. The worker's restricted
-`SocketProvider` is the port/socket seam. Binding and preparation precede epoch
-changes/STATE, and retirement precedes socket release. Failed retirement retains
-the socket and freezes rotations until cleanup succeeds. Reconciliation failure
-also freezes new rotation and reports degraded health.
+Use `"admission":"administrator_managed"` for externally provisioned UDP
+policy, or `"admission":{"firewalld":{"agent_socket":"/run/cpxy-port-agent/agent.sock"}}`
+for managed admission. `doctor` remains read-only and reports admission as
+unverified outside a running service. The shared `port-admission` crate provides
+the protocol-independent lease journal, privileged local agent and firewalld
+adapter; see [its setup and authority documentation](../port-admission/README.md).
+Binding and verified admission precede epoch changes/STATE; rule removal precedes
+socket release. Failed retirement retains its socket and freezes rotation.
+Reconciliation failure reports degraded health and freezes new rotation until
+owned rules are restored. Each numeric-port allocation has a distinct generation.
 
-The controller and worker currently use separate ownership and threads in one
-process. This is an injection/authority seam, **not an OS security sandbox or
-privilege drop**. A2 can implement the adapter using a privileged local agent.
-Admission calls currently execute synchronously through the provider; adapters
-must bound calls, and A2 must move pending firewall work off the packet poller.
+The controller and worker use threads in one privileged TUN-owning process;
+there is **no OS worker sandbox or privilege drop**. The separate agent's typed
+Unix RPC validates the peer UID and administrator-delegated profile policy.
+Base/initial admission finishes before readiness. Scheduled prepare/commit,
+retirement and one-second periodic reconciliation run outside packet polling,
+so pending firewall calls do not block the working path. Control tasks finish
+before shutdown cleanup.
 The portable state APIs already receive monotonic time; the Linux worker also
 accepts a `Clock`, packet `PacketIo`, socket provider and structured event sink.
 
@@ -79,10 +82,11 @@ It intentionally contains no host-specific endpoint or privilege policy.
 Verification:
 
 ```sh
-cargo test -p rtp-l3 -p rtp-service --locked
-cargo build -p rtp-service --locked
+cargo test -p port-admission -p rtp-l3 -p rtp-service --locked
+cargo build -p port-admission -p rtp-service --locked
 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
 RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
+unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
 ```
 
 The namespace fixtures need Linux TUN, iproute2, ping, rg, Python 3 (fixture assertions only) and namespace authority.
@@ -90,3 +94,9 @@ They isolate interfaces/routes/processes and verify real packet exchange,
 rotation, reload, restart, empty journals and vanished TUNs. Repair mode keeps a
 single ping process running across a blackholed active tuple, using the retained
 experimental fault hook, and requires explicit repairing/repaired events.
+
+The firewalld fixture additionally uses a private system bus, real firewalld and
+nftables. It verifies failed D-Bus calls, preexisting-rule conflicts while traffic
+continues, occupied ports, two profiles/generation reuse, pending control calls,
+agent/firewalld restart and reload, unrelated rules and SIGKILL plus independent
+cleanup. It never touches the host firewall.

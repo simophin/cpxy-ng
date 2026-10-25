@@ -1,12 +1,22 @@
 //! Managed Linux RTP service. The controller owns host setup and admission;
 //! the packet worker receives descriptors and a restricted socket-provider API.
-//! A1 uses threads, not an OS privilege sandbox. A privileged agent can implement
-//! Admission without changing packet/session code.
+//! Workers use threads, not an OS privilege sandbox. Managed firewall admission
+//! is delegated to the separate policy-restricted local agent.
 pub mod config;
 pub mod ports;
 
 use config::{Role, Settings};
-use ports::{AdministratorManaged, LeaseManager};
+use ports::{AdministratorManaged, Admission, LeaseManager};
+fn admission(settings: &Settings) -> Box<dyn Admission> {
+    match &settings.admission {
+        config::AdmissionMode::AdministratorManaged => Box::new(AdministratorManaged),
+        config::AdmissionMode::Firewalld { agent_socket } => {
+            Box::new(port_admission::agent::Client {
+                socket: agent_socket.clone(),
+            })
+        }
+    }
+}
 use rtp_l3::linux::{self, Events, Resources, SocketProvider, WorkerConfig};
 use std::{
     fs::{File, OpenOptions},
@@ -202,7 +212,7 @@ impl Service {
             leases: LeaseManager::open(
                 self.settings.journal.clone(),
                 self.settings.profile.clone(),
-                Box::new(AdministratorManaged),
+                admission(&self.settings),
             )?,
         });
         let setup = (|| {
@@ -325,7 +335,7 @@ pub fn cleanup(settings: &Settings) -> io::Result<()> {
     LeaseManager::open(
         settings.journal.clone(),
         settings.profile.clone(),
-        Box::new(AdministratorManaged),
+        admission(settings),
     )?
     .cleanup()
 }
@@ -343,5 +353,5 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
         Role::Client { entry, .. } => client_socket(settings, entry.into()),
         Role::Endpoint { listen, .. } => UdpSocket::bind(listen),
     };
-    serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "key":key(&settings.key_file).err().map(|e|e.to_string()), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.admission,"verified":false,"detail":"administrator must provision admission; A1 does not inspect firewall"}, "mtu":1200,"ipv4_only":true})
+    serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "key":key(&settings.key_file).err().map(|e|e.to_string()), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.admission,"verified":false,"detail":"read-only diagnostics do not assert admission; managed service verifies via agent before readiness and periodically"}, "mtu":1200,"ipv4_only":true})
 }

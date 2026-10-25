@@ -1,0 +1,15 @@
+{
+  "socket": "/run/cpxy-port-agent/agent.sock",
+  "journal": "/var/lib/cpxy-port-agent/claims.json",
+  "allowed_uid": 0,
+  "policies": [{
+    "profile": "endpoint",
+    "bind": "192.0.2.2",
+    "base": 30000,
+    "low": 30001,
+    "high": 30008,
+    "zone": "public",
+    "interface": "eth0",
+    "sources": ["192.0.2.0/24"]
+  }]
+}

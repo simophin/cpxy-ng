@@ -34,6 +34,7 @@ fn keepalive() -> u64 {
 #[serde(rename_all = "snake_case")]
 pub enum AdmissionMode {
     AdministratorManaged,
+    Firewalld { agent_socket: PathBuf },
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -48,7 +49,7 @@ pub struct Settings {
     pub transport: Role,
     #[serde(default = "keepalive")]
     pub keepalive_seconds: u64,
-    /// A1 requires explicit administrator-provisioned admission. A2 adds managed firewalld.
+    /// Explicit external admission or a policy-restricted local firewalld agent.
     pub admission: AdmissionMode,
 }
 impl Settings {
@@ -75,6 +76,11 @@ impl Settings {
     }
     pub fn validate(&self) -> io::Result<()> {
         self.inner()?;
+        if let AdmissionMode::Firewalld { agent_socket } = &self.admission {
+            if !agent_socket.is_absolute() {
+                return Err(io::Error::other("agent_socket must be absolute"));
+            }
+        }
         if self.profile.is_empty()
             || !self
                 .profile
