@@ -41,6 +41,36 @@ For a client set `address` to `10.88.0.2/24`, add the top-level
 `{"role":"client","entry":"192.0.2.2:30000","bind":"192.0.2.1:0"}`.
 Every initial/replacement client socket uses SO_BINDTODEVICE on that physical
 interface before connecting, preventing capture by routes through this TUN.
+For an unprivileged isolated application use:
+
+```sh
+cpxy-rtp namespace-run PROFILE.json -- curl --fail http://10.90.0.2:8080/
+```
+
+This Linux mode requires unprivileged user/network/mount namespaces, TUN and
+iproute2. It launches the same managed Rust service using `unshare -Urnm`.
+The host parent retains a private unnamed Unix socketpair and creates every
+initial, candidate and repair UDP socket in host networking. Each descriptor
+uses the configured bind address and physical `outbound_interface`, and connects
+to the configured entry IPv4 address at the requested nonzero port. Requests
+cannot choose another IP, device or bind address. Use bind port `0` so overlapping
+candidate sockets can obtain distinct source ports. Descriptor replies carry
+validated port labels; allocation failure rejects only that candidate. The parent
+never handles keys or tunnel packets and never changes host routes or firewall.
+Only the child pair endpoint survives launcher exec; it is CLOEXEC again before
+application launch. No broker pathname or public listener is created.
+
+The client profile must use `administrator_managed` admission. Its private journal
+and key paths remain accessible inside the child mount namespace. TUN setup and
+all optional profile routes stay inside the child network namespace. The optional
+command starts after authenticated `connected`, with a 90-second connection
+limit; command completion stops the service. Without a command, run until
+SIGINT/SIGTERM. Termination/error stops and reaps the child process groups; the
+nonpersistent TUN closes. SIGHUP restarts the same profile/key; configuration
+changes require a fresh namespace run because the host broker policy is fixed.
+This isolates networking and mount changes; it is not a filesystem sandbox for
+untrusted applications. The ordinary `run` mode and library API remain available.
+
 The key is exactly 32 bytes in a private regular file; symlinks are refused.
 Create a private journal directory before startup. A journal has an exclusive
 lock, generation-bound leases and fsync/atomic rename before mutations. Stale
@@ -187,3 +217,8 @@ SIGKILL with a working physical fallback present, admission-only post-crash
 cleanup, restart, SIGHUP, transport outage, unrelated route/rule preservation,
 preexisting-interface failed startup, repeated explicit cleanup, and rejection
 of unsafe automatic DNS settings. No public host deployment is implied.
+
+`bash rtp-service/tests/linux-namespace-broker.sh` verifies this launcher with a
+managed endpoint, a nested isolated client application, real ICMP over UDP across
+repeated candidate socket replacements, TUN teardown and unchanged host IPv4
+routes/rules. The fixture creates its own outer user/network namespace.

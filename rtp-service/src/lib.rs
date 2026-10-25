@@ -2,6 +2,7 @@
 //! the packet worker receives descriptors and a restricted socket-provider API.
 //! Workers use threads, not an OS privilege sandbox. Managed firewall admission
 //! is delegated to the separate policy-restricted local agent.
+pub mod broker;
 pub mod config;
 pub mod network;
 pub mod ports;
@@ -118,6 +119,27 @@ fn client_socket(settings: &Settings, peer: SocketAddr) -> io::Result<UdpSocket>
 struct Host {
     settings: Settings,
     leases: LeaseManager,
+    broker: Option<Arc<Mutex<File>>>,
+}
+impl Host {
+    fn open_client(&self, peer: SocketAddr) -> io::Result<UdpSocket> {
+        match &self.broker {
+            Some(broker) => {
+                let Role::Client { entry, .. } = self.settings.transport else {
+                    return Err(io::Error::other("broker requires client profile"));
+                };
+                if peer.ip() != *entry.ip() || peer.port() == 0 {
+                    return Err(io::Error::other("peer outside configured entry"));
+                }
+                let socket = linux::broker_socket(&broker.lock().unwrap(), peer.port())?;
+                if socket.peer_addr()? != peer {
+                    return Err(io::Error::other("broker returned wrong UDP peer"));
+                }
+                Ok(socket)
+            }
+            None => client_socket(&self.settings, peer),
+        }
+    }
 }
 impl SocketProvider for Host {
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket> {
@@ -153,7 +175,7 @@ impl SocketProvider for Host {
         self.leases.reconcile_ports()
     }
     fn client_socket(&self, peer: SocketAddr) -> io::Result<UdpSocket> {
-        let socket = client_socket(&self.settings, peer)?;
+        let socket = self.open_client(peer)?;
         // Runtime uses send_to across ports after bootstrap; retain a local tuple
         // and remove the connected filter using the proven core helper.
         linux::unconnect(&socket)?;
@@ -178,6 +200,7 @@ pub struct Service {
     active: Option<Active>,
     health: Arc<Mutex<Health>>,
     events: Events,
+    broker: Option<Arc<Mutex<File>>>,
 }
 impl Service {
     pub fn new(settings: Settings, events: Events) -> io::Result<Self> {
@@ -190,7 +213,21 @@ impl Service {
                 last_event: serde_json::Value::Null,
             })),
             events,
+            broker: None,
         })
+    }
+    /// Use a private inherited host socket broker for every client socket.
+    pub fn new_with_socket_broker(
+        settings: Settings,
+        events: Events,
+        broker: File,
+    ) -> io::Result<Self> {
+        if !matches!(settings.transport, Role::Client { .. }) {
+            return Err(io::Error::other("socket broker requires client profile"));
+        }
+        let mut service = Self::new(settings, events)?;
+        service.broker = Some(Arc::new(Mutex::new(broker)));
+        Ok(service)
     }
     pub fn health(&self) -> Health {
         self.health.lock().unwrap().clone()
@@ -210,6 +247,7 @@ impl Service {
         let psk = key(&self.settings.key_file)?;
         let host = Arc::new(Host {
             settings: self.settings.clone(),
+            broker: self.broker.clone(),
             leases: LeaseManager::open(
                 self.settings.journal.clone(),
                 self.settings.profile.clone(),
@@ -218,7 +256,7 @@ impl Service {
         });
         let setup = (|| {
             let socket = match self.settings.transport {
-                Role::Client { entry, .. } => client_socket(&self.settings, entry.into())?,
+                Role::Client { entry, .. } => host.open_client(entry.into())?,
                 Role::Endpoint { listen, .. } => {
                     let s = host.prepare_port(listen.into())?;
                     host.commit_port(listen.port())?;
@@ -285,7 +323,7 @@ impl Service {
         let final_health = self.health.clone();
         let final_events = self.events.clone();
         let thread = thread::Builder::new().name(format!("rtp-{}", self.settings.profile)).spawn(move || {
-            let result = linux::run(WorkerConfig { client, psk, inner, prefix, rotation_low: low, rotation_high: high, rotation_seconds: rotation, keepalive_seconds: worker_host.settings.keepalive_seconds }, Resources { packet: Box::new(network::PolicyPacket { file: packet, settings: worker_host.settings.clone() }), clock: Arc::new(linux::MonotonicClock::default()), socket, provider: worker_host.clone(), events: worker_events }, run);
+            let result = linux::run(WorkerConfig { client, psk, inner, prefix, rotation_low: low, rotation_high: high, initial_rotation_port: worker_host.settings.initial_rotation_port, rotation_seconds: rotation, keepalive_seconds: worker_host.settings.keepalive_seconds }, Resources { packet: Box::new(network::PolicyPacket { file: packet, settings: worker_host.settings.clone() }), clock: Arc::new(linux::MonotonicClock::default()), socket, provider: worker_host.clone(), events: worker_events }, run);
             let cleanup = worker_host.leases.cleanup();
             let result = result.and(cleanup);
             final_health.lock().unwrap().state = if result.is_ok() { "stopped" } else { "failed" }.into();

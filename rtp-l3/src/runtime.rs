@@ -885,6 +885,7 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
         prefix,
         rotation_low: low,
         rotation_high: high,
+        initial_rotation_port,
         rotation_seconds: mean,
         keepalive_seconds: keepalive,
     } = config;
@@ -954,7 +955,18 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
             0,
         );
     } else {
-        let (port, socket) = bind_rotation(address, low, high, &[base], rt.provider.as_ref())?;
+        let (initial_low, initial_high) = match initial_rotation_port {
+            Some(port) if port != base && (low..=high).contains(&port) => (port, port),
+            Some(_) => return Err(io::Error::other("invalid initial rotation port")),
+            None => (low, high),
+        };
+        let (port, socket) = bind_rotation(
+            address,
+            initial_low,
+            initial_high,
+            &[base],
+            rt.provider.as_ref(),
+        )?;
         rt.provider.commit_port(port)?;
         let mut secret = [0; 32];
         OsRng.fill_bytes(&mut secret);

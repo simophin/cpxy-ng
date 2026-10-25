@@ -157,6 +157,7 @@ mod linux {
         });
         linux::run(
             WorkerConfig {
+                initial_rotation_port: None,
                 client,
                 psk: key(&a[2])?,
                 inner,

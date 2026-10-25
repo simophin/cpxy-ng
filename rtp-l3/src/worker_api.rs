@@ -23,6 +23,7 @@ pub struct WorkerConfig {
     pub prefix: u8,
     pub rotation_low: u16,
     pub rotation_high: u16,
+    pub initial_rotation_port: Option<u16>,
     pub rotation_seconds: u64,
     pub keepalive_seconds: u64,
 }

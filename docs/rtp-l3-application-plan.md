@@ -202,19 +202,63 @@ requirements and explicit disconnect behavior. Public deployment remains pending
 The generic forwarding tool can be developed independently of A3; its RTP adapter
 uses the endpoint/application path once available.
 
-- [ ] Deliver a standalone relay for arbitrary configured UDP mappings, including
+- [x] Deliver a standalone relay for arbitrary configured UDP mappings, including
   port translation and generic payload fixtures, with no RTP/TUN dependency.
-- [ ] Forward base plus the backend's selected initial rotation port, with
+- [x] Forward base plus the backend's selected initial rotation port, with
   scheduled rotation disabled. Fixed mode still has a non-base data path.
-- [ ] Use an independent backend socket for each observed client tuple and
+- [x] Use an independent backend socket for each observed client tuple and
   ingress port; return from that same relay ingress port.
-- [ ] Add bounded flow creation, per-source/profile limits, idle cleanup, counters
+- [x] Add bounded flow creation, per-source/profile limits, idle cleanup, counters
   and authenticated administrative configuration of backend destinations.
-- [ ] Verify two clients, rebinding, same-port socket repair, relay restart,
+- [x] Verify two clients, rebinding, same-port socket repair, relay restart,
   exact payload preservation and correct response demultiplexing.
 
-Done when applications reach configured backend services through the public relay
-entry, the relay never loads the PSK, and backend replies cannot be delivered to another client.
+A4 local completion: applications reach configured backend services through a
+relay entry, the relay never loads the PSK, and backend replies remain assigned
+to their original client tuple. The public-path demonstration remains A5.
+
+A4 evidence (2026-10-25): standalone workspace crate `udp-relay` builds
+`cpxy-udp-relay` with only serde/JSON/libc dependencies. Static trusted
+administrator configuration supplies numeric destinations; packet sources cannot
+supply them. Each mapping/generation/client tuple owns a connected upstream
+socket; replies leave its original ingress. Global/mapping/source flow and
+packet/byte ceilings, bounded socket/shared buffers, idle expiry and structured
+counters apply in both directions. Exact zero-length datagrams work;
+`recvmsg(MSG_TRUNC)` rejects whole oversized datagrams. See
+[`udp-relay/README.md`](../udp-relay/README.md).
+
+All three real socket fixtures pass: two clients/two mappings/port translation,
+byte and source-port preservation, delayed old-tuple replies after rebinding,
+foreign upstream rejection, zero/maximum/oversize payloads, quotas/rates, expiry,
+atomic bind failure and restart. The isolated five-namespace fixture
+[`linux-rtp.sh`](../udp-relay/tests/linux-rtp.sh) passes at
+`/tmp/rtp-a4-K70k`: two clients reach a separate TCP/UDP backend through the
+relay and RTP endpoint; both existing ping processes recover, same-port
+repairing/repaired events occur after a tuple blackhole, and relay restart
+recovers without restarting clients. Graceful final journals are empty and TUNs
+are absent. The RTP service's optional endpoint-only `initial_rotation_port`
+pins a non-base port within the existing three-or-more-port pool; startup fails
+if that selected port is unavailable. The fixture disables scheduled rotation
+and configures exactly base 30000 and selected non-base 30001 at the relay;
+the rest of the allocation pool remains bindable.
+
+The managed Rust `cpxy-rtp namespace-run PROFILE -- COMMAND...` launcher
+also preserves host-owned outer sockets through a private inherited descriptor
+broker, including replacement sockets. Its isolated real-TUN fixture
+[`linux-namespace-broker.sh`](../rtp-service/tests/linux-namespace-broker.sh)
+passes candidate replacement and ordinary app traffic while confirming host
+routes/rules are unchanged. The child has no physical/default route and the
+broker pins the configured peer IP, bind and physical device. This is an RTP
+service adapter; the generic relay has no namespace or tunnel dependency.
+
+The relay's static management authority is local OS/service configuration;
+there is no remote administrative interface yet. Firewall admission remains
+explicitly administrator-provisioned. Opaque mapping/generation inventory is a
+foundation for A5, not an implemented lease/RPC protocol. Fixed-window rate
+boundaries allow short bursts; source IP is not an authenticated client identity.
+The packet worker has no OS privilege sandbox, and this bounded scanner makes no
+high-throughput claim. No public host deployment or authenticated network
+management is claimed by A4; A5 adds mTLS coordination and public-path evidence.
 
 ### A5 — Coordinated relay rotation and firewall lifecycle
 
