@@ -395,6 +395,89 @@ jobs:
       - name: Test the image
         run: packaging/docker/test/bundle.sh cpxy-bundle:test target/release/server
 
+  # cpxy-rtp and cpxy-udp-relay against real TUNs, routing and firewalld, in network namespaces.
+  # Each firewalld test starts its own instance on a private bus; the runner's firewall is untouched.
+  test_rtp:
+    name: Test RTP service and relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rtp
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Test crates
+        run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission -p udp-relay
+      - name: Build lab executables
+        run: cargo build --locked -p rtp-service -p udp-relay -p port-admission -p mobile-engine --example rtp-packet
+      - name: Prepare namespace lab
+        run: |
+          # Install firewalld without letting the package start it on the runner.
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d >/dev/null
+          sudo chmod +x /usr/sbin/policy-rc.d
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends iproute2 nftables iputils-ping python3 firewalld dbus-daemon openssl
+          sudo rm /usr/sbin/policy-rc.d
+          # Ubuntu runners restrict unprivileged user namespaces by default.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Test lifecycle, repair, applications and fail-closed routing
+        run: |
+          unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
+          RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
+          unshare -Urnm bash rtp-service/tests/linux-applications.sh
+          bash rtp-service/tests/linux-namespace-broker.sh
+      - name: Test in-process firewalld ports, forwarding and masquerade
+        run: |
+          unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
+          RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
+      - name: Test relayed and coordinated relay paths
+        run: |
+          unshare -Urnm bash udp-relay/tests/linux-rtp.sh
+          unshare -Urnm bash udp-relay/tests/linux-coordinated.sh
+          unshare -Urnm bash mobile-engine/tests/linux-rtp-packet.sh
+
+  # Self-contained static binaries: copy to any Linux host, no libc or packaging needed.
+  build_rtp:
+    name: Build static cpxy-rtp (${{ matrix.target }})
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rtp-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cross
+        run: cargo binstall cross
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        run: >
+          cross build --release --locked --target ${{ matrix.target }}
+          -p rtp-service -p udp-relay --bin cpxy-rtp --bin cpxy-udp-relay
+      - name: Check the binaries are static
+        run: |
+          mkdir -p rtp-bins
+          for bin in cpxy-rtp cpxy-udp-relay; do
+            path=target/${{ matrix.target }}/release/$bin
+            file "$path" | tee /dev/stderr | grep -Eq 'static(-pie)? linked|statically linked'
+            cp "$path" rtp-bins/
+          done
+      - name: Run the x86_64 binary
+        if: startsWith(matrix.target, 'x86_64')
+        run: rtp-bins/cpxy-rtp --help
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: cpxy-rtp-${{ matrix.target }}
+          path: rtp-bins
+          if-no-files-found: error
+
   test:
     name: Run tests on main platform
     runs-on: ubuntu-latest

@@ -90,10 +90,11 @@ mod tests {
 }
 
 /// Platform policy/keystore adapter for the raw packet engine. All failures are
-/// fail closed. `key` must return exactly 32 bytes and must never log them.
+/// fail closed. `password` returns the shared password and must never log it;
+/// an empty string means unavailable.
 #[uniffi::export(callback_interface)]
 pub trait PacketPlatform: Send + Sync {
-    fn key(&self, endpoint_identity: String, reference: String) -> Vec<u8>;
+    fn password(&self, endpoint_identity: String, reference: String) -> String;
     /// JSON PacketProfile. Return true only after persistent routes/guards and
     /// private DNS no-fallback policy have been applied successfully.
     fn prepare_network(&self, profile_json: String) -> bool;
@@ -102,14 +103,12 @@ pub trait PacketPlatform: Send + Sync {
 }
 struct PacketPlatformAdapter(Box<dyn PacketPlatform>);
 impl crate::packet::Platform for PacketPlatformAdapter {
-    fn resolve_key(&self, identity: &str, reference: &str) -> std::io::Result<[u8; 32]> {
-        let mut bytes = self.0.key(identity.into(), reference.into());
-        let result = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| std::io::Error::other("Key unavailable"));
-        bytes.fill(0);
-        result
+    fn resolve_password(&self, identity: &str, reference: &str) -> std::io::Result<String> {
+        let password = self.0.password(identity.into(), reference.into());
+        if password.is_empty() {
+            return Err(std::io::Error::other("Password unavailable"));
+        }
+        Ok(password)
     }
     fn prepare_network(&self, profile: &crate::packet::PacketProfile) -> std::io::Result<()> {
         if self
@@ -159,7 +158,7 @@ pub fn start_packet_engine(
         .map(|handle| Arc::new(PacketEngine { handle }))
         .map_err(|_| EngineError::Failed {
             reason:
-                "RTP startup failed; check platform policy, key reference and socket protection"
+                "RTP startup failed; check platform policy, password reference and socket protection"
                     .into(),
         })
 }
@@ -169,7 +168,7 @@ impl PacketEngine {
         self.handle.stop();
     }
     /// Contains status, numeric counters, effective routes and DNS policy;
-    /// excludes key references, PSKs and control payloads.
+    /// excludes password references, passwords and control payloads.
     pub fn diagnostics_json(&self) -> String {
         serde_json::to_string(&self.handle.diagnostics()).unwrap()
     }

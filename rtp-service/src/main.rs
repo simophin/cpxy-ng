@@ -1,4 +1,9 @@
-use rtp_service::{config::Settings, Service};
+use clap::Parser;
+use rtp_service::{
+    cli::{Action, Cli, ClientAction, RoleCommand},
+    config::Settings,
+    Service, PASSWORD_ENV,
+};
 use std::{
     fs::File,
     io,
@@ -6,7 +11,6 @@ use std::{
         fd::{AsRawFd, FromRawFd},
         unix::{net::UnixDatagram, process::CommandExt},
     },
-    path::Path,
     process::{Child, Command},
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -15,8 +19,10 @@ use std::{
     time::{Duration, Instant},
 };
 static SIGNAL: AtomicU8 = AtomicU8::new(0);
-extern "C" fn signal(value: i32) {
-    SIGNAL.store(if value == libc::SIGHUP { 1 } else { 2 }, Ordering::Relaxed);
+/// SIGHUP stops gracefully too: settings come from argv/env, so there is
+/// nothing to reload, and the default action would skip cleanup.
+extern "C" fn signal(_: i32) {
+    SIGNAL.store(2, Ordering::Relaxed);
 }
 fn install_signals() {
     unsafe {
@@ -24,6 +30,18 @@ fn install_signals() {
         libc::signal(libc::SIGINT, signal as *const () as libc::sighandler_t);
         libc::signal(libc::SIGHUP, signal as *const () as libc::sighandler_t);
     }
+}
+/// Internal parent-to-child handoff of already validated settings.
+const SETTINGS_ENV: &str = "CPXY_RTP_INTERNAL_SETTINGS";
+/// Reads and removes the password so applications never inherit it.
+fn psk() -> io::Result<[u8; 32]> {
+    let password = std::env::var(PASSWORD_ENV)
+        .map_err(|_| io::Error::other(format!("{PASSWORD_ENV} must hold the shared password")))?;
+    std::env::remove_var(PASSWORD_ENV);
+    rtp_l3::derive_psk(&password).map_err(io::Error::other)
+}
+fn events() -> rtp_l3::linux::Events {
+    Arc::new(|event| eprintln!("{event}"))
 }
 /// A separate process group contains the app and its descendants. Always reap
 /// the direct child, including errors and startup failures.
@@ -43,7 +61,7 @@ impl Drop for Children {
         let _ = self.0.wait();
     }
 }
-fn parent(path: &Path, settings: &Settings, application: &[String]) -> io::Result<()> {
+fn parent(settings: &Settings, application: &[String]) -> io::Result<()> {
     let policy = rtp_service::broker::Policy::from_settings(settings)?;
     let (channel, inherited) = UnixDatagram::pair()?;
     let descriptor = inherited.as_raw_fd();
@@ -51,12 +69,9 @@ fn parent(path: &Path, settings: &Settings, application: &[String]) -> io::Resul
     command
         .args(["-Urnm"])
         .arg(std::env::current_exe()?)
-        .arg("namespace-child")
-        .arg(path)
-        .arg(descriptor.to_string());
-    if !application.is_empty() {
-        command.arg("--").args(application);
-    }
+        .args(["namespace-child", "--fd", &descriptor.to_string(), "--"])
+        .args(application)
+        .env(SETTINGS_ENV, serde_json::to_string(settings)?);
     unsafe {
         command.pre_exec(move || {
             if libc::setsid() < 0 || libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) < 0 {
@@ -79,53 +94,25 @@ fn parent(path: &Path, settings: &Settings, application: &[String]) -> io::Resul
                 Err(io::Error::other("namespace child failed"))
             };
         }
-        match SIGNAL.swap(0, Ordering::Relaxed) {
-            2 => return Ok(()),
-            1 => unsafe {
-                libc::kill(child.0.id() as i32, libc::SIGHUP);
-            },
-            _ => {}
+        if SIGNAL.swap(0, Ordering::Relaxed) == 2 {
+            return Ok(());
         }
         policy.serve_once(&channel)?;
     }
 }
-fn run(
-    path: &Path,
-    settings: Settings,
-    broker: Option<File>,
-    application: &[String],
-) -> io::Result<()> {
-    let events = Arc::new(|event| eprintln!("{event}"));
-    let isolated = broker.is_some();
-    let initial_profile = serde_json::to_value(&settings)?;
+fn run(settings: Settings, broker: Option<File>, application: &[String]) -> io::Result<()> {
+    let psk = psk()?;
     let mut service = match broker {
-        Some(broker) => Service::new_with_socket_broker(settings, events, broker)?,
-        None => Service::new(settings, events)?,
+        Some(broker) => Service::new_with_socket_broker(settings, psk, events(), broker)?,
+        None => Service::new(settings, psk, events())?,
     };
     service.start()?;
     let mut app: Option<Children> = None;
     let deadline = Instant::now() + Duration::from_secs(90);
     let result = (|| {
         while service.is_running() {
-            match SIGNAL.swap(0, Ordering::Relaxed) {
-                2 => return Ok(()),
-                1 => {
-                    let reload = Settings::load(path).and_then(|new| {
-                        if isolated && serde_json::to_value(&new)? != initial_profile {
-                            return Err(io::Error::other(
-                                "namespace profile changes require restart",
-                            ));
-                        }
-                        service.reload(new)
-                    });
-                    if let Err(error) = reload {
-                        eprintln!(
-                            "{}",
-                            serde_json::json!({"event":"reload_failed","error":error.to_string()})
-                        );
-                    }
-                }
-                _ => {}
+            if SIGNAL.swap(0, Ordering::Relaxed) == 2 {
+                return Ok(());
             }
             if !application.is_empty() {
                 if app.is_none() && service.health().state == "connected" {
@@ -164,50 +151,64 @@ fn run(
     let stopped = service.stop();
     result.and(stopped)
 }
-fn main() -> io::Result<()> {
-    let args: Vec<_> = std::env::args().collect();
-    if args.len() < 3 {
-        return Err(io::Error::other("usage: cpxy-rtp run|doctor|cleanup|cleanup-ports PROFILE.json | namespace-run PROFILE.json [-- COMMAND... ]"));
+/// Creates the private state directory; an existing one is used as is.
+fn state_dir(settings: &Settings) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    let dir = settings
+        .journal
+        .parent()
+        .ok_or_else(|| io::Error::other("state directory"))?;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+fn action(settings: Settings, action: Action) -> io::Result<()> {
+    if action != Action::Doctor {
+        state_dir(&settings)?;
     }
-    let path = Path::new(&args[2]);
-    let settings = Settings::load(path)?;
-    install_signals();
-    match args[1].as_str() {
-        "namespace-run" => {
-            if args.len() > 3 && (args[3] != "--" || args.len() == 4) {
-                return Err(io::Error::other("expected -- COMMAND..."));
-            }
-            parent(path, &settings, args.get(4..).unwrap_or_default())?;
+    match action {
+        Action::Run => run(settings, None, &[]),
+        Action::Doctor => {
+            println!("{}", rtp_service::doctor(&settings));
+            Ok(())
         }
-        "namespace-child" => {
-            let descriptor: i32 = args
-                .get(3)
-                .ok_or_else(|| io::Error::other("missing broker descriptor"))?
-                .parse()
-                .map_err(|_| io::Error::other("invalid broker descriptor"))?;
-            if descriptor < 3 || (args.len() > 4 && (args[4] != "--" || args.len() == 5)) {
-                return Err(io::Error::other("invalid namespace child arguments"));
+        Action::Cleanup => rtp_service::cleanup(&settings, &events()),
+        Action::CleanupPorts => rtp_service::cleanup_ports(&settings, &events()),
+    }
+}
+fn main() -> io::Result<()> {
+    install_signals();
+    match Cli::parse().role {
+        RoleCommand::Endpoint { args, action: a } => {
+            action(args.settings()?, a.unwrap_or(Action::Run))
+        }
+        RoleCommand::Client { args, action: a } => {
+            let settings = args.settings()?;
+            match a.unwrap_or(ClientAction::Common(Action::Run)) {
+                ClientAction::Common(a) => action(settings, a),
+                ClientAction::Namespace { command } => {
+                    state_dir(&settings)?;
+                    parent(&settings, &command)
+                }
+            }
+        }
+        RoleCommand::NamespaceChild { fd, command } => {
+            let settings: Settings = serde_json::from_str(
+                &std::env::var(SETTINGS_ENV)
+                    .map_err(|_| io::Error::other("missing namespace settings"))?,
+            )?;
+            std::env::remove_var(SETTINGS_ENV);
+            settings.validate()?;
+            if fd < 3 {
+                return Err(io::Error::other("invalid broker descriptor"));
             }
             // Restore CLOEXEC before any ip/application subprocess is created.
-            if unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
                 return Err(io::Error::last_os_error());
             }
-            let broker = unsafe { File::from_raw_fd(descriptor) };
-            run(
-                path,
-                settings,
-                Some(broker),
-                args.get(5..).unwrap_or_default(),
-            )?;
+            let broker = unsafe { File::from_raw_fd(fd) };
+            run(settings, Some(broker), &command)
         }
-        action if args.len() == 3 => match action {
-            "doctor" => println!("{}", rtp_service::doctor(&settings)),
-            "cleanup-ports" => rtp_service::cleanup_ports(&settings)?,
-            "cleanup" => rtp_service::cleanup(&settings)?,
-            "run" => run(path, settings, None, &[])?,
-            _ => return Err(io::Error::other("unknown command")),
-        },
-        _ => return Err(io::Error::other("unexpected arguments")),
     }
-    Ok(())
 }

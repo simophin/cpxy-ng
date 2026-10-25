@@ -25,13 +25,12 @@ ip -n b route add 10.88.0.0/24 via 10.90.0.1
 ip -n c route add default via 192.0.2.2
 ip -n e route add 192.0.2.0/24 dev ve 2>/dev/null || true
 work=$(mktemp -d /tmp/rtp-a3-XXXX)
-head -c 32 /dev/urandom > "$work/key"; chmod 600 "$work/key"
-for side in server client; do
- if [ "$side" = server ]; then role='"role":"endpoint","listen":"192.0.2.2:30000","rotation_low":30001,"rotation_high":30008,"rotation_seconds":0'; iface=rtpe; addr=10.88.0.1; extra=''; else role='"role":"client","entry":"192.0.2.2:30000","bind":"192.0.2.1:0"'; iface=rtpc; addr=10.88.0.2; extra='"outbound_interface":"vc",'; fi
- cat > "$work/$side.json" <<JSON
-{"profile":"$side","key_file":"$work/key","journal":"$work/$side.journal","interface":"$iface",$extra"address":"$addr/24","transport":{$role},"admission":"administrator_managed","keepalive_seconds":5,"network":{"tunnel_pool":"10.88.0.0/24","client_addresses":["10.88.0.2"],"service_cidrs":["10.90.0.0/24"],"table":18800,"rule_priority":1000}}
-JSON
-done
+export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
+server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtpe CPXY_RTP_LISTEN=192.0.2.2:30000
+  CPXY_RTP_ROTATION_PORTS=30001-30008 CPXY_RTP_ROTATION_SECONDS=0 CPXY_RTP_FIREWALL=none)
+client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
+  CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
 cat > "$work/backend.py" <<'PY'
 import socket,threading
 
@@ -54,23 +53,26 @@ server=''; client=''; backend=''
 cleanup(){ for pid in "$server" "$client" "$backend";do if [ -n "$pid" ];then kill "$pid" 2>/dev/null || true;wait "$pid" 2>/dev/null || true;fi;done; }
 trap cleanup EXIT
 ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & backend=$!
-ip netns exec e "$bin" run "$work/server.json" > "$work/e.out" 2> "$work/e.log" & server=$!
-start_client(){ ip netns exec c "$bin" run "$work/client.json" >> "$work/c.out" 2>> "$work/c.log" & client=$!; sleep 2; }
+ip netns exec e "${server_env[@]}" "$bin" endpoint > "$work/e.out" 2> "$work/e.log" & server=$!
+rtpc(){ ip netns exec c "${client_env[@]}" "$bin" client "$@"; }
+# Backgrounding a function would fork a subshell; signal the service itself.
+start_client(){ ip netns exec c "${client_env[@]}" "$bin" client >> "$work/c.out" 2>> "$work/c.log" & client=$!; sleep 2; }
 start_client
 ip netns exec c python3 "$work/app.py"
-ip netns exec c ip route get 10.90.0.2 | rg 'dev rtpc.*table 18800'
+ip netns exec c ip route get 10.90.0.2 | grep -Eq 'dev rtpc.*table 18800'
 # An unrelated admin route/rule must survive all service operations.
 ip -n c route add 198.51.100.0/24 via 192.0.2.2
 ip -n c rule add priority 2000 to 198.51.100.0/24 table main
 kill -KILL "$client"; wait "$client" 2>/dev/null || true; client=''
 if ip -n c link show rtpc 2>/dev/null; then exit 1; fi
-ip netns exec c "$bin" cleanup-ports "$work/client.json"
+rtpc cleanup-ports
 if ip netns exec c ip route get 10.90.0.2 > "$work/crash-route.log" 2>&1; then echo 'crash exposed fallback'; exit 1; fi
 if ip netns exec c python3 "$work/app.py" > "$work/crash-app.log" 2>&1; then echo 'crash leaked app'; exit 1; fi
 start_client
 ip netns exec c python3 "$work/app.py"
-kill -HUP "$client"
-sleep 2
+# SIGHUP is a graceful stop; a fresh start reuses the profile.
+kill -HUP "$client"; wait "$client"
+start_client
 ip netns exec c python3 "$work/app.py"
 # Transport outage keeps guard/routes in place; applications cannot use underlay.
 kill -STOP "$server"
@@ -79,29 +81,26 @@ kill -CONT "$server"
 sleep 1
 ip netns exec c python3 "$work/app.py"
 kill -TERM "$client"; wait "$client"; client=''
-ip -n c rule show | rg '2000:.*198.51.100.0/24'
-ip -n c route show | rg '198.51.100.0/24'
+ip -n c rule show | grep -Eq '2000:.*198.51.100.0/24'
+ip -n c route show | grep -Eq '198.51.100.0/24'
 [ "$(ip -n c -j route show table 18800)" = '[]' ]
-if ip -n c rule show | rg '1000:';then exit 1;fi
+if ip -n c rule show | grep -Eq '1000:';then exit 1;fi
 # Failed startup refuses a preexisting administrator interface. Guard remains
 # until explicit cleanup; that cleanup must preserve the unrelated interface.
 ip -n c link add rtpc type dummy
-if ip netns exec c "$bin" run "$work/client.json" > "$work/startup.out" 2> "$work/startup.log";then exit 1;fi
+if rtpc > "$work/startup.out" 2> "$work/startup.log";then exit 1;fi
 ip -n c link show rtpc >/dev/null
 if ip netns exec c ip route get 10.90.0.2;then exit 1;fi
-ip netns exec c "$bin" cleanup-ports "$work/client.json"
+rtpc cleanup-ports
 if ip netns exec c ip route get 10.90.0.2;then exit 1;fi
-ip netns exec c "$bin" cleanup "$work/client.json"
-ip netns exec c "$bin" cleanup "$work/client.json"
+rtpc cleanup
+rtpc cleanup
 ip -n c link show rtpc >/dev/null
 ip -n c link del rtpc
-# DNS is external policy metadata only. An unsafe automatic-DNS request must
-# fail parsing without touching administrator resolver configuration.
-python3 - "$work/client.json" <<'PYDNS'
-import json,sys
-p=sys.argv[1];d=json.load(open(p));d['network']['dns']={'resolver':'10.90.0.53','suffixes':['corp.example']};json.dump(d,open(p,'w'))
-PYDNS
-if ip netns exec c "$bin" run "$work/client.json" > "$work/dns.out" 2> "$work/dns.log";then exit 1;fi
+# DNS is external policy metadata only: a resolver needs suffixes, and must lie
+# inside a selected service CIDR. Both fail before touching any configuration.
+if rtpc --dns-resolver 10.90.0.53 > "$work/dns.out" 2> "$work/dns.log";then exit 1;fi
+if rtpc --dns-resolver 10.91.0.53 --dns-suffix corp.example > "$work/dns.out" 2>> "$work/dns.log";then exit 1;fi
 kill -TERM "$server";wait "$server";server=''
 [ "$(ip -n e -j route show table 18800)" = '[]' ]
 echo "A3_APPLICATIONS_OK artifacts=$work"

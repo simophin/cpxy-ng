@@ -21,20 +21,17 @@ ip -n s link set vs up
 ip -n c link set lo up
 ip -n s link set lo up
 work=$(mktemp -d /tmp/rtp-a1-XXXX)
-head -c 32 /dev/urandom > "$work/key"
-chmod 600 "$work/key"
-cat > "$work/server.json" <<JSON
-{"profile":"server","key_file":"$work/key","journal":"$work/server.journal","interface":"rtps","address":"10.88.0.1/24","transport":{"role":"endpoint","listen":"192.0.2.2:30000","rotation_low":30001,"rotation_high":30008,"rotation_seconds":2},"admission":"administrator_managed","keepalive_seconds":5}
-JSON
-cat > "$work/client.json" <<JSON
-{"profile":"client","key_file":"$work/key","journal":"$work/client.journal","interface":"rtpc","outbound_interface":"vc","address":"10.88.0.2/24","transport":{"role":"client","entry":"192.0.2.2:30000","bind":"192.0.2.1:0"},"admission":"administrator_managed","keepalive_seconds":5}
-JSON
+export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+export CPXY_RTP_KEEPALIVE_SECONDS=5
+rotation=2
+if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then rotation=0; fi
+server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtps CPXY_RTP_LISTEN=192.0.2.2:30000
+  CPXY_RTP_ROTATION_PORTS=30001-30008 CPXY_RTP_ROTATION_SECONDS=$rotation CPXY_RTP_FIREWALL=none)
+client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
+  CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
-if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then
-  sed -i 's/"rotation_seconds":2/"rotation_seconds":0/' "$work/server.json"
-fi
-ip netns exec s env POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" run "$work/server.json" >"$work/s.out" 2>"$work/s.log" & server=$!
-ip netns exec c "$bin" run "$work/client.json" >"$work/c.out" 2>"$work/c.log" & client=$!
+ip netns exec s "${server_env[@]}" POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" endpoint >"$work/s.out" 2>"$work/s.log" & server=$!
+ip netns exec c "${client_env[@]}" "$bin" client >"$work/c.out" 2>"$work/c.log" & client=$!
 ping_pid=""
 cleanup() {
   for pid in "$server" "$client" "$ping_pid"; do
@@ -46,7 +43,7 @@ cleanup() {
 }
 trap cleanup EXIT
 for i in $(seq 1 80); do
-  if rg -q '"event":"connected"' "$work/c.log"; then break; fi
+  if grep -Eq '"event":"connected"' "$work/c.log"; then break; fi
   sleep .1
 done
 ip netns exec c ping -c 4 -W 2 10.88.0.1
@@ -56,11 +53,11 @@ if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then
   sleep 1.2
   touch "$work/drop"
   for i in $(seq 1 200); do
-    if rg -q '"event":"repaired"' "$work/c.log"; then break; fi
+    if grep -Eq '"event":"repaired"' "$work/c.log"; then break; fi
     sleep .1
   done
-  rg -q '"event":"repairing"' "$work/c.log"
-  rg -q '"event":"repaired"' "$work/c.log"
+  grep -Eq '"event":"repairing"' "$work/c.log"
+  grep -Eq '"event":"repaired"' "$work/c.log"
   wait "$ping_pid" || true
   ping_pid=""
   python3 - "$work/repair-ping.log" <<'PYTEST'
@@ -73,20 +70,18 @@ PYTEST
   ip netns exec c ping -c 4 -W 2 10.88.0.1
   rm "$work/drop"
 fi
+# SIGHUP is a graceful stop: the TUN is removed.
 kill -HUP "$client"
-sleep 2
-ip netns exec c ping -c 4 -W 2 10.88.0.1
-kill -TERM "$client"
 wait "$client"
 if ip -n c link show rtpc 2>/dev/null; then exit 1; fi
-ip netns exec c "$bin" run "$work/client.json" >>"$work/c.out" 2>>"$work/c.log" & client=$!
+ip netns exec c "${client_env[@]}" "$bin" client >>"$work/c.out" 2>>"$work/c.log" & client=$!
 sleep 2
 ip netns exec c ping -c 4 -W 2 10.88.0.1
 kill -TERM "$client" "$server"
 wait "$client"
 wait "$server"
 if ip -n c link show rtpc 2>/dev/null || ip -n s link show rtps 2>/dev/null; then exit 1; fi
-python3 - "$work/server.journal" "$work/client.journal" <<'PYTEST'
+python3 - "$work/server/state.json" "$work/client/state.json" <<'PYTEST'
 import json, sys
 for path in sys.argv[1:]:
     journal = json.load(open(path))

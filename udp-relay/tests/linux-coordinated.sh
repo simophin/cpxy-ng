@@ -13,7 +13,8 @@ pair e b 10.90.0.1/24 10.90.0.2/24
 ip netns exec e python3 -c 'open("/proc/sys/net/ipv4/ip_forward","w").write("1")'
 ip -n b route add 10.88.0.0/24 via 10.90.0.1
 work=$(mktemp -d /tmp/rtp-a5-XXXX)
-head -c 32 /dev/urandom > "$work/key";chmod 600 "$work/key"
+export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/ca.key" -out "$work/ca.pem" -subj /CN=fixture-ca -days 1 -addext keyUsage=critical,keyCertSign,cRLSign 2>/dev/null
 for name in relay controller;do
  openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$work/$name.key" -out "$work/$name.csr" -subj "/CN=$name" 2>/dev/null
@@ -24,22 +25,15 @@ done
 python3 - "$work" <<'PY'
 import json,sys
 from pathlib import Path
-w=Path(sys.argv[1]);network={'tunnel_pool':'10.88.0.0/24','client_addresses':['10.88.0.2','10.88.0.3'],'service_cidrs':['10.90.0.0/24'],'table':18800,'rule_priority':1000}
-for name,addr,transport in [('e','10.88.0.1',{'role':'endpoint','listen':'203.0.113.2:30000','rotation_low':30001,'rotation_high':30008,'rotation_seconds':2}),('c','10.88.0.2',{'role':'client','entry':'192.0.2.254:30000','bind':'192.0.2.1:0'}),('d','10.88.0.3',{'role':'client','entry':'198.51.100.254:30000','bind':'198.51.100.1:0'})]:
- p={'profile':name,'key_file':str(w/'key'),'journal':str(w/(name+'.journal')),'interface':'rtp'+name,'address':addr+'/24','transport':transport,'admission':'administrator_managed','keepalive_seconds':5,'network':network}
- if name=='e':
-  p['initial_rotation_port']=30001
-  p['admission']={'firewalld':{'agent_socket':str(w/'e-agent.sock')}}
-  p['relay']={'management':{'address':'203.0.113.1:30200','server_name':'relay','tls':{'ca':str(w/'ca.pem'),'certificate':str(w/'controller.pem'),'private_key':str(w/'controller.key')},'owner':'e'},'listen_ip':'0.0.0.0','endpoint_ip':'203.0.113.2'}
- else:p['outbound_interface']=name+'r'
- json.dump(p,open(w/(name+'.json'),'w'))
+w=Path(sys.argv[1])
 c={'mappings':[{'id':str(p),'generation':'fixed-1','listen':'0.0.0.0:'+str(p),'upstream':'203.0.113.2:'+str(p),'max_flows':128} for p in [30000,30001]],'max_flows':256,'max_source_flows':64,'max_payload':2048,'socket_buffer':32768,'idle_seconds':180,'packets_per_second':100000,'bytes_per_second':100000000,'mapping_packets_per_second':100000,'mapping_bytes_per_second':100000000,'source_packets_per_second':100000,'source_bytes_per_second':100000000}
 c['mappings']=[]
-m={'relay':c,'management':'203.0.113.1:30200','tls':{'ca':str(w/'ca.pem'),'certificate':str(w/'relay.pem'),'private_key':str(w/'relay.key')},'authority':{'owner':'e','listen_ip':'0.0.0.0','upstream_ip':'203.0.113.2','ports':list(range(30000,30009)),'max_flows':128},'journal':str(w/'relay.journal'),'agent_socket':str(w/'r-agent.sock'),'staged_seconds':15,'outage_seconds':120}
+m={'relay':c,'management':'203.0.113.1:30200','tls':{'ca':str(w/'ca.pem'),'certificate':str(w/'relay.pem'),'private_key':str(w/'relay.key')},'authority':{'owner':'cpxy-rtp','listen_ip':'0.0.0.0','upstream_ip':'203.0.113.2','ports':list(range(30000,30009)),'max_flows':128},'journal':str(w/'relay.journal'),'agent_socket':str(w/'r-agent.sock'),'staged_seconds':15,'outage_seconds':120}
 json.dump(m,open(w/'relay.json','w'))
 import os
-for n,bind,interface,sources in [('r','0.0.0.0','rc',['192.0.2.0/24','198.51.100.0/24']),('e','203.0.113.2','er',['203.0.113.1/32'])]:
- policy={'profile':'e','bind':bind,'base':30000,'low':30001,'high':30008,'zone':'public','interface':interface,'sources':sources}
+# Only the relay keeps a separate agent; the endpoint manages firewalld in-process.
+for n,bind,interface,sources in [('r','0.0.0.0','rc',['192.0.2.0/24','198.51.100.0/24'])]:
+ policy={'profile':'cpxy-rtp','bind':bind,'base':30000,'low':30001,'high':30008,'zone':'public','interface':interface,'sources':sources}
  json.dump({'socket':str(w/(n+'-agent.sock')),'journal':str(w/(n+'-agent.journal')),'allowed_uid':os.getuid(),'policies':[policy]},open(w/(n+'-agent.json'),'w'))
 PY
 cat > "$work/backend.py" <<'PY'
@@ -74,51 +68,51 @@ BUS
  dbus-daemon --config-file="$work/$n-bus.conf" --fork
  ip netns exec "$n" env DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus-$n" /usr/sbin/firewalld --nofork --nopid --system-config "$work/$n-firewalld" --log-target console >"$work/$n-firewalld.log" 2>&1 & pids+=($!)
  for i in $(seq 1 100);do if ip netns exec "$n" env DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus-$n" firewall-cmd --state >/dev/null 2>&1;then break;fi;sleep .1;done
- ip netns exec "$n" env DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus-$n" "$agentbin" "$work/$n-agent.json" >"$work/$n-agent.log" 2>&1 & pids+=($!)
+ if [ "$n" = r ];then ip netns exec "$n" env DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus-$n" "$agentbin" "$work/$n-agent.json" >"$work/$n-agent.log" 2>&1 & pids+=($!);fi
 done
 fw(){ local n=$1;shift;ip netns exec "$n" env DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus-$n" firewall-cmd "$@"; }
 fw r --zone=public --add-port=30200/tcp
 fw r --zone=public --add-port=39999/udp
 fw e --zone=public --add-port=39999/udp
-fw e --zone=public --add-interface=eb
-fw e --zone=public --add-interface=rtpe
-fw e --zone=public --add-forward
-# Explicit scoped forwarding for the disposable backend topology.
-fw e --zone=public --add-rich-rule='rule family="ipv4" source address="10.88.0.0/24" destination address="10.90.0.0/24" accept'
-fw e --zone=public --add-rich-rule='rule family="ipv4" source address="10.90.0.0/24" destination address="10.88.0.0/24" accept'
 ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & pids+=($!)
 start_relay(){ ip netns exec r "$relaybin" managed "$work/relay.json" >> "$work/relay.out" 2>> "$work/relay.log" & relay=$!; }
 start_relay
-ip netns exec e env POC_TRACE_PATHS=1 POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" run "$work/e.json" > "$work/e.out" 2> "$work/e.log" & pids+=($!)
-for n in c d;do ip netns exec "$n" "$bin" run "$work/$n.json" > "$work/$n.out" 2> "$work/$n.log" & pids+=($!);done
-for i in $(seq 1 100);do if rg -q '"event":"connected"' "$work/c.log" && rg -q '"event":"connected"' "$work/d.log";then break;fi;sleep .1;done
+# The backend has a return route, so keep client addresses (no masquerade).
+ip netns exec e env DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus-e" POC_TRACE_PATHS=1 POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" \
+  "$bin" endpoint --state-dir "$work/e" --interface rtpe --listen 203.0.113.2:30000 --rotation-ports 30001-30008 \
+  --rotation-seconds 2 --initial-rotation-port 30001 --client-address 10.88.0.2,10.88.0.3 \
+  --firewall firewalld --firewalld-source 203.0.113.1/32 --no-masquerade \
+  --relay-management 203.0.113.1:30200 --relay-server-name relay --relay-ca "$work/ca.pem" \
+  --relay-certificate "$work/controller.pem" --relay-private-key "$work/controller.key" \
+  --relay-listen-ip 0.0.0.0 --relay-endpoint-ip 203.0.113.2 > "$work/e.out" 2> "$work/e.log" & pids+=($!);epid=$!
+ip netns exec c "$bin" client --state-dir "$work/c" --interface rtpc --address 10.88.0.2/24 --outbound-interface cr \
+  --entry 192.0.2.254:30000 --bind 192.0.2.1:0 > "$work/c.out" 2> "$work/c.log" & pids+=($!);cpid=$!
+ip netns exec d "$bin" client --state-dir "$work/d" --interface rtpd --address 10.88.0.3/24 --outbound-interface dr \
+  --entry 198.51.100.254:30000 --bind 198.51.100.1:0 > "$work/d.out" 2> "$work/d.log" & pids+=($!);dpid=$!
+for i in $(seq 1 100);do if grep -Eq '"event":"connected"' "$work/c.log" && grep -Eq '"event":"connected"' "$work/d.log";then break;fi;sleep .1;done
 apps(){ local n i ok;for n in c d;do ok=0;for i in $(seq 1 6);do if ip netns exec "$n" python3 "$work/app.py" "$n-$1" 2>>"$work/app-retries.log";then ok=1;break;fi;sleep .25;done;[ "$ok" = 1 ] || return 1;done; }
 if ! apps initial;then ip netns exec e /usr/sbin/nft list ruleset > "$work/e-nft";ip -n e route show table all > "$work/e-route";exit 1;fi
 # Rotation must use reusable numeric ports while current applications keep working.
 for i in $(seq 1 80);do apps "rotating-$i";sleep .25;done
-rg -q '"event":"rotation"' "$work/e.log"
+grep -Eq '"event":"rotation"' "$work/e.log"
 # A real relay firewall reload is reconciled without restarting the endpoint.
 fw r --reload
 fw r --zone=public --add-port=30200/tcp
 fw r --zone=public --add-port=39999/udp
 sleep 2
 apps reloaded
-# Endpoint reload also removes fixture-owned runtime forwarding; restore that
-# explicit deployment policy independently, while the agent restores its leases.
+# Endpoint reload drops runtime state; the service restores its leases and
+# TUN zone binding. Only the fixture's own unrelated port is re-added here.
 fw e --reload
-fw e --zone=public --add-interface=eb
-fw e --zone=public --add-interface=rtpe
-fw e --zone=public --add-forward
 fw e --zone=public --add-port=39999/udp
-fw e --zone=public --add-rich-rule='rule family="ipv4" source address="10.88.0.0/24" destination address="10.90.0.0/24" accept'
-fw e --zone=public --add-rich-rule='rule family="ipv4" source address="10.90.0.0/24" destination address="10.88.0.0/24" accept'
 sleep 2
+[ "$(fw e --get-zone-of-interface=rtpe)" = trusted ]
 apps endpoint-reloaded
 # Freeze relay management only; packet forwarding continues on committed paths.
 fw r --zone=public --add-rich-rule='rule family="ipv4" source address="203.0.113.2/32" port port="30200" protocol="tcp" drop'
 sleep 4
 apps disconnected
-rg -q '"event":"degraded"' "$work/e.log"
+grep -Eq '"event":"degraded"' "$work/e.log"
 fw r --zone=public --remove-rich-rule='rule family="ipv4" source address="203.0.113.2/32" port port="30200" protocol="tcp" drop'
 sleep 4
 apps resumed
@@ -130,9 +124,9 @@ pingpids=()
 for n in c d;do ip netns exec "$n" ping -c 80 -i .5 -W 1 10.90.0.2 > "$work/$n-ping.log" & pids+=($!);pingpids+=($!);done
 sleep 1
 touch "$work/drop"
-for i in $(seq 1 250);do if rg -q '"event":"repaired"' "$work/c.log" "$work/d.log";then break;fi;sleep .1;done
-rg -q '"event":"repairing"' "$work/c.log" "$work/d.log"
-rg -q '"event":"repaired"' "$work/c.log" "$work/d.log"
+for i in $(seq 1 250);do if grep -Eq '"event":"repaired"' "$work/c.log" "$work/d.log";then break;fi;sleep .1;done
+grep -Eq '"event":"repairing"' "$work/c.log" "$work/d.log"
+grep -Eq '"event":"repaired"' "$work/c.log" "$work/d.log"
 apps repaired
 rm "$work/drop"
 fw r --zone=public --remove-rich-rule='rule family="ipv4" source address="203.0.113.2/32" port port="30200" protocol="tcp" drop'
@@ -168,15 +162,18 @@ for n in ["c","d"]:
  seq=[int(x) for x in re.findall(r"icmp_seq=(\d+)",(w/(n+"-ping.log")).read_text())]
  assert seq and seq[0]<=3 and seq[-1]>=70,seq
 PY
-# Stop workers while both local agents and firewalld are still available.
-for n in c d e;do pkill -TERM -f "^$bin run $work/$n.json$" || true;done
-sleep 2
+# Stop workers while the relay agent and both firewalld instances are available.
+kill -TERM "$cpid" "$dpid" "$epid";wait "$cpid" "$dpid" "$epid"
 kill -TERM "$relay";wait "$relay";relay=''
 python3 - "$work" <<'PYTEST'
 import json,sys,pathlib
 w=pathlib.Path(sys.argv[1]);assert json.load(open(w/'relay.journal'))==[]
-for n in ['r','e']:assert json.load(open(w/(n+'-agent.journal')))=={}
+assert json.load(open(w/'r-agent.journal'))=={}
+assert json.load(open(w/'e'/'state.json.firewalld'))=={}
+assert not (w/'e'/'state.json.forwarding').exists()
 PYTEST
+test -z "$(fw e --zone=trusted --list-interfaces)"
+test -z "$(fw e --zone=public --list-rich-rules)"
 fw r --zone=public --query-port=39999/udp
 fw e --zone=public --query-port=39999/udp
 cleanup
@@ -185,6 +182,6 @@ for n in c d e;do if ip -n "$n" link show "rtp$n" 2>/dev/null;then exit 1;fi;don
 python3 - "$work" <<'PY'
 import json,sys,pathlib
 w=pathlib.Path(sys.argv[1])
-for n in ['c','d','e']:assert json.load(open(w/(n+'.journal')))=={'version':1,'leases':[]}
+for n in ['c','d','e']:assert json.load(open(w/n/'state.json'))=={'version':1,'leases':[]}
 PY
 echo "A5_COORDINATED_APPLICATIONS_OK artifacts=$work"

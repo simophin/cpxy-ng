@@ -13,16 +13,12 @@ pair e b 10.90.0.1/24 10.90.0.2/24
 ip netns exec e python3 -c 'open("/proc/sys/net/ipv4/ip_forward","w").write("1")'
 ip -n b route add 10.88.0.0/24 via 10.90.0.1
 work=$(mktemp -d /tmp/rtp-a4-XXXX)
-head -c 32 /dev/urandom > "$work/key";chmod 600 "$work/key"
+export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
 python3 - "$work" <<'PY'
 import json,sys
 from pathlib import Path
-w=Path(sys.argv[1]);network={'tunnel_pool':'10.88.0.0/24','client_addresses':['10.88.0.2','10.88.0.3'],'service_cidrs':['10.90.0.0/24'],'table':18800,'rule_priority':1000}
-for name,addr,transport in [('e','10.88.0.1',{'role':'endpoint','listen':'203.0.113.2:30000','rotation_low':30001,'rotation_high':30008,'rotation_seconds':0}),('c','10.88.0.2',{'role':'client','entry':'192.0.2.254:30000','bind':'192.0.2.1:0'}),('d','10.88.0.3',{'role':'client','entry':'198.51.100.254:30000','bind':'198.51.100.1:0'})]:
- p={'profile':name,'key_file':str(w/'key'),'journal':str(w/(name+'.journal')),'interface':'rtp'+name,'address':addr+'/24','transport':transport,'admission':'administrator_managed','keepalive_seconds':5,'network':network}
- if name=='e':p['initial_rotation_port']=30001
- else:p['outbound_interface']=name+'r'
- json.dump(p,open(w/(name+'.json'),'w'))
+w=Path(sys.argv[1])
 c={'mappings':[{'id':str(p),'generation':'fixed-1','listen':'0.0.0.0:'+str(p),'upstream':'203.0.113.2:'+str(p),'max_flows':128} for p in [30000,30001]],'max_flows':256,'max_source_flows':64,'max_payload':2048,'socket_buffer':32768,'idle_seconds':180,'packets_per_second':100000,'bytes_per_second':100000000,'mapping_packets_per_second':100000,'mapping_bytes_per_second':100000000,'source_packets_per_second':100000,'source_bytes_per_second':100000000}
 json.dump(c,open(w/'relay.json','w'))
 PY
@@ -52,9 +48,14 @@ trap cleanup EXIT
 ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & pids+=($!)
 start_relay(){ ip netns exec r "$relaybin" run "$work/relay.json" >> "$work/relay.out" 2>> "$work/relay.log" & relay=$!; }
 start_relay
-ip netns exec e env POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" run "$work/e.json" > "$work/e.out" 2> "$work/e.log" & pids+=($!)
-for n in c d;do ip netns exec "$n" "$bin" run "$work/$n.json" > "$work/$n.out" 2> "$work/$n.log" & pids+=($!);done
-for i in $(seq 1 100);do if rg -q '"event":"connected"' "$work/c.log" && rg -q '"event":"connected"' "$work/d.log";then break;fi;sleep .1;done
+ip netns exec e env POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" endpoint --state-dir "$work/e" --interface rtpe \
+  --listen 203.0.113.2:30000 --rotation-ports 30001-30008 --rotation-seconds 0 --initial-rotation-port 30001 \
+  --client-address 10.88.0.2,10.88.0.3 --firewall none > "$work/e.out" 2> "$work/e.log" & pids+=($!)
+ip netns exec c "$bin" client --state-dir "$work/c" --interface rtpc --address 10.88.0.2/24 --outbound-interface cr \
+  --entry 192.0.2.254:30000 --bind 192.0.2.1:0 > "$work/c.out" 2> "$work/c.log" & pids+=($!)
+ip netns exec d "$bin" client --state-dir "$work/d" --interface rtpd --address 10.88.0.3/24 --outbound-interface dr \
+  --entry 198.51.100.254:30000 --bind 198.51.100.1:0 > "$work/d.out" 2> "$work/d.log" & pids+=($!)
+for i in $(seq 1 100);do if grep -Eq '"event":"connected"' "$work/c.log" && grep -Eq '"event":"connected"' "$work/d.log";then break;fi;sleep .1;done
 apps(){ for n in c d;do ip netns exec "$n" python3 "$work/app.py" "$n-$1";done; }
 apps initial
 # Exactly two listeners; never expose the endpoint's remaining allocation pool.
@@ -69,9 +70,9 @@ pingpids=()
 for n in c d;do ip netns exec "$n" ping -c 35 -i .5 -W 1 10.90.0.2 > "$work/$n-ping.log" & pids+=($!);pingpids+=($!);done
 sleep 1
 touch "$work/drop"
-for i in $(seq 1 250);do if rg -q '"event":"repaired"' "$work/c.log" "$work/d.log";then break;fi;sleep .1;done
-rg -q '"event":"repairing"' "$work/c.log" "$work/d.log"
-rg -q '"event":"repaired"' "$work/c.log" "$work/d.log"
+for i in $(seq 1 250);do if grep -Eq '"event":"repaired"' "$work/c.log" "$work/d.log";then break;fi;sleep .1;done
+grep -Eq '"event":"repairing"' "$work/c.log" "$work/d.log"
+grep -Eq '"event":"repaired"' "$work/c.log" "$work/d.log"
 apps repaired
 rm "$work/drop"
 kill -TERM "$relay";wait "$relay";relay=''
@@ -104,6 +105,6 @@ for n in c d e;do if ip -n "$n" link show "rtp$n" 2>/dev/null;then exit 1;fi;don
 python3 - "$work" <<'PY'
 import json,sys,pathlib
 w=pathlib.Path(sys.argv[1])
-for n in ['c','d','e']:assert json.load(open(w/(n+'.journal')))=={'version':1,'leases':[]}
+for n in ['c','d','e']:assert json.load(open(w/n/'state.json'))=={'version':1,'leases':[]}
 PY
 echo "A4_RELAY_APPLICATIONS_OK artifacts=$work"

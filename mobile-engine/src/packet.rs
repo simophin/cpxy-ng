@@ -28,7 +28,8 @@ pub struct PacketProfile {
     pub entry: SocketAddr,
     /// Logical endpoint label bound to the secure key reference by the platform.
     pub endpoint_identity: String,
-    pub key_reference: String,
+    /// Platform secure-storage reference to the shared password.
+    pub password_reference: String,
     pub address: Ipv4Addr,
     pub routes: Vec<ipnet::Ipv4Net>,
     pub dns: DnsPolicy,
@@ -56,8 +57,8 @@ impl PacketProfile {
         );
         anyhow::ensure!(self.mtu == 1200, "RTP IPv4 MTU must be 1200");
         anyhow::ensure!(
-            !self.endpoint_identity.is_empty() && !self.key_reference.is_empty(),
-            "Endpoint identity and secure key reference required"
+            !self.endpoint_identity.is_empty() && !self.password_reference.is_empty(),
+            "Endpoint identity and secure password reference required"
         );
         anyhow::ensure!(
             !self.address.is_unspecified() && !self.address.is_multicast(),
@@ -100,7 +101,8 @@ impl PacketProfile {
 /// Network preparation must install persistent unreachable guards, selected routes,
 /// and private DNS no-fallback policy before returning success. Errors are fatal.
 pub trait Platform: Send + Sync + 'static {
-    fn resolve_key(&self, endpoint_identity: &str, reference: &str) -> io::Result<[u8; 32]>;
+    /// The shared password; the engine derives the key exactly as the endpoint does.
+    fn resolve_password(&self, endpoint_identity: &str, reference: &str) -> io::Result<String>;
     fn prepare_network(&self, profile: &PacketProfile) -> io::Result<()>;
     /// Must protect/bind every new unconnected socket before any datagram is sent.
     fn protect_socket(&self, socket: &UdpSocket) -> io::Result<()>;
@@ -198,8 +200,10 @@ impl PacketEngine {
         profile.validate()?;
         // Never propagate platform errors: a keystore error may contain secrets.
         let psk = platform
-            .resolve_key(&profile.endpoint_identity, &profile.key_reference)
-            .map_err(|_| anyhow::anyhow!("Secure key resolution failed"))?;
+            .resolve_password(&profile.endpoint_identity, &profile.password_reference)
+            .ok()
+            .and_then(|password| rtp_l3::derive_psk(&password).ok())
+            .ok_or_else(|| anyhow::anyhow!("Secure key resolution failed"))?;
         platform
             .prepare_network(&profile)
             .map_err(|_| anyhow::anyhow!("Platform network policy failed"))?;
@@ -399,7 +403,7 @@ pub fn start_profile(
 mod tests {
     use super::*;
     fn profile() -> PacketProfile {
-        serde_json::from_str(r#"{"entry":"192.0.2.1:30000","endpoint_identity":"test","key_reference":"secure:reference","address":"10.88.0.2","routes":["10.90.0.0/24"],"dns":{"policy":"none"}}"#).unwrap()
+        serde_json::from_str(r#"{"entry":"192.0.2.1:30000","endpoint_identity":"test","password_reference":"secure:reference","address":"10.88.0.2","routes":["10.90.0.0/24"],"dns":{"policy":"none"}}"#).unwrap()
     }
     #[test]
     fn modes_mtu_ipv4_and_private_dns() {
@@ -470,7 +474,7 @@ mod tests {
                 Status::Connected
             ]
         );
-        d.observe(serde_json::json!({"event":"stats","fallbacks":7,"secret":"do-not-copy","key_reference":"secure:reference"}));
+        d.observe(serde_json::json!({"event":"stats","fallbacks":7,"secret":"do-not-copy","password_reference":"secure:reference"}));
         assert!(matches!(d.status, Status::Connected));
         let output = serde_json::to_string(&d).unwrap();
         assert!(!output.contains("do-not-copy"));
