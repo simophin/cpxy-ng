@@ -1,6 +1,6 @@
 # RTP service: firewalld port lifecycle
 
-Status: proposed A2 design; see the [application plan](rtp-l3-application-plan.md).
+Status: A2 implemented with the limits recorded below; see the [application plan](rtp-l3-application-plan.md).
 Dynamic UDP rules belong to the service supervisor, coupled to socket and
 rotation ownership. Packet workers do not execute firewall commands.
 
@@ -124,3 +124,27 @@ two profiles, rule-query verification and unrelated runtime/permanent state.
 Assert that unprepared ports are never advertised, current traffic survives a
 failed preparation, and stopped/crashed services leave no owned open rules after
 supervisor reconciliation. No live host is modified by this design document.
+
+## Implemented A2 scope (2026-10-25)
+
+`port-admission` owns the shared lease contract, separate policy-validated local
+agent and canonical-rule journal; it has no RTP dependency. The service uses
+SO_PEERCRED-authenticated Unix RPC. The agent uses bounded `busctl` calls to the
+system D-Bus API, not shell commands or firewall-cmd. Each numeric-port allocation
+has a distinct generation. Identical preexisting rules fail preflight without
+being adopted. Agent and profile journals survive ambiguous errors/restarts.
+
+The actual worker remains a thread inside the privileged TUN-owning service;
+this does not establish an OS privilege sandbox. Reload and owner loss are
+detected through one-second periodic reconciliation rather than subscriptions.
+The configured sources/policies and request sizes are bounded. Scheduled
+prepare/commit, reconciliation and rule retirement run on separate control tasks;
+old sockets remain held until retirement succeeds. Initial base/candidate setup
+finishes before readiness. Task drops join before cleanup to avoid late mutation.
+
+Real disposable firewalld/TUN verification and installation details are recorded
+in the application plan and `port-admission/README.md`. Independent systemd
+ExecStopPost cleanup must run while the agent and firewalld are available. If all
+supervisors are lost, untimed rules persist until restart/explicit reconciliation;
+failed cleanup is retained in the journals. No automatic host deployment or
+public-network acceptance is implied.

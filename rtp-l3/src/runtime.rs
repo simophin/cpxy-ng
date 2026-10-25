@@ -27,7 +27,8 @@ fn control_metadata(message: &Control) -> serde_json::Value {
     }
 }
 
-fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
+#[cfg(target_os = "linux")]
+pub fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
     let request = port.to_be_bytes();
     unsafe {
         if libc::send(
@@ -148,6 +149,8 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
     if !socket.local_addr()?.is_ipv4() {
         return Err(io::Error::other("IPv4 socket required"));
     }
+    #[cfg(target_os = "linux")]
+    {
     let enabled: libc::c_int = 1;
     if unsafe {
         libc::setsockopt(
@@ -160,6 +163,7 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
     } < 0
     {
         return Err(io::Error::last_os_error());
+    }
     }
     let size: libc::c_int = 4 * 1024 * 1024;
     for opt in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
@@ -175,6 +179,7 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
     }
     nonblocking(socket.as_raw_fd())
 }
+#[cfg(target_os = "linux")]
 fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
     let peer = socket.peer_addr()?;
     if !peer.is_ipv4() {
@@ -218,25 +223,12 @@ fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
     }
     Ok(peer)
 }
-fn cidr(s: &str) -> io::Result<(Ipv4Addr, u8)> {
-    let (ip, prefix) = s
-        .split_once('/')
-        .ok_or_else(|| io::Error::other("invalid CIDR"))?;
-    let ip = ip
-        .parse()
-        .map_err(|_| io::Error::other("invalid IPv4 CIDR"))?;
-    let prefix = prefix
-        .parse::<u8>()
-        .ok()
-        .filter(|p| *p <= 32)
-        .ok_or_else(|| io::Error::other("invalid prefix"))?;
-    Ok((ip, prefix))
-}
 fn bind_rotation(
     address: SocketAddr,
     low: u16,
     high: u16,
     occupied: &[u16],
+    provider: &dyn SocketProvider,
 ) -> io::Result<(u16, UdpSocket)> {
     let count = u32::from(high) - u32::from(low) + 1;
     let offset = OsRng.gen_range(0..count);
@@ -247,7 +239,7 @@ fn bind_rotation(
         }
         let mut addr = address;
         addr.set_port(port);
-        match UdpSocket::bind(addr) {
+        match provider.prepare_port(addr) {
             Ok(s) => {
                 prepare(&s)?;
                 return Ok((port, s));
@@ -263,7 +255,30 @@ fn bind_rotation(
     }
     Err(io::Error::other("no available rotation port"))
 }
+// Joining on drop prevents a late firewall task from racing supervisor cleanup.
+struct Pending<T>(Option<std::thread::JoinHandle<T>>);
+impl<T: std::marker::Send + 'static> Pending<T> {
+    fn spawn(work: impl FnOnce() -> T + std::marker::Send + 'static) -> Self {
+        Self(Some(std::thread::spawn(work)))
+    }
+    fn poll(&mut self) -> Option<T> {
+        if self.0.as_ref()?.is_finished() {
+            Some(self.0.take().unwrap().join().expect("port task panicked"))
+        } else {
+            None
+        }
+    }
+}
+impl<T> Drop for Pending<T> {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            let _ = task.join();
+        }
+    }
+}
 struct Runtime {
+    retire_tasks: BTreeMap<u16, Pending<io::Result<()>>>,
+    retire_retry: BTreeMap<u16, Instant>,
     psk: [u8; 32],
     base: u16,
     peer: Option<SocketAddr>,
@@ -273,14 +288,15 @@ struct Runtime {
     streams: BTreeMap<u16, Stream>,
     drops: BTreeMap<u16, u32>,
     counts: Counts,
-    started: Instant,
+    started: Arc<dyn Clock>,
     trace_control: bool,
-    broker: Option<fs::File>,
+    provider: Arc<dyn SocketProvider>,
+    events: Events,
     candidate: Option<Candidate>,
-    interface: String,
     connected: bool,
     test_blocked_path: Option<Path>,
-    repair_started: Option<Instant>,
+    repair_started: Option<Duration>,
+    retiring: std::collections::BTreeSet<u16>,
 }
 impl Runtime {
     fn trace(&self, mut fields: serde_json::Value) {
@@ -301,7 +317,7 @@ impl Runtime {
             .unwrap_or_default()
             .as_micros() as u64)
             .into();
-        report_event(fields);
+        (self.events)(fields);
     }
     fn packet_trace(
         &self,
@@ -353,12 +369,10 @@ impl Runtime {
         }
     }
     fn renew_socket(&mut self, port: u16) -> io::Result<()> {
-        let socket = broker_socket(
-            self.broker
-                .as_ref()
-                .ok_or_else(|| io::Error::other("socket broker required"))?,
-            port,
-        )?;
+        let mut peer = self.peer.ok_or_else(|| io::Error::other("missing peer"))?;
+        peer.set_port(port);
+        let socket = self.provider.client_socket(peer)?;
+        prepare(&socket)?;
         self.sockets.insert(port, socket);
         if let Some(stream) = self.streams.get(&port) {
             self.streams.insert(port, Stream::new(stream.keys.clone()));
@@ -368,7 +382,13 @@ impl Runtime {
         Ok(())
     }
     fn repair_active(&mut self) {
-        self.repair_started.get_or_insert_with(Instant::now);
+        if self.repair_started.is_none() {
+            (self.events)(
+                serde_json::json!({"event":"repairing", "port":self.client.as_ref().unwrap().current}),
+            );
+        }
+        self.repair_started
+            .get_or_insert_with(|| self.started.elapsed());
         let c = self.client.as_mut().unwrap();
         c.cancel_pending();
         if self.candidate.is_none() {
@@ -418,11 +438,12 @@ impl Runtime {
             unreachable!()
         };
         if candidate.attempts == 0 || candidate.attempts >= 3 {
-            let fresh = self
-                .broker
-                .as_ref()
-                .ok_or_else(|| io::Error::other("socket broker required"))
-                .and_then(|broker| broker_socket(broker, port));
+            let mut peer = self.peer.unwrap();
+            peer.set_port(port);
+            let fresh = self.provider.client_socket(peer).and_then(|socket| {
+                prepare(&socket)?;
+                Ok(socket)
+            });
             let Ok(socket) = fresh else {
                 self.counts.socket_drops += 1;
                 self.candidate.as_mut().unwrap().deadline =
@@ -500,7 +521,8 @@ impl Runtime {
                 let mut candidate = self.candidate.take().unwrap();
                 self.sockets.insert(port, candidate.socket.take().unwrap());
                 self.streams.insert(port, candidate.stream);
-                self.repair_started = None;
+                // Registration PING still needs an authenticated STATE reply;
+                // report repaired only after accept_state completes below.
                 return Ok(reply);
             }
         }
@@ -539,13 +561,16 @@ impl Runtime {
             return Ok(None);
         }
         let reply = self.client.as_mut().unwrap().accept_state(port, msg, now)?;
-        self.repair_started = None;
+        (self.events)(serde_json::json!({"event":"path_alive", "port":port}));
+        if self.repair_started.take().is_some() {
+            (self.events)(serde_json::json!({"event":"repaired", "port":port}));
+        }
         if !self.connected && port == self.client.as_ref().unwrap().current && port != self.base {
-            if ip(&["link", "set", "dev", &self.interface, "up"]).is_err() {
+            if self.provider.packet_ready().is_err() {
                 return Err("tun_activation_failed");
             }
             self.connected = true;
-            report_event(serde_json::json!({"event":"connected", "seconds":now}));
+            (self.events)(serde_json::json!({"event":"connected", "seconds":now}));
         }
         Ok(reply)
     }
@@ -557,7 +582,7 @@ impl Runtime {
             && env::var_os("POC_TEST_DROP_ANNOUNCEMENTS_FILE")
                 .is_some_and(|p| std::path::Path::new(&p).exists())
         {
-            report_event(
+            (self.events)(
                 serde_json::json!({"event":"test_announcement_drop", "seconds":self.started.elapsed().as_secs()}),
             );
             return;
@@ -619,6 +644,33 @@ impl Runtime {
         });
     }
     fn close(&mut self, port: u16) {
+        self.retiring.insert(port);
+        if self
+            .retire_retry
+            .get(&port)
+            .is_some_and(|deadline| Instant::now() < *deadline)
+        {
+            return;
+        }
+        if !self.retire_tasks.contains_key(&port) {
+            let provider = self.provider.clone();
+            self.retire_tasks
+                .insert(port, Pending::spawn(move || provider.retire_port(port)));
+        }
+        let Some(result) = self.retire_tasks.get_mut(&port).unwrap().poll() else {
+            return;
+        };
+        self.retire_tasks.remove(&port);
+        if let Err(error) = result {
+            self.retire_retry
+                .insert(port, Instant::now() + Duration::from_secs(1));
+            (self.events)(
+                serde_json::json!({"event":"degraded", "operation":"retire_port", "error":error.to_string()}),
+            );
+            return;
+        }
+        self.retiring.remove(&port);
+        self.retire_retry.remove(&port);
         self.sockets.remove(&port);
         self.streams.remove(&port);
         self.drops.remove(&port);
@@ -629,7 +681,7 @@ impl Runtime {
         source: SocketAddr,
         b: &[u8],
         now: u64,
-        dev: &mut fs::File,
+        dev: &mut dyn PacketIo,
         from_candidate: bool,
     ) {
         if let Some(server) = &self.server {
@@ -641,7 +693,7 @@ impl Runtime {
                 && server.sessions().values().any(|s| s.path == path)
             {
                 self.test_blocked_path = Some(path);
-                report_event(
+                (self.events)(
                     serde_json::json!({"event":"test_active_path_blocked", "seconds":now}),
                 );
             }
@@ -747,7 +799,7 @@ impl Runtime {
                     if reply.is_some() {
                         self.counts.switches += 1;
                         if env::var_os("POC_TRACE_PATHS").is_some() {
-                            report_event(serde_json::json!({"event":"path", "seconds":now,
+                            (self.events)(serde_json::json!({"event":"path", "seconds":now,
                                 "port":c.current, "epoch":c.epoch,
                                 "instance_changed":instance != c.instance,
                                 "solicited":matches!(msg, Control::State { echo, .. } if echo != 0)}));
@@ -768,7 +820,7 @@ impl Runtime {
                         if env::var_os("POC_TEST_DROP_PROBE_REPLIES_FILE")
                             .is_some_and(|p| std::path::Path::new(&p).exists())
                         {
-                            report_event(
+                            (self.events)(
                                 serde_json::json!({"event":"test_probe_reply_drop", "seconds":now}),
                             );
                         } else {
@@ -799,10 +851,12 @@ impl Runtime {
                         self.packet_trace("ping", port, b,
                             || serde_json::json!({"result":"accepted", "control":control_metadata(&msg)}));
                         if env::var_os("POC_TRACE_PATHS").is_some() {
-                            report_event(serde_json::json!({"event":"registration", "seconds":now,
+                            (self.events)(
+                                serde_json::json!({"event":"registration", "seconds":now,
                                 "session":id, "port":port, "new":old.is_none(),
                                 "tuple_changed":old.is_some_and(|p| p.peer != source),
-                                "same_port":old.is_some_and(|p| p.port == port)}));
+                                "same_port":old.is_some_and(|p| p.port == port)}),
+                            );
                         }
                         self.control(reply);
                     } else {
@@ -829,58 +883,73 @@ impl Runtime {
         }
     }
 }
-pub fn main() -> io::Result<()> {
-    let a: Vec<String> = env::args().collect();
-    let client = a.get(1).map(String::as_str) == Some("client");
-    if !(client && a.len() == 6
-        || a.get(1).map(String::as_str) == Some("server") && (7..=8).contains(&a.len()))
-    {
-        return Err(io::Error::other("usage: rtp-l3-poc client KEY IFACE CIDR FD | server KEY IFACE CIDR LISTEN_BASE LOW-HIGH [ROTATE_SECS]"));
+pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>) -> io::Result<()> {
+    run_inner(config, resources, running, None)
+}
+
+/// Run with an explicitly supplied IPv4 peer and unconnected, already protected
+/// sockets. Avoids OS-specific UDP disconnect operations on mobile platforms.
+pub fn run_client(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>, peer: SocketAddr) -> io::Result<()> {
+    if !config.client || !peer.is_ipv4() || peer.port() == 0 {
+        return Err(io::Error::other("IPv4 client peer required"));
     }
-    let psk = key(&a[2])?;
-    let (inner, prefix) = cidr(&a[4])?;
-    let mean = a
-        .get(7)
-        .map(|s| s.parse::<u64>())
-        .transpose()
-        .map_err(|_| io::Error::other("invalid rotation interval"))?
-        .unwrap_or(300);
-    // Zero keeps the initial non-base path for matched no-rotation measurements.
+    run_inner(config, resources, running, Some(peer))
+}
+fn run_inner(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>, explicit_peer: Option<SocketAddr>) -> io::Result<()> {
+    let WorkerConfig {
+        client,
+        psk,
+        inner,
+        prefix,
+        rotation_low: low,
+        rotation_high: high,
+        initial_rotation_port,
+        rotation_seconds: mean,
+        keepalive_seconds: keepalive,
+    } = config;
+    if prefix > 32 {
+        return Err(io::Error::other("invalid IPv4 prefix"));
+    }
     let mut next_rotation = if mean == 0 {
         u64::MAX
     } else {
         rotation_delay(mean).ok_or_else(|| io::Error::other("rotation interval out of range"))?
     };
-    let keepalive = env::var("POC_KEEPALIVE_SECS")
-        .map(|v| v.parse::<u64>())
-        .unwrap_or(Ok(15))
-        .map_err(|_| io::Error::other("invalid keepalive interval"))?;
-    keepalive_delay(keepalive)
-        .ok_or_else(|| io::Error::other("keepalive interval out of range"))?;
-    // The fixed 60-second grace must cover maximum jitter plus all retries.
-    if keepalive > 45 {
-        return Err(io::Error::other(
-            "keepalive mean must be at most 45 seconds for 60-second grace",
-        ));
+    if keepalive_delay(keepalive).is_none() || keepalive > 45 {
+        return Err(io::Error::other("keepalive interval out of range"));
     }
-    let socket = if client {
-        let fd = a[5]
-            .parse::<i32>()
-            .ok()
-            .filter(|f| *f >= 3)
-            .ok_or_else(|| io::Error::other("invalid inherited FD"))?;
-        unsafe { UdpSocket::from_raw_fd(fd) }
-    } else {
-        UdpSocket::bind(&a[5])?
-    };
+    let Resources {
+        packet: mut dev,
+        socket,
+        provider,
+        events,
+        clock,
+    } = resources;
     prepare(&socket)?;
     let peer = if client {
-        Some(disconnect(&socket)?)
+        match explicit_peer {
+            Some(peer) => Some(peer),
+            None => {
+                #[cfg(target_os = "linux")]
+                { Some(disconnect(&socket)?) }
+                #[cfg(not(target_os = "linux"))]
+                { return Err(io::Error::other("explicit client peer required")); }
+            }
+        }
     } else {
         None
     };
     let address = socket.local_addr()?;
     let base = peer.unwrap_or(address).port();
+    if base == 0
+        || !client
+            && (low == 0
+                || high < low
+                || u32::from(high) - u32::from(low) + 1 - u32::from((low..=high).contains(&base))
+                    < 3)
+    {
+        return Err(io::Error::other("invalid base/rotation pool"));
+    }
     let mut rt = Runtime {
         psk,
         base,
@@ -891,47 +960,17 @@ pub fn main() -> io::Result<()> {
         streams: BTreeMap::from([(base, Stream::new(PortKeys::base(&psk, client)))]),
         drops: BTreeMap::new(),
         counts: Counts::default(),
-        started: Instant::now(),
+        started: clock,
         trace_control: env::var_os("POC_TRACE_CONTROL").is_some(),
-        broker: if client {
-            let fd = env::var("POC_SOCKET_BROKER_FD")
-                .ok()
-                .and_then(|s| s.parse::<i32>().ok())
-                .filter(|fd| *fd >= 3)
-                .ok_or_else(|| io::Error::other("client requires inherited socket broker"))?;
-            Some(unsafe { fs::File::from_raw_fd(fd) })
-        } else {
-            None
-        },
+        provider,
+        events,
         candidate: None,
-        interface: a[3].clone(),
         connected: false,
         test_blocked_path: None,
         repair_started: None,
-    };
-    let (low, high) = if client {
-        (0, 0)
-    } else {
-        let (l, h) = a[6]
-            .split_once('-')
-            .ok_or_else(|| io::Error::other("invalid rotation range"))?;
-        let l = l
-            .parse::<u16>()
-            .ok()
-            .filter(|p| *p > 0)
-            .ok_or_else(|| io::Error::other("invalid low port"))?;
-        let h = h
-            .parse::<u16>()
-            .ok()
-            .filter(|p| *p >= l)
-            .ok_or_else(|| io::Error::other("invalid high port"))?;
-        // Leave a candidate available beside the current and previous ports.
-        if u32::from(h) - u32::from(l) + 1 - u32::from((l..=h).contains(&base)) < 3 {
-            return Err(io::Error::other(
-                "rotation range needs at least three non-base ports",
-            ));
-        }
-        (l, h)
+        retiring: Default::default(),
+        retire_tasks: Default::default(),
+        retire_retry: Default::default(),
     };
     if client {
         rt.client = Client::new(
@@ -942,7 +981,19 @@ pub fn main() -> io::Result<()> {
             0,
         );
     } else {
-        let (port, socket) = bind_rotation(address, low, high, &[base])?;
+        let (initial_low, initial_high) = match initial_rotation_port {
+            Some(port) if port != base && (low..=high).contains(&port) => (port, port),
+            Some(_) => return Err(io::Error::other("invalid initial rotation port")),
+            None => (low, high),
+        };
+        let (port, socket) = bind_rotation(
+            address,
+            initial_low,
+            initial_high,
+            &[base],
+            rt.provider.as_ref(),
+        )?;
+        rt.provider.commit_port(port)?;
         let mut secret = [0; 32];
         OsRng.fill_bytes(&mut secret);
         rt.server = Server::new(
@@ -960,40 +1011,36 @@ pub fn main() -> io::Result<()> {
         rt.streams
             .insert(port, Stream::new(PortKeys::rotation(&psk, &secret, false)));
     }
-    let mut dev = tun(&a[3], &a[4], !client)?;
     nonblocking(dev.as_raw_fd())?;
-    if client {
-        ip(&["link", "set", "lo", "up"])?;
-    }
-    unsafe {
-        libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGINT, stop as *const () as libc::sighandler_t);
+    if !client {
+        rt.provider.packet_ready()?;
     }
     if let Some(c) = &mut rt.client {
         let ping = c.ping(0).unwrap();
         rt.ping(ping);
     }
-    report_event(
-        serde_json::json!({"event":"ready","client":client,"protocol":PROTOCOL,"mtu":MTU}),
-    );
+    (rt.events)(serde_json::json!({"event":"ready","client":client,"protocol":PROTOCOL,"mtu":MTU}));
+    let mut admission_ready = true;
+    let mut rotation_task: Option<Pending<io::Result<(u16, UdpSocket)>>> = None;
+    let mut reconcile_task: Option<Pending<io::Result<()>>> = None;
+    let mut next_reconcile = Instant::now();
     let mut last = Instant::now();
     let mut b = [0; 65536];
-    while RUN.load(Ordering::Relaxed) {
+    while running.load(Ordering::Relaxed) {
         let now = rt.started.elapsed().as_secs();
         if let Some(c) = &mut rt.client {
             let before = (c.pending_sequence(), c.current, c.fallbacks);
             let unanswered = c.pings_unanswered;
-            let repairing = rt
-                .repair_started
-                .is_some_and(|start| start.elapsed() < Duration::from_secs(8))
-                && rt.candidate.is_some();
+            let repairing = rt.repair_started.is_some_and(|start| {
+                rt.started.elapsed().saturating_sub(start) < Duration::from_secs(8)
+            }) && rt.candidate.is_some();
             let mut ping = if repairing { None } else { c.tick(now) };
             let repair = c.current != rt.base
                 && c.pings_unanswered > unanswered
                 && c.receive_idle(now) >= 2
-                && rt
-                    .repair_started
-                    .is_none_or(|start| start.elapsed() < Duration::from_secs(8));
+                && rt.repair_started.is_none_or(|start| {
+                    rt.started.elapsed().saturating_sub(start) < Duration::from_secs(8)
+                });
             let after = (c.pending_sequence(), c.current, c.fallbacks);
             rt.counts.fallbacks = c.fallbacks;
             rt.counts.pings_unanswered = c.pings_unanswered;
@@ -1014,6 +1061,9 @@ pub fn main() -> io::Result<()> {
             {
                 rt.counts.socket_drops += 1;
             }
+            if after.2 > before.2 || (rt.counts.pings_unanswered > unanswered && !repair) {
+                (rt.events)(serde_json::json!({"event":"degraded", "operation":"path_liveness"}));
+            }
             if repair {
                 rt.repair_active();
                 ping = None;
@@ -1024,8 +1074,33 @@ pub fn main() -> io::Result<()> {
             }
             rt.candidate_tick();
         } else {
-            if now >= next_rotation {
-                match bind_rotation(address, low, high, &rt.server.as_ref().unwrap().ports()) {
+            for port in rt.retiring.clone() {
+                rt.close(port);
+            }
+            if now >= next_rotation
+                && admission_ready
+                && rt.retiring.is_empty()
+                && rotation_task.is_none()
+                && reconcile_task.is_none()
+            {
+                let provider = rt.provider.clone();
+                let occupied = rt.server.as_ref().unwrap().ports();
+                rotation_task = Some(Pending::spawn(move || {
+                    let (port, socket) =
+                        bind_rotation(address, low, high, &occupied, provider.as_ref())?;
+                    if let Err(error) = provider.commit_port(port) {
+                        let _ = provider.retire_port(port);
+                        return Err(error);
+                    }
+                    Ok((port, socket))
+                }));
+            }
+            if let Some(result) = (admission_ready && reconcile_task.is_none())
+                .then(|| rotation_task.as_mut().and_then(Pending::poll))
+                .flatten()
+            {
+                rotation_task = None;
+                match result {
                     Ok((port, socket)) => {
                         let mut secret = [0; 32];
                         OsRng.fill_bytes(&mut secret);
@@ -1042,7 +1117,7 @@ pub fn main() -> io::Result<()> {
                             );
                             rt.counts.rotations += 1;
                             if env::var_os("POC_TRACE_PATHS").is_some() {
-                                report_event(
+                                (rt.events)(
                                     serde_json::json!({"event":"rotation", "seconds":now, "port":port}),
                                 );
                             }
@@ -1050,9 +1125,17 @@ pub fn main() -> io::Result<()> {
                             for action in actions {
                                 rt.control(action);
                             }
+                        } else {
+                            rt.sockets.insert(port, socket);
+                            rt.close(port);
                         }
                     }
-                    Err(_) => rt.counts.rotation_bind_failures += 1,
+                    Err(error) => {
+                        rt.counts.rotation_bind_failures += 1;
+                        (rt.events)(
+                            serde_json::json!({"event":"rotation_failed", "error":error.to_string()}),
+                        );
+                    }
                 }
                 next_rotation = now.saturating_add(rotation_delay(mean).unwrap());
             }
@@ -1111,7 +1194,7 @@ pub fn main() -> io::Result<()> {
                             let prev = rt.drops.insert(*port, d).unwrap_or(0);
                             rt.counts.kernel_rx_drops += d.wrapping_sub(prev) as u64;
                         }
-                        rt.incoming(*port, source, &b[..n], now, &mut dev, false);
+                        rt.incoming(*port, source, &b[..n], now, dev.as_mut(), false);
                     }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     // ICMP errors from a closed rotation port must not kill fallback.
@@ -1142,7 +1225,9 @@ pub fn main() -> io::Result<()> {
                     break;
                 };
                 match receive(socket, &mut b) {
-                    Ok((n, source, _)) => rt.incoming(port, source, &b[..n], now, &mut dev, true),
+                    Ok((n, source, _)) => {
+                        rt.incoming(port, source, &b[..n], now, dev.as_mut(), true)
+                    }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     Err(_) => break,
                 }
@@ -1196,16 +1281,41 @@ pub fn main() -> io::Result<()> {
                 }
             }
         }
+        if reconcile_task.is_none() && Instant::now() >= next_reconcile {
+            let provider = rt.provider.clone();
+            reconcile_task = Some(Pending::spawn(move || provider.reconcile_ports()));
+        }
+        if let Some(result) = reconcile_task.as_mut().and_then(Pending::poll) {
+            reconcile_task = None;
+            let was_ready = admission_ready;
+            admission_ready = result.is_ok();
+            next_reconcile = Instant::now() + Duration::from_secs(1);
+            if !was_ready && admission_ready {
+                (rt.events)(
+                    serde_json::json!({"event":"admission_restored", "connected":rt.connected}),
+                );
+            }
+            if let Err(error) = result {
+                (rt.events)(
+                    serde_json::json!({"event":"degraded", "operation":"reconcile_ports", "error":error.to_string()}),
+                );
+            }
+        }
         if last.elapsed() >= Duration::from_secs(5) {
-            rt.counts.report(rt.started.elapsed().as_secs_f64(), false);
+            rt.counts.report(
+                rt.started.elapsed().as_secs_f64(),
+                false,
+                rt.events.as_ref(),
+            );
             last = Instant::now();
         }
     }
-    rt.counts.report(rt.started.elapsed().as_secs_f64(), true);
+    rt.counts
+        .report(rt.started.elapsed().as_secs_f64(), true, rt.events.as_ref());
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod runtime_tests {
     use super::*;
 

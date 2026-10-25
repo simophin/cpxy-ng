@@ -1,0 +1,20 @@
+[Unit]
+Description=CPXY RTP profile %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cpxy-rtp run /etc/cpxy-rtp/%i.json
+ExecReload=/bin/kill -HUP $MAINPID
+# Admission cleanup after normal shutdown and forced death. Keep network
+# guards on failure; normal SIGTERM stop releases its own network policy.
+ExecStopPost=/usr/local/bin/cpxy-rtp cleanup-ports /etc/cpxy-rtp/%i.json
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

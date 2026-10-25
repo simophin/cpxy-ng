@@ -192,6 +192,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtp-l3"
+version = "0.1.0"
+dependencies = [
+ "chacha20",
+ "hkdf",
+ "hmac",
+ "libc",
+ "rand",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "rtp-l3-poc"
 version = "0.1.0"
 dependencies = [
@@ -200,6 +213,7 @@ dependencies = [
  "hmac",
  "libc",
  "rand",
+ "rtp-l3",
  "serde_json",
  "sha2",
 ]

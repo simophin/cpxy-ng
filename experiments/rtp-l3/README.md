@@ -1,13 +1,12 @@
 # Experimental RTP-framed IPv4 tunnel
 
 Linux-only TUN runtime; portable protocol tests. This is encrypted IP in an RTP
-header, **not codec media, SRTP, or demonstrated censorship resistance**. No
-production integration.
+header, **not codec media, SRTP, or demonstrated censorship resistance**. The managed Linux service is now in `../../rtp-service`.
 
 The binary implements one experimental protocol: authenticated padded
 PING/STATE/PROBE control, learned client sessions, server UDP port rotation with
-ephemeral per-port keys, and client keepalive/fallback. The portable `control` and `state` modules implement the
-codec and lifecycle; the Linux runtime owns sockets, timers and counters.
+ephemeral per-port keys, and client keepalive/fallback. The authoritative `../../rtp-l3` crate supplies the portable codec, state and Linux
+packet worker. This directory retains historical evidence and a thin compatibility CLI.
 
 Every data datagram is `RTP header (12) | random (16) | XChaCha20(inner IPv4)`,
 with no tag on data. Authenticated PING/STATE and candidate PROBE validation precede the first data flight; STATE
@@ -27,8 +26,8 @@ replayed packets that still parse as IPv4 are forwarded; header tampering
 garbles the decrypted packet.
 
 Build/test with `cargo test --locked` and `cargo build --release --locked` in
-this directory. The crate is deliberately outside the production Cargo
-workspace.
+this directory. This compatibility crate remains outside the workspace; run the retained
+regressions with `cargo test -p rtp-l3` from the repository root.
 
 Generate an exactly 32-byte random key in a private file outside the checkout,
 mode 0600, and transfer it securely. The runtime refuses group/world-readable
