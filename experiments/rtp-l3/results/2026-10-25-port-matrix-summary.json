@@ -1,0 +1,1285 @@
+{
+  "schema": 1,
+  "seed": 25,
+  "rounds": 12,
+  "reply_window_seconds": 0.5,
+  "port_count": 4,
+  "mapping_count": 1,
+  "trials": [
+    {
+      "round": 0,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.419
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.573
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.662
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.766
+        }
+      ]
+    },
+    {
+      "round": 0,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.705
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.82
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.888
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.942
+        }
+      ]
+    },
+    {
+      "round": 0,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.503
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.591
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.642
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.691
+        }
+      ]
+    },
+    {
+      "round": 0,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.327
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.416
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.469
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.515
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.763
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.81
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 83.838
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 83.944
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.123
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.232
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.309
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.37
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.671
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.786
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.863
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.929
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.596
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.711
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.826
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 85.044
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.407
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.583
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.714
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.779
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.345
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.429
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.454
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.471
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.873
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.18
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.297
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.373
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.568
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.601
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 83.616
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 83.661
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.46
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.571
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.641
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.711
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.537
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.648
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.715
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.777
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 95.551
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 95.668
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 95.733
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 95.818
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.931
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.082
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.165
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.216
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.843
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.969
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 85.044
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 85.143
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.513
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.631
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.712
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.775
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.568
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.692
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.762
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.831
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.07
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.101
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 83.116
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 83.129
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.38
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.578
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 83.597
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 83.809
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.248
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.353
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.4
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.441
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.66
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.772
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.841
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.907
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.68
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.71
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 83.725
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 83.739
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.817
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.975
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.084
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.151
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.175
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.286
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.354
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.443
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.802
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.893
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.945
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 85.017
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.613
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.727
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.799
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.86
+        }
+      ]
+    },
+    {
+      "round": 7,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.941
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.304
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.845
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.906
+        }
+      ]
+    },
+    {
+      "round": 7,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.228
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.343
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.417
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.481
+        }
+      ]
+    },
+    {
+      "round": 7,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.369
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.488
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.836
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.932
+        }
+      ]
+    },
+    {
+      "round": 7,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.742
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.909
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 85.033
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 85.101
+        }
+      ]
+    },
+    {
+      "round": 8,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.352
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.443
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.508
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.554
+        }
+      ]
+    },
+    {
+      "round": 8,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.474
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.571
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.627
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.674
+        }
+      ]
+    },
+    {
+      "round": 8,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.509
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.617
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.683
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.74
+        }
+      ]
+    },
+    {
+      "round": 8,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.398
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.498
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.564
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.627
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.529
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.64
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.673
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.697
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.761
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.852
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.208
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.416
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.129
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.192
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.474
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.513
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 83.677
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 83.76
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 83.834
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 83.881
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.38
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 85.546
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 85.626
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 85.677
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.61
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.7
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.754
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.801
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.614
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.725
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.79
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.849
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 86.216
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 86.285
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 90.474
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 90.53
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "destination": 2,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.139
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.233
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.291
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.338
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "destination": 1,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.404
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.519
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.595
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.678
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "destination": 3,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.103
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.499
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.629
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.686
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "destination": 0,
+      "replies": [
+        {
+          "source": 0,
+          "mapping": 0,
+          "elapsed_ms": 84.131
+        },
+        {
+          "source": 1,
+          "mapping": 0,
+          "elapsed_ms": 84.224
+        },
+        {
+          "source": 2,
+          "mapping": 0,
+          "elapsed_ms": 84.278
+        },
+        {
+          "source": 3,
+          "mapping": 0,
+          "elapsed_ms": 84.352
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "No client-interface capture; absent socket delivery does not locate loss.",
+    "Immediate plain UDP probes do not establish tunnel idle retention or NAT timeout.",
+    "Cross-source probes can refresh filtering state; interpret first contact separately."
+  ],
+  "cleanup": {
+    "event": "cleanup",
+    "firewall_restored": true,
+    "links_restored": true,
+    "subsequent_test_ports_free": true,
+    "subsequent_remote_staging_absent": true
+  },
+  "server_send_count": 192,
+  "server_observed_mapping_count": 1,
+  "server_send_counts_by_destination": [
+    48,
+    48,
+    48,
+    48
+  ],
+  "same_source_received": 48,
+  "cross_source_received": 144,
+  "diagnostic_commit": "7d37835",
+  "measurement": "immediate_plain_udp_destination_port_matrix",
+  "same_source_expected": 48,
+  "cross_source_expected": 144,
+  "server_transmission_evidence": "successful_sendto_calls_only_no_interface_capture"
+}
