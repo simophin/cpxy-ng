@@ -194,3 +194,22 @@ immediate controls and client-interface evidence, then matched tunnel traces.
 Server runtime firewall/link snapshots matched after cleanup; a subsequent check
 verified all test ports free and remote staging absent. Private logs/staging and
 local probe artifacts were removed. No outstanding cleanup obligations remain.
+
+## Independent delayed-probe implementation checkpoint
+
+Added `scripts/idle-matrix.py` with randomized repeated destination/delay trials,
+one reply per silent socket and separate start/deadline immediate-control
+sockets. All sockets remain open through the run to avoid local port reuse.
+Fixed 192-byte plain UDP payloads match each other, not the tunnel wire format.
+Private mode-0600 logs record correlation and endpoint evidence;
+`scripts/idle-evidence.py` publishes endpoint-free server receipt/send, client
+receipt and optional interface-capture fingerprint joins. No tunnel protocol,
+socket strategy, rotation or keepalive setting changed.
+
+Four delayed-probe fixtures and both existing immediate-matrix fixtures passed
+with UDP socket access. They cover actual delayed same/cross-source delivery,
+socket isolation, missing replies, bounded CLI/private-log handling and passive
+capture correlation on four link types. The initial sandbox attempt could not
+create UDP sockets; the same tests passed with network access enabled.
+Public-path delayed measurements are pending at this checkpoint. Z4 remains
+failed/open; local fixtures cannot establish public-path retention or its cause.

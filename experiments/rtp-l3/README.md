@@ -258,3 +258,38 @@ socket strategy, rotation or keepalive setting changes. First-contact cross-port
 replies and already-contacted ports have different filtering history. Missing
 socket delivery alone cannot distinguish filtering from network loss; this
 immediate plain UDP diagnostic does not measure idle timeout or complete Z4.
+
+### Independent delayed probes
+
+`python3 scripts/idle-matrix.py server BIND_IP PORT1,PORT2,... --seconds 240 --private-log PRIVATE_SERVER_JSONL`
+starts a bounded scheduler. Each request gets exactly one reply from the requested
+source port after its requested delay, with no immediate acknowledgement.
+Use operator-owned source-/32-restricted runtime firewall openings and cleanup.
+
+`python3 scripts/idle-matrix.py client SERVER PORT1,PORT2,... --delays 5,30,60,120,180 --rounds 2 --private-log PRIVATE_CLIENT_JSONL`
+randomizes same-source and cross-source trials across every destination/delay.
+Every trial uses a fresh silent socket and two separate fresh immediate-control
+sockets, at the start and deadline. All sockets stay open until the run ends to
+prevent local port reuse. No retry, control or early reply touches the silent
+socket. Requests and replies are fixed 192-byte plain JSON UDP payloads (220
+outer IPv4 bytes), within the tunnel control size range, without RTP/encryption.
+The reply window follows the delay; choose a server lifetime covering client
+startup, maximum delay, launch staggering and reply windows. Both sides are
+bounded; the client permits at most 128 trials/384 sockets. Private logs are
+created exclusively with mode 0600 and include correlation tokens, fingerprints
+and observed endpoints. Never commit those logs. Client stdout is endpoint-free.
+
+`python3 scripts/idle-evidence.py PRIVATE_CLIENT_JSONL PRIVATE_SERVER_JSONL --server-pcap PRIVATE_PCAP --server-capture-drops COUNT`
+joins server receipt/send calls and client reception with optional exact UDP
+payload fingerprints in interface captures. `--client-pcap` and
+`--client-capture-drops` add client-interface evidence when available. Classic
+Ethernet, raw IPv4 and Linux cooked captures are supported; use full snaplen and
+record capture coverage and final drop counts. Missing capture evidence is null,
+not zero. Output contains only numbered trials/ports/mappings. A successful
+send, captured packet or matched immediate control does not prove that a silent
+mapping survives, identify an exact NAT timeout or complete Z4. Matched tunnel
+traces and justified remediation remain separate work.
+
+Run `python3 scripts/test-idle-matrix.py` with UDP socket access for real delayed
+delivery/isolation, negative delivery, private-file bounds, capture correlation
+and sanitization fixtures.
