@@ -76,7 +76,10 @@ service() (
 	. "/etc/init.d/$1"
 	if [ "$1" = cpxy-router ]; then
 		# 'alias' is another network on the guest bridge
-		network_get_device() { case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
+		network_get_device() {
+			[ "$2" != lan ] || [ ! -f /tmp/no-lan ] || return 1
+			case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac
+		}
 		cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
 		cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 		_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
@@ -85,8 +88,6 @@ service() (
 		cpxy_geo_healthy() { return 0; }
 		cpxy_geo_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "geo_up $CPXY_TUN $CPXY_TABLE" >>"$LOG"; }
 		cpxy_geo_down() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "geo_down $CPXY_TUN" >>"$LOG"; }
-	elif [ "$1" = cpxy-route-guard ]; then
-		cpxy_geo_guard() { echo "boot_guard $*" >>"$LOG"; }
 	fi
 	"$2"
 )
@@ -363,6 +364,10 @@ want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 off'
 want 'append command --proxy-route 0.0.0.0/0'
 want 'append file /usr/bin/cpxy-router'
 [ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
+touch /tmp/no-lan
+if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP activated with an unresolved LAN'; fi
+grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
+rm /tmp/no-lan
 uci set cpxy.main.router_ipv6=full
 if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP IPv6 accepted'; fi
 grep -q 'requires router_ipv6 off' /tmp/err || fail 'missing GeoIP IPv6 error'
@@ -379,11 +384,6 @@ uci delete cpxy.main.routing_table
 router stop_service
 want 'geo_down cpxy0'
 [ -f /etc/cpxy/router-guards/main ] || fail 'stop lost next-boot assignments'
-: >"$LOG"
-service cpxy-route-guard start
-want 'boot_guard cpxy0 br-lan br-extra'
-[ -f /tmp/cpxy/instances/main ] || fail 'boot guard did not record owned resources'
-router stop_service
 uci set cpxy.main.router_geoip=0
 router start_service
 [ ! -f /etc/cpxy/router-guards/main ] || fail 'legacy mode retained a stale boot snapshot'

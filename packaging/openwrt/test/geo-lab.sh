@@ -7,6 +7,7 @@ geo_up() { in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_up '$WORK/direct.cidrs'
 geo_direct() { in_lan curl -fsS --max-time 3 --noproxy '*' http://114.114.114.114:8000/index.html; }
 check "GeoIP full dataset installs" geo_up
 check "GeoIP direct TCP works with no worker or server" geo_direct
+check_not "GeoIP TCP optimization does not newly forward public ICMP" in_lan ping -c1 -W1 114.114.114.114
 mark; check_not "GeoIP proxy TCP without worker fails closed" fetch
 expect_not_direct "GeoIP no worker does not leak"
 check_not "GeoIP IPv6 TCP cannot bypass IPv4 policy" fetch "$URL_V6"
@@ -31,6 +32,7 @@ sleep 1
 mark; check "GeoIP second instance uses its assigned exit" guest_fetch
 expect_seen "GeoIP second instance source" 192.0.3.1
 check "GeoIP repeat generation switches safely" geo_up
+check "GeoIP event reload accepts closed stdin" in_router sh -c ". '$NET'; . '$GEO'; exec 0<&-; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r lan0r"
 check "GeoIP active generation is healthy" in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_healthy '$WORK/direct.cidrs' wan0r lan0r"
 
 # Force a whole /8 containing the more-specific regional test destination through the proxy.

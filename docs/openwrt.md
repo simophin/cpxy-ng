@@ -20,8 +20,8 @@ instance's TUN/table/priorities, requires an explicit stop/start. Stop restores 
 access, so use a maintenance window if continuous protection is required.
 
 After the first successful start, the package saves resource assignments (no server keys) under
-`/etc/cpxy/router-guards/`. Its `cpxy-route-guard` helper restores protection before OpenWrt starts
-network forwarding on subsequent boots. Keep that helper enabled. Shutdown retains protection;
+`/etc/cpxy/router-guards/`. The firewall boot guard restores protection before OpenWrt starts
+network forwarding on subsequent boots. Shutdown retains protection;
 an explicit router-service stop removes runtime protection while retaining assignments for the
 next enabled boot. Uninstall removes the saved assignments. Unchanged reloads do not rewrite
 these files. Apply and verify a new configuration before rebooting it into service.

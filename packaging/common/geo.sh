@@ -50,7 +50,7 @@ cpxy_geo_healthy() {
 		done
 	done
 	for dev in "$@"; do
-		ip -4 rule show priority "$CPXY_PRIO_TUN" | grep -qF "iif $dev lookup $active" || return 1
+		ip -4 rule show priority "$CPXY_PRIO_TUN" | grep -qF "iif $dev ipproto tcp lookup $active" || return 1
 		ip -4 rule show priority "$CPXY_PRIO_QUIC" | grep -qF "iif $dev ipproto udp dport 443 prohibit" || return 1
 		ip -4 rule show priority "$CPXY_PRIO_QUIC" | grep -qF "iif $dev ipproto tcp dport 853 prohibit" || return 1
 	done
@@ -84,11 +84,16 @@ cpxy_geo_up() (
 				else print "route add", $0, "via", gateway, "dev", wan, "onlink metric 10 table", table
 			}
 		}' "$prefixes" >"$work/batch" || return 1
-	ip -4 -batch "$work/batch" || return 1
+	# procd event scripts may inherit a closed fd 0. Older iproute2 opens its netlink
+	# socket there, then freopen(batch, stdin) replaces it: ENOTSOCK on the first route.
+	ip -4 -batch "$work/batch" </dev/null || return 1
 	count="$(wc -l <"$prefixes")"
 	[ "$wan" = - ] || copies=2
 	actual="$(ip -4 route show table "$stage" | wc -l)"
-	[ "$actual" -eq "$((count * copies + 2))" ] || return 1
+	[ "$actual" -eq "$((count * copies + 2))" ] || {
+		echo "GeoIP table $stage has $actual routes; expected $((count * copies + 2))" >&2
+		return 1
+	}
 	# Stage is complete. Remove selectors while the independent guards remain installed.
 	for fam in -4 -6; do
 		_cpxy_flush_rules "$fam" "$CPXY_PRIO_MAIN"
@@ -101,7 +106,7 @@ cpxy_geo_up() (
 		ip -4 rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto udp dport 443 prohibit || return 1
 		ip -4 rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto tcp dport 853 prohibit || return 1
 		ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
-		ip -4 rule add priority "$CPXY_PRIO_TUN" iif "$dev" lookup "$stage" || return 1
+		ip -4 rule add priority "$CPXY_PRIO_TUN" iif "$dev" ipproto tcp lookup "$stage" || return 1
 	done
 	# The worker's TUN writes are replies, never a fresh GeoIP decision.
 	ip -4 rule add priority "$CPXY_PRIO_MAIN" iif "$CPXY_TUN" lookup main suppress_prefixlength 0 || return 1

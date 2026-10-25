@@ -42,7 +42,11 @@ _validate_network() {
 		DEVICES="$DEVICES $dev"
 		LAN_DEVS="$LAN_DEVS $dev"
 	else
-		cpxy_log "$SECTION: interface '$iface' has no device yet; awaiting network event"
+		if [ "$CPXY_GEOIP" = 1 ]; then
+			_invalid "$SECTION: interface '$iface' has no device yet; retaining boot protection until its network event"
+		else
+			cpxy_log "$SECTION: interface '$iface' has no device yet; awaiting network event"
+		fi
 	fi
 }
 
@@ -203,7 +207,11 @@ _start_instance() {
 		# Record before setup so partial failures remain removable.
 		if [ "$GEOIP" = 1 ]; then
 			[ -f "$CPXY_STATE/$1" ] || cp "$state" "$CPXY_STATE/$1"
-			cpxy_geo_up "$PLAN/routes/$1" $UPLINK $LAN_DEVS || { cpxy_log "$1: GeoIP route generation failed; protection retained"; APPLY_OK=0; return 1; }
+			if ! cpxy_geo_up "$PLAN/routes/$1" $UPLINK $LAN_DEVS >"$PLAN/routes/$1.log" 2>&1; then
+				cpxy_log "$1: GeoIP route generation failed; protection retained: $(tail -n 4 "$PLAN/routes/$1.log")"
+				APPLY_OK=0
+				return 1
+			fi
 		else
 			cp "$state" "$CPXY_STATE/$1"
 			cpxy_net_up $LAN_DEVS || { cpxy_log "$1: could not set up policy routing"; APPLY_OK=0; return 1; }

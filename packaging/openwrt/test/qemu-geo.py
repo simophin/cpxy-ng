@@ -234,6 +234,20 @@ def main():
                 assert regional == '192.0.2.2', f'regional path: {regional}'
                 assert proxied == '93.184.216.34', f'proxy path: {proxied}'
 
+            def wait_paths():
+                # A main-table selector can be ready while another instance is still
+                # staging and the shared startup barrier deliberately refuses forwarding.
+                deadline = time.monotonic() + 60
+                while True:
+                    try:
+                        paths()
+                        assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
+                        return
+                    except subprocess.CalledProcessError:
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(1)
+
             console.command('sleep 3; ip -4 rule show; ip -4 route show table 100 | wc -l')
             (results / 'enforce').touch()
             def probe():
@@ -274,8 +288,8 @@ def main():
             ns('inet', 'ip', 'addr', 'add', '192.0.2.254/24', 'dev', 'nic')
             console.command('uci set network.wan.gateway=192.0.2.254; uci commit network; /etc/init.d/network reload; sleep 5', 120)
             # netifd's interface event is asynchronous, especially under software emulation.
-            console.command("for n in $(seq 1 60); do active=$(ip -4 rule show priority 9103 | awk '/lookup/ {print $NF; exit}'); ip -4 route show table \"$active\" | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route show table \"$active\" | grep -q 'via 192.0.2.254'", 150)
-            paths()
+            console.command("for n in $(seq 1 60); do ip -4 route get 114.114.114.114 from 192.168.8.50 iif br-lan ipproto tcp dport 8000 2>/dev/null | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route get 114.114.114.114 from 192.168.8.50 iif br-lan ipproto tcp dport 8000 | grep -q 'via 192.0.2.254'", 150)
+            wait_paths()
             console.command("ip -4 route show table 100 | grep -q 'via 192.0.2.254' || ip -4 route show table 10100 | grep -q 'via 192.0.2.254'")
             print('PASS: VM netifd gateway change reconciles direct routes', flush=True)
             console.command('kill -STOP $(pidof cpxy-router)')
@@ -314,7 +328,7 @@ def main():
         except Exception:
             if 'console' in locals():
                 with contextlib.suppress(Exception):
-                    console.command('ip -4 rule show; ip -4 route show table main; logread -e cpxy | tail -40', 30)
+                    console.command('ip -4 rule show; ip -4 route show table main; iptables -vnL CPXY_BOOT 2>/dev/null; logread -e cpxy | tail -40', 30)
             raise
         finally:
             stop_probes.set()

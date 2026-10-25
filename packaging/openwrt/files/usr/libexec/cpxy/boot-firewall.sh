@@ -49,7 +49,7 @@ for state in /etc/cpxy/router-guards/*; do
 		# A complete capture selector plus both terminal guards safely handles even a
 		# missing table. During boot netifd removes these, while this barrier survives.
 		protected=1
-		ip -4 rule show priority "$((priority + 3))" | grep -qF "iif $dev lookup " || protected=0
+		ip -4 rule show priority "$((priority + 3))" | grep -qF "iif $dev ipproto tcp lookup " || protected=0
 		for fam in -4 -6; do
 			ip "$fam" rule show priority "$((priority + 4))" | grep -qF "iif $dev " || protected=0
 		done
