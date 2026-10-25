@@ -2,15 +2,14 @@
 
 `cpxy-rtp` runs one end of the RTP-framed IPv4 tunnel. An **endpoint** accepts
 clients over UDP and forwards their traffic to selected private networks (service
-CIDRs). A **client** connects to an endpoint, or to a
-[generic UDP relay](../udp-relay/README.md) in front of one. It is not an
+CIDRs). A **client** connects directly to the endpoint. It is not an
 internet VPN: only the configured service CIDRs are routed, and IPv4 with
 MTU 1200 is the only mode.
 
 ## Running an endpoint
 
 CI builds static musl binaries for x86_64 and aarch64 (the `cpxy-rtp-<target>`
-artifacts, which also contain `cpxy-udp-relay`). They have no runtime
+artifacts). They have no runtime
 dependencies: copy one to a Linux host with `/dev/net/tun`, iproute2 and a public
 IPv4 address, and run it as root (it owns a TUN, routes and firewall rules):
 
@@ -70,7 +69,7 @@ Commonly used endpoint settings, with defaults:
 | `--firewall` | `auto` | `auto`, `firewalld` or `none` |
 
 Each process uses the fixed identity `cpxy-rtp` for its leases and firewall
-rules, and as its relay management owner. Run one endpoint per state directory.
+rules. Run one endpoint per state directory.
 
 `cpxy-rtp endpoint doctor` prints read-only diagnostics as JSON: whether the
 password variable is set, TUN availability, socket binding, the firewalld policy
@@ -130,17 +129,6 @@ DNS is metadata only: `--dns-resolver` (inside a service CIDR) with
 persistent fail-closed local resolver that never retries those suffixes publicly.
 The service never changes DNS.
 
-## Relays
-
-A plain relay with fixed mappings needs nothing from the endpoint. For a relay
-whose listeners follow the endpoint's port rotation, pass `--relay-management`
-with the relay's mTLS management address and the `--relay-server-name`,
-`--relay-ca`, `--relay-certificate`, `--relay-private-key`, `--relay-listen-ip`
-and `--relay-endpoint-ip` flags (all required together); the relay's
-`authority.owner` must be `cpxy-rtp`. Each base, initial and
-rotating port is then prepared and committed on the relay before the endpoint
-advertises it; see the [relay README](../udp-relay/README.md).
-
 ## Namespace client
 
 `cpxy-rtp client ... namespace -- COMMAND` needs unprivileged user, network and
@@ -155,7 +143,7 @@ stops the service; without COMMAND it runs until a signal.
 
 ```sh
 cargo test -p port-admission -p rtp-l3 -p rtp-service --locked
-cargo build -p rtp-service -p udp-relay -p port-admission
+cargo build -p rtp-service -p port-admission
 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
 RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
 unshare -Urnm bash rtp-service/tests/linux-applications.sh

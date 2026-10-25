@@ -21,12 +21,7 @@ arbitrary rules, shell commands, zones or destinations. Serialize multiple
 profiles through that manager. Keep permanent configuration and unrelated rules
 outside its ownership.
 
-| Host/role | UDP admission policy |
-| --- | --- |
-| Direct endpoint | Configured client ingress CIDRs to the endpoint's live ports |
-| Relay frontend | Configured client ingress CIDRs to that profile's live public ports |
-| Relayed endpoint | Relay egress address(es) to the matching backend ports |
-| Relay backend sockets | Connected sockets to the fixed backend peer; verify normal stateful return admission rather than opening the ephemeral source-port range |
+The endpoint admits configured client ingress CIDRs to its live UDP ports.
 
 Do not assume a production client's address is the PoC's measured /32. Admission
 CIDRs are explicit profile policy, potentially public admission when deliberately
@@ -36,9 +31,8 @@ configured. Never expand firewall policy from an unauthenticated UDP request.
 
 Each software lease records profile, owner/boot generation, lease ID, bind IP,
 numeric port, UDP protocol, exact canonical rule(s), zone, socket handle and
-state. The same generation is used by the relay controller. The journal is
-written atomically before mutations and reconciled after restart. It contains
-no VPN keys or port secrets.
+state. The journal is written atomically before mutations and reconciled after
+restart. It contains no VPN keys or port secrets.
 
 ```text
 prepare(spec, generation) -> lease ready | error
@@ -68,8 +62,7 @@ Keeping live rules untimed separates service liveness/ownership from rule TTLs.
    ownership. A preexisting identical rule is not automatically ours to delete;
    require an explicit administrator-managed policy or report the conflict.
 3. Add only missing owned runtime rules and query them. Readiness means the
-   socket and required rules are present. With a relay, also await its prepared
-   same-port lease as specified in the [relay design](udp-relay-design.md).
+   socket and required rules are present.
 4. Commit the endpoint state/secret and only then advertise STATE. A bounded
    staged socket may temporarily exist in addition to base/current/previous.
 5. On any preparation failure, release only this attempt's resources and keep

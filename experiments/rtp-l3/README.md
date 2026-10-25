@@ -109,7 +109,7 @@ lifecycle.
 
 See the [protocol specification](../../docs/rtp-l3-protocol.md),
 [retired PoC closeout](../../docs/rtp-l3-poc-handoff.md),
-[application and relay plan](../../docs/rtp-l3-application-plan.md),
+[application plan](../../docs/rtp-l3-application-plan.md),
 [Z4 repair acceptance](../../docs/rtp-l3-z4-repair-results.md), and
 [historical cross-host results](../../docs/rtp-l3-cross-host-results.md), including
 the preserved original idle failure. Earlier measured configurations are historical

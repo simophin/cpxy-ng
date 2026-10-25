@@ -11,8 +11,7 @@
 - [GeoIP data source](geoip-data/SOURCE.md)
 - [OpenWrt router DNS design notes](docs/openwrt-router-dns-handoff.md)
 - [Mobile VPN app plan](docs/mobile-vpn-plan.md)
-- [RTP L3 application and relay plan](docs/rtp-l3-application-plan.md): managed Linux services, dynamic firewalld ports and a generic UDP relay
-- [Generic UDP relay design](docs/udp-relay-design.md): standalone opaque datagram forwarding and listener lifecycle
+- [RTP L3 application plan](docs/rtp-l3-application-plan.md): managed Linux services, dynamic firewalld ports and packet-engine integration
 
 ### Fixed proxy routes
 

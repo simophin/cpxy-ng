@@ -3,15 +3,13 @@
 use crate::{
     config::{FirewallMode, Firewalld, Role, Settings},
     network::{Dns, DnsMode, Network},
-    relay::RelayConfig,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddrV4},
     path::PathBuf,
 };
-use udp_relay::management::{ClientConfig, Tls};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -32,7 +30,7 @@ pub enum RoleCommand {
         #[command(subcommand)]
         action: Option<Action>,
     },
-    /// Connect to an endpoint or relay entry.
+    /// Connect to an endpoint.
     Client {
         #[command(flatten)]
         args: ClientArgs,
@@ -161,35 +159,12 @@ pub struct EndpointArgs {
     /// Keep client source addresses; backends then need a return route to the tunnel pool.
     #[arg(long, env = "CPXY_RTP_NO_MASQUERADE")]
     pub no_masquerade: bool,
-    #[command(flatten)]
-    pub relay: RelayArgs,
-}
-#[derive(Args, Debug, Clone)]
-pub struct RelayArgs {
-    /// Relay management address; enables coordinated relay port leases.
-    #[arg(long, env = "CPXY_RTP_RELAY_MANAGEMENT",
-        requires_all = ["relay_server_name", "relay_ca", "relay_certificate", "relay_private_key", "relay_listen_ip", "relay_endpoint_ip"])]
-    pub relay_management: Option<SocketAddr>,
-    #[arg(long, env = "CPXY_RTP_RELAY_SERVER_NAME")]
-    pub relay_server_name: Option<String>,
-    #[arg(long, env = "CPXY_RTP_RELAY_CA")]
-    pub relay_ca: Option<PathBuf>,
-    #[arg(long, env = "CPXY_RTP_RELAY_CERTIFICATE")]
-    pub relay_certificate: Option<PathBuf>,
-    #[arg(long, env = "CPXY_RTP_RELAY_PRIVATE_KEY")]
-    pub relay_private_key: Option<PathBuf>,
-    /// Relay public IPv4 that clients use as their entry.
-    #[arg(long, env = "CPXY_RTP_RELAY_LISTEN_IP")]
-    pub relay_listen_ip: Option<Ipv4Addr>,
-    /// This endpoint's public IPv4 as seen by the relay.
-    #[arg(long, env = "CPXY_RTP_RELAY_ENDPOINT_IP")]
-    pub relay_endpoint_ip: Option<Ipv4Addr>,
 }
 #[derive(Args, Debug, Clone)]
 pub struct ClientArgs {
     #[command(flatten)]
     pub common: Common,
-    /// Endpoint or relay entry: public IPv4 and base port.
+    /// Endpoint public IPv4 and base port.
     #[arg(long, env = "CPXY_RTP_ENTRY")]
     pub entry: SocketAddrV4,
     #[arg(long, env = "CPXY_RTP_BIND", default_value = "0.0.0.0:0")]
@@ -250,8 +225,7 @@ fn network(common: &Common, address: &str, clients: Vec<Ipv4Addr>) -> io::Result
         }),
     }))
 }
-/// One instance per host: a fixed identity labels leases, firewalld rules and
-/// the relay management owner (the relay's `authority.owner` must match).
+/// A fixed identity labels leases and firewalld rules for each instance.
 pub const NAME: &str = "cpxy-rtp";
 fn journal(common: &Common) -> PathBuf {
     common.state_dir.join("state.json")
@@ -263,24 +237,6 @@ impl EndpointArgs {
             let base = self.listen.port();
             (base.saturating_add(1), base.saturating_add(8))
         });
-        let r = &self.relay;
-        let relay = match r.relay_management {
-            None => None,
-            Some(address) => Some(RelayConfig {
-                management: ClientConfig {
-                    address,
-                    server_name: r.relay_server_name.clone().unwrap_or_default(),
-                    tls: Tls {
-                        ca: r.relay_ca.clone().unwrap_or_default(),
-                        certificate: r.relay_certificate.clone().unwrap_or_default(),
-                        private_key: r.relay_private_key.clone().unwrap_or_default(),
-                    },
-                    owner: NAME.into(),
-                },
-                listen_ip: IpAddr::V4(r.relay_listen_ip.unwrap_or(Ipv4Addr::UNSPECIFIED)),
-                endpoint_ip: IpAddr::V4(r.relay_endpoint_ip.unwrap_or(Ipv4Addr::UNSPECIFIED)),
-            }),
-        };
         let settings = Settings {
             profile: NAME.into(),
             journal: journal(c),
@@ -308,7 +264,6 @@ impl EndpointArgs {
                 tunnel_zone: self.firewalld_tunnel_zone.clone(),
                 masquerade: !self.no_masquerade,
             },
-            relay,
         };
         settings.validate()?;
         Ok(settings)
@@ -340,7 +295,6 @@ impl ClientArgs {
             keepalive_seconds: c.keepalive_seconds,
             firewall: FirewallMode::None,
             firewalld: Firewalld::default(),
-            relay: None,
         };
         settings.validate()?;
         Ok(settings)
@@ -421,8 +375,8 @@ mod tests {
         );
     }
     #[test]
-    fn relay_flags_are_all_or_nothing() {
-        assert!(Cli::try_parse_from([
+    fn removed_relay_management_flag_is_rejected() {
+        let error = Cli::try_parse_from([
             "cpxy-rtp",
             "endpoint",
             "--listen",
@@ -430,6 +384,7 @@ mod tests {
             "--relay-management",
             "192.0.2.9:7000",
         ])
-        .is_err());
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 }

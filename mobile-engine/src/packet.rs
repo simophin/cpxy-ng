@@ -24,7 +24,7 @@ pub enum ApplicationProfile {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PacketProfile {
-    /// Public IPv4 endpoint or opaque relay entry; advertised ports share this IP.
+    /// Public IPv4 endpoint; advertised ports share this IP.
     pub entry: SocketAddr,
     /// Logical endpoint label bound to the secure key reference by the platform.
     pub endpoint_identity: String,

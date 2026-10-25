@@ -15,4 +15,3 @@ serde_json = "1"
 libc = "0.2"
 clap = { version = "4", features = ["derive", "env"] }
 port-admission = { path = "../port-admission" }
-udp-relay = { path = "../udp-relay" }
