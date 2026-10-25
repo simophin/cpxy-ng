@@ -23,8 +23,14 @@ TUN_PID=$!
 sleep 1
 mark; check "GeoIP non-regional TCP is proxied" fetch
 expect_seen "GeoIP proxy uses server source" 93.184.216.34
+check "GeoIP second instance installs" in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select cpxy1 101 9110; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r guest0r"
+bg ip netns exec router env SERVER=http://:guestlab@192.0.3.1:8444 "$BIN/cpxy-router" --tun cpxy1 --ipv6 off --proxy-route 0.0.0.0/0 >>"$WORK/guest-tun.log" 2>&1
+GUEST_PID=$!
+sleep 1
+mark; check "GeoIP second instance uses its assigned exit" guest_fetch
+expect_seen "GeoIP second instance source" 192.0.3.1
 check "GeoIP repeat generation switches safely" geo_up
-check "GeoIP active generation is healthy" in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_healthy '$WORK/direct.cidrs' lan0r"
+check "GeoIP active generation is healthy" in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_healthy '$WORK/direct.cidrs' wan0r lan0r"
 
 # Force a whole /8 containing the more-specific regional test destination through the proxy.
 "$BIN/cpxy-router" --export-direct-routes --proxy-route 114.0.0.0/8 >"$WORK/direct.cidrs"
@@ -42,15 +48,33 @@ check_not "GeoIP malformed batch cannot activate" in_router sh -c ". '$NET'; . '
 mark; check "GeoIP old generation still proxies after failure" fetch
 expect_not_direct "GeoIP failed batch has no WAN fallback"
 
+"$BIN/cpxy-router" --export-direct-routes --proxy-route 0.0.0.0/0 >"$WORK/direct.cidrs"
+check "GeoIP all-proxy policy accepts an empty direct list" geo_up
+check "GeoIP empty direct list still reaches regional destination via server" geo_direct
+"$BIN/cpxy-router" --export-direct-routes >"$WORK/direct.cidrs"
+check "GeoIP restores automatic regional policy" geo_up
+check "GeoIP unavailable WAN stages direct refusals" in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_up '$WORK/direct.cidrs' - - lan0r"
+check_not "GeoIP missing WAN does not move regional TCP into proxy" geo_direct
+check "GeoIP WAN recovery restores direct routes" geo_up
+check "GeoIP recovered WAN direct TCP works" geo_direct
+active="$(in_router ip -4 rule show priority 9103 | awk '/lookup/ { print $NF; exit }')"
+# Remove every device-bound direct route, as Linux does during WAN interface teardown.
+in_router ip -4 route flush table "$active" dev wan0r
+check_not "GeoIP removed WAN routes retain per-prefix refusal" geo_direct
+check "GeoIP restores WAN routes after device teardown" geo_up
+
 active="$(in_router ip -4 rule show priority 9103 | awk '/lookup/ { print $NF; exit }')"
 in_router ip -4 route flush table "$active"
 mark; check_not "GeoIP missing table fails closed" fetch
 expect_not_direct "GeoIP missing table has no WAN fallback"
+mark; check "GeoIP main table failure leaves guest working" guest_fetch
+expect_seen "GeoIP guest exit survives main failure" 192.0.3.1
 check "GeoIP restores a deleted table" geo_up
 in_router ip link del cpxy0
 mark; check_not "GeoIP deleted TUN fails closed" fetch
 expect_not_direct "GeoIP deleted TUN has no WAN fallback"
-kill "$TUN_PID" "$SERVER_PID"
+kill "$TUN_PID" "$SERVER_PID" "$GUEST_PID"
+check "GeoIP guest stop cleans its generations" in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select cpxy1 101 9110; cpxy_geo_down"
 check "GeoIP stop cleans both generations" in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_down"
 mark; check "GeoIP stop restores ordinary WAN" fetch
 expect_seen "GeoIP stop uses WAN source" 192.0.2.2

@@ -2,6 +2,12 @@
 
 Proposed implementation plan, 2026-10-25. No runtime changes are made by this document.
 
+Implementation note: the first delivery is opt-in via `router_geoip`, with an independent
+`router_ipv6 off` default so shared Tailscale settings are retained. It supports explicit
+stop/start migration and two table generations (`routing_table` and `routing_table + 10000`).
+OpenWrt's procd service lock serializes reconciliation. Hardware/software flow offloading must
+be disabled. Offloading support and seamless live resource reassignment are deferred.
+
 Use Linux policy routing and destination routes, generated from cpxy's bundled GeoIP data.
 cpxy owns their lifecycle. Do not add a separate OpenWrt GeoIP/PBR package or a downloaded
 country-list service. Retain the existing `ip-full` and `kmod-tun` dependencies.
@@ -28,6 +34,11 @@ incompatible effective IPv6 setting before mutation with a clear configuration e
 router configuration/defaults and migration documentation rather than silently ignoring it.
 Shared mobile/Tailscale IPv6 behavior is outside this change.
 
+DNS decision: keep the current per-instance `?via=cpxy` alternative upstreams and router-local
+dnsmasq bootstrap. DNS and kernel membership already share `geoip-data`. The marked DNS sockets
+and dnsmasq upstream replacement from the older VPN handoff are needed only with future
+router-originated IP-VPN capture; adding them now would introduce a bootstrap dependency.
+
 For that future VPN, retain the earlier plan's optional `router_instance` and explicit server
 socket bypass. Router-originated capture needs its own marked-output design, server resolution
 and bootstrap tests. Do not enable it as an incidental change to today's router package.
@@ -38,7 +49,9 @@ Use each instance's policy table for both direct exceptions and the tunnel defau
 
 ```text
 <eligible-direct-prefix-1> via <WAN gateway> dev <WAN device>
+unreachable <eligible-direct-prefix-1> metric 1000
 <eligible-direct-prefix-2> via <WAN gateway> dev <WAN device>
+unreachable <eligible-direct-prefix-2> metric 1000
 ...
 default dev cpxy<i> metric 10
 unreachable default metric 1000
@@ -47,6 +60,9 @@ unreachable default metric 1000
 A normal destination takes the TUN default; an eligible direct destination takes its more-specific
 WAN route. The unreachable default prevents non-direct traffic from falling through when the TUN
 disappears. A terminal refusal rule after the table lookup also protects an empty/missing table.
+Direct unicast routes use metric 10. Their per-prefix unreachable backups survive WAN device
+teardown, so regional traffic cannot fall into the tunnel default during reconciliation. These
+backups double the regional route count when WAN is up; include them in memory/load measurements.
 See the Linux [route](https://man7.org/linux/man-pages/man8/ip-route.8.html) and
 [policy-rule](https://man7.org/linux/man-pages/man8/ip-rule.8.html) documentation.
 

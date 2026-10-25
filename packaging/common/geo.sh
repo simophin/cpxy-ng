@@ -33,26 +33,32 @@ cpxy_geo_uplink() {
 }
 
 cpxy_geo_healthy() {
-	local active actual expected
+	local active actual expected copies=1 wan="$2"
+	[ "$wan" = - ] || copies=2
 	active="$(ip -4 rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
 	case "$active" in "$CPXY_TABLE" | "$((CPXY_TABLE + 10000))") ;; *) return 1 ;; esac
 	expected="$(wc -l <"$1")"
 	actual="$(ip -4 route show table "$active" | wc -l)"
-	[ "$actual" -eq "$((expected + 2))" ] || return 1
+	[ "$actual" -eq "$((expected * copies + 2))" ] || return 1
 	ip -4 route show table "$active" default | grep -q 'unreachable default' || return 1
 	ip -4 route show table "$active" default | grep -q "default dev $CPXY_TUN " || return 1
-	shift
+	shift 2
 	local dev fam
 	for dev in "$CPXY_TUN" "$@"; do
 		for fam in -4 -6; do
 			ip "$fam" rule show priority "$((CPXY_PRIO_MAIN + 4))" | grep -qF "iif $dev " || return 1
 		done
 	done
+	for dev in "$@"; do
+		ip -4 rule show priority "$CPXY_PRIO_TUN" | grep -qF "iif $dev lookup $active" || return 1
+		ip -4 rule show priority "$CPXY_PRIO_QUIC" | grep -qF "iif $dev ipproto udp dport 443 prohibit" || return 1
+		ip -4 rule show priority "$CPXY_PRIO_QUIC" | grep -qF "iif $dev ipproto tcp dport 853 prohibit" || return 1
+	done
 }
 
 # cpxy_geo_up <CIDR file> <gateway or -> <WAN device or -> <LAN devices...>
 cpxy_geo_up() (
-	local prefixes="$1" gateway="$2" wan="$3" dev fam active stage work count actual
+	local prefixes="$1" gateway="$2" wan="$3" dev fam active stage work count actual copies=1
 	shift 3
 	[ -f "$prefixes" ] || return 1
 	cpxy_geo_guard "$CPXY_TUN" "$@" || return 1
@@ -71,14 +77,18 @@ cpxy_geo_up() (
 	awk -v table="$stage" -v gateway="$gateway" -v wan="$wan" '
 		{
 			if ($0 !~ /^[0-9.]+\/[0-9]+$/) exit 1
-			if (wan == "-") print "route add unreachable", $0, "table", table
-			else if (gateway == "-") print "route add", $0, "dev", wan, "table", table
-			else print "route add", $0, "via", gateway, "dev", wan, "onlink table", table
+			# Device-bound routes disappear on WAN teardown; the backup must remain.
+			print "route add unreachable", $0, "metric 1000 table", table
+			if (wan != "-") {
+				if (gateway == "-") print "route add", $0, "dev", wan, "metric 10 table", table
+				else print "route add", $0, "via", gateway, "dev", wan, "onlink metric 10 table", table
+			}
 		}' "$prefixes" >"$work/batch" || return 1
 	ip -4 -batch "$work/batch" || return 1
 	count="$(wc -l <"$prefixes")"
+	[ "$wan" = - ] || copies=2
 	actual="$(ip -4 route show table "$stage" | wc -l)"
-	[ "$actual" -eq "$((count + 2))" ] || return 1
+	[ "$actual" -eq "$((count * copies + 2))" ] || return 1
 	# Stage is complete. Remove selectors while the independent guards remain installed.
 	for fam in -4 -6; do
 		_cpxy_flush_rules "$fam" "$CPXY_PRIO_MAIN"
@@ -99,6 +109,14 @@ cpxy_geo_up() (
 	if [ -n "$active" ] && [ "$active" != "$stage" ]; then
 		ip -4 route flush table "$active" || return 1
 	fi
+	# A removed LAN must regain its ordinary routing after the replacement is active.
+	for fam in -4 -6; do
+		for dev in $(ip "$fam" rule show priority "$((CPXY_PRIO_MAIN + 4))" | awk '{for(i=1;i<NF;i++) if($i=="iif") print $(i+1)}'); do
+			case " $CPXY_TUN $* " in *" $dev "*) ;; *)
+				ip "$fam" rule del priority "$((CPXY_PRIO_MAIN + 4))" iif "$dev" prohibit || return 1 ;;
+			esac
+		done
+	done
 )
 
 cpxy_geo_down() {

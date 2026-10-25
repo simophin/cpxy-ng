@@ -1,5 +1,39 @@
 # cpxy on OpenWrt: user guide
 
+## Optional kernel IPv4 GeoIP routing
+
+Set `option router_geoip '1'` in an instance or `defaults` to forward regional/private IPv4 TCP
+directly in the kernel. The package uses its bundled DB-IP data, shared with split DNS; it needs
+no additional GeoIP/PBR package or list downloads. Other captured TCP goes through the instance's
+cpxy server. `proxy_route` still overrides regional/private classification, after existing
+connected-network exceptions.
+
+This mode is IPv4-only. Leave `router_ipv6 'off'` (its default): forwarded IPv6 is refused to
+prevent bypass, and this router's split DNS returns no AAAA answers. Router-local and on-link
+IPv6 communication remains possible. The shared `ipv6` option continues to control Tailscale;
+it does not enable IPv6 in kernel GeoIP mode. IPv6 `proxy_route` entries are rejected in this mode.
+
+Before first enabling it, stop `cpxy-router`; disable `flow_offloading` and `flow_offloading_hw`
+in the firewall defaults and reload the firewall. Set `router_geoip '1'`, commit cpxy and start
+the router service. Changing between legacy and kernel GeoIP mode, or changing a running GeoIP
+instance's TUN/table/priorities, requires an explicit stop/start. Stop restores ordinary WAN
+access, so use a maintenance window if continuous protection is required.
+
+The initial implementation supports one simple IPv4 default in `main`, including gateway-based
+and point-to-point uplinks. ECMP and third-party policy-routing configurations need separate
+integration. Each GeoIP instance reserves its configured routing table and that table plus
+10,000, and five priorities beginning at `rule_priority`. A changed WAN gateway triggers route
+reconciliation. Missing policy tables/TUNs refuse proxy traffic; failed batches retain the old
+generation or protection. Reloads can reconnect flows whose policy changes.
+
+Existing source-zone forwarding rules must permit direct WAN traffic, with normal WAN IPv4
+masquerading. The package preserves administrator firewall denies. Kernel-direct flows no longer
+appear in the packet engine's traffic log/API. `cpxy-show` reports the active table, route count
+and dataset identity. GeoIP mode remains opt-in pending physical-router validation.
+
+The [implementation and test plan](openwrt-geoip-routing-plan.md) covers failure handling and
+the distinction between this TCP router and the future full IP VPN.
+
 The `cpxy` package puts your networks behind cpxy servers, with nothing to set up on the devices.
 For each set of networks (for example `lan`, `guest` and `iot`) it runs one **instance**, with its
 own cpxy server and three services:

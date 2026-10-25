@@ -61,7 +61,12 @@ _validate_instance() {
 		return
 	}
 	_cpxy_uint "$priority" 1 32762 || { _invalid "$SECTION: rule_priority must be 1..32762"; return; }
+	if [ "$CPXY_GEOIP" != 1 ] && [ -f "$CPXY_STATE/$SECTION" ] && [ "$(sed -n '8p' "$CPXY_STATE/$SECTION")" = 1 ]; then
+		_invalid "$SECTION: stop cpxy-router before disabling router_geoip"
+		return
+	fi
 	if [ "$CPXY_GEOIP" = 1 ]; then
+		[ "$priority" -le 32761 ] || { _invalid "$SECTION: GeoIP rule_priority must be 1..32761"; return; }
 		[ "$CPXY_ROUTER_IPV6" = off ] || { _invalid "$SECTION: router_geoip requires router_ipv6 off"; return; }
 		mode=off
 		[ "$table" -le 55535 ] || { _invalid "$SECTION: GeoIP routing_table must leave room for staging table +10000"; return; }
@@ -78,7 +83,7 @@ _validate_instance() {
 			set -- "$@" --proxy-route "$entry"
 		done
 		"$CPXY_BIN/cpxy-router" "$@" >"$PLAN/routes/$SECTION" || { _invalid "$SECTION: route export failed"; return; }
-		geo_hash="$(cksum <"$PLAN/routes/$SECTION")"
+		geo_hash="$(sha256sum <"$PLAN/routes/$SECTION")" || { _invalid "$SECTION: policy checksum failed"; return; }
 		# Resource changes must not remove the running instance's guard before replacement.
 		if [ -f "$CPXY_STATE/$SECTION" ]; then
 			[ "$(sed -n '8p' "$CPXY_STATE/$SECTION")" = 1 ] || {
@@ -163,7 +168,9 @@ _start_worker() {
 	# including during policy reloads; never let an old worker reclassify it as direct.
 	[ "$GEOIP" != 1 ] || procd_append_param command --proxy-route 0.0.0.0/0
 	[ "$CPXY_ROUTER_API" = 0 ] || procd_append_param command --api-listen "$CPXY_ROUTER_API_LISTEN"
-	for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
+	if [ "$GEOIP" != 1 ]; then
+		for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
+	fi
 	if [ "$DNS_PORT" != - ]; then
 		procd_append_param command --dns-listen "$CPXY_DNS_LISTEN"
 		for entry in $CPXY_DNS_SEARCH_DOMAINS; do procd_append_param command --dns-search-domain "$entry"; done
@@ -183,12 +190,13 @@ _start_worker() {
 }
 
 _start_instance() {
-	local state="$PLAN/$1"
+	local state="$PLAN/$1" wan
 	[ -f "$state" ] || return 0
 	ROUTED=1
 	_read_state "$state"
+	wan="${UPLINK##* }"
 	if [ ! -f "$CPXY_STATE/$1" ] || ! cmp -s "$state" "$CPXY_STATE/$1" || ! ip link show "$TUN" >/dev/null 2>&1 ||
-		{ [ "$GEOIP" = 1 ] && ! cpxy_geo_healthy "$PLAN/routes/$1" $LAN_DEVS; }; then
+		{ [ "$GEOIP" = 1 ] && ! cpxy_geo_healthy "$PLAN/routes/$1" "$wan" $LAN_DEVS; }; then
 		# Record before setup so partial failures remain removable.
 		if [ "$GEOIP" = 1 ]; then
 			[ -f "$CPXY_STATE/$1" ] || cp "$state" "$CPXY_STATE/$1"
