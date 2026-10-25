@@ -316,3 +316,18 @@ matrix passed on the candidate-probing build; final build regression and the
 full Z4 active/idle acceptance remain required. All completed public deployments
 restored firewall/network snapshots and removed task resources; the private
 local build/key/evidence staging remains until final validation and sanitization.
+
+
+## Acceptance reporting fixture checkpoint
+
+The first final-build ten-minute upload completed with zero fallbacks, 4.985
+Mbit/s received and 0.267% UDP loss, but the harness exited before idle: its text
+interval parser reused the `end` variable holding iperf's final summary and then
+called `.get` on a float. This completed active sample is retained separately;
+it is not full Z4 acceptance. The parser now uses separate interval boundary
+names. Three process-level fixtures cover text output with preserved summary
+metadata, JSON receiver output, and failure-preserving continuation when receiver
+intervals are missing. The Rust implementation and binary are unchanged.
+All server firewall, link, route and forwarding snapshots matched after cleanup;
+processes, TUN, remote staging and key copies were removed. Next: repeat the full
+active/idle sequence with the corrected reporting harness.

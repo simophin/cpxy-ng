@@ -67,11 +67,12 @@ def transfer(name, seconds, udp=False, reverse=False, streams=1):
         # Older/default iperf servers send text to --get-server-output.
         pattern = r'^\[\s*\d+\]\s+([\d.]+)-([\d.]+)\s+sec\s+.*?\s+([\d.]+)\s+ms\s+(\d+)/(\d+)\s+\(([\d.]+)%\)'
         for match in re.finditer(pattern, raw.get('server_output_text', ''), re.M):
-            start, end = float(match[1]), float(match[2])
-            if not 0 < end-start <= 2:
+            interval_start, interval_end = float(match[1]), float(match[2])
+            if not 0 < interval_end-interval_start <= 2:
                 continue  # Exclude the whole-test summary row.
             lost, packets = int(match[4]), int(match[5])
-            intervals.append(dict(start=start, end=end, seconds=end-start,
+            intervals.append(dict(start=interval_start, end=interval_end,
+                seconds=interval_end-interval_start,
                 bytes=(packets-lost)*1000, packets=packets, lost_packets=lost,
                 lost_percent=float(match[6])))
         interval_source = 'receiver_text_rounded_2dp'
