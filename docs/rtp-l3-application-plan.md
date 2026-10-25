@@ -4,7 +4,8 @@ Status: proposed implementation plan, 2026-10-25. This replaces the completed
 [PoC plan](rtp-l3-poc-handoff.md). The validated baseline is `451a27c`;
 [Z4 acceptance](rtp-l3-z4-repair-results.md) is closed. Further ISP/soak campaigns
 are not prerequisites for this phase. Checks below exercise the new features.
-This change adds documentation only; it does not deploy services or alter hosts.
+A1 now provides workspace core/service code and isolated Linux verification.
+No host deployment is implied by the checked milestones.
 
 ## First useful application
 
@@ -74,17 +75,36 @@ Avoid invoking the Python experimental launcher as the shipped application.
 
 ### A1 — Reusable core and managed service lifecycle
 
-- [ ] Extract the proven codec/state/recovery implementation into the workspace,
+- [x] Extract the proven codec/state/recovery implementation into the workspace,
   retain regression coverage and keep one authoritative implementation.
-- [ ] Add typed client/endpoint settings, start/stop/reload handles, cancellation,
+- [x] Add typed client/endpoint settings, start/stop/reload handles, cancellation,
   readiness and health events. Keep the relay configuration/API protocol agnostic.
-- [ ] Separate packet workers from privileged TUN/firewall setup. Define
+- [x] Separate packet workers from privileged TUN/firewall setup. Define
   `prepare_port`, `commit_port`, `retire_port` and `reconcile_ports` boundaries.
-- [ ] Add a service-owned lease journal, cleanup/restart handling and `doctor`
+- [x] Add a service-owned lease journal, cleanup/restart handling and `doctor`
   output for configuration, routing, socket and firewall readiness.
 
 Done when a Linux service starts/stops/restarts without the PoC run scripts,
 closes its descriptors/TUN, and reports path repairs without restarting apps.
+
+A1 evidence (2026-10-25): authoritative workspace crates `rtp-l3` and
+`rtp-service`, historical CLI delegating to the core, and
+[`rtp-service/README.md`](../rtp-service/README.md). All 26 retained codec/state/
+Linux-descriptor regressions and three journal failure/restart/lock fixtures
+pass. The isolated real-TUN fixture `rtp-service/tests/linux-lifecycle.sh`
+passes rotation, SIGHUP reload, process restart, zero-loss post-start pings,
+empty final journals and absent final TUNs. Its repair mode keeps one ping
+process alive across an injected blackholed tuple and observes same-port
+repairing/repaired events before successful post-repair traffic.
+
+The A1 packet/control ownership seam currently uses threads and injected
+providers, not an OS privilege sandbox. Admission calls are synchronous and
+must be bounded; A2 must move pending firewall operations off packet polling.
+Only explicit administrator-managed admission ships here: doctor labels firewall
+readiness unverified. A2 remains responsible for real privileged firewalld
+operations/failure integration; A3 owns service routes, DNS and backend
+application reachability. The service includes independent journal cleanup and
+an optional systemd ExecStopPost template, but no host deployment is claimed.
 
 ### A2 — firewalld-backed dynamic UDP ports (recommended first feature PR)
 

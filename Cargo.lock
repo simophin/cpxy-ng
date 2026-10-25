@@ -3614,6 +3614,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtp-l3"
+version = "0.1.0"
+dependencies = [
+ "chacha20 0.9.1",
+ "hkdf",
+ "hmac",
+ "libc",
+ "rand 0.8.8",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "rtp-service"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rtp-l3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
