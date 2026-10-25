@@ -5,6 +5,12 @@ mod cli {
 
     #[derive(Parser)]
     pub struct Options {
+        /// Print exact IPv4 direct CIDRs, excluding --proxy-route, then exit without a worker.
+        #[arg(long)]
+        pub export_direct_routes: bool,
+        /// Print the embedded IPv4 GeoIP dataset SHA-256 and exit.
+        #[arg(long)]
+        pub geoip_version: bool,
         /// CIDRs forced through the proxy (repeatable or comma-separated).
         #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
         pub proxy_route: Vec<ipnet::IpNet>,
@@ -55,6 +61,56 @@ mod cli {
         use clap::CommandFactory;
 
         #[test]
+        fn exported_routes_match_userspace_policy_at_boundaries() {
+            let proxy = client::outbound::ProxyRoutes::parse(&[
+                "114.0.0.0/8".into(),
+                "10.0.0.0/9".into(),
+                "223.5.5.5/32".into(),
+            ])
+            .unwrap();
+            let cuts = proxy
+                .0
+                .iter()
+                .filter_map(|net| match net {
+                    ipnet::IpNet::V4(n) => Some((u32::from(n.network()), u32::from(n.broadcast()))),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let prefixes = geoip_data::routes::direct_ipv4(&cuts);
+            let mut addresses = vec![
+                0,
+                u32::MAX,
+                0x0a000000,
+                0x0affffff,
+                0x7f000001,
+                0xa9fe0001,
+                0xac100001,
+                0xc0a80001,
+            ];
+            for bytes in geoip_data::CN.chunks_exact(4) {
+                let ip = u32::from_be_bytes(bytes.try_into().unwrap());
+                addresses.extend([ip.saturating_sub(1), ip, ip.saturating_add(1)]);
+            }
+            let mut sample = 42u32;
+            for _ in 0..50_000 {
+                sample = sample.wrapping_mul(1664525).wrapping_add(1013904223);
+                addresses.push(sample);
+            }
+            for ip in addresses {
+                let address = std::net::IpAddr::V4(ip.into());
+                let expected = !proxy.contains(Some(address))
+                    && (client::outbound::is_private(address)
+                        || client::dns_split::is_local_region_ip(address));
+                let index = prefixes.partition_point(|&(start, _)| start <= ip);
+                let actual = index > 0 && {
+                    let (start, prefix) = prefixes[index - 1];
+                    (ip as u64) < start as u64 + (1u64 << (32 - prefix))
+                };
+                assert_eq!(actual, expected, "{address}");
+            }
+        }
+
+        #[test]
         fn api_is_opt_in_and_requires_a_socket_address() {
             Options::command().debug_assert();
             assert!(
@@ -82,6 +138,29 @@ fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::fmt::init();
     let options = Options::parse();
+    if options.geoip_version {
+        println!("{}", geoip_data::IPV4_SHA256);
+        return Ok(());
+    }
+    if options.export_direct_routes {
+        use std::io::Write;
+        let proxy = options
+            .proxy_route
+            .iter()
+            .filter_map(|net| match net {
+                ipnet::IpNet::V4(net) => {
+                    Some((u32::from(net.network()), u32::from(net.broadcast())))
+                }
+                ipnet::IpNet::V6(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+        for (addr, prefix) in geoip_data::routes::direct_ipv4(&proxy) {
+            writeln!(out, "{}/{prefix}", std::net::Ipv4Addr::from(addr))?;
+        }
+        out.flush()?;
+        return Ok(());
+    }
     let server = std::env::var("SERVER")
         .map_err(|_| anyhow::anyhow!("SERVER is required"))?
         .parse()

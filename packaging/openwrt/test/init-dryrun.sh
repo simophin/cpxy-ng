@@ -46,6 +46,11 @@ cat >/etc/init.d/firewall <<'FW'
 echo "firewall $*" >>/tmp/calls.txt
 FW
 chmod +x /etc/init.d/firewall
+cat >/usr/libexec/cpxy/boot-firewall.sh <<'FW'
+#!/bin/sh
+echo "boot_fw $*" >>/tmp/calls.txt
+FW
+chmod +x /usr/libexec/cpxy/boot-firewall.sh
 . /lib/functions.sh
 procd_open_instance() { echo "instance $1" >>"$LOG"; }
 procd_close_instance() { :; }
@@ -71,10 +76,18 @@ service() (
 	. "/etc/init.d/$1"
 	if [ "$1" = cpxy-router ]; then
 		# 'alias' is another network on the guest bridge
-		network_get_device() { case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac; }
+		network_get_device() {
+			[ "$2" != lan ] || [ ! -f /tmp/no-lan ] || return 1
+			case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac
+		}
 		cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
 		cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 		_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
+		cpxy_geo_uplink() { echo '192.0.2.1 wan'; }
+		cpxy_geo_guard() { echo "guard $*" >>"$LOG"; }
+		cpxy_geo_healthy() { return 0; }
+		cpxy_geo_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "geo_up $CPXY_TUN $CPXY_TABLE" >>"$LOG"; }
+		cpxy_geo_down() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "geo_down $CPXY_TUN" >>"$LOG"; }
 	fi
 	"$2"
 )
@@ -329,15 +342,53 @@ if uci -q get firewall.cpxy_inst_guest_dns1; then fail 'disabled guest DNS redir
 # Interface triggers for every routed network
 procd_add_reload_trigger() { :; }
 procd_add_interface_trigger() { echo "trigger $*" >>"$LOG"; }
+procd_add_raw_trigger() { echo "raw_trigger $*" >>"$LOG"; }
 : >"$LOG"
 router service_triggers
 want 'trigger interface.* lan /etc/init.d/cpxy-router reload'
 want 'trigger interface.* iot /etc/init.d/cpxy-router reload'
+want 'raw_trigger interface.* 1000 /etc/init.d/cpxy-router reload'
 absent 'trigger interface.* guest'
 
 router stop_service
 [ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
 if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
+
+# Kernel GeoIP is IPv4-only independently of the shared Tailscale IPv6 setting.
+uci set cpxy.main.router_geoip=1
+: >"$LOG"
+router start_service
+want 'guard cpxy0 br-lan br-extra'
+want 'geo_up cpxy0 100'
+want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 off'
+want 'append command --proxy-route 0.0.0.0/0'
+want 'append file /usr/bin/cpxy-router'
+[ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
+touch /tmp/no-lan
+if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP activated with an unresolved LAN'; fi
+grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
+rm /tmp/no-lan
+uci set cpxy.main.router_ipv6=full
+if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP IPv6 accepted'; fi
+grep -q 'requires router_ipv6 off' /tmp/err || fail 'missing GeoIP IPv6 error'
+uci set cpxy.main.router_ipv6=off
+uci set firewall.@defaults[0].flow_offloading=1
+if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP offloading accepted'; fi
+grep -q 'disable flow_offloading' /tmp/err || fail 'missing GeoIP offloading error'
+uci set firewall.@defaults[0].flow_offloading=0
+uci set cpxy.main.routing_table=110
+if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP live table reassignment accepted'; fi
+grep -q 'stop cpxy-router' /tmp/err || fail 'missing GeoIP migration error'
+uci delete cpxy.main.routing_table
+: >"$LOG"
+router stop_service
+want 'geo_down cpxy0'
+[ -f /etc/cpxy/router-guards/main ] || fail 'stop lost next-boot assignments'
+uci set cpxy.main.router_geoip=0
+router start_service
+[ ! -f /etc/cpxy/router-guards/main ] || fail 'legacy mode retained a stale boot snapshot'
+if uci -q get firewall.cpxy_boot_guard; then fail 'legacy mode retained boot firewall include'; fi
+router stop_service
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

@@ -1,5 +1,9 @@
 # Geo routing for the VPN: OpenWrt and Android
 
+The OpenWrt GeoIP classification approach below is superseded by
+[the direct routing-table plan](openwrt-geoip-routing-plan.md). That plan also distinguishes
+the current TCP router from the future IP VPN described here.
+
 Handoff for when the new VPN (our own protocol, a TUN-based daemon) is ready. It covers how
 traffic is split: destinations in the local region go direct, everything else goes through the
 VPN. On OpenWrt there is one VPN connection per LAN. It records decisions only; the protocol

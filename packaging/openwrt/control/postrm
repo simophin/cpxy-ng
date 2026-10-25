@@ -2,8 +2,11 @@
 # opkg leaves empty directories behind
 rmdir "${IPKG_INSTROOT}/usr/libexec/cpxy" 2>/dev/null
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
-	# Apply the removal of the instances' firewall sections
-	/etc/init.d/firewall reload >/dev/null 2>&1
+	# Apply removal after the persistent boot include has also been removed.
 	rm -rf /tmp/cpxy
+	rm -rf /etc/cpxy/router-guards
+	uci -q delete firewall.cpxy_boot_guard
+	uci commit firewall
+	/etc/init.d/firewall reload >/dev/null 2>&1
 fi
 exit 0

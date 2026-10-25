@@ -21,6 +21,7 @@ bindir="$(cd "$bindir" && pwd)"
 outdir="$(cd "$outdir" && pwd)"
 cp -R "$here/files/." "$work/data/"
 cp "$here/../common/net.sh" "$work/data/usr/libexec/cpxy/net.sh"
+cp "$here/../common/geo.sh" "$work/data/usr/libexec/cpxy/geo.sh"
 for bin in cpxy-router cpxy-client cpxy-tsgw; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
@@ -34,6 +35,7 @@ if [ -n "${CPXY_FEED_URL:-}" ]; then
 	chmod 0644 "$work/data/etc/opkg/cpxy.conf"
 fi
 chmod 0644 "$work/data/etc/config/cpxy" "$work/data/lib/upgrade/keep.d/cpxy" "$work/data/usr/libexec/cpxy/"*
+chmod 0755 "$work/data/usr/libexec/cpxy/boot-firewall.sh"
 
 sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/control/control.in" >"$work/control/control"
 cp "$here/control/conffiles" "$here/control/postinst" "$here/control/prerm" "$here/control/postrm" "$work/control/"

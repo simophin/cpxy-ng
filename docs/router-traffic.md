@@ -1,5 +1,9 @@
 # Router traffic API and browser view
 
+With OpenWrt's opt-in `router_geoip` mode, regional/private IPv4 flows are forwarded by the
+kernel and do not appear in this API or its counters. The API covers traffic entering the packet
+engine. Use `cpxy-show` for kernel-route generation, count and dataset status.
+
 `cpxy-router` can serve a read-only traffic API and a small browser page from the same listener.
 The page's HTML, CSS and JavaScript are embedded in the binary: no npm build, CDN, external
 fonts, analytics, or internet connection is needed to load it. It uses a small local stylesheet

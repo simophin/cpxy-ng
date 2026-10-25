@@ -129,6 +129,24 @@ dnsmasq, so the redirect, the services and local names are verified on a router.
 
 ## Fixed proxy routes
 
+The opt-in `router_geoip` mode moves regional/private IPv4 TCP into kernel forwarding and forces
+all TCP still entering TUN through cpxy. It reserves two table generations and a fifth terminal
+rule priority; its router DNS runs with IPv6 off. See the
+[operator guide](../../docs/openwrt.md#optional-kernel-ipv4-geoip-routing) for activation and limits.
+No separate country-list/PBR dependency is added.
+The early guard and persistent firewall include prevent startup forwarding before policy setup;
+the include does not classify destinations. Non-secret next-boot assignments live under
+`/etc/cpxy/router-guards/`; stop retains them for the next enabled boot and uninstall removes them.
+
+`test/lab.sh` includes `test/geo-lab.sh` for full-dataset kernel routes, native direct forwarding,
+forced-proxy subtraction and failure guards. `test/qemu-geo.py` boots a real OpenWrt image with
+isolated LAN/guest/WAN links, two real server processes, DNS fixtures and WAN packet capture.
+Its header documents prerequisites and invocation. The router binary must be static; unused
+client/tsgw binaries can be stand-ins for this focused router package test. Matching image kernel
+dependencies must be supplied offline. The suite has run on fw3 and fw4 stock images; vendor
+firmware and hardware offload still require physical validation. Results are recorded in the
+[validation report](../../docs/openwrt-geoip-routing-validation.md).
+
 Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 or IPv6 CIDR) to an instance
 or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and
 `cpxy-tsgw` to apply. Matching TCP destination IPs always use the main proxy,

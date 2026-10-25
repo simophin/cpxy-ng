@@ -184,12 +184,15 @@ check "LAN can still reach the router itself" in_lan ping -c1 -W2 192.168.8.1
 # udp_probe <port> [host]: prints what a UDP datagram from the LAN to the internet echo server got back
 udp_probe() {
 	in_lan sh -c "timeout 3 python3 - $1 ${2:-93.184.216.34} <<'PY'
-import socket,sys
+import errno,socket,sys
 s=socket.socket(socket.AF_INET6 if ':' in sys.argv[2] else socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2)
-s.connect((sys.argv[2],int(sys.argv[1]))); s.send(b'x')
-try: print('reply from', s.recv(64).decode())
-except ConnectionRefusedError: print('refused')
+try:
+ s.connect((sys.argv[2],int(sys.argv[1]))); s.send(b'x')
+ print('reply from', s.recv(64).decode())
 except socket.timeout: print('timeout')
+except OSError as e:
+ if e.errno in (errno.ECONNREFUSED,errno.EACCES,errno.EHOSTUNREACH,errno.ENETUNREACH): print('refused')
+ else: raise
 PY"
 }
 # The echo server answers on 443 too, so a refusal there can only come from the router
@@ -282,6 +285,8 @@ in_router sh -c ". '$NET'; cpxy_net_down_routing"
 [ "$(in_router ip -6 route show table 100 | wc -l)" = 0 ] && pass "stop: IPv6 table 100 empty" || fail "stop: IPv6 table 100 not empty"
 mark; check "stop: LAN reaches the internet directly again" fetch
 expect_seen "stop: direct again via the WAN" 192.0.2.2
+
+. "$(dirname "$0")/geo-lab.sh"
 
 if [ "$FAILED" = 0 ]; then
 	echo "lab passed"

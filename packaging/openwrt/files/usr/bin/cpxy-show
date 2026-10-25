@@ -11,14 +11,16 @@ _show() {
 	[ -z "$WANTED" ] || [ "$1" = "$WANTED" ] || return 0
 	FOUND=1
 	# cpxy-router runs an instance only when it has networks
-	local routed=0
+	local routed=0 last="$((CPXY_PRIORITY + 3))" active count
 	[ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ] && routed=1
+	[ "$CPXY_GEOIP" != 1 ] || last="$((CPXY_PRIORITY + 4))"
 	cat <<EOF
 instance $1 (index $CPXY_INDEX)
   server          $(echo "$CPXY_SERVER" | sed 's#//[^@]*@#//***@#')
   networks        ${CPXY_NETWORKS:-none}
   client          $(_on "$CPXY_CLIENT"): HTTP $CPXY_HTTP_LISTEN$([ "$CPXY_SOCKS5" = 1 ] && echo ", SOCKS5 $CPXY_SOCKS5_LISTEN")
-  router          $(_on "$routed"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$((CPXY_PRIORITY + 3))
+  router          $(_on "$routed"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$last
+  kernel GeoIP    $(_on "$CPXY_GEOIP")$([ "$CPXY_GEOIP" = 1 ] && echo ': IPv4 only; forwarded IPv6 refused')
   router DNS      $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
   router traffic  $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_API" || echo off): $CPXY_ROUTER_API_LISTEN
   tsgw            $(_on "$CPXY_TSGW"): $CPXY_TSGW_HOSTNAME, UDP $CPXY_TSGW_PORT, state $CPXY_TSGW_STATE_DIR$([ "$CPXY_TSGW_PROXY" = 1 ] && echo ", via $CPXY_PROXY")
@@ -27,6 +29,16 @@ instance $1 (index $CPXY_INDEX)
   local names     $CPXY_DNS_LOCAL_SERVER: single labels, private reverse, $CPXY_DNS_LOCAL_DOMAINS
   dns cache       $(_on "$CPXY_DNS_CACHE")
 EOF
+	if [ "$CPXY_GEOIP" = 1 ] && [ "$routed" = 1 ]; then
+		active="$(ip -4 rule show priority "$((CPXY_PRIORITY + 3))" | awk '/lookup/ {print $NF; exit}')"
+		count=0
+		[ -z "$active" ] || count="$(ip -4 route show table "$active" 2>/dev/null | wc -l)"
+		echo "  GeoIP generation ${active:-inactive}, $count routes (includes two defaults)"
+		echo "  GeoIP dataset    $("$CPXY_BIN/cpxy-router" --geoip-version)"
+		if [ -f "$CPXY_RUN/instances/$1" ]; then
+			echo "  GeoIP policy     $(sed -n '10p' "$CPXY_RUN/instances/$1")"
+		fi
+	fi
 }
 
 WANTED="${1:-}"

@@ -20,6 +20,9 @@ fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo must provide OUT_DIR"));
 
     for (name, expected_sha256) in SOURCES {
+        if *name == "cn.dat" {
+            println!("cargo:rustc-env=CPXY_GEOIP_V4_SHA256={expected_sha256}");
+        }
         let source = manifest_dir.join("data").join(name);
         println!("cargo:rerun-if-changed={}", source.display());
 
