@@ -245,7 +245,8 @@ It reports `protocol: "rtp-l3"`, readiness, five-second counters and final
 counters on graceful termination. CLI, counters, fault hooks and validation
 commands are in the [crate README](../experiments/rtp-l3/README.md).
 
-The [handoff](rtp-l3-poc-handoff.md) owns acceptance status and next work.
+The [PoC closeout](rtp-l3-poc-handoff.md) records completed acceptance. The
+[application plan](rtp-l3-application-plan.md) owns proposed next-stage work.
 Public-path retention passed with the candidate-validation/socket-repair runtime:
 see the [Z4 repair report](rtp-l3-z4-repair-results.md). The earlier failed samples
 remain historical evidence and do not validate current control behavior. Both
