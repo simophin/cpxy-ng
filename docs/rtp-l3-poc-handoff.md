@@ -65,8 +65,17 @@ Three-minute application-idle diagnosis reproduced three fallbacks and failed
 post-idle MTU ping (0/5). It is not a ten-minute Z4 acceptance run. No exact NAT
 cause or fix is claimed.
 
-The explicit next task is **isolate destination-port dependence and NAT
-mapping/filtering from ordinary loss**, before accepting Z4:
+Controlled delayed and repeated immediate probes now show destination-port
+dependence on the current path: four external mappings from one local socket,
+all same-source immediate controls delivered, no cross-source returns, and
+silent same-source delivery at 15 seconds but none at 30–180 seconds.
+See the [independent delayed-probe report](rtp-l3-idle-matrix-results.md) and
+[sanitized evidence](../experiments/rtp-l3/results/2026-10-25-idle-matrix-summary.json).
+The historical one-mapping immediate baseline is unchanged. Neither sample
+identifies the responsible device or establishes the tunnel-specific cause.
+
+The explicit next task is **match tunnel PING/STATE traces to the observed
+mapping, source-port and idle behavior**, before accepting Z4:
 
 - [x] Trace fresh PING sequences, server reply generation/transmission, client
   receipt, decoder result and state-machine acceptance with synchronized,
@@ -74,13 +83,17 @@ mapping/filtering from ordinary loss**, before accepting Z4:
   path from replies received but ignored or superseded by a newer sequence.
 - [x] Repeated immediate destination-port baseline: one socket, randomized
   four-port requests and cross-source replies; 192/192 delivered, one mapping.
-- [ ] Investigate destination-port dependence and NAT mapping/filtering separately
-  from ordinary loss. Existing probes received no delayed replies at
-  30/60/120/180 s, but shorter probes had mixed delivery; this does not identify
-  an exact NAT timeout. The server capture alone cannot locate return loss.
-  A repeated immediate four-port baseline received 192/192 replies with one
-  observed mapping; delayed/shape-matched isolation remains pending.
-  See [destination-port report](rtp-l3-port-matrix-results.md).
+- [x] Repeat delayed same/cross-source probes on independently silent sockets
+  with separate start/deadline immediate controls and server-interface evidence.
+  The raw-receive companion recorded zero rejected datagrams. Current immediate
+  contact-history comparison found four stable destination-dependent mappings;
+  48/48 same-source replies and 0/144 cross-source replies arrived. This differs
+  from the prior 192/192 one-mapping baseline; preserve both samples.
+- [ ] Compare matched tunnel traces and socket behavior with these plain-UDP
+  observations, and locate return loss with client-interface evidence where
+  available. The current unprivileged client lacks capture tools/capabilities;
+  server capture alone cannot locate loss. No exact NAT timeout or device is
+  identified, and the earlier five-second keepalive failure remains unexplained.
 - [ ] Establish the cause before changing socket/port strategy or keepalive
   timing. One local client socket remains the design; rotating local ports is
   only a hypothesis for a later experiment. Shortening keepalive to five
@@ -219,3 +232,25 @@ validation. The analyzer distinguishes accepted replies, rejected datagrams and
 no socket delivery, retaining null counts for older logs. Five fixtures now
 pass, including injected wrong-token replies followed by valid replies. This
 instrumentation does not alter probe framing, timing or tunnel behavior.
+
+## Public delayed/mapping diagnosis checkpoint
+
+The bounded delayed matrix, overlapping raw-receive companion and immediate
+contact-history comparison completed. Details and excluded setup/lifetime
+attempts are preserved in the [report](rtp-l3-idle-matrix-results.md) and
+[endpoint-free artifact](../experiments/rtp-l3/results/2026-10-25-idle-matrix-summary.json).
+All 416 immediate controls arrived. Same-source silent returns arrived through
+15 seconds and failed at 30 seconds and above; every cross-source return was
+absent. A subsequent single-socket matrix observed four destination-dependent
+external ports, 48/48 same-source returns and 0/144 cross-source returns.
+Every valid request/reply appeared in server-interface captures, with zero
+kernel capture drops. The companion recorded no rejected client datagrams.
+These are current-path plain-UDP observations, not a tunnel fix or Z4 pass.
+
+Five delayed fixtures and both immediate fixtures passed. The server used the
+committed implementation; the receive-instrumented companion used the subsequent
+instrumentation checkpoint, with no wire/scheduling change. All server runtime
+and permanent firewall snapshots, links and forwarding matched after cleanup;
+task processes exited, test ports were free and staging was removed. Local
+private artifacts were removed after sanitization. No cleanup obligations remain.
+Next: matched tunnel traces, then justified remediation and Z4 revalidation.
