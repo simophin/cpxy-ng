@@ -29,11 +29,11 @@ mod tests {
     #[test]
     fn initial_data_port_is_endpoint_owned_and_inside_its_pool() {
         let mut settings: Settings = serde_json::from_value(serde_json::json!({
-            "profile":"fixed", "key_file":"/tmp/key", "journal":"/tmp/fixed.json",
+            "profile":"fixed", "journal":"/tmp/fixed.json",
             "interface":"rtp0", "address":"10.88.0.1/24",
             "transport":{"role":"endpoint", "listen":"192.0.2.2:30000",
                 "rotation_low":30001, "rotation_high":30008, "rotation_seconds":0},
-            "initial_rotation_port":30001, "admission":"administrator_managed"
+            "initial_rotation_port":30001, "firewall":"none"
         }))
         .unwrap();
         settings.validate().unwrap();
@@ -61,17 +61,48 @@ fn rotation() -> u64 {
 fn keepalive() -> u64 {
     15
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+/// Endpoint UDP admission. `Auto` uses firewalld when it answers on the system
+/// bus and otherwise leaves port policy to the administrator.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum AdmissionMode {
-    AdministratorManaged,
-    Firewalld { agent_socket: PathBuf },
+pub enum FirewallMode {
+    #[default]
+    Auto,
+    Firewalld,
+    None,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Firewalld {
+    /// Zone for the UDP rich rules; defaults to the zone of `interface`.
+    pub zone: Option<String>,
+    /// Public interface carrying the listener; defaults to the one owning
+    /// the listen address, or the default-route interface for 0.0.0.0.
+    pub interface: Option<String>,
+    /// Allowed outer source CIDRs (1..4).
+    pub sources: Vec<String>,
+    /// Runtime zone for the service's own TUN so decrypted packets can be
+    /// forwarded; the packet allowlist still limits them to service CIDRs.
+    pub tunnel_zone: String,
+    /// Masquerade tunnel-pool traffic to each service CIDR so backends need no
+    /// return route; they then see the endpoint's address instead of clients'.
+    pub masquerade: bool,
+}
+impl Default for Firewalld {
+    fn default() -> Self {
+        Self {
+            zone: None,
+            interface: None,
+            sources: vec!["0.0.0.0/0".into()],
+            tunnel_zone: "trusted".into(),
+            masquerade: true,
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub profile: String,
-    pub key_file: PathBuf,
     pub journal: PathBuf,
     pub interface: String,
     /// Required for clients: every outer socket is bound to this host device.
@@ -86,17 +117,14 @@ pub struct Settings {
     pub network: Option<crate::network::Network>,
     #[serde(default = "keepalive")]
     pub keepalive_seconds: u64,
-    /// Explicit external admission or a policy-restricted local firewalld agent.
-    pub admission: AdmissionMode,
+    #[serde(default)]
+    pub firewall: FirewallMode,
+    #[serde(default)]
+    pub firewalld: Firewalld,
     #[serde(default)]
     pub relay: Option<crate::relay::RelayConfig>,
 }
 impl Settings {
-    pub fn load(path: &std::path::Path) -> io::Result<Self> {
-        let value: Self = serde_json::from_slice(&std::fs::read(path)?)?;
-        value.validate()?;
-        Ok(value)
-    }
     pub fn inner(&self) -> io::Result<(Ipv4Addr, u8)> {
         let (ip, prefix) = self
             .address
@@ -129,10 +157,10 @@ impl Settings {
         if let Some(network) = &self.network {
             network.validate(self)?;
         }
-        if let AdmissionMode::Firewalld { agent_socket } = &self.admission {
-            if !agent_socket.is_absolute() {
-                return Err(io::Error::other("agent_socket must be absolute"));
-            }
+        if matches!(self.transport, Role::Client { .. }) && self.firewall != FirewallMode::None {
+            return Err(io::Error::other(
+                "clients own no listeners; firewall must be none",
+            ));
         }
         if self.profile.is_empty()
             || !self
@@ -148,8 +176,8 @@ impl Settings {
         {
             return Err(io::Error::other("invalid TUN name"));
         }
-        if !self.key_file.is_absolute() || !self.journal.is_absolute() {
-            return Err(io::Error::other("key_file and journal must be absolute"));
+        if !self.journal.is_absolute() {
+            return Err(io::Error::other("state directory must be absolute"));
         }
         if self.keepalive_seconds < 5 || self.keepalive_seconds > 45 {
             return Err(io::Error::other("keepalive_seconds must be 5..45"));

@@ -58,7 +58,8 @@ pub fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = ancillary.as_mut_ptr().cast();
-        msg.msg_controllen = std::mem::size_of_val(&ancillary);
+        // Field widths differ between glibc (usize) and musl (socklen_t).
+        msg.msg_controllen = std::mem::size_of_val(&ancillary) as _;
         let received = libc::recvmsg(broker.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
         if received < 0 {
             return Err(io::Error::last_os_error());
@@ -68,7 +69,8 @@ pub fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
         let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
         while !cmsg.is_null() {
             if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
-                let count = ((*cmsg).cmsg_len.saturating_sub(libc::CMSG_LEN(0) as usize)) / 4;
+                let count =
+                    ((*cmsg).cmsg_len as usize).saturating_sub(libc::CMSG_LEN(0) as usize) / 4;
                 for index in 0..count {
                     let fd =
                         std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<i32>().add(index));

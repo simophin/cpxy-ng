@@ -80,6 +80,14 @@ pub trait Firewall: Send + Sync {
 pub struct DbusFirewall;
 impl DbusFirewall {
     fn call(method: &str, signature: &str, args: &[&str]) -> io::Result<String> {
+        Self::call_on("org.fedoraproject.FirewallD1.zone", method, signature, args)
+    }
+    fn call_on(
+        interface: &str,
+        method: &str,
+        signature: &str,
+        args: &[&str],
+    ) -> io::Result<String> {
         let mut command = Command::new("busctl");
         if let Ok(address) = std::env::var("DBUS_SYSTEM_BUS_ADDRESS") {
             command.arg(format!("--address={address}"));
@@ -92,7 +100,7 @@ impl DbusFirewall {
                 "call",
                 "org.fedoraproject.FirewallD1",
                 "/org/fedoraproject/FirewallD1",
-                "org.fedoraproject.FirewallD1.zone",
+                interface,
                 method,
                 signature,
             ])
@@ -105,6 +113,30 @@ impl DbusFirewall {
             )));
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    }
+}
+fn string_reply(value: &str) -> io::Result<String> {
+    value
+        .strip_prefix("s ")
+        .and_then(|s| serde_json::from_str(s).ok())
+        .ok_or_else(|| io::Error::other("invalid D-Bus string reply"))
+}
+impl DbusFirewall {
+    /// True when firewalld answers on the system bus. A missing busctl or bus
+    /// means firewalld is absent; callers treat that as a soft dependency.
+    pub fn available() -> bool {
+        Self::call_on("org.fedoraproject.FirewallD1", "getDefaultZone", "", &[]).is_ok()
+    }
+    /// Runtime zone binding of an interface; empty when unassigned.
+    pub fn interface_zone(interface: &str) -> io::Result<String> {
+        string_reply(&Self::call("getZoneOfInterface", "s", &[interface])?)
+    }
+    /// Runtime-only binding; never touches permanent configuration.
+    pub fn bind_interface(zone: &str, interface: &str) -> io::Result<()> {
+        Self::call("addInterface", "ss", &[zone, interface]).map(|_| ())
+    }
+    pub fn unbind_interface(zone: &str, interface: &str) -> io::Result<()> {
+        Self::call("removeInterface", "ss", &[zone, interface]).map(|_| ())
     }
 }
 impl Firewall for DbusFirewall {

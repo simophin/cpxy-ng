@@ -19,81 +19,74 @@ BUS
   # Real D-Bus failure replies must not masquerade as readiness.
   if ip netns exec s busctl --address="$DBUS_SYSTEM_BUS_ADDRESS" --timeout=1s call org.fedoraproject.FirewallD1 /org/fedoraproject/FirewallD1 org.fedoraproject.FirewallD1.zone addRichRule ssi public invalid 0 >"$work/failed-add.log" 2>&1; then return 1; fi
   if ip netns exec s busctl --address="$DBUS_SYSTEM_BUS_ADDRESS" --timeout=1s call org.fedoraproject.FirewallD1 /org/fedoraproject/FirewallD1 org.fedoraproject.FirewallD1.zone queryRichRule ss no-such-zone invalid >"$work/failed-query.log" 2>&1; then return 1; fi
-  python3 - "$work" <<'PYTEST'
-import json, sys, os
-work=sys.argv[1]
-s=json.load(open(work+'/server.json')); s['admission']={'firewalld':{'agent_socket':work+'/agent.sock'}}
-json.dump(s,open(work+'/server.json','w'))
-policy={'profile':'server','bind':'192.0.2.2','base':30000,'low':30001,'high':30008,'zone':'public','interface':'vs','sources':['192.0.2.0/24']}
-json.dump({'socket':work+'/agent.sock','journal':work+'/agent.journal','allowed_uid':os.getuid(),'policies':[policy,dict(policy,profile='second',base=31000,low=31001,high=31004)]},open(work+'/agent.json','w'))
-PYTEST
-  agent_bin=$(realpath target/debug/port-admission)
-  ip netns exec s "$agent_bin" "$work/agent.json" >"$work/agent.log" 2>&1 & agent=$!
-  for i in $(seq 1 50); do if [ -S "$work/agent.sock" ]; then break; fi; sleep .1; done
   ip netns exec s python3 -c 'import socket,time; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.bind(("192.0.2.2",30008));time.sleep(999)' & occupied=$!
   sleep .1
+}
+# TCP/UDP to the backend, which has no route back to the tunnel pool: only the
+# service's TUN zone binding plus scoped masquerade make this work.
+backend_app() {
+  for i in $(seq 1 30); do
+    if ip netns exec c python3 "$work/app.py" 2>/dev/null; then return; fi
+    sleep .5
+  done
+  ip netns exec c python3 "$work/app.py"
+}
+masq='rule family="ipv4" source address="10.88.0.0/24" destination address="10.90.0.0/24" masquerade'
+forwarding_present() {
+  [ "$(fw --get-zone-of-interface=rtps)" = trusted ]
+  fw --zone=public --query-rich-rule="$masq"
 }
 firewall_exercise() {
   # Occupied socket is skipped before any firewall mutation.
   kill -0 "$occupied"
-  # A second profile shares the agent but has a disjoint namespace and exact
-  # generation checks. Repeated and stale requests cannot retire its replacement.
-  python3 - "$work/agent.sock" <<'PYTEST'
-import socket,json,sys
-def call(op,generation):
-    lease={'profile':'second','generation':generation,'address':'192.0.2.2:31001','state':'preparing'}
-    s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);s.sendall((json.dumps({'operation':op,'lease':lease})+'\n').encode());r=json.loads(s.makefile().readline());s.close();return r['error']
-assert call('prepare','old') is None
-assert call('commit','old') is None
-assert call('retire','old') is None
-assert call('retire','old') is None
-assert call('prepare','new') is None
-assert call('retire','old') is not None
-assert call('commit','new') is None
-assert call('retire','new') is None
-PYTEST
+  forwarding_present
+  backend_app
   # Block every unused candidate with administrator-owned identical rules. Failed
   # prepare must preserve those rules, the epoch, and traffic on the live path.
   python3 - "$work" <<'PYTEST'
 import json,sys
-w=sys.argv[1]; live={x['address'].split(':')[-1] for x in json.load(open(w+'/server.journal'))['leases']}
+w=sys.argv[1]; live={x['address'].split(':')[-1] for x in json.load(open(w+'/server/state.json'))['leases']}
 open(w+'/conflicts','w').write('\n'.join(str(p) for p in range(30001,30009) if str(p) not in live))
 PYTEST
   while read -r port; do fw --zone=public --add-rich-rule="rule family=\"ipv4\" source address=\"192.0.2.0/24\" destination address=\"192.0.2.2\" port port=\"$port\" protocol=\"udp\" accept"; done < <(cat "$work/conflicts"; echo)
-  ip netns exec c ping -c 8 -i .5 -W 1 10.88.0.1
-  rg -q '"event":"rotation_failed"' "$work/s.log"
+  ip netns exec c ping -c 8 -i .5 -W 1 10.90.0.2
+  # Only scheduled rotation exercises the conflicting candidates.
+  if [ "$rotation" != 0 ]; then grep -Eq '"event":"rotation_failed"' "$work/s.log"; fi
   kill "$occupied"; wait "$occupied" 2>/dev/null || true
   occupied=""
   fw --zone=public --query-port=39999/udp
   while read -r port; do fw --zone=public --remove-rich-rule="rule family=\"ipv4\" source address=\"192.0.2.0/24\" destination address=\"192.0.2.2\" port port=\"$port\" protocol=\"udp\" accept"; done < <(cat "$work/conflicts"; echo)
-  # A pending/hung control call must not block the packet poller.
-  kill -STOP "$agent"
-  ip netns exec c ping -c 8 -i .5 -W 1 10.88.0.1
-  kill -CONT "$agent"
+  # A hung firewalld (pending D-Bus calls) must not block the packet poller.
+  kill -STOP "$firewall"
+  ip netns exec c ping -c 8 -i .5 -W 1 10.90.0.2
+  kill -CONT "$firewall"
   sleep 1
-  # Restarting the agent retains exact claims; the service restores health.
-  kill -TERM "$agent"; wait "$agent" 2>/dev/null || true
-  rm "$work/agent.sock"
-  ip netns exec s "$agent_bin" "$work/agent.json" >>"$work/agent.log" 2>&1 & agent=$!
-  sleep 1
+  # Reload drops runtime state; reconciliation restores ports and forwarding.
   fw --reload
-  sleep 2
-  ip netns exec c ping -c 3 -W 2 10.88.0.1
+  sleep 3
+  ip netns exec c ping -c 3 -W 2 10.90.0.2
+  forwarding_present
+  backend_app
   kill -TERM "$firewall"; wait "$firewall"
   sleep 2
   firewall_start
-  sleep 2
-  ip netns exec c ping -c 3 -W 2 10.88.0.1
+  fw --zone=public --add-interface=vs
+  sleep 3
+  ip netns exec c ping -c 3 -W 2 10.90.0.2
+  forwarding_present
+  backend_app
   fw --zone=public --query-port=39998/udp
   fw --permanent --zone=public --query-port=39998/udp
   fw --zone=public --add-port=39999/udp
 }
 firewall_assert_clean() {
   test -z "$(fw --zone=public --list-rich-rules)"
+  test -z "$(fw --zone=trusted --list-interfaces)"
   fw --zone=public --query-port=39999/udp
   fw --permanent --zone=public --query-port=39998/udp
-  python3 - "$work/agent.journal" <<'PYTEST'
+  python3 - "$work/server/state.json.firewalld" <<'PYTEST'
 import json,sys
 assert json.load(open(sys.argv[1])) == {}
 PYTEST
+  test ! -e "$work/server/state.json.forwarding"
 }

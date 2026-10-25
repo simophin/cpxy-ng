@@ -68,7 +68,8 @@ fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, O
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = control.as_mut_ptr() as *mut _;
-        msg.msg_controllen = std::mem::size_of_val(&control);
+        // Field widths differ between glibc (usize) and musl (socklen_t).
+        msg.msg_controllen = std::mem::size_of_val(&control) as _;
         let n = libc::recvmsg(socket.as_raw_fd(), &mut msg, 0);
         if n < 0 {
             return Err(io::Error::last_os_error());
@@ -81,7 +82,7 @@ fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, O
         while !cmsg.is_null() {
             if (*cmsg).cmsg_level == libc::SOL_SOCKET
                 && (*cmsg).cmsg_type == libc::SO_RXQ_OVFL
-                && (*cmsg).cmsg_len >= libc::CMSG_LEN(4) as usize
+                && (*cmsg).cmsg_len as usize >= libc::CMSG_LEN(4) as usize
             {
                 drops = Some(std::ptr::read_unaligned(libc::CMSG_DATA(cmsg) as *const u32));
             }

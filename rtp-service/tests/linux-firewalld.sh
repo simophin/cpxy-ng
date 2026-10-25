@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Run: cargo build -p rtp-service -p port-admission; unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
+# Run: cargo build -p rtp-service; unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
 # All interfaces, routing and process operations stay inside these namespaces.
 if [ "$(readlink /proc/self/ns/net)" = "$(readlink /proc/1/ns/net)" ]; then
   echo 'Run this fixture inside unshare -Urnm' >&2
@@ -20,49 +20,77 @@ ip -n c link set vc up
 ip -n s link set vs up
 ip -n c link set lo up
 ip -n s link set lo up
+# Backend deliberately has no route back to the tunnel pool.
+ip netns add b
+ip link add sb type veth peer name bs
+ip link set sb netns s
+ip link set bs netns b
+ip -n s addr add 10.90.0.1/24 dev sb
+ip -n b addr add 10.90.0.2/24 dev bs
+ip -n s link set sb up
+ip -n b link set bs up
+ip -n b link set lo up
+ip netns exec s python3 -c 'open("/proc/sys/net/ipv4/ip_forward","w").write("1")'
 work=$(mktemp -d /tmp/rtp-a2-XXXX)
-head -c 32 /dev/urandom > "$work/key"
-chmod 600 "$work/key"
-cat > "$work/server.json" <<JSON
-{"profile":"server","key_file":"$work/key","journal":"$work/server.journal","interface":"rtps","address":"10.88.0.1/24","transport":{"role":"endpoint","listen":"192.0.2.2:30000","rotation_low":30001,"rotation_high":30008,"rotation_seconds":2},"admission":"administrator_managed","keepalive_seconds":5}
-JSON
-cat > "$work/client.json" <<JSON
-{"profile":"client","key_file":"$work/key","journal":"$work/client.journal","interface":"rtpc","outbound_interface":"vc","address":"10.88.0.2/24","transport":{"role":"client","entry":"192.0.2.2:30000","bind":"192.0.2.1:0"},"admission":"administrator_managed","keepalive_seconds":5}
-JSON
+cat > "$work/backend.py" <<'PY'
+import socket,threading
+def tcp():
+ s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('10.90.0.2',8080));s.listen()
+ while True:
+  c,a=s.accept();d=c.recv(100);c.sendall(b'tcp:'+d);c.close()
+threading.Thread(target=tcp,daemon=True).start()
+u=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);u.bind(('10.90.0.2',8080))
+while True:
+ d,a=u.recvfrom(100);u.sendto(b'udp:'+d,a)
+PY
+cat > "$work/app.py" <<'PY'
+import socket
+for kind,prefix in [(socket.SOCK_STREAM,b'tcp:'),(socket.SOCK_DGRAM,b'udp:')]:
+ s=socket.socket(socket.AF_INET,kind);s.settimeout(2);s.connect(('10.90.0.2',8080));s.send(b'application');assert s.recv(100)==prefix+b'application';s.close()
+PY
+ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & backend=$!
+export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
+rotation=2
+if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then rotation=0; fi
+# `auto` must discover firewalld on the (private) system bus.
+server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtps CPXY_RTP_LISTEN=192.0.2.2:30000
+  CPXY_RTP_ROTATION_PORTS=30001-30008 CPXY_RTP_ROTATION_SECONDS=$rotation
+  CPXY_RTP_FIREWALL=auto CPXY_RTP_FIREWALLD_SOURCES=192.0.2.0/24 CPXY_RTP_ROUTE_TABLE=18801)
+client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
+  CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
 source rtp-service/tests/firewalld-helpers.sh
 firewall_setup
-if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then
-  sed -i 's/"rotation_seconds":2/"rotation_seconds":0/' "$work/server.json"
-fi
-ip netns exec s env POC_TRACE_PATHS=1 POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" run "$work/server.json" >"$work/s.out" 2>"$work/s.log" & server=$!
-ip netns exec c "$bin" run "$work/client.json" >"$work/c.out" 2>"$work/c.log" & client=$!
+ip netns exec s "${server_env[@]}" POC_TRACE_PATHS=1 POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" endpoint >"$work/s.out" 2>"$work/s.log" & server=$!
+ip netns exec c "${client_env[@]}" "$bin" client >"$work/c.out" 2>"$work/c.log" & client=$!
 ping_pid=""
 cleanup() {
-  for pid in "$server" "$client" "$ping_pid" "${agent:-}" "${firewall:-}" "${occupied:-}"; do
+  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}"; do
     if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
   done
-  for pid in "$server" "$client" "$ping_pid" "${agent:-}" "${firewall:-}" "${occupied:-}"; do
+  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}"; do
     if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || true; fi
   done
 }
 trap cleanup EXIT
-for i in $(seq 1 80); do
-  if rg -q '"event":"connected"' "$work/c.log"; then break; fi
+for i in $(seq 1 300); do
+  if grep -Eq '"event":"connected"' "$work/c.log"; then break; fi
   sleep .1
 done
-ip netns exec c ping -c 4 -W 2 10.88.0.1
+ip netns exec c ping -c 4 -W 2 10.90.0.2
+grep -Eq '"event":"admission","interface":"vs","mode":"firewalld","zone":"public"' "$work/s.log"
 if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then
   # The same ping process stays alive while the active tuple is blackholed.
-  ip netns exec c ping -c 25 -i .5 -W 1 10.88.0.1 > "$work/repair-ping.log" & ping_pid=$!
+  ip netns exec c ping -c 25 -i .5 -W 1 10.90.0.2 > "$work/repair-ping.log" & ping_pid=$!
   sleep 1.2
   touch "$work/drop"
   for i in $(seq 1 200); do
-    if rg -q '"event":"repaired"' "$work/c.log"; then break; fi
+    if grep -Eq '"event":"repaired"' "$work/c.log"; then break; fi
     sleep .1
   done
-  rg -q '"event":"repairing"' "$work/c.log"
-  rg -q '"event":"repaired"' "$work/c.log"
+  grep -Eq '"event":"repairing"' "$work/c.log"
+  grep -Eq '"event":"repaired"' "$work/c.log"
   wait "$ping_pid" || true
   ping_pid=""
   python3 - "$work/repair-ping.log" <<'PYTEST'
@@ -72,28 +100,38 @@ assert seqs and seqs[0] <= 3, seqs
 assert any(b > a + 1 for a, b in zip(seqs, seqs[1:])), seqs
 assert seqs[-1] >= 23, seqs
 PYTEST
-  ip netns exec c ping -c 4 -W 2 10.88.0.1
+  ip netns exec c ping -c 4 -W 2 10.90.0.2
   rm "$work/drop"
 fi
 firewall_exercise
-kill -HUP "$client"
-sleep 2
-ip netns exec c ping -c 4 -W 2 10.88.0.1
 kill -TERM "$client"
 wait "$client"
 if ip -n c link show rtpc 2>/dev/null; then exit 1; fi
-ip netns exec c "$bin" run "$work/client.json" >>"$work/c.out" 2>>"$work/c.log" & client=$!
+ip netns exec c "${client_env[@]}" "$bin" client >>"$work/c.out" 2>>"$work/c.log" & client=$!
 sleep 2
-ip netns exec c ping -c 4 -W 2 10.88.0.1
+ip netns exec c ping -c 4 -W 2 10.90.0.2
 kill -TERM "$client"
 wait "$client"
+# SIGKILL leaves journaled ports and forwarding; independent cleanup removes them.
 kill -KILL "$server"
 wait "$server" 2>/dev/null || true
-ip netns exec s "$bin" cleanup "$work/server.json"
-ip netns exec s "$bin" cleanup "$work/server.json"
+forwarding_present
+ip netns exec s "${server_env[@]}" "$bin" endpoint cleanup
+ip netns exec s "${server_env[@]}" "$bin" endpoint cleanup
 firewall_assert_clean
+# Graceful stop releases the same state without explicit cleanup.
+ip netns exec s "${server_env[@]}" "$bin" endpoint >>"$work/s.out" 2>>"$work/s.log" & server=$!
+ip netns exec c "${client_env[@]}" "$bin" client >>"$work/c.out" 2>>"$work/c.log" & client=$!
+backend_app
+kill -TERM "$client" "$server"
+wait "$client"
+wait "$server"
+firewall_assert_clean
+# An explicit firewalld request fails closed when firewalld is unavailable.
+if ip netns exec s env DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/no-bus "${server_env[@]}" CPXY_RTP_FIREWALL=firewalld "$bin" endpoint >"$work/absent.out" 2>"$work/absent.log"; then exit 1; fi
+grep -q 'firewalld requested but not answering' "$work/absent.log"
 if ip -n c link show rtpc 2>/dev/null || ip -n s link show rtps 2>/dev/null; then exit 1; fi
-python3 - "$work/server.journal" "$work/client.journal" <<'PYTEST'
+python3 - "$work/server/state.json" "$work/client/state.json" <<'PYTEST'
 import json, sys
 for path in sys.argv[1:]:
     journal = json.load(open(path))

@@ -32,6 +32,24 @@ pub const OVERHEAD: usize = 12 + RANDOM;
 const C2S: &[u8] = b"rtp-l3-poc/data/client-to-server";
 const S2C: &[u8] = b"rtp-l3-poc/data/server-to-client";
 
+/// Both sides derive the shared key independently, so the salt is a fixed,
+/// versioned protocol constant. Changing it or the parameters breaks interop.
+const PSK_SALT: &[u8] = b"cpxy-rtp-l3/psk/v1";
+pub const MIN_PASSWORD_LEN: usize = 12;
+/// Shared 32-byte key from a password: Argon2id, 19 MiB, 2 passes, 1 lane.
+pub fn derive_psk(password: &str) -> Result<[u8; 32], &'static str> {
+    use argon2::{Algorithm, Argon2, Params, Version};
+    if password.chars().count() < MIN_PASSWORD_LEN {
+        return Err("password must be at least 12 characters");
+    }
+    let params = Params::new(19 * 1024, 2, 1, Some(32)).map_err(|_| "invalid KDF parameters")?;
+    let mut psk = [0; 32];
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+        .hash_password_into(password.as_bytes(), PSK_SALT, &mut psk)
+        .map_err(|_| "key derivation failed")?;
+    Ok(psk)
+}
+
 /// Returns (transmit, receive) keys for this side.
 pub fn keys(psk: &[u8; 32], client: bool) -> ([u8; 32], [u8; 32]) {
     let h = Hkdf::<Sha256>::new(None, psk);
@@ -107,6 +125,15 @@ pub fn open(key: &[u8; 32], p: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn password_key_is_deterministic_and_rejects_short_passwords() {
+        let a = derive_psk("correct horse battery").unwrap();
+        assert_eq!(a, derive_psk("correct horse battery").unwrap());
+        assert_ne!(a, derive_psk("correct horse battery!").unwrap());
+        assert!(derive_psk("short").is_err());
+        // Pins salt/parameters: any change breaks client/endpoint interop.
+        assert_eq!(a[..4], [96, 103, 105, 76]);
+    }
     fn ip(n: usize) -> Vec<u8> {
         let mut p: Vec<u8> = (0..n).map(|i| i as u8).collect();
         p[0] = 0x45;

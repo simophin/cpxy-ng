@@ -17,16 +17,12 @@ ip -n e route add 198.51.100.0/24 via 203.0.113.1
 ip netns exec e python3 -c 'open("/proc/sys/net/ipv4/ip_forward","w").write("1")'
 ip -n b route add 10.88.0.0/24 via 10.90.0.1
 work=$(mktemp -d /tmp/rtp-a6-XXXX)
-head -c 32 /dev/urandom > "$work/key";chmod 600 "$work/key"
+# The endpoint and the packet-API clients derive the same key from this password.
+export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 python3 - "$work" <<'PY'
 import json,sys
 from pathlib import Path
-w=Path(sys.argv[1]);network={'tunnel_pool':'10.88.0.0/24','client_addresses':['10.88.0.2','10.88.0.3'],'service_cidrs':['10.90.0.0/24'],'table':18800,'rule_priority':1000}
-for name,addr,transport in [('e','10.88.0.1',{'role':'endpoint','listen':'203.0.113.2:30000','rotation_low':30001,'rotation_high':30008,'rotation_seconds':0}),('c','10.88.0.2',{'role':'client','entry':'192.0.2.254:30000','bind':'192.0.2.1:0'}),('d','10.88.0.3',{'role':'client','entry':'198.51.100.254:30000','bind':'198.51.100.1:0'})]:
- p={'profile':name,'key_file':str(w/'key'),'journal':str(w/(name+'.journal')),'interface':'rtp'+name,'address':addr+'/24','transport':transport,'admission':'administrator_managed','keepalive_seconds':5,'network':network}
- if name=='e':p['initial_rotation_port']=30001
- else:p['outbound_interface']=name+'r'
- json.dump(p,open(w/(name+'.json'),'w'))
+w=Path(sys.argv[1])
 c={'mappings':[{'id':str(p),'generation':'fixed-1','listen':'0.0.0.0:'+str(p),'upstream':'203.0.113.2:'+str(p),'max_flows':128} for p in [30000,30001]],'max_flows':256,'max_source_flows':64,'max_payload':2048,'socket_buffer':32768,'idle_seconds':180,'packets_per_second':100000,'bytes_per_second':100000000,'mapping_packets_per_second':100000,'mapping_bytes_per_second':100000000,'source_packets_per_second':100000,'source_bytes_per_second':100000000}
 json.dump(c,open(w/'relay.json','w'))
 PY
@@ -57,20 +53,23 @@ trap cleanup EXIT
 ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & pids+=($!)
 start_relay(){ ip netns exec r "$relaybin" run "$work/relay.json" >> "$work/relay.out" 2>> "$work/relay.log" & relay=$!; }
 start_relay
-ip netns exec e env POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" run "$work/e.json" > "$work/e.out" 2> "$work/e.log" & pids+=($!)
+ip netns exec e env POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" endpoint --interface rtpe \
+  --state-dir "$work/e" --listen 203.0.113.2:30000 --rotation-ports 30001-30008 --rotation-seconds 0 \
+  --initial-rotation-port 30001 --keepalive-seconds 5 --service-cidr 10.90.0.0/24 \
+  --client-address 10.88.0.2,10.88.0.3 --firewall none > "$work/e.out" 2> "$work/e.log" & pids+=($!)
 clientpids=()
 for n in c d;do
  addr=10.88.0.2;entry=192.0.2.254
  if [ "$n" = d ];then addr=10.88.0.3;entry=203.0.113.2;fi
  cat > "$work/$n-packet.json" <<JSON
-{"entry":"$entry:30000","endpoint_identity":"fixture-endpoint","key_reference":"fixture-key","address":"$addr","routes":["10.90.0.0/24"],"dns":{"policy":"none"},"mtu":1200}
+{"entry":"$entry:30000","endpoint_identity":"fixture-endpoint","password_reference":"fixture-password","address":"$addr","routes":["10.90.0.0/24"],"dns":{"policy":"none"},"mtu":1200}
 JSON
  ip -n "$n" tuntap add rtpc mode tun
  ip -n "$n" addr add "$addr/24" dev rtpc
  ip -n "$n" link set rtpc mtu 1200 up
  ip -n "$n" route add unreachable 10.90.0.0/24 metric 32760
  ip -n "$n" route add 10.90.0.0/24 dev rtpc metric 1
- ip netns exec "$n" "$packetbin" "$work/$n-packet.json" "$work/key" "$work/$n.stop" > "$work/$n.log" 2>&1 & pids+=($!);clientpids+=($!)
+ ip netns exec "$n" "$packetbin" "$work/$n-packet.json" "$work/$n.stop" > "$work/$n.log" 2>&1 & pids+=($!);clientpids+=($!)
 done
 for i in $(seq 1 100);do if grep -Eq '"status":"connected"' "$work/c.log" && grep -Eq '"status":"connected"' "$work/d.log";then break;fi;sleep .1;done
 apps(){ for n in c d;do ip netns exec "$n" python3 "$work/app.py" "$n-$1";done; }

@@ -1,6 +1,6 @@
 //! Private descriptor broker. Only a configured IPv4 peer, bind and device cross
 //! into this policy; tunnel packets, keys, routes and firewall are not involved.
-use crate::config::{AdmissionMode, Role, Settings};
+use crate::config::{Role, Settings};
 use std::{
     io,
     net::{SocketAddrV4, UdpSocket},
@@ -19,11 +19,6 @@ impl Policy {
         let Role::Client { entry, bind } = settings.transport else {
             return Err(io::Error::other("namespace-run requires client profile"));
         };
-        if !matches!(settings.admission, AdmissionMode::AdministratorManaged) {
-            return Err(io::Error::other(
-                "namespace-run requires administrator_managed admission",
-            ));
-        }
         Ok(Self {
             entry,
             bind,

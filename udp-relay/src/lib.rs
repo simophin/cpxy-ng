@@ -188,7 +188,8 @@ fn receive(
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = control.as_mut_ptr() as _;
-        msg.msg_controllen = std::mem::size_of_val(&control);
+        // Field widths differ between glibc (usize) and musl (socklen_t).
+        msg.msg_controllen = std::mem::size_of_val(&control) as _;
         let n = libc::recvmsg(s.as_raw_fd(), &mut msg, libc::MSG_TRUNC);
         if n < 0 {
             let e = io::Error::last_os_error();
@@ -222,7 +223,7 @@ fn receive(
         while !cmsg.is_null() {
             if (*cmsg).cmsg_level == libc::SOL_SOCKET
                 && (*cmsg).cmsg_type == libc::SO_RXQ_OVFL
-                && (*cmsg).cmsg_len >= libc::CMSG_LEN(4) as usize
+                && (*cmsg).cmsg_len as usize >= libc::CMSG_LEN(4) as usize
             {
                 let current = std::ptr::read_unaligned(libc::CMSG_DATA(cmsg) as *const u32);
                 drops = u64::from(current.wrapping_sub(*overflow));

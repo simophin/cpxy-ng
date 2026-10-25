@@ -3627,6 +3627,7 @@ dependencies = [
 name = "rtp-l3"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "chacha20 0.9.1",
  "hkdf",
  "hmac",
@@ -3640,6 +3641,7 @@ dependencies = [
 name = "rtp-service"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "libc",
  "port-admission",
  "rtp-l3",

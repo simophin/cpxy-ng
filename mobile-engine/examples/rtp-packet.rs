@@ -12,19 +12,16 @@ fn main() -> anyhow::Result<()> {
         },
     };
     struct Host {
-        key: Vec<u8>,
+        password: String,
         device: std::ffi::CString,
         calls: AtomicUsize,
     }
     impl Platform for Host {
-        fn resolve_key(&self, _: &str, reference: &str) -> io::Result<[u8; 32]> {
-            if reference != "fixture-key" {
+        fn resolve_password(&self, _: &str, reference: &str) -> io::Result<String> {
+            if reference != "fixture-password" {
                 return Err(io::Error::other("Unknown reference"));
             }
-            self.key
-                .as_slice()
-                .try_into()
-                .map_err(|_| io::Error::other("Invalid key"))
+            Ok(self.password.clone())
         }
         fn prepare_network(&self, _: &PacketProfile) -> io::Result<()> {
             Ok(())
@@ -71,12 +68,13 @@ fn main() -> anyhow::Result<()> {
         return Err(io::Error::last_os_error().into());
     }
     let host = Arc::new(Host {
-        key: std::fs::read(&args[2])?,
+        // Stands in for platform secure storage.
+        password: std::env::var("CPXY_RTP_PASSWORD")?,
         device: std::ffi::CString::new(device)?,
         calls: AtomicUsize::new(0),
     });
     let engine = PacketEngine::start(OwnedFd::from(fd), profile.clone(), host.clone())?;
-    while !std::path::Path::new(&args[3]).exists() {
+    while !std::path::Path::new(&args[2]).exists() {
         println!("{}", serde_json::to_string(&engine.diagnostics())?);
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
