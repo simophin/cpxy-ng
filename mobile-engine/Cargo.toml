@@ -15,9 +15,10 @@ name = "uniffi-bindgen"
 required-features = ["bindgen"]
 
 [dependencies]
+rtp-l3 = { path = "../rtp-l3" }
 client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
-ipnet = "2"
+ipnet = { version = "2", features = ["serde"] }
 geoip-data = { path = "../geoip-data" }
 ipstack = { git = "https://github.com/simophin/ipstack", rev = "49720c1a1effacee1073d419452432629ef64297" } # narrowlink/ipstack 1.0.2-dev (window scaling), plus ACKs for duplicate segments and slice copies of received data
 etherparse = { version = "0.21", default-features = false, features = ["std"] }

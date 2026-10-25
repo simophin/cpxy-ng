@@ -88,3 +88,89 @@ mod tests {
         assert!(start_engine(-1, config.into()).is_err());
     }
 }
+
+/// Platform policy/keystore adapter for the raw packet engine. All failures are
+/// fail closed. `key` must return exactly 32 bytes and must never log them.
+#[uniffi::export(callback_interface)]
+pub trait PacketPlatform: Send + Sync {
+    fn key(&self, endpoint_identity: String, reference: String) -> Vec<u8>;
+    /// JSON PacketProfile. Return true only after persistent routes/guards and
+    /// private DNS no-fallback policy have been applied successfully.
+    fn prepare_network(&self, profile_json: String) -> bool;
+    /// Borrowed descriptor; return true only after VPN bypass is effective.
+    fn protect_socket(&self, fd: i32) -> bool;
+}
+struct PacketPlatformAdapter(Box<dyn PacketPlatform>);
+impl crate::packet::Platform for PacketPlatformAdapter {
+    fn resolve_key(&self, identity: &str, reference: &str) -> std::io::Result<[u8; 32]> {
+        let mut bytes = self.0.key(identity.into(), reference.into());
+        let result = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| std::io::Error::other("Key unavailable"));
+        bytes.fill(0);
+        result
+    }
+    fn prepare_network(&self, profile: &crate::packet::PacketProfile) -> std::io::Result<()> {
+        if self
+            .0
+            .prepare_network(serde_json::to_string(profile).unwrap())
+        {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("Policy unavailable"))
+        }
+    }
+    fn protect_socket(&self, socket: &std::net::UdpSocket) -> std::io::Result<()> {
+        use std::os::fd::AsRawFd;
+        if self.0.protect_socket(socket.as_raw_fd()) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("Protection failed"))
+        }
+    }
+}
+#[derive(uniffi::Object)]
+pub struct PacketEngine {
+    handle: crate::packet::PacketEngine,
+}
+#[uniffi::export]
+pub fn start_packet_engine(
+    tun_fd: i32,
+    profile_json: String,
+    platform: Box<dyn PacketPlatform>,
+) -> Result<Arc<PacketEngine>, EngineError> {
+    if tun_fd < 0 {
+        return Err(EngineError::Failed {
+            reason: "Invalid packet descriptor".into(),
+        });
+    }
+    // SAFETY: as with start_engine, the caller transfers descriptor ownership.
+    let tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
+    let start = || -> anyhow::Result<_> {
+        let profile =
+            match serde_json::from_str::<crate::packet::ApplicationProfile>(&profile_json)? {
+                crate::packet::ApplicationProfile::RtpL3(p) => p,
+                _ => anyhow::bail!("RTP profile required"),
+            };
+        crate::packet::PacketEngine::start(tun, profile, Arc::new(PacketPlatformAdapter(platform)))
+    };
+    start()
+        .map(|handle| Arc::new(PacketEngine { handle }))
+        .map_err(|_| EngineError::Failed {
+            reason:
+                "RTP startup failed; check platform policy, key reference and socket protection"
+                    .into(),
+        })
+}
+#[uniffi::export]
+impl PacketEngine {
+    pub fn stop(&self) {
+        self.handle.stop();
+    }
+    /// Contains status, numeric counters, effective routes and DNS policy;
+    /// excludes key references, PSKs and control payloads.
+    pub fn diagnostics_json(&self) -> String {
+        serde_json::to_string(&self.handle.diagnostics()).unwrap()
+    }
+}

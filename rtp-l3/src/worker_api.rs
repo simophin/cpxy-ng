@@ -37,6 +37,7 @@ pub struct Resources {
 }
 
 /// Remove UDP peer filtering while preserving the source tuple.
+#[cfg(target_os = "linux")]
 pub fn unconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
     disconnect(socket)
 }

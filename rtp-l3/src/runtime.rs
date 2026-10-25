@@ -27,6 +27,7 @@ fn control_metadata(message: &Control) -> serde_json::Value {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
     let request = port.to_be_bytes();
     unsafe {
@@ -148,6 +149,8 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
     if !socket.local_addr()?.is_ipv4() {
         return Err(io::Error::other("IPv4 socket required"));
     }
+    #[cfg(target_os = "linux")]
+    {
     let enabled: libc::c_int = 1;
     if unsafe {
         libc::setsockopt(
@@ -160,6 +163,7 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
     } < 0
     {
         return Err(io::Error::last_os_error());
+    }
     }
     let size: libc::c_int = 4 * 1024 * 1024;
     for opt in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
@@ -175,6 +179,7 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
     }
     nonblocking(socket.as_raw_fd())
 }
+#[cfg(target_os = "linux")]
 fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
     let peer = socket.peer_addr()?;
     if !peer.is_ipv4() {
@@ -556,6 +561,7 @@ impl Runtime {
             return Ok(None);
         }
         let reply = self.client.as_mut().unwrap().accept_state(port, msg, now)?;
+        (self.events)(serde_json::json!({"event":"path_alive", "port":port}));
         if self.repair_started.take().is_some() {
             (self.events)(serde_json::json!({"event":"repaired", "port":port}));
         }
@@ -878,6 +884,18 @@ impl Runtime {
     }
 }
 pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>) -> io::Result<()> {
+    run_inner(config, resources, running, None)
+}
+
+/// Run with an explicitly supplied IPv4 peer and unconnected, already protected
+/// sockets. Avoids OS-specific UDP disconnect operations on mobile platforms.
+pub fn run_client(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>, peer: SocketAddr) -> io::Result<()> {
+    if !config.client || !peer.is_ipv4() || peer.port() == 0 {
+        return Err(io::Error::other("IPv4 client peer required"));
+    }
+    run_inner(config, resources, running, Some(peer))
+}
+fn run_inner(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>, explicit_peer: Option<SocketAddr>) -> io::Result<()> {
     let WorkerConfig {
         client,
         psk,
@@ -909,7 +927,15 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
     } = resources;
     prepare(&socket)?;
     let peer = if client {
-        Some(disconnect(&socket)?)
+        match explicit_peer {
+            Some(peer) => Some(peer),
+            None => {
+                #[cfg(target_os = "linux")]
+                { Some(disconnect(&socket)?) }
+                #[cfg(not(target_os = "linux"))]
+                { return Err(io::Error::other("explicit client peer required")); }
+            }
+        }
     } else {
         None
     };
@@ -1034,6 +1060,9 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
                 && rt.renew_socket(rt.base).is_err()
             {
                 rt.counts.socket_drops += 1;
+            }
+            if after.2 > before.2 || (rt.counts.pings_unanswered > unanswered && !repair) {
+                (rt.events)(serde_json::json!({"event":"degraded", "operation":"path_liveness"}));
             }
             if repair {
                 rt.repair_active();
@@ -1286,7 +1315,7 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod runtime_tests {
     use super::*;
 

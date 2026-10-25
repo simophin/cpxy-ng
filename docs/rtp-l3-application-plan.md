@@ -1,6 +1,6 @@
 # RTP L3 application and relay plan
 
-Status: A1–A5 implemented and verified, A6 pending, 2026-10-25. This replaces the completed
+Status: A1–A6 implemented and verified, 2026-10-25. This replaces the completed
 [PoC plan](rtp-l3-poc-handoff.md). The validated baseline is `451a27c`;
 [Z4 acceptance](rtp-l3-z4-repair-results.md) is closed. Further ISP/soak campaigns
 are not prerequisites for this phase. Checks below exercise the new features.
@@ -351,18 +351,63 @@ management framing and deployment prerequisites are in the
 
 ### A6 — Application profiles and platform adapters
 
-- [ ] Expose explicit existing-proxy versus RTP-L3 profile modes. A relayed RTP
+- [x] Expose explicit existing-proxy versus RTP-L3 profile modes. A relayed RTP
   profile uses the relay entry plus the selected endpoint tunnel identity/key.
-- [ ] Reuse status/counters for connecting, connected, repairing, degraded and
+- [x] Reuse status/counters for connecting, connected, repairing, degraded and
   stopped states; include effective routes and DNS policy in diagnostics.
-- [ ] Add the mobile-engine packet path without passing RTP traffic through its
+- [x] Add the mobile-engine packet path without passing RTP traffic through its
   TCP `Outbound`/`ipstack` proxy path. Current engine MTU validation starts at
   1280; RTP's validated IPv4 MTU 1200 needs mode-specific validation.
-- [ ] Ensure every fresh socket bypasses the VPN. Preserve existing profile
+- [x] Ensure every fresh socket bypasses the VPN. Preserve existing profile
   behavior and make IPv4-only support explicit; IPv6 support is separate work.
 
 Done when a profile connects/stops and survives repair through the application
 API, with defined route/DNS ownership and no secret-bearing diagnostics.
+
+A6 implementation (2026-10-25): `mobile-engine::packet` accepts an explicit
+`{"mode":"proxy"|"rtp_l3"}` application profile; the legacy `start` JSON is
+unchanged. The RTP profile carries the public IPv4 entry (endpoint or opaque
+relay), endpoint identity, secure key reference, tunnel address, selected IPv4
+routes and DNS policy, and validates MTU 1200 separately from the proxy engine's
+1280 minimum. Packets go straight from the TUN descriptor into the reusable
+`rtp-l3` worker (`run_client` with an explicit peer, no `ipstack`/`Outbound`),
+filtered to the tunnel address and selected routes. The `rtp-l3` worker now
+builds for Android/iOS; Linux-only socket broker, disconnect and overflow
+counters stay Linux-gated. A platform adapter resolves the 32-byte key, applies
+persistent fail-closed routes plus private-DNS no-fallback policy before start,
+and protects every initial, candidate and repair socket before first send;
+any failure is fatal and reported without platform error text. UniFFI exports
+`start_packet_engine`, `PacketEngine::stop` and `diagnostics_json`.
+
+Diagnostics report connecting/connected/repairing/degraded/stopped, a bounded
+recent-transition history (repairs can finish between polls), numeric worker
+counters only, effective routes, DNS policy, network owner, IPv4-only mode and a
+worker failure as an `io::ErrorKind`. They exclude key references and key
+material. Stop closes transport/TUN descriptors; route guards and DNS policy
+remain until the platform's explicit disconnect.
+
+Local evidence: the five-namespace fixture
+[`linux-rtp-packet.sh`](../mobile-engine/tests/linux-rtp-packet.sh) runs one
+relayed and one direct client through the packet API to TCP/UDP backend
+applications, forces an endpoint active-path blackhole, observes
+repairing→connected through diagnostics, re-runs the applications and stops
+both engines (repeatable). Existing A1/A4 fixtures and all unit tests pass.
+
+Public acceptance (2026-10-25): an unprivileged local client namespace used the
+packet API through a public IPv4 generic relay to a public IPv4 RTP endpoint on
+a separate host, then to a disposable backend namespace. Both data hops used
+distinct public IPv4 addresses (client ISP egress → relay → endpoint).
+TCP and UDP applications succeeded initially, after an endpoint-forced
+active-path repair, and after relay worker SIGKILL plus restart (two
+repairing→connected cycles, five protected sockets, zero socket send drops,
+clean `stopped`). Diagnostics contained neither the key reference nor key bytes
+(hex/base64). Only runtime source-restricted rich rules and runtime public-zone
+membership for the endpoint's TUN and backend veth were added; final firewall
+(runtime and permanent), route, rule, forwarding, listener, link and namespace
+snapshots matched the originals on both hosts, staging directories were removed
+and the local key was shredded. Hosts, addresses and logs stay outside git.
+Limits: scoped application acceptance only, no throughput/soak claim; mobile
+UI/VpnService/NetworkExtension wiring, automatic DNS and IPv6 remain separate work.
 
 ## Small reviewable implementation batches
 
