@@ -13,6 +13,12 @@ pub trait SocketProvider: std::marker::Send + Sync {
     fn packet_ready(&self) -> io::Result<()> {
         Ok(())
     }
+    /// Polled by a client about four times a second. True once after the host network changed
+    /// (e.g. Wi-Fi to cellular): the client then replaces its path at once instead of waiting
+    /// for PING timeouts.
+    fn repair_requested(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
