@@ -1028,6 +1028,12 @@ fn run_inner(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool
     let mut b = [0; 65536];
     while running.load(Ordering::Relaxed) {
         let now = rt.started.elapsed().as_secs();
+        let requested = rt.client.is_some() && rt.provider.repair_requested();
+        // Without a rotation path to repair, renew the base socket and register again.
+        let renew_base = requested && rt.client.as_ref().is_some_and(|c| c.current == rt.base);
+        if renew_base && rt.renew_socket(rt.base).is_err() {
+            rt.counts.socket_drops += 1;
+        }
         if let Some(c) = &mut rt.client {
             let before = (c.pending_sequence(), c.current, c.fallbacks);
             let unanswered = c.pings_unanswered;
@@ -1035,7 +1041,11 @@ fn run_inner(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool
                 rt.started.elapsed().saturating_sub(start) < Duration::from_secs(8)
             }) && rt.candidate.is_some();
             let mut ping = if repairing { None } else { c.tick(now) };
-            let repair = c.current != rt.base
+            if renew_base {
+                ping = c.ping(now);
+            }
+            let repair = c.current != rt.base && requested
+                || c.current != rt.base
                 && c.pings_unanswered > unanswered
                 && c.receive_idle(now) >= 2
                 && rt.repair_started.is_none_or(|start| {
@@ -1065,6 +1075,10 @@ fn run_inner(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool
                 (rt.events)(serde_json::json!({"event":"degraded", "operation":"path_liveness"}));
             }
             if repair {
+                if requested {
+                    // A new network: start a fresh repair budget rather than finish an old one.
+                    rt.repair_started = None;
+                }
                 rt.repair_active();
                 ping = None;
             }

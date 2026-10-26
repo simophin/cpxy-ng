@@ -27,8 +27,10 @@ this change does not configure a second VPN, routes or masquerade for it.
 - Direct backend TCP/UDP access, explicit return routes, and optional managed
   firewalld masquerade as documented in the service README.
 - Namespace client with host-owned outer sockets, including repair sockets.
-- `mobile-engine` RTP packet API and UniFFI bindings, separate from the proxy
-  engine, with socket protection and bounded status/counter diagnostics.
+- `rtp-mobile`, the Android app's engine: internet-exit client with the DNS
+  split, socket protection and status counters (see the
+  [RTP mobile plan](rtp-mobile-plan.md)). It replaced the earlier
+  `mobile-engine` packet API.
 
 See the [service README](../rtp-service/README.md) for the current CLI and
 [protocol specification](rtp-l3-protocol.md) for framing and security limits.
@@ -38,10 +40,10 @@ The historical experiment CLI delegates to the workspace core.
 
 Direct Linux namespace fixtures cover lifecycle, rotation, same-port repair,
 backend applications, routing guards, socket brokering, firewalld reconciliation
-and crash cleanup. The packet-API fixture
-[`linux-rtp-packet.sh`](../mobile-engine/tests/linux-rtp-packet.sh) now uses two
-clients connected directly to one endpoint and a separate TCP/UDP backend; it
-checks protected sockets, repair diagnostics and stop behavior.
+and crash cleanup. The app engine's fixture
+[`linux-lab.sh`](../rtp-mobile/tests/linux-lab.sh) runs it against an
+internet-exit endpoint and checks routing, the DNS split, refusals, roaming,
+fail-closed behaviour and stop.
 
 Removal validation (2026-10-25): 97 unit/integration tests passed across
 `rtp-l3`, `rtp-service`, `port-admission` and `mobile-engine`. Linux builds and
@@ -58,7 +60,7 @@ No throughput, zero-loss or sustained-load guarantee is claimed.
 
 ## Remaining work
 
-- Wire RTP profiles into mobile UI, Android VpnService and iOS NetworkExtension.
+- iOS NetworkExtension for the RTP app.
 - Persistent private DNS with no public fallback; current DNS configuration is
   metadata and requires external policy.
 - IPv6 and a supported full-internet exit mode; current RTP mode is IPv4,

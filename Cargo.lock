@@ -2810,7 +2810,6 @@ dependencies = [
  "ipstack",
  "libc",
  "paranoid-android",
- "rtp-l3",
  "serde",
  "serde_json",
  "thiserror",
@@ -3635,6 +3634,29 @@ dependencies = [
  "rand 0.8.8",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "rtp-mobile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "client",
+ "etherparse 0.21.0",
+ "futures",
+ "geoip-data",
+ "hickory-proto",
+ "ipnet",
+ "libc",
+ "paranoid-android",
+ "rtp-l3",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uniffi",
 ]
 
 [[package]]
