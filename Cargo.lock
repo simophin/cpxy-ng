@@ -3627,7 +3627,7 @@ name = "rtp-l3"
 version = "0.1.0"
 dependencies = [
  "argon2",
- "chacha20 0.9.1",
+ "chacha20 0.10.2",
  "hkdf",
  "hmac",
  "libc",
