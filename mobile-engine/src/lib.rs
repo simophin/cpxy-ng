@@ -21,7 +21,6 @@ mod filter;
 mod fin;
 #[cfg(target_os = "linux")]
 pub mod linux;
-pub mod packet;
 mod proxy;
 mod routing;
 mod sni;
@@ -34,7 +33,7 @@ pub use config::{
     Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_ADDR_V6, TUN_PREFIX_LEN, TUN_PREFIX_LEN_V6,
 };
 pub use connection_log::{ConnectionEvent, ConnectionPage, ConnectionRecord};
-pub use ffi::{Engine, EngineError, PacketPlatform, start_engine, start_packet_engine};
+pub use ffi::{Engine, EngineError, start_engine};
 
 uniffi::setup_scaffolding!();
 

@@ -407,12 +407,9 @@ jobs:
           key: rtp
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test crates
-        run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission
+        run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile
       - name: Build lab executables
-        # Separate commands: --example would otherwise limit the build to that example.
-        run: |
-          cargo build --locked -p rtp-service -p port-admission
-          cargo build --locked -p mobile-engine --example rtp-packet
+        run: cargo build --locked -p rtp-service -p port-admission -p rtp-mobile --bins
       - name: Prepare namespace lab
         run: |
           # Install firewalld without letting the package start it on the runner.
@@ -435,9 +432,8 @@ jobs:
         run: |
           unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
           RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
-      - name: Test direct packet engine path
-        run: |
-          unshare -Urnm bash mobile-engine/tests/linux-rtp-packet.sh
+      - name: Test the RTP app engine against an internet-exit endpoint
+        run: unshare -Urnm bash rtp-mobile/tests/linux-lab.sh
 
   # Self-contained static binaries: copy to any Linux host, no libc or packaging needed.
   build_rtp:

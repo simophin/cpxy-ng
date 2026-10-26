@@ -15,7 +15,6 @@ name = "uniffi-bindgen"
 required-features = ["bindgen"]
 
 [dependencies]
-rtp-l3 = { path = "../rtp-l3" }
 client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
 ipnet = { version = "2", features = ["serde"] }
