@@ -126,6 +126,16 @@ pub fn open(key: &[u8; 32], p: &[u8]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     #[test]
+    fn inner_ipv6_packets_remain_rejected() {
+        let mut packet = vec![0; 40];
+        packet[0] = 0x60;
+        let mut tx = Tx::new([7; 32]);
+        assert!(tx.seal(&packet, 0).is_none());
+        // Receiving an encrypted IPv6 payload is rejected as well.
+        let frame = tx.seal_body(&packet, 0, &[3; RANDOM]);
+        assert!(open(&[7; 32], &frame).is_none());
+    }
+    #[test]
     fn password_key_is_deterministic_and_rejects_short_passwords() {
         let a = derive_psk("correct horse battery").unwrap();
         assert_eq!(a, derive_psk("correct horse battery").unwrap());

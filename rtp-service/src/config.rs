@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     io,
-    net::{Ipv4Addr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr},
     path::PathBuf,
 };
 
@@ -9,12 +9,12 @@ use std::{
 #[serde(tag = "role", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Role {
     Client {
-        entry: SocketAddrV4,
+        entry: SocketAddr,
         #[serde(default = "localhost_any")]
-        bind: SocketAddrV4,
+        bind: SocketAddr,
     },
     Endpoint {
-        listen: SocketAddrV4,
+        listen: SocketAddr,
         rotation_low: u16,
         rotation_high: u16,
         #[serde(default = "rotation")]
@@ -52,8 +52,8 @@ mod tests {
         settings.validate().unwrap();
     }
 }
-fn localhost_any() -> SocketAddrV4 {
-    SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)
+fn localhost_any() -> SocketAddr {
+    SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0)
 }
 fn rotation() -> u64 {
     300
@@ -182,6 +182,13 @@ impl Settings {
             return Err(io::Error::other(
                 "client requires a physical outbound_interface",
             ));
+        }
+        if let Role::Client { entry, bind } = self.transport {
+            if entry.is_ipv4() != bind.is_ipv4() {
+                return Err(io::Error::other(
+                    "entry and bind address families must match",
+                ));
+            }
         }
         match self.transport {
             Role::Client { .. } if self.initial_rotation_port.is_some() => {

@@ -655,7 +655,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn full_ipv6_keeps_local_aaaa_records_without_asking_for_ipv4() {
+    async fn full_ipv6_keeps_mixed_alternative_aaaa_without_asking_for_ipv4() {
         let upstream = TypedUpstream::new([(RecordType::AAAA, v6(&[LOCAL_V6, REMOTE_V6]))]);
         let handler = ipv6_handler(upstream.clone(), Ipv6Mode::Full);
         let response = handler
@@ -663,7 +663,10 @@ mod tests {
             .await;
         assert_eq!(
             addresses(&response),
-            [LOCAL_V6.parse::<std::net::IpAddr>().unwrap()]
+            [
+                LOCAL_V6.parse::<std::net::IpAddr>().unwrap(),
+                REMOTE_V6.parse::<std::net::IpAddr>().unwrap(),
+            ]
         );
         assert_eq!(*upstream.calls.lock().unwrap(), [RecordType::AAAA]);
     }

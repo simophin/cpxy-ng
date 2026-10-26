@@ -1,16 +1,16 @@
-//! Private descriptor broker. Only a configured IPv4 peer, bind and device cross
+//! Private descriptor broker. Only a configured IP peer, bind and device cross
 //! into this policy; tunnel packets, keys, routes and firewall are not involved.
 use crate::config::{Role, Settings};
 use std::{
     io,
-    net::{SocketAddrV4, UdpSocket},
+    net::{SocketAddr, UdpSocket},
     os::{fd::AsRawFd, unix::net::UnixDatagram},
     time::Duration,
 };
 
 pub struct Policy {
-    entry: SocketAddrV4,
-    bind: SocketAddrV4,
+    entry: SocketAddr,
+    bind: SocketAddr,
     device: String,
 }
 impl Policy {
@@ -43,7 +43,9 @@ impl Policy {
         {
             return Err(io::Error::last_os_error());
         }
-        socket.connect(SocketAddrV4::new(*self.entry.ip(), port))?;
+        let mut peer = self.entry;
+        peer.set_port(port);
+        socket.connect(peer)?;
         Ok(socket)
     }
     /// Serve at most one request, with bounded waiting so child exit/signals can
@@ -157,10 +159,7 @@ mod tests {
     fn allocation_failure_rejects_candidate_and_broker_keeps_serving() {
         let occupied = UdpSocket::bind("127.0.0.1:0").unwrap();
         let mut policy = policy();
-        policy.bind = match occupied.local_addr().unwrap() {
-            std::net::SocketAddr::V4(v) => v,
-            _ => unreachable!(),
-        };
+        policy.bind = occupied.local_addr().unwrap();
         let (client, parent) = UnixDatagram::pair().unwrap();
         let task = thread::spawn(move || {
             assert!(policy.serve_once(&parent).unwrap());
@@ -170,6 +169,34 @@ mod tests {
         let client = unsafe { File::from_raw_fd(client.into_raw_fd()) };
         assert!(rtp_l3::linux::broker_socket(&client, 4001).is_err());
         assert!(rtp_l3::linux::broker_socket(&client, 4001).is_ok());
+        task.join().unwrap();
+    }
+    #[test]
+    fn replacement_ipv6_socket_keeps_the_protected_host_peer() {
+        let receiver = UdpSocket::bind("[::1]:0").unwrap();
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let port = receiver.local_addr().unwrap().port();
+        let (client, parent) = UnixDatagram::pair().unwrap();
+        let task = thread::spawn(move || {
+            let policy = Policy {
+                entry: "[::1]:1".parse().unwrap(),
+                bind: "[::]:0".parse().unwrap(),
+                device: "lo".into(),
+            };
+            for _ in 0..2 {
+                assert!(policy.serve_once(&parent).unwrap());
+            }
+        });
+        let client = unsafe { File::from_raw_fd(client.into_raw_fd()) };
+        for _ in 0..2 {
+            let socket = rtp_l3::linux::broker_socket(&client, port).unwrap();
+            assert_eq!(socket.peer_addr().unwrap(), receiver.local_addr().unwrap());
+            socket.send(b"v6").unwrap();
+            let mut buffer = [0; 2];
+            assert_eq!(receiver.recv_from(&mut buffer).unwrap().0, 2);
+        }
         task.join().unwrap();
     }
     #[test]

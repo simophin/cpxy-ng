@@ -429,6 +429,8 @@ jobs:
           RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
           unshare -Urnm bash rtp-service/tests/linux-applications.sh
           bash rtp-service/tests/linux-namespace-broker.sh
+          bash rtp-service/tests/linux-dual-stack.sh
+          unshare -Urnm bash rtp-service/tests/linux-internet.sh
       - name: Test in-process firewalld ports, forwarding and masquerade
         run: |
           unshare -Urnm bash rtp-service/tests/linux-firewalld.sh

@@ -8,6 +8,7 @@ use client::dns_split::spec::ServerSpec;
 use client::dns_split::upstream::{
     Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
 };
+use client::ipv6::Ipv6Mode;
 use client::outbound::ProtocolOutbound;
 use client::protocol_config::Config as ServerConfig;
 use hickory_proto::rr::Name;
@@ -20,8 +21,8 @@ use tokio::net::{TcpListener, UdpSocket};
 const PURGE_INTERVAL: Duration = Duration::from_secs(300);
 
 /// A DNS forwarder that races queries across upstream and alternative servers. An answer with any
-/// address in the local region wins, keeping just those addresses; otherwise the alternative
-/// servers' answer is used.
+/// address in the local region from an upstream wins, keeping just those addresses. Alternative
+/// answers wait until upstreams finish without a local answer, or the query deadline expires.
 #[derive(clap::Parser)]
 struct CliOptions {
     /// The address to listen on, for both UDP and TCP
@@ -78,6 +79,10 @@ struct CliOptions {
     /// Suffix to try for single-label names, in order, before the bare name. Repeatable.
     #[clap(long, env = "DNS_SEARCH_DOMAINS", value_delimiter = ',', value_parser = client::dns_split::search::parse_search_domain)]
     search_domain: Vec<Name>,
+
+    /// IPv6 answer policy: off returns empty AAAA answers; direct retains local-region AAAA only.
+    #[clap(long, env = "DNS_IPV6", value_enum, default_value = "off")]
+    ipv6: Ipv6Mode,
 }
 
 #[tokio::main]
@@ -127,7 +132,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut handler = DnsSplitHandler::new(Racer::new(servers, timeout, is_local_region_ip), cache)
-        .with_search_domains(options.search_domain);
+        .with_search_domains(options.search_domain)
+        .with_ipv6(options.ipv6);
     if let Some(spec) = &options.local_server {
         let server = HickoryUpstream::new(spec, tls_config.clone(), timeout, cpxy.clone())
             .await

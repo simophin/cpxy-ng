@@ -3,15 +3,16 @@
 `cpxy-rtp` runs one end of the RTP-framed IPv4 tunnel. An **endpoint** accepts
 clients over UDP and forwards their traffic to selected private networks (service
 CIDRs). A **client** connects directly to the endpoint. It is not an
-internet VPN: only the configured service CIDRs are routed, and IPv4 with
-MTU 1200 is the only mode.
+internet VPN by default: only configured service CIDRs are routed. Explicit
+`--internet-exit` mode permits a full IPv4 exit. Inner packets remain IPv4 with
+MTU 1200; outer UDP sockets support IPv4 and IPv6.
 
 ## Running an endpoint
 
 CI builds static musl binaries for x86_64 and aarch64 (the `cpxy-rtp-<target>`
 artifacts). They have no runtime
 dependencies: copy one to a Linux host with `/dev/net/tun`, iproute2 and a public
-IPv4 address, and run it as root (it owns a TUN, routes and firewall rules):
+IPv4 or IPv6 address, and run it as root (it owns a TUN, routes and firewall rules):
 
 ```sh
 CPXY_RTP_PASSWORD=... cpxy-rtp endpoint --listen 203.0.113.10:30000 \
@@ -39,6 +40,29 @@ CPXY_RTP_PASSWORD=... cpxy-rtp client --entry 203.0.113.10:30000 \
 unprivileged user/network namespace whose only route is the tunnel; see
 [Namespace client](#namespace-client).
 
+## IPv6 outer transport and dual-stack listeners
+
+`--listen '[::]:30000'` explicitly creates dual-stack base and rotation sockets.
+They accept IPv4 and IPv6 clients on the same port pool. Managed firewalld
+admission creates rules for both address families; a specific IPv6 listen
+address admits only IPv6. Source restrictions must cover each desired family.
+Clients use `--entry '[2001:db8::10]:30000'`; their default UDP bind becomes
+`[::]:0`. An explicit `--bind` must match the entry's address family. Replacement
+sockets remain bound to the configured outbound device or protected namespace
+broker. IPv4-mapped peers on a dual-stack server are normalized to IPv4 before
+session lookup. Port rotation and the wire format are unchanged.
+
+IPv6 is only the **outer transport** for this Linux service. Tunnel addresses, selected routes, DNS
+metadata and packet validation remain IPv4. IPv6 packets inside the tunnel are
+rejected. A 1200-byte inner packet plus RTP framing and IPv6/UDP headers fits
+within 1280 bytes.
+
+`--internet-exit` uses ordinary endpoint routing and source-scoped masquerade
+when firewalld is managed. Its client leaves policy routing, DNS, LAN forwarding
+and NAT to the gateway administrator; it does not install a host default route.
+Give concurrent endpoints separate interfaces, tunnel pools, state directories,
+return-routing tables and unused rule priorities.
+
 ## Configuration
 
 Everything is a flag, and every flag also reads a `CPXY_RTP_*` environment
@@ -57,7 +81,7 @@ Commonly used endpoint settings, with defaults:
 
 | Flag / variable | Default | Meaning |
 | --- | --- | --- |
-| `--listen` / `CPXY_RTP_LISTEN` | required | Public IPv4 and base UDP port |
+| `--listen` / `CPXY_RTP_LISTEN` | required | Public IP and base UDP port; `[::]:PORT` accepts both families |
 | `--rotation-ports` | next 8 ports | Rotation pool `LOW-HIGH` |
 | `--rotation-seconds` | 300 | 0 disables scheduled rotation |
 | `--service-cidr` (comma-separated) | none | Networks clients may reach; enables routing policy |
@@ -88,7 +112,8 @@ by periodic reconciliation.
 When firewalld is managed, the endpoint:
 
 - opens exactly the listen port and each rotation port as it is used, as rich
-  rules restricted to `--firewalld-source` CIDRs (default `0.0.0.0/0`, at most 4)
+  rules restricted to `--firewalld-source` CIDRs (defaults match the listener family; dual-stack wildcard uses both
+  `0.0.0.0/0` and `::/0`, at most 4)
   and the listen address, in the zone of the listen interface (`--firewalld-zone`
   and `--firewalld-interface` override the lookup). A port whose identical rule
   already exists is refused instead of shared, and removed rules always belong
@@ -112,7 +137,9 @@ releases ports, forwarding and routing policy.
 destinations to the reserved `--route-table`, which holds the live TUN routes
 and an unreachable default. If the TUN disappears, the guard keeps rejecting
 traffic instead of falling through to a physical route. Startup refuses table
-or rule collisions and earlier custom rules. Normal stop and `cleanup` release
+or rule collisions and earlier custom rules that could overlap its destinations.
+Proven-disjoint client-return selectors for other endpoints are allowed.
+Normal stop and `cleanup` release
 the guard; a crash, failed startup or `cleanup-ports` deliberately keep it until
 restart or explicit cleanup. Cleanup never flushes a table or replaces
 administrator routes. A reboot removes kernel policy, so start the service

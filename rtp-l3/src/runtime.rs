@@ -148,9 +148,6 @@ fn nonblocking(fd: i32) -> io::Result<()> {
     Ok(())
 }
 fn prepare(socket: &UdpSocket) -> io::Result<()> {
-    if !socket.local_addr()?.is_ipv4() {
-        return Err(io::Error::other("IPv4 socket required"));
-    }
     #[cfg(target_os = "linux")]
     {
     let enabled: libc::c_int = 1;
@@ -184,9 +181,6 @@ fn prepare(socket: &UdpSocket) -> io::Result<()> {
 #[cfg(target_os = "linux")]
 fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
     let peer = socket.peer_addr()?;
-    if !peer.is_ipv4() {
-        return Err(io::Error::other("IPv4 server required"));
-    }
     let local = socket.local_addr()?;
     let addr = libc::sockaddr {
         sa_family: libc::AF_UNSPEC as _,
@@ -198,25 +192,29 @@ fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
     // Linux may clear an implicitly bound port on AF_UNSPEC. Restore the
     // original tuple, in the socket's original netns, before sending again.
     if socket.local_addr()?.port() != local.port() {
-        let SocketAddr::V4(local) = local else {
-            unreachable!()
+        let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+        let len = match local {
+            SocketAddr::V4(local) => {
+                let addr = libc::sockaddr_in {
+                    sin_family: libc::AF_INET as _, sin_port: local.port().to_be(),
+                    sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(local.ip().octets()) },
+                    sin_zero: [0; 8],
+                };
+                unsafe { std::ptr::write((&mut storage as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in>(), addr) };
+                std::mem::size_of::<libc::sockaddr_in>()
+            }
+            SocketAddr::V6(local) => {
+                let addr = libc::sockaddr_in6 {
+                    sin6_family: libc::AF_INET6 as _, sin6_port: local.port().to_be(),
+                    sin6_flowinfo: local.flowinfo().to_be(),
+                    sin6_addr: libc::in6_addr { s6_addr: local.ip().octets() },
+                    sin6_scope_id: local.scope_id(),
+                };
+                unsafe { std::ptr::write((&mut storage as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in6>(), addr) };
+                std::mem::size_of::<libc::sockaddr_in6>()
+            }
         };
-        let addr = libc::sockaddr_in {
-            sin_family: libc::AF_INET as _,
-            sin_port: local.port().to_be(),
-            sin_addr: libc::in_addr {
-                s_addr: u32::from_ne_bytes(local.ip().octets()),
-            },
-            sin_zero: [0; 8],
-        };
-        if unsafe {
-            libc::bind(
-                socket.as_raw_fd(),
-                &addr as *const _ as *const _,
-                std::mem::size_of_val(&addr) as _,
-            )
-        } < 0
-        {
+        if unsafe { libc::bind(socket.as_raw_fd(), (&storage as *const libc::sockaddr_storage).cast(), len as _) } < 0 {
             return Err(io::Error::last_os_error());
         }
     }
@@ -889,11 +887,11 @@ pub fn run(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>)
     run_inner(config, resources, running, None)
 }
 
-/// Run with an explicitly supplied IPv4 peer and unconnected, already protected
+/// Run with an explicitly supplied IP peer and unconnected, already protected
 /// sockets. Avoids OS-specific UDP disconnect operations on mobile platforms.
 pub fn run_client(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool>, peer: SocketAddr) -> io::Result<()> {
-    if !config.client || !peer.is_ipv4() || peer.port() == 0 {
-        return Err(io::Error::other("IPv4 client peer required"));
+    if !config.client || peer.port() == 0 {
+        return Err(io::Error::other("client peer with a nonzero port required"));
     }
     run_inner(config, resources, running, Some(peer))
 }
@@ -1320,6 +1318,60 @@ fn run_inner(config: WorkerConfig, resources: Resources, running: Arc<AtomicBool
 #[cfg(all(test, target_os = "linux"))]
 mod runtime_tests {
     use super::*;
+
+    #[test]
+    fn ipv6_receive_and_disconnect_preserve_source_tuple() {
+        let reservation = UdpSocket::bind("[::1]:0").unwrap();
+        let fixed = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        for bind_port in [None, Some(0), Some(fixed)] {
+            let fd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, 0) };
+            assert!(fd >= 0);
+            let socket = unsafe { UdpSocket::from_raw_fd(fd) };
+            if let Some(port) = bind_port {
+                let mut addr: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
+                addr.sin6_family = libc::AF_INET6 as _;
+                addr.sin6_port = port.to_be();
+                assert_eq!(unsafe { libc::bind(fd, (&addr as *const libc::sockaddr_in6).cast(), std::mem::size_of_val(&addr) as _) }, 0);
+            }
+            let a = UdpSocket::bind("[::1]:0").unwrap();
+            let b = UdpSocket::bind("[::1]:0").unwrap();
+            socket.connect(a.local_addr().unwrap()).unwrap();
+            let local = socket.local_addr().unwrap();
+            assert_eq!(disconnect(&socket).unwrap(), a.local_addr().unwrap());
+            assert_eq!(socket.local_addr().unwrap().port(), local.port());
+            for receiver in [&a, &b] {
+                receiver.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                socket.send_to(b"IPv4 inside IPv6", receiver.local_addr().unwrap()).unwrap();
+                let mut buffer = [0; 64];
+                let (n, peer, _) = receive(receiver, &mut buffer).unwrap();
+                assert_eq!(&buffer[..n], b"IPv4 inside IPv6");
+                assert_eq!(peer, local);
+            }
+        }
+    }
+
+    #[test]
+    fn dual_stack_receive_normalizes_mapped_ipv4_peers() {
+        let fd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, 0) };
+        assert!(fd >= 0);
+        let server = unsafe { UdpSocket::from_raw_fd(fd) };
+        let only: libc::c_int = 0;
+        assert_eq!(unsafe { libc::setsockopt(fd, libc::IPPROTO_IPV6, libc::IPV6_V6ONLY, (&only as *const libc::c_int).cast(), 4) }, 0);
+        let mut addr: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
+        addr.sin6_family = libc::AF_INET6 as _;
+        assert_eq!(unsafe { libc::bind(fd, (&addr as *const libc::sockaddr_in6).cast(), std::mem::size_of_val(&addr) as _) }, 0);
+        server.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        client.send_to(b"v4", (std::net::Ipv4Addr::LOCALHOST, server.local_addr().unwrap().port())).unwrap();
+        let mut buffer = [0; 16];
+        let (n, peer, _) = receive(&server, &mut buffer).unwrap();
+        assert_eq!(&buffer[..n], b"v4");
+        assert_eq!(peer, client.local_addr().unwrap());
+        server.send_to(b"reply", peer).unwrap();
+        assert_eq!(client.recv_from(&mut buffer).unwrap().0, 5);
+    }
 
     #[test]
     fn reordered_advertisement_cannot_replace_a_newer_pending_candidate() {

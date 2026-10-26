@@ -3,14 +3,14 @@
 use crate::{Admission, Lease};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap, fs, io, net::Ipv4Addr, path::PathBuf, process::Command, sync::Mutex,
+    collections::BTreeMap, fs, io, net::IpAddr, path::PathBuf, process::Command, sync::Mutex,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub profile: String,
-    pub bind: Ipv4Addr,
+    pub bind: IpAddr,
     pub base: u16,
     pub low: u16,
     pub high: u16,
@@ -40,10 +40,13 @@ impl Policy {
         for source in &self.sources {
             let (ip, prefix) = source
                 .split_once('/')
-                .ok_or_else(|| io::Error::other("source needs IPv4 CIDR"))?;
-            let _: Ipv4Addr = ip.parse().map_err(io::Error::other)?;
+                .ok_or_else(|| io::Error::other("source needs IP CIDR"))?;
+            let ip: IpAddr = ip.parse().map_err(io::Error::other)?;
             let prefix: u8 = prefix.parse().map_err(io::Error::other)?;
-            if prefix > 32 {
+            if (ip.is_ipv4() != self.bind.is_ipv4()
+                && !(self.bind.is_ipv6() && self.bind.is_unspecified()))
+                || prefix > if ip.is_ipv4() { 32 } else { 128 }
+            {
                 return Err(io::Error::other("invalid source prefix"));
             }
         }
@@ -67,7 +70,14 @@ impl Policy {
                 "lease outside delegated policy",
             ));
         }
-        Ok(self.sources.iter().map(|source| format!("rule family=\"ipv4\" source address=\"{source}\" {}port port=\"{}\" protocol=\"udp\" accept", if self.bind.is_unspecified() { String::new() } else { format!("destination address=\"{}\" ", self.bind) }, lease.address.port())).collect())
+        Ok(self.sources.iter().map(|source| {
+            // validate() has checked both the address family and CIDR prefix.
+            let ip: IpAddr = source.split('/').next().unwrap().parse().unwrap();
+            let family = if ip.is_ipv4() { "ipv4" } else { "ipv6" };
+            let destination = if self.bind.is_unspecified() { String::new() }
+                else { format!("destination address=\"{}\" ", self.bind) };
+            format!("rule family=\"{family}\" source address=\"{source}\" {destination}port port=\"{}\" protocol=\"udp\" accept", lease.address.port())
+        }).collect())
     }
 }
 
@@ -456,6 +466,26 @@ mod tests {
             address: "127.0.0.1:31001".parse().unwrap(),
             state: LeaseState::Preparing,
         }
+    }
+    #[test]
+    fn dual_stack_wildcard_admits_both_families_with_one_lease() {
+        let mut p = policy();
+        p.bind = "::".parse().unwrap();
+        p.sources = vec!["192.0.2.0/24".into(), "2001:db8::/32".into()];
+        let mut l = lease("dual");
+        l.address = "[::]:31001".parse().unwrap();
+        let rules = p.rules(&l).unwrap();
+        assert_eq!(rules.len(), 2);
+        assert!(rules[0].contains("family=\"ipv4\""));
+        assert!(rules[1].contains("family=\"ipv6\""));
+        assert!(rules.iter().all(|r| !r.contains("destination address")));
+        p.bind = "2001:db8::1".parse().unwrap();
+        assert!(p.validate().is_err());
+        p.sources.remove(0);
+        l.address = "[2001:db8::1]:31001".parse().unwrap();
+        assert!(p.rules(&l).unwrap()[0].contains("destination address=\"2001:db8::1\""));
+        p.sources = vec!["2001:db8::/129".into()];
+        assert!(p.validate().is_err());
     }
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     struct Fixture {
