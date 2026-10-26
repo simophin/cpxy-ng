@@ -8,6 +8,11 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.net.VpnService
 import android.os.SystemClock
 import android.util.Log
@@ -52,12 +57,13 @@ class RtpVpnService : VpnService() {
     @Volatile
     private var engine: RtpEngine? = null
 
-    /** The underlying network the engine's sockets last used. */
+    /** The best non-VPN network: the one the engine's sockets use. */
     @Volatile
     private var network: Network? = null
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             val previous = this@RtpVpnService.network
+            Log.d(TAG, "Underlying network $network, was $previous")
             this@RtpVpnService.network = network
             setUnderlyingNetworks(arrayOf(network))
             if (previous != null && previous != network) {
@@ -73,8 +79,19 @@ class RtpVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        // This app is outside its own VPN, so its default network is the one the tunnel uses.
-        getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
+        // Not the default network callback: once the VPN is up, the system reports the VPN as this
+        // app's default network too, although the app is outside it, and stops reporting changes.
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            connectivity.registerBestMatchingNetworkCallback(request, networkCallback, Handler(Looper.getMainLooper()))
+        } else {
+            // Satisfied by the best matching network, which is the default one anyway.
+            connectivity.requestNetwork(request, networkCallback)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
