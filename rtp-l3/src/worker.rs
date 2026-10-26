@@ -56,7 +56,7 @@ impl Counts {
 #[cfg(target_os = "linux")]
 fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, Option<u32>)> {
     unsafe {
-        let mut addr: libc::sockaddr_in = std::mem::zeroed();
+        let mut addr: libc::sockaddr_storage = std::mem::zeroed();
         let mut control = [0usize; 8];
         let mut iov = libc::iovec {
             iov_base: b.as_mut_ptr() as *mut _,
@@ -74,9 +74,40 @@ fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, O
         if n < 0 {
             return Err(io::Error::last_os_error());
         }
-        if msg.msg_flags & libc::MSG_TRUNC != 0 || addr.sin_family != libc::AF_INET as u16 {
-            return Err(io::Error::other("truncated/non-IPv4 UDP"));
+        if msg.msg_flags & libc::MSG_TRUNC != 0 {
+            return Err(io::Error::other("truncated UDP"));
         }
+        let peer = match addr.ss_family as libc::c_int {
+            libc::AF_INET
+                if msg.msg_namelen as usize >= std::mem::size_of::<libc::sockaddr_in>() =>
+            {
+                let addr = std::ptr::read(
+                    (&addr as *const libc::sockaddr_storage).cast::<libc::sockaddr_in>(),
+                );
+                SocketAddr::new(
+                    Ipv4Addr::from(addr.sin_addr.s_addr.to_ne_bytes()).into(),
+                    u16::from_be(addr.sin_port),
+                )
+            }
+            libc::AF_INET6
+                if msg.msg_namelen as usize >= std::mem::size_of::<libc::sockaddr_in6>() =>
+            {
+                let addr = std::ptr::read(
+                    (&addr as *const libc::sockaddr_storage).cast::<libc::sockaddr_in6>(),
+                );
+                let ip = std::net::Ipv6Addr::from(addr.sin6_addr.s6_addr);
+                match ip.to_ipv4_mapped() {
+                    Some(ip) => SocketAddr::new(ip.into(), u16::from_be(addr.sin6_port)),
+                    None => SocketAddr::V6(std::net::SocketAddrV6::new(
+                        ip,
+                        u16::from_be(addr.sin6_port),
+                        u32::from_be(addr.sin6_flowinfo),
+                        addr.sin6_scope_id,
+                    )),
+                }
+            }
+            _ => return Err(io::Error::other("unsupported UDP address family")),
+        };
         let mut drops = None;
         let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
         while !cmsg.is_null() {
@@ -88,14 +119,7 @@ fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, O
             }
             cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
         }
-        Ok((
-            n as usize,
-            SocketAddr::new(
-                std::net::Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr)).into(),
-                u16::from_be(addr.sin_port),
-            ),
-            drops,
-        ))
+        Ok((n as usize, peer, drops))
     }
 }
 

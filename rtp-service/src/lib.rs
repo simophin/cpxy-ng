@@ -12,15 +12,20 @@ pub mod ports;
 use config::{FirewallMode, Role, Settings};
 use port_admission::firewalld::{DbusFirewall, Firewall, ManagedFirewall, Policy};
 use ports::{AdministratorManaged, Admission, LeaseManager};
-/// Interface carrying `ip`, or the default-route interface for 0.0.0.0.
-fn listen_interface(ip: std::net::Ipv4Addr) -> io::Result<String> {
+/// Interface carrying `ip`, or the matching family's default-route interface.
+fn listen_interface(ip: std::net::IpAddr) -> io::Result<String> {
     let output = if ip.is_unspecified() {
         Command::new("ip")
-            .args(["-4", "route", "show", "default"])
+            .args([
+                if ip.is_ipv4() { "-4" } else { "-6" },
+                "route",
+                "show",
+                "default",
+            ])
             .output()?
     } else {
         Command::new("ip")
-            .args(["-o", "-4", "addr", "show"])
+            .args(["-o", if ip.is_ipv4() { "-4" } else { "-6" }, "addr", "show"])
             .output()?
     };
     let text = String::from_utf8_lossy(&output.stdout);
@@ -66,7 +71,7 @@ fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
     let options = &settings.firewalld;
     let interface = match &options.interface {
         Some(interface) => interface.clone(),
-        None => listen_interface(*listen.ip())?,
+        None => listen_interface(listen.ip())?,
     };
     let zone = match &options.zone {
         Some(zone) => zone.clone(),
@@ -74,7 +79,7 @@ fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
     };
     Ok(Some(Policy {
         profile: settings.profile.clone(),
-        bind: *listen.ip(),
+        bind: listen.ip(),
         base: listen.port(),
         low: rotation_low,
         high: rotation_high,
@@ -166,7 +171,7 @@ fn client_socket(settings: &Settings, peer: SocketAddr) -> io::Result<UdpSocket>
     let Role::Client { entry, bind } = settings.transport else {
         return Err(io::Error::other("not a client profile"));
     };
-    if peer.ip() != *entry.ip() {
+    if peer.ip() != entry.ip() {
         return Err(io::Error::other("peer outside configured entry"));
     }
     let socket = UdpSocket::bind(bind)?;
@@ -192,6 +197,56 @@ fn client_socket(settings: &Settings, peer: SocketAddr) -> io::Result<UdpSocket>
     socket.connect(peer)?;
     Ok(socket)
 }
+
+/// Wildcard IPv6 endpoints explicitly accept both outer address families.
+/// The option must be set before bind, including for every rotation socket.
+fn endpoint_socket(address: SocketAddr) -> io::Result<UdpSocket> {
+    let SocketAddr::V6(address6) = address else {
+        return UdpSocket::bind(address);
+    };
+    if !address6.ip().is_unspecified() {
+        return UdpSocket::bind(address);
+    }
+    use std::os::fd::FromRawFd;
+    let fd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let socket = unsafe { UdpSocket::from_raw_fd(fd) };
+    let only: libc::c_int = 0;
+    if unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_IPV6,
+            libc::IPV6_V6ONLY,
+            (&only as *const libc::c_int).cast(),
+            std::mem::size_of_val(&only) as _,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let addr = libc::sockaddr_in6 {
+        sin6_family: libc::AF_INET6 as _,
+        sin6_port: address6.port().to_be(),
+        sin6_flowinfo: address6.flowinfo().to_be(),
+        sin6_addr: libc::in6_addr {
+            s6_addr: address6.ip().octets(),
+        },
+        sin6_scope_id: address6.scope_id(),
+    };
+    if unsafe {
+        libc::bind(
+            fd,
+            (&addr as *const libc::sockaddr_in6).cast(),
+            std::mem::size_of_val(&addr) as _,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(socket)
+}
 struct Host {
     settings: Settings,
     leases: LeaseManager,
@@ -211,7 +266,7 @@ impl Host {
                 let Role::Client { entry, .. } = self.settings.transport else {
                     return Err(io::Error::other("broker requires client profile"));
                 };
-                if peer.ip() != *entry.ip() || peer.port() == 0 {
+                if peer.ip() != entry.ip() || peer.port() == 0 {
                     return Err(io::Error::other("peer outside configured entry"));
                 }
                 let socket = linux::broker_socket(&broker.lock().unwrap(), peer.port())?;
@@ -235,13 +290,13 @@ impl SocketProvider for Host {
         else {
             return Err(io::Error::other("client cannot lease listeners"));
         };
-        if address.ip() != *listen.ip()
+        if address.ip() != listen.ip()
             || address.port() != listen.port()
                 && !(rotation_low..=rotation_high).contains(&address.port())
         {
             return Err(io::Error::other("port outside profile namespace"));
         }
-        let socket = UdpSocket::bind(address)?;
+        let socket = endpoint_socket(address)?;
         if let Err(e) = self.leases.prepare_port(address) {
             let _ = self.leases.retire_port(address.port());
             return Err(e);
@@ -510,7 +565,12 @@ pub const PASSWORD_ENV: &str = "CPXY_RTP_PASSWORD";
 pub fn doctor(settings: &Settings) -> serde_json::Value {
     let route = match settings.transport {
         Role::Client { entry, .. } => Command::new("ip")
-            .args(["route", "get", &entry.ip().to_string()])
+            .args([
+                if entry.is_ipv4() { "-4" } else { "-6" },
+                "route",
+                "get",
+                &entry.ip().to_string(),
+            ])
             .output()
             .ok()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()),
@@ -518,7 +578,35 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
     };
     let socket = match settings.transport {
         Role::Client { entry, .. } => client_socket(settings, entry.into()),
-        Role::Endpoint { listen, .. } => UdpSocket::bind(listen),
+        Role::Endpoint { listen, .. } => endpoint_socket(listen),
     };
-    serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "password_env":std::env::var_os(PASSWORD_ENV).is_some(), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.firewall,"firewalld_available":DbusFirewall::available(),"policy":firewalld_policy(settings).map(|p| p.map(|p| serde_json::json!({"zone":p.zone,"interface":p.interface,"sources":p.sources}))).map_err(|e| e.to_string()),"tunnel_zone":settings.firewalld.tunnel_zone,"masquerade":settings.firewalld.masquerade,"verified":false,"detail":"read-only diagnostics do not assert admission; the running service verifies rules before readiness and periodically"}, "network":settings.network,"dns_policy":{"mode":"externally_managed_only","verified":false,"detail":"service never mutates DNS; administrator must provision persistent fail-closed private suffix routing"},"fail_closed":"configured CIDRs use reserved policy rules and unreachable guard; explicit stop/cleanup releases policy", "mtu":1200,"ipv4_only":true})
+    serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "password_env":std::env::var_os(PASSWORD_ENV).is_some(), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.firewall,"firewalld_available":DbusFirewall::available(),"policy":firewalld_policy(settings).map(|p| p.map(|p| serde_json::json!({"zone":p.zone,"interface":p.interface,"sources":p.sources}))).map_err(|e| e.to_string()),"tunnel_zone":settings.firewalld.tunnel_zone,"masquerade":settings.firewalld.masquerade,"verified":false,"detail":"read-only diagnostics do not assert admission; the running service verifies rules before readiness and periodically"}, "network":settings.network,"dns_policy":{"mode":"externally_managed_only","verified":false,"detail":"service never mutates DNS; administrator must provision persistent fail-closed private suffix routing"},"fail_closed":"configured CIDRs use reserved policy rules and unreachable guard; explicit stop/cleanup releases policy", "mtu":1200,"ipv4_only":true,"outer_transport":"ipv4_or_ipv6"})
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    #[test]
+    fn wildcard_endpoint_accepts_both_families_on_one_port() {
+        let endpoint = endpoint_socket("[::]:0".parse().unwrap()).unwrap();
+        endpoint
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let port = endpoint.local_addr().unwrap().port();
+        for (bind, destination) in [
+            ("127.0.0.1:0", format!("127.0.0.1:{port}")),
+            ("[::1]:0", format!("[::1]:{port}")),
+        ] {
+            let client = UdpSocket::bind(bind).unwrap();
+            client
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            client.send_to(b"probe", &destination).unwrap();
+            let mut buffer = [0; 16];
+            let (n, peer) = endpoint.recv_from(&mut buffer).unwrap();
+            assert_eq!(&buffer[..n], b"probe");
+            endpoint.send_to(b"reply", peer).unwrap();
+            assert_eq!(client.recv_from(&mut buffer).unwrap().0, 5);
+        }
+    }
 }

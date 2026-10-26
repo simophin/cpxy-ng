@@ -13,6 +13,10 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Network {
+    /// Full IPv4 exit. Clients leave route selection to the gateway administrator
+    /// so forwarded networks can use RTP without capturing router-local traffic.
+    #[serde(default)]
+    pub internet_exit: bool,
     pub tunnel_pool: String,
     pub client_addresses: Vec<Ipv4Addr>,
     pub service_cidrs: Vec<String>,
@@ -108,12 +112,20 @@ impl Network {
         }
         for c in &self.service_cidrs {
             let (_, n) = cidr(c)?;
-            if n == 0 {
+            if n == 0 && !self.internet_exit {
                 return Err(bad("default service route unsupported"));
             }
         }
+        if self.internet_exit && self.service_cidrs != ["0.0.0.0/0"] {
+            return Err(bad("internet exit requires exactly the IPv4 default CIDR"));
+        }
         if let Role::Client { entry, .. } = s.transport {
-            if self.service_cidrs.iter().any(|c| contains(c, *entry.ip())) {
+            if !self.internet_exit
+                && self
+                    .service_cidrs
+                    .iter()
+                    .any(|c| matches!(entry.ip(), std::net::IpAddr::V4(ip) if contains(c, ip)))
+            {
                 return Err(bad("entry must be outside selected service CIDRs"));
             }
         }
@@ -157,7 +169,11 @@ impl Network {
     }
     fn routes(&self, s: &Settings) -> Vec<String> {
         if matches!(s.transport, Role::Client { .. }) {
-            self.service_cidrs.clone()
+            if self.internet_exit {
+                vec![]
+            } else {
+                self.service_cidrs.clone()
+            }
         } else {
             self.client_addresses
                 .iter()
@@ -220,6 +236,32 @@ fn rule_matches(r: &serde_json::Value, n: &Network, c: &str) -> bool {
             || r["dst"].as_str() == Some(dst)
                 && r["dstlen"].as_u64().unwrap_or(32) == len.parse::<u64>().unwrap())
 }
+// A destination-restricted earlier rule cannot bypass this profile when its
+// destination is disjoint from every route we own. Unknown/inverted selectors
+// remain conservative. This permits independent endpoint return routes.
+fn rule_may_overlap(r: &serde_json::Value, routes: &[String]) -> bool {
+    if r.get("not").is_some() || r.get("invert").is_some() {
+        return true;
+    }
+    let Some(dst) = r["dst"].as_str() else {
+        return true;
+    };
+    let destination = if dst.contains('/') {
+        dst.to_owned()
+    } else {
+        format!("{dst}/{}", r["dstlen"].as_u64().unwrap_or(32))
+    };
+    let Ok((address, prefix)) = cidr(&destination) else {
+        return true;
+    };
+    routes.iter().any(|route| {
+        let Ok((other, other_prefix)) = cidr(route) else {
+            return true;
+        };
+        let common = mask(prefix.min(other_prefix));
+        address & common == other & common
+    })
+}
 fn read_owned(s: &Settings) -> io::Result<Option<Owned>> {
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = match fs::OpenOptions::new()
@@ -264,15 +306,20 @@ fn persist(s: &Settings, o: &Owned) -> io::Result<()> {
 }
 pub fn prepare(s: &Settings) -> io::Result<()> {
     let Some(n) = &s.network else { return Ok(()) };
+    if n.internet_exit && matches!(s.transport, Role::Client { .. }) {
+        return Ok(());
+    }
     let rows: serde_json::Value = serde_json::from_str(&table_rows(n.table)?)?;
     let rules: serde_json::Value = serde_json::from_str(&ip(args!["-j", "rule", "show"])?)?;
     let existing = read_owned(s)?;
     // Main-table private/direct routes cannot override these policy rules.
-    // Refuse earlier custom policy rather than silently route around RTP.
+    // Refuse earlier overlapping policy rather than silently route around RTP.
+    let routes = n.routes(s);
     if array(&rules)?.iter().any(|r| {
         r["priority"]
             .as_u64()
             .is_some_and(|p| p > 0 && p < u64::from(n.rule_priority))
+            && rule_may_overlap(r, &routes)
     }) {
         return Err(bad(
             "earlier policy rules could bypass RTP; reserve a higher-precedence priority",
@@ -433,6 +480,23 @@ impl Write for PolicyPacket {
 mod tests {
     use super::*;
     #[test]
+    fn earlier_return_rules_allow_only_proven_disjoint_destinations() {
+        use serde_json::json;
+        let routes = vec!["10.88.0.2/32".into()];
+        assert!(!rule_may_overlap(&json!({"dst":"10.90.0.2"}), &routes));
+        assert!(!rule_may_overlap(&json!({"dst":"10.90.0.0/24"}), &routes));
+        for rule in [
+            json!({}),
+            json!({"dst":"all"}),
+            json!({"dst":"0.0.0.0/0"}),
+            json!({"dst":"10.88.0.0/24"}),
+            json!({"dst":"10.88.0.2"}),
+            json!({"dst":"10.90.0.2", "not":true}),
+        ] {
+            assert!(rule_may_overlap(&rule, &routes), "{rule}");
+        }
+    }
+    #[test]
     fn automatic_dns_is_rejected() {
         assert!(serde_json::from_str::<Dns>(
             r#"{"resolver":"10.2.0.53","suffixes":["corp.example"]}"#
@@ -447,6 +511,7 @@ mod tests {
     #[test]
     fn packet_policy_rejects_spoofing_and_unselected_services() {
         let n = Network {
+            internet_exit: false,
             tunnel_pool: "10.88.0.0/24".into(),
             client_addresses: vec!["10.88.0.2".parse().unwrap()],
             service_cidrs: vec!["10.90.0.0/24".into()],

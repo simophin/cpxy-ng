@@ -18,9 +18,10 @@ pub struct Resolution {
 
 /// Sends each query to every configured server and picks an answer:
 ///
-/// - The first answer with any address in the local region wins, from either group, with its
-///   addresses outside the local region removed.
-/// - Otherwise the first answer from an alternative server wins.
+/// - All requests start concurrently, but upstream answers are checked first. An upstream
+///   answer with local-region addresses wins, retaining only those addresses.
+/// - Alternative answers are held until every upstream finishes without a local-region answer,
+///   or the query deadline expires. The first usable alternative answer then wins.
 /// - If no alternative server answers, the first upstream answer is used as a last resort.
 pub struct Racer {
     servers: Vec<(Group, Arc<dyn DnsUpstream>)>,
@@ -56,7 +57,13 @@ impl Racer {
             })
             .collect();
 
+        let mut upstream_remaining = self
+            .servers
+            .iter()
+            .filter(|(group, _)| *group == Group::Upstream)
+            .count();
         let mut fallback = None;
+        let mut alternative = None;
         let deadline = tokio::time::sleep(self.timeout);
         tokio::pin!(deadline);
 
@@ -72,41 +79,54 @@ impl Racer {
                 }
             };
 
-            let mut message = match result {
-                Ok(m) if is_usable(&m) => m,
+            if group == Group::Upstream {
+                upstream_remaining -= 1;
+            }
+
+            match result {
+                Ok(mut message) if is_usable(&message) => match group {
+                    Group::Upstream => {
+                        if keep_local_region_answers(&mut message, self.is_local_ip) {
+                            tracing::debug!("Using local-region answer from upstream {name}");
+                            return Some(Resolution {
+                                message,
+                                source: group,
+                                cacheable: true,
+                            });
+                        }
+                        tracing::debug!("Holding non-local-region upstream answer as fallback");
+                        fallback.get_or_insert(message);
+                    }
+                    Group::Alternative => {
+                        tracing::debug!("Holding answer from alternative server {name}");
+                        alternative.get_or_insert(message);
+                    }
+                },
                 Ok(m) => {
                     tracing::debug!("{group} server {name} returned {}", m.response_code());
-                    continue;
                 }
                 Err(e) => {
                     tracing::debug!("{group} server {name} failed: {e:?}");
-                    continue;
                 }
-            };
-
-            if keep_local_region_answers(&mut message, self.is_local_ip) {
-                tracing::debug!("Using local-region answer from {group} server {name}");
-                return Some(Resolution {
-                    message,
-                    source: group,
-                    cacheable: true,
-                });
             }
 
-            match group {
-                Group::Alternative => {
-                    tracing::debug!("Using answer from alternative server {name}");
+            if upstream_remaining == 0 {
+                if let Some(message) = alternative.take() {
                     return Some(Resolution {
                         message,
-                        source: group,
+                        source: Group::Alternative,
                         cacheable: true,
                     });
                 }
-                Group::Upstream => {
-                    tracing::debug!("Discarding non-local-region answer from upstream {name}");
-                    fallback.get_or_insert(message);
-                }
             }
+        }
+
+        if let Some(message) = alternative {
+            return Some(Resolution {
+                message,
+                source: Group::Alternative,
+                cacheable: true,
+            });
         }
 
         fallback.map(|message| Resolution {
@@ -381,7 +401,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn alternative_answer_first_wins() {
+    async fn early_alternative_waits_for_local_upstream_answer() {
         let racer = racer(vec![
             (
                 Group::Upstream,
@@ -392,12 +412,125 @@ pub(crate) mod tests {
                 FakeUpstream::new("a", 10, Some(answer(&[REMOTE]))),
             ),
         ]);
+        let started = tokio::time::Instant::now();
+        let r = racer
+            .resolve(&query("example.com.", RecordType::A))
+            .await
+            .unwrap();
+        assert_eq!(r.source, Group::Upstream);
+        assert_eq!(first_ip(&r.message), LOCAL);
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        assert!(started.elapsed() < Duration::from_millis(200));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn early_alternative_is_used_after_non_local_upstream_answer() {
+        let racer = racer(vec![
+            (
+                Group::Upstream,
+                FakeUpstream::new("u", 100, Some(answer(&[REMOTE]))),
+            ),
+            (
+                Group::Alternative,
+                FakeUpstream::new("a", 10, Some(answer(&[REMOTE_2]))),
+            ),
+        ]);
+        let started = tokio::time::Instant::now();
         let r = racer
             .resolve(&query("example.com.", RecordType::A))
             .await
             .unwrap();
         assert_eq!(r.source, Group::Alternative);
-        assert_eq!(first_ip(&r.message), REMOTE);
+        assert_eq!(first_ip(&r.message), REMOTE_2);
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        assert!(started.elapsed() < Duration::from_millis(200));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn alternative_answer_is_returned_without_address_filtering() {
+        let expected = answer(&[REMOTE, LOCAL, REMOTE_2]);
+        let racer = racer(vec![
+            (
+                Group::Upstream,
+                FakeUpstream::new("u", 100, Some(answer(&[REMOTE]))),
+            ),
+            (
+                Group::Alternative,
+                FakeUpstream::new("a", 10, Some(expected.clone())),
+            ),
+        ]);
+        let r = racer
+            .resolve(&query("example.com.", RecordType::A))
+            .await
+            .unwrap();
+        assert_eq!(r.source, Group::Alternative);
+        assert_eq!(r.message, expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn early_alternative_waits_for_all_upstreams() {
+        let racer = racer(vec![
+            (
+                Group::Upstream,
+                FakeUpstream::new("u1", 10, Some(answer(&[REMOTE]))),
+            ),
+            (
+                Group::Upstream,
+                FakeUpstream::new("u2", 100, Some(answer(&[LOCAL]))),
+            ),
+            (
+                Group::Alternative,
+                FakeUpstream::new("a", 20, Some(answer(&[REMOTE_2]))),
+            ),
+        ]);
+        let r = racer
+            .resolve(&query("example.com.", RecordType::A))
+            .await
+            .unwrap();
+        assert_eq!(r.source, Group::Upstream);
+        assert_eq!(first_ip(&r.message), LOCAL);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn early_alternative_is_used_when_upstreams_fail() {
+        let racer = racer(vec![
+            (Group::Upstream, FakeUpstream::new("u", 100, None)),
+            (
+                Group::Alternative,
+                FakeUpstream::new("a", 10, Some(answer(&[REMOTE]))),
+            ),
+        ]);
+        let started = tokio::time::Instant::now();
+        let r = racer
+            .resolve(&query("example.com.", RecordType::A))
+            .await
+            .unwrap();
+        assert_eq!(r.source, Group::Alternative);
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        assert!(started.elapsed() < Duration::from_millis(200));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn early_alternative_is_used_at_upstream_deadline() {
+        let racer = racer(vec![
+            (
+                Group::Upstream,
+                FakeUpstream::new("u", 60_000, Some(answer(&[LOCAL]))),
+            ),
+            (
+                Group::Alternative,
+                FakeUpstream::new("a", 10, Some(answer(&[REMOTE]))),
+            ),
+        ]);
+        let started = tokio::time::Instant::now();
+        let r = racer
+            .resolve(&query("example.com.", RecordType::A))
+            .await
+            .unwrap();
+        assert_eq!(r.source, Group::Alternative);
+        assert!(r.cacheable);
+        assert!(started.elapsed() >= Duration::from_secs(5));
+        assert!(started.elapsed() < Duration::from_secs(6));
     }
 
     #[tokio::test(start_paused = true)]

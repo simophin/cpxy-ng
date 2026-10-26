@@ -7,7 +7,7 @@ use crate::{
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{
     io,
-    net::{Ipv4Addr, SocketAddrV4},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
 };
 
@@ -84,6 +84,10 @@ pub struct Common {
 }
 #[derive(Args, Debug, Clone)]
 pub struct NetworkArgs {
+    /// Enable a full IPv4 exit. Client routing/firewall/NAT is externally managed;
+    /// no host default route or policy rule is installed by the client.
+    #[arg(long, env = "CPXY_RTP_INTERNET_EXIT", conflicts_with = "service_cidrs")]
+    pub internet_exit: bool,
     /// IPv4 CIDRs reachable through the tunnel; enables routing policy.
     #[arg(
         long = "service-cidr",
@@ -112,9 +116,9 @@ pub struct NetworkArgs {
 pub struct EndpointArgs {
     #[command(flatten)]
     pub common: Common,
-    /// Public IPv4 listen address and base port.
+    /// Public IPv4 or IPv6 listen address and base port.
     #[arg(long, env = "CPXY_RTP_LISTEN")]
-    pub listen: SocketAddrV4,
+    pub listen: SocketAddr,
     /// Rotation port pool LOW-HIGH; defaults to the 8 ports after the base port.
     #[arg(long, env = "CPXY_RTP_ROTATION_PORTS", value_parser = port_range)]
     pub rotation_ports: Option<(u16, u16)>,
@@ -145,8 +149,7 @@ pub struct EndpointArgs {
     #[arg(
         long = "firewalld-source",
         env = "CPXY_RTP_FIREWALLD_SOURCES",
-        value_delimiter = ',',
-        default_value = "0.0.0.0/0"
+        value_delimiter = ','
     )]
     pub firewalld_sources: Vec<String>,
     /// Runtime zone for the TUN so firewalld forwards decrypted packets.
@@ -164,11 +167,12 @@ pub struct EndpointArgs {
 pub struct ClientArgs {
     #[command(flatten)]
     pub common: Common,
-    /// Endpoint public IPv4 and base port.
+    /// Endpoint public IPv4 or IPv6 address and base port.
     #[arg(long, env = "CPXY_RTP_ENTRY")]
-    pub entry: SocketAddrV4,
-    #[arg(long, env = "CPXY_RTP_BIND", default_value = "0.0.0.0:0")]
-    pub bind: SocketAddrV4,
+    pub entry: SocketAddr,
+    /// Local UDP bind address; defaults to the entry's address family.
+    #[arg(long, env = "CPXY_RTP_BIND")]
+    pub bind: Option<SocketAddr>,
     /// Physical interface every outer socket is bound to (bypasses the TUN).
     #[arg(long, env = "CPXY_RTP_OUTBOUND_INTERFACE")]
     pub outbound_interface: String,
@@ -209,13 +213,18 @@ fn pool(address: &str) -> io::Result<String> {
 }
 fn network(common: &Common, address: &str, clients: Vec<Ipv4Addr>) -> io::Result<Option<Network>> {
     let n = &common.network;
-    if n.service_cidrs.is_empty() {
+    if n.service_cidrs.is_empty() && !n.internet_exit {
         return Ok(None);
     }
     Ok(Some(Network {
+        internet_exit: n.internet_exit,
         tunnel_pool: pool(address)?,
         client_addresses: clients,
-        service_cidrs: n.service_cidrs.clone(),
+        service_cidrs: if n.internet_exit {
+            vec!["0.0.0.0/0".into()]
+        } else {
+            n.service_cidrs.clone()
+        },
         table: n.route_table,
         rule_priority: n.rule_priority,
         dns: n.dns_resolver.map(|resolver| Dns {
@@ -260,7 +269,20 @@ impl EndpointArgs {
             firewalld: Firewalld {
                 zone: self.firewalld_zone.clone(),
                 interface: self.firewalld_interface.clone(),
-                sources: self.firewalld_sources.clone(),
+                sources: if self.firewalld_sources.is_empty() {
+                    if self.listen.is_ipv6() && self.listen.ip().is_unspecified() {
+                        vec!["0.0.0.0/0".into(), "::/0".into()]
+                    } else {
+                        vec![if self.listen.is_ipv4() {
+                            "0.0.0.0/0"
+                        } else {
+                            "::/0"
+                        }
+                        .into()]
+                    }
+                } else {
+                    self.firewalld_sources.clone()
+                },
                 tunnel_zone: self.firewalld_tunnel_zone.clone(),
                 masquerade: !self.no_masquerade,
             },
@@ -288,7 +310,16 @@ impl ClientArgs {
             address: self.address.clone(),
             transport: Role::Client {
                 entry: self.entry,
-                bind: self.bind,
+                bind: self.bind.unwrap_or_else(|| {
+                    SocketAddr::new(
+                        if self.entry.is_ipv4() {
+                            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+                        } else {
+                            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+                        },
+                        0,
+                    )
+                }),
             },
             initial_rotation_port: None,
             network: network(c, &self.address, vec![own])?,
@@ -304,6 +335,90 @@ impl ClientArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ipv6_transport_defaults_and_dual_stack_admission() {
+        let Cli {
+            role: RoleCommand::Client { args, .. },
+        } = parse(&[
+            "client",
+            "--entry",
+            "[2001:db8::1]:30000",
+            "--outbound-interface",
+            "eth0",
+        ])
+        else {
+            panic!()
+        };
+        let settings = args.settings().unwrap();
+        assert_eq!(settings.inner().unwrap().0, Ipv4Addr::new(10, 88, 0, 2));
+        let Role::Client { bind, .. } = settings.transport else {
+            panic!()
+        };
+        assert_eq!(bind, "[::]:0".parse().unwrap());
+        let mut mismatched = args.clone();
+        mismatched.bind = Some("0.0.0.0:0".parse().unwrap());
+        assert!(mismatched.settings().is_err());
+        for (listen, sources) in [
+            ("[::]:30000", vec!["0.0.0.0/0", "::/0"]),
+            ("[2001:db8::1]:30000", vec!["::/0"]),
+            ("192.0.2.1:30000", vec!["0.0.0.0/0"]),
+        ] {
+            let Cli {
+                role: RoleCommand::Endpoint { args, .. },
+            } = parse(&["endpoint", "--listen", listen])
+            else {
+                panic!()
+            };
+            assert_eq!(args.settings().unwrap().firewalld.sources, sources);
+        }
+    }
+    #[test]
+    fn internet_exit_is_explicit_and_excludes_service_selection() {
+        let Cli {
+            role: RoleCommand::Client { args, .. },
+        } = parse(&[
+            "client",
+            "--entry",
+            "192.0.2.2:30000",
+            "--outbound-interface",
+            "eth0",
+            "--internet-exit",
+        ])
+        else {
+            panic!()
+        };
+        let settings = args.settings().unwrap();
+        let n = settings.network.unwrap();
+        assert!(n.internet_exit);
+        assert_eq!(n.service_cidrs, ["0.0.0.0/0"]);
+        assert!(Cli::try_parse_from([
+            "cpxy-rtp",
+            "client",
+            "--entry",
+            "192.0.2.2:30000",
+            "--outbound-interface",
+            "eth0",
+            "--internet-exit",
+            "--service-cidr",
+            "10.90.0.0/24",
+        ])
+        .is_err());
+        let Cli {
+            role: RoleCommand::Client { args, .. },
+        } = parse(&[
+            "client",
+            "--entry",
+            "192.0.2.2:30000",
+            "--outbound-interface",
+            "eth0",
+            "--service-cidr",
+            "0.0.0.0/0",
+        ])
+        else {
+            panic!()
+        };
+        assert!(args.settings().is_err());
+    }
     fn parse(args: &[&str]) -> Cli {
         Cli::try_parse_from(std::iter::once("cpxy-rtp").chain(args.iter().copied())).unwrap()
     }
