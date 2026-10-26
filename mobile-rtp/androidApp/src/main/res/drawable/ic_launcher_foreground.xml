@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- One route forks in two: the hollow end goes direct, the filled end through the proxy. -->
+    <path
+        android:pathData="M54,80V60M54,60C54,49 38,47 38,38M54,60C54,49 70,47 70,38"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
+    <path
+        android:pathData="M33,31a5,5 0,1 0,10 0a5,5 0,1 0,-10 0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M63.5,31a6.5,6.5 0,1 0,13 0a6.5,6.5 0,1 0,-13 0" />
+</vector>
