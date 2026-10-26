@@ -1,6 +1,7 @@
 # RTP mobile VPN app (Android): plan
 
-Status: agreed 2026-10-26. Android only; iOS is left possible but not built.
+Status: phases 0–2 done (2026-10-26). Android only; iOS is left possible but not built. See
+[Validation](#validation) for what was checked.
 
 ## Goal
 
@@ -27,7 +28,8 @@ tile, always-on VPN, the self-updater, a traffic log, iOS.
 - **Its own Gradle build** in `mobile-rtp/`, independent of `mobile/`. Code the proxy app has
   that this app needs (the app picker, per-app settings) is copied, not shared.
 - **A new Rust crate `rtp-mobile`** for the native library. The RTP app does not ship ipstack or
-  the proxy client, and the proxy app does not ship the RTP worker. The unused RTP packet API in
+  the proxy engine (it uses only the client crate's DNS split), and the proxy app does not ship
+  the RTP worker. The unused RTP packet API in
   `mobile-engine` (`src/packet.rs`, its UniFFI exports, `examples/rtp-packet.rs` and
   `tests/linux-rtp-packet.sh`) moves into the new crate.
 - Same UI stack as the proxy app: Kotlin Multiplatform with Compose Multiplatform (only the
@@ -112,11 +114,15 @@ port only flips a flag.
 ### Roaming
 
 The engine resolves the endpoint (a name, IPv4 or IPv6 literal) with the system resolver when it
-starts. On a network change (`ConnectivityManager.NetworkCallback`), the service calls
+starts. On a network change, the service calls
 `networkChanged()`: the engine asks the worker for an immediate repair (a fresh socket and a
 PING) instead of waiting for PING timeouts. That needs one hook in `rtp-l3`: a
 `SocketProvider::repair_requested()` default method the client loop checks. The service also
 sets the VPN's underlying network.
+
+The service follows the best network that is not a VPN (`registerBestMatchingNetworkCallback`,
+or `requestNetwork` below API 31), not the default network: once the VPN is up, Android reports
+it as the app's default network although the app is outside it, and reports no further changes.
 
 ### Engine API (UniFFI)
 
@@ -172,6 +178,8 @@ restarted by the service with backoff until the user disconnects.
 ### Phase 1: Android app
 
 - `mobile-rtp/` Gradle build: `shared` and `androidApp`, JVM tests for profiles and settings.
+  The app keeps the proxy app's per-app split; the tile, always-on VPN, updater and traffic log
+  are left out.
 - `librtp_mobile.so` for the four ABIs and the Kotlin bindings, as declared task outputs.
 - Emulator check against a test endpoint: connect; the public IP is the endpoint's; a
   local-region address goes direct; the DNS split answers both ways; app split includes and
@@ -185,9 +193,34 @@ restarted by the service with backoff until the user disconnects.
 - main and tags: the release APK, checked for the native library in all four ABIs, uploaded as
   a CI artifact.
 
+## Validation
+
+2026-10-26:
+
+- Unit tests: `rtp-mobile` (profile, packet classification, routes, status), `rtp-l3`,
+  `rtp-service`; `:shared:allTests` in `mobile-rtp/`.
+- `rtp-mobile/tests/linux-lab.sh` against a real `cpxy-rtp endpoint --internet-exit`: tunnelled
+  TCP and UDP, direct traffic outside the endpoint, the DNS split both ways, no AAAA answers,
+  ICMP refusals of QUIC and DNS over TLS, recovery after the client's address changes, fail
+  closed with the endpoint killed, and the TUN closed on stop. With `networkChanged` the first
+  connection after the address change succeeds in about 1.1 s, against 2.1 s without it; the lab
+  requires under 1.6 s. The existing lifecycle tests, with and without repair, still pass.
+- API 36 emulator against a temporary internet-exit endpoint on a public server, debug and
+  release APKs: `establish()` with 2,105 routes took 46–88 ms; the browser saw the endpoint's
+  public address; DNS answers came from the alternative servers through the tunnel; a
+  local-region address never reached the endpoint while others did; with Chrome in "All apps
+  except selected" the VPN's UID ranges left out Chrome and the app, and Chrome saw the direct
+  address; switching Wi-Fi off and on was detected both ways and lost one ping; with the
+  endpoint frozen, traffic failed instead of going direct and the app said the endpoint was not
+  answering, then recovered about 2 s after it resumed; disconnecting removed the TUN.
+
+Not yet checked: a physical phone on a real cellular network, battery use, and long-running
+sessions.
+
 ## Risks
 
-1. **Route count.** About 2,100 routes; measure `establish()` on a real phone. The `/18` limit
+1. **Route count.** About 2,100 routes; `establish()` took under 0.1 s on the emulator, still to
+   measure on a real phone. The `/18` limit
    is one constant if it needs to change.
 2. **QUIC and MTU.** QUIC needs 1200-byte UDP payloads, which do not fit an inner MTU of 1200,
    hence the UDP 443 refusal. Other UDP with large datagrams relies on IP fragmentation.

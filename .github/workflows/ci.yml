@@ -199,6 +199,108 @@ jobs:
         run: ./gradlew :shared:allTests
         working-directory: mobile
 
+  test_mobile_rtp_shared:
+    name: Test RTP app shared UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache Gradle files
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+      - name: Run shared tests
+        run: ./gradlew :shared:allTests
+        working-directory: mobile-rtp
+
+  # The RTP app is not published to the download server yet: its APK is a CI artifact only.
+  build_mobile_rtp:
+    name: Build RTP app APK
+    if: github.event_name != 'pull_request'
+    needs: [version, test_rtp, test_mobile_rtp_shared]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle files
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install all the required targets
+        run: >
+          rustup target add
+          aarch64-linux-android
+          armv7-linux-androideabi
+          x86_64-linux-android
+          i686-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mobile-rtp-android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-ndk
+        run: cargo binstall cargo-ndk --version 4.1.2 --locked
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pinned Android NDK
+        run: >
+          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          "ndk;28.2.13676358"
+
+      - name: Build APK and Gradle-owned Rust libraries
+        run: ./gradlew :androidApp:assembleRelease
+        working-directory: mobile-rtp
+        env:
+          CPXY_RTP_VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Inspect packaged native libraries
+        run: |
+          unzip -Z1 mobile-rtp/androidApp/build/outputs/apk/release/androidApp-release.apk \
+            | grep '^lib/.*/librtp_mobile\.so$' \
+            | sort \
+            | diff -u - <(printf '%s\n' \
+                lib/arm64-v8a/librtp_mobile.so \
+                lib/armeabi-v7a/librtp_mobile.so \
+                lib/x86/librtp_mobile.so \
+                lib/x86_64/librtp_mobile.so)
+
+      - name: Name the APK
+        run: |
+          mkdir rtp-android
+          cp mobile-rtp/androidApp/build/outputs/apk/release/androidApp-release.apk rtp-android/cpxy-rtp.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: rtp-android
+          path: rtp-android
+          if-no-files-found: error
+
   # Builds the static router binaries (the shared packet engine as a native router client, which
   # also answers DNS, plus the client) and packages them with cpxy-tsgw.
   build_openwrt_package:
