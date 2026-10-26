@@ -30,6 +30,18 @@ pub fn direct_ipv4(proxy: &[(u32, u32)]) -> Vec<(u32, u8)> {
     compile(ranges, excluded)
 }
 
+/// The complement of [`direct_ipv4`], for platforms that route everything else into a tunnel
+/// with a list of included routes. Direct prefixes longer than `longest_direct` are left in
+/// the tunnel, which keeps the list short: such traffic still works, it just is not direct.
+pub fn tunnel_ipv4(proxy: &[(u32, u32)], longest_direct: u8) -> Vec<(u32, u8)> {
+    let direct = direct_ipv4(proxy)
+        .into_iter()
+        .filter(|&(_, prefix)| prefix <= longest_direct)
+        .map(|(ip, prefix)| (ip as u64, ip as u64 + (1u64 << (32 - prefix))))
+        .collect();
+    compile(vec![(0, 1 << 32)], direct)
+}
+
 fn merge(mut ranges: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     ranges.sort_unstable();
     let mut merged: Vec<(u64, u64)> = Vec::new();
@@ -104,6 +116,35 @@ mod tests {
                 .count();
             assert_eq!(matches, usize::from(expected), "{ip}");
         }
+    }
+
+    #[test]
+    fn tunnel_is_the_exact_complement_of_direct() {
+        let forced = [(0x0ae90002, 0x0ae90002)];
+        let direct = direct_ipv4(&forced);
+        let tunnel = tunnel_ipv4(&forced, 32);
+        let size = |prefixes: &[(u32, u8)]| -> u64 {
+            prefixes.iter().map(|&(_, p)| 1u64 << (32 - p)).sum()
+        };
+        assert_eq!(size(&direct) + size(&tunnel), 1 << 32);
+        let covers = |prefixes: &[(u32, u8)], ip: u32| {
+            prefixes.iter().any(|&(a, p)| {
+                (ip as u64) >= a as u64 && (ip as u64) < a as u64 + (1u64 << (32 - p))
+            })
+        };
+        for ip in [0x0ae90002, 0x08080808, 0x0a000001, 0xe0000001] {
+            assert!(covers(&direct, ip) != covers(&tunnel, ip), "{ip:x}");
+        }
+        assert!(covers(&tunnel, 0x0ae90002));
+        assert!(covers(&direct, 0x0a000001));
+
+        let coarse = tunnel_ipv4(&forced, 18);
+        assert!(coarse.len() < tunnel.len() / 4);
+        // Coarsening only moves direct addresses into the tunnel, never the reverse.
+        for &(ip, _) in &tunnel {
+            assert!(covers(&coarse, ip), "{ip:x}");
+        }
+        assert!(!covers(&coarse, 0x0a000001));
     }
 
     #[test]
