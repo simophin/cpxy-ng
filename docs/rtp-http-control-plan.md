@@ -20,7 +20,8 @@ operational deployment remain separate. The implemented wire contract is
 - [x] Run local acceptance fixtures and record cleanup/environment limits.
 - [x] Remove superseded core paths and adapt mobile to explicit unsupported status.
 - [x] Finish validation report/documentation and push reviewable implementation commits.
-- [ ] Open implementation PR.
+- [x] Open [implementation PR #153](https://github.com/simophin/cpxy-ng/pull/153)
+  as a draft for the Linux core; remaining configuration/coverage work is explicit.
 - [ ] Follow up full timing-policy configuration and remaining exhaustive fault matrices.
 
 ## Objective and agreed constraints
