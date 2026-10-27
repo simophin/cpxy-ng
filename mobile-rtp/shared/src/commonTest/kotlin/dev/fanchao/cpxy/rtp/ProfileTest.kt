@@ -15,7 +15,7 @@ class ProfileTest {
     @Test
     fun engineProfileHasOnlyTheEngineFields() {
         assertEquals(
-            """{"endpoint":"vpn.example.com:30000","address":"10.88.0.2",""" +
+            """{"endpoint":"vpn.example.com:30000","server_identity":"cpxy-rtp",""" +
                 """"dns_upstream":["223.5.5.5","tls://dns.alidns.com"],"dns_alternative":["8.8.8.8","1.1.1.1"]}""",
             profile.engineProfileJson(),
         )
@@ -31,7 +31,7 @@ class ProfileTest {
         val errors = profile.copy(
             name = " ",
             endpoint = "",
-            address = "10.88.0.256",
+            serverIdentity = "é".repeat(128),
             dnsUpstream = emptyList(),
             dnsAlternative = listOf("dns.google"),
         ).validationErrors()
@@ -39,7 +39,7 @@ class ProfileTest {
             setOf(
                 ProfileField.Name,
                 ProfileField.Endpoint,
-                ProfileField.Address,
+                ProfileField.ServerIdentity,
                 ProfileField.DnsUpstream,
                 ProfileField.DnsAlternative,
             ),

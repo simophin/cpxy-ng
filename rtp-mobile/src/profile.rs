@@ -11,6 +11,8 @@ use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 pub struct Profile {
     /// `host:port` of the RTP endpoint's HTTP control port; the host may be a name or an IP literal.
     pub endpoint: String,
+    #[serde(default = "default_server_identity")]
+    pub server_identity: String,
     /// Local-region resolvers, asked directly (`client::dns_split::spec` syntax).
     pub dns_upstream: Vec<String>,
     /// Resolvers asked over UDP through the tunnel.
@@ -26,12 +28,17 @@ pub struct Profile {
 /// A checked [`Profile`].
 pub struct Settings {
     pub host: String,
+    pub server_identity: String,
     pub port: u16,
     pub dns_upstream: Vec<ServerSpec>,
     pub dns_alternative: Vec<Ipv4Addr>,
     pub dns_local_server: Option<ServerSpec>,
     pub dns_local_domains: Vec<hickory_proto::rr::Name>,
     pub dns_search_domains: Vec<hickory_proto::rr::Name>,
+}
+
+fn default_server_identity() -> String {
+    "cpxy-rtp".into()
 }
 
 impl Profile {
@@ -41,6 +48,10 @@ impl Profile {
 
     pub fn settings(&self) -> anyhow::Result<Settings> {
         let (host, port) = split_host_port(&self.endpoint)?;
+        ensure!(
+            !self.server_identity.is_empty() && self.server_identity.len() <= 255,
+            "Server identity must be 1 to 255 UTF-8 bytes"
+        );
         ensure!(
             !self.dns_upstream.is_empty(),
             "At least one upstream DNS server is required"
@@ -92,6 +103,7 @@ impl Profile {
         };
         Ok(Settings {
             host,
+            server_identity: self.server_identity.clone(),
             port,
             dns_upstream,
             dns_alternative: self.dns_alternative.clone(),
@@ -160,6 +172,7 @@ mod tests {
         let s = profile().settings().unwrap();
         assert_eq!((s.host.as_str(), s.port), ("vpn.example.net", 30000));
         assert_eq!(s.dns_upstream.len(), 2);
+        assert_eq!(s.server_identity, "cpxy-rtp");
         for (endpoint, host) in [
             ("192.0.2.1:1", "192.0.2.1"),
             ("[2001:db8::1]:2", "2001:db8::1"),
@@ -172,7 +185,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_profiles() {
-        let bad: [fn(&mut Profile); 10] = [
+        let bad: [fn(&mut Profile); 12] = [
+            |p| p.server_identity.clear(),
+            |p| p.server_identity = "é".repeat(128),
             |p| p.endpoint = "vpn.example.net".into(),
             |p| p.endpoint = "vpn.example.net:0".into(),
             |p| p.endpoint = ":30000".into(),

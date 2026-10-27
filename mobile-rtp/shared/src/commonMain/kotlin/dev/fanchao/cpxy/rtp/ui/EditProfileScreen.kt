@@ -82,7 +82,7 @@ private fun EditProfileForm(
 ) {
     var name by remember(initial.id) { mutableStateOf(initial.name) }
     var endpoint by remember(initial.id) { mutableStateOf(initial.endpoint) }
-    var address by remember(initial.id) { mutableStateOf(initial.address) }
+    var serverIdentity by remember(initial.id) { mutableStateOf(initial.serverIdentity) }
     var password by remember(initial.id) { mutableStateOf("") }
     var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
     var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
@@ -95,7 +95,7 @@ private fun EditProfileForm(
     val profile = initial.copy(
         name = name.trim(),
         endpoint = endpoint.trim(),
-        address = address.trim(),
+        serverIdentity = serverIdentity,
         dnsUpstream = parseServerList(dnsUpstream),
         dnsAlternative = parseServerList(dnsAlternative),
     )
@@ -172,7 +172,7 @@ private fun EditProfileForm(
                 onValueChange = { endpoint = it },
                 error = errors[ProfileField.Endpoint],
                 onNext = next,
-                hint = "host:port of the endpoint, such as vpn.example.com:30000",
+                hint = "HTTP control host:port, such as vpn.example.com:30000 or [2001:db8::1]:30000",
                 keyboardType = KeyboardType.Uri,
             )
             Field(
@@ -186,13 +186,12 @@ private fun EditProfileForm(
                 visualTransformation = PasswordVisualTransformation(),
             )
             Field(
-                label = "Tunnel address",
-                value = address,
-                onValueChange = { address = it },
-                error = errors[ProfileField.Address],
+                label = "Server identity",
+                value = serverIdentity,
+                onValueChange = { serverIdentity = it },
+                error = errors[ProfileField.ServerIdentity],
                 onNext = next,
-                hint = "One of the endpoint's client addresses. Two devices with the same one disconnect each other.",
-                keyboardType = KeyboardType.Decimal,
+                hint = "Must match the endpoint. The endpoint assigns the tunnel address automatically.",
             )
             Field(
                 label = "Upstream DNS",

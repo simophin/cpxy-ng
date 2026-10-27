@@ -1,6 +1,11 @@
 # Android RTP v2 integration: agent implementation plan
 
-Status: implementation handoff; no implementation or Android v2 validation claimed.
+Status: implementation in progress. Profile migration, owned native preparation and Android
+service integration are implemented; validation gates are tracked below and in
+[rtp-mobile-v2-validation.md](rtp-mobile-v2-validation.md).
+Actual starting commit: `77e80db` (plan on top of `60d4d9a`). The user explicitly
+requested continuing on `docs/android-rtp-v2-plan`, overriding the suggested new
+branch name below. Intended PR base: `main`, confirmed by `origin/HEAD`.
 Baseline reviewed: `60d4d9a` (PR #153, HTTP-controlled RTP v2 and OpenWrt router).
 
 ## Objective and authorized delivery
@@ -58,31 +63,31 @@ credentials, updater, traffic-log feature or broad UI redesign is required.
 
 ## Phase 1: profiles, identity and compatibility
 
-- [ ] Remove manual inner address from the profile editor, validation and engine
+- [x] Remove manual inner address from the profile editor, validation and engine
   JSON. Explain that the endpoint assigns the tunnel address automatically.
-- [ ] Define endpoint as `host:port` of the **HTTP TCP control listener**. It is
+- [x] Define endpoint as `host:port` of the **HTTP TCP control listener**. It is
   not a fixed UDP port. Preserve hostname and bracketed IPv6 support.
-- [ ] Add `server_identity`, default `cpxy-rtp`, to the shared Rust profile and
+- [x] Add `server_identity`, default `cpxy-rtp`, to the shared Rust profile and
   Kotlin profile/editor. Validate the protocol's nonempty UTF-8, 255-byte bound.
   Pass it into `Client::new` instead of hardcoding it in `prepare`. Existing
   Linux/OpenWrt profiles must continue to parse using the default.
-- [ ] Persist a non-nil random client UUID per Android profile in app-private
+- [x] Persist a non-nil random client UUID per Android profile in app-private
   durable storage. Generate once and durably save **before** any allocation;
   concurrent connect attempts must not provision two identities for one profile.
   Do not generate a new UUID on every retry or process restart.
-- [ ] Keep identity separate from runtime keys/counters. Ordinary profile edits,
+- [x] Keep identity separate from runtime keys/counters. Ordinary profile edits,
   including endpoint edits, preserve identity. A newly created profile gets a
   new identity; any profile-copy flow must also get a new identity.
-- [ ] Migrate old profiles without losing selected profile, name, endpoint, DNS
+- [x] Migrate old profiles without losing selected profile, name, endpoint, DNS
   lists or the encrypted derived key. Ignore/discard legacy `address`; preserve
   the existing profile ID used to index `AndroidKeyVault`.
-- [ ] Explicitly malformed persisted identity must surface an actionable error;
+- [x] Explicitly malformed persisted identity must surface an actionable error;
   do not silently replace it and allocate a second permanent server address.
   Missing identity on a legacy profile is the expected migration case.
-- [ ] Inspect Android backup configuration. Keep durable UUID state out of
+- [x] Inspect Android backup configuration. Keep durable UUID state out of
   cross-device restore so restored/copied app data cannot accidentally clone an
   active identity. Document backup/restore behavior and lost-key behavior.
-- [ ] Reuse PSK derivation and Android Keystore wrapping. No password re-entry
+- [x] Reuse PSK derivation and Android Keystore wrapping. No password re-entry
   is required solely for v2 when a usable encrypted key already exists.
   Never persist allocation secrets, transmit counters or replay state.
 
@@ -108,31 +113,31 @@ Required API behavior (names may follow repository conventions):
 5. Return the existing engine status/control surface. Report connected only
    after matching activation acknowledgement, not merely HTTP success or READY.
 
-- [ ] Provide cancellation accessible while preparation is in progress. The
+- [x] Provide cancellation accessible while preparation is in progress. The
   public shared `prepare()` currently has no caller cancellation handle;
   candidate-race cancellation alone is insufficient for Android Disconnect.
-- [ ] Propagate cancellation to candidate attempts and HTTP I/O where practical.
+- [x] Propagate cancellation to candidate attempts and HTTP I/O where practical.
   Check cancellation around resolution and every ownership transfer. System
   resolution may need a bounded worker strategy; document any unavoidable
   resolver cancellation limit. A late result must never establish a VPN.
-- [ ] Keep preparation/race/release cleanup off the UI thread. `PreparedPath`
+- [x] Keep preparation/race/release cleanup off the UI thread. `PreparedPath`
   currently performs a control release in `Drop`; account for its blocking I/O.
-- [ ] Ensure losing candidates, cancelled preparations and failed TUN startup
+- [x] Ensure losing candidates, cancelled preparations and failed TUN startup
   attempt allocation release and close sockets. Release is best effort under
   network loss, with server expiry as the fallback; never wait indefinitely.
-- [ ] Reject invalid key length/UUID/profile before opening transport sockets.
+- [x] Reject invalid key length/UUID/profile before opening transport sockets.
   Make use-after-consume, repeated cancel and repeated stop deterministic.
-- [ ] Specify TUN descriptor ownership on every success/failure path, including
+- [x] Specify TUN descriptor ownership on every success/failure path, including
   repeated start on a consumed preparation. Close every accepted descriptor
   exactly once. Validate before constructing `OwnedFd` where appropriate.
-- [ ] Adapt the platform callback to `crate::Platform`; false protection results
+- [x] Adapt the platform callback to `crate::Platform`; false protection results
   must abort the socket attempt. Protect every HTTP TCP socket and initial,
   rotating and repairing UDP socket before use.
-- [ ] Return bounded, useful error categories for configuration, identity,
+- [x] Return bounded, useful error categories for configuration, identity,
   authentication/control rejection, transient connectivity and cancellation.
   Do not expose keys, plaintext envelopes or arbitrary OS/input details.
-- [ ] Restore/verify one-time Android log initialization without secret logging.
-- [ ] Remove deferred-start code and the validator's legacy `address` stripping
+- [x] Restore/verify one-time Android log initialization without secret logging.
+- [x] Remove deferred-start code and the validator's legacy `address` stripping
   shim once Kotlin migration supplies the current profile format.
 
 Preserve existing Linux caller behavior through small wrappers/defaults if shared
@@ -152,14 +157,14 @@ Foreground notification and Starting state
   -> activate path and monitor status
 ```
 
-- [ ] Serialize connect, reconnect, profile switch, revoke and stop transitions.
+- [x] Serialize connect, reconnect, profile switch, revoke and stop transitions.
   Cancel an older operation before replacing it. Use an operation generation or
   equivalent guard so late results cannot overwrite a newer service state.
-- [ ] Keep cancellation callable while blocking preparation executes; the
+- [x] Keep cancellation callable while blocking preparation executes; the
   current single-lane engine dispatcher must not prevent Disconnect from
   signalling native cancellation. Coroutine cancellation alone does not stop
   a synchronous native function.
-- [ ] Preserve VPN permission handling, foreground-service timing, notification
+- [x] Preserve VPN permission handling, foreground-service timing, notification
   disconnect action, sticky restart and per-app routing semantics.
 - [ ] Track best non-VPN network availability, loss and return. Account for a
   network change during preparation, the preparation-to-engine handoff, and
@@ -168,9 +173,9 @@ Foreground notification and Starting state
 - [ ] Retain `setUnderlyingNetworks` and explicit socket protection. Verify
   actual outer routing during Wi-Fi/cellular changes before adding stronger
   network-binding mechanisms.
-- [ ] Use runtime same-lease repair, allocation recreation, server-generation
+- [x] Use runtime same-lease repair, allocation recreation, server-generation
   recovery and rotation first. Recreate the entire engine only when necessary.
-- [ ] Retry transient initial network failures with bounded backoff; the current
+- [x] Retry transient initial network failures with bounded backoff; the current
   service incorrectly treats every first-start failure as a profile problem.
   Surface permanent configuration/credential problems without a tight retry loop.
 - [ ] Preserve the TUN and captured routes during recoverable outages and
@@ -192,12 +197,12 @@ transition; do not assume descriptor duplication proves absence of a routing
 gap. If the platform cannot meet this requirement, document the specific limit
 and do not claim seamless fail-closed recovery.
 
-- [ ] Close service-held and engine-held descriptors on explicit Disconnect,
+- [x] Close service-held and engine-held descriptors on explicit Disconnect,
   permission revocation and service destruction. Stop retries and preparation,
   remove foreground notification, and ensure later completion cannot reconnect.
-- [ ] Clear temporary key byte arrays when ownership permits. Retain no key in
+- [x] Clear temporary key byte arrays when ownership permits. Retain no key in
   service state longer than needed for the chosen restart strategy.
-- [ ] Preserve status counters and existing UI states, with useful sanitized
+- [x] Preserve status counters and existing UI states, with useful sanitized
   messages for restart, outage and permanent errors. Show assigned address if
   useful without turning it back into editable configuration.
 

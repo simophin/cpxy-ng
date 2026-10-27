@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.net.VpnService
 import android.os.SystemClock
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
@@ -25,7 +26,8 @@ import dev.fanchao.cpxy.rtp.engine.RtpException
 import dev.fanchao.cpxy.rtp.engine.RtpPlatform
 import dev.fanchao.cpxy.rtp.engine.RtpState
 import dev.fanchao.cpxy.rtp.engine.dnsAddress
-import dev.fanchao.cpxy.rtp.engine.startRtpEngine
+import dev.fanchao.cpxy.rtp.engine.createRtpPreparation
+import dev.fanchao.cpxy.rtp.engine.RtpPreparation
 import dev.fanchao.cpxy.rtp.engine.tunnelMtu
 import dev.fanchao.cpxy.rtp.engine.tunnelRoutes
 import kotlinx.coroutines.CoroutineScope
@@ -38,7 +40,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Sets up the TUN device with the engine's routes and runs the engine on it, starting it again
@@ -49,28 +56,37 @@ class RtpVpnService : VpnService() {
     private val controller get() = app.controller
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    // The engine calls block, so they run one at a time off the main thread. Only touch `runJob`
-    // from here; `engine` is also read by the network callback.
+    // All ownership transfers and engine calls run on this lane. Cancellation signals are
+    // deliberately independent: a blocking UniFFI call must not prevent Disconnect.
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val engineDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val transitions = Mutex()
+    private val generation = ConnectionGeneration()
     private var runJob: Job? = null
-    @Volatile
     private var engine: RtpEngine? = null
+    @Volatile private var preparation: RtpPreparation? = null
+    private var tun: ParcelFileDescriptor? = null
+    private var tunConfig: TunConfig? = null
 
-    /** The best non-VPN network: the one the engine's sockets use. */
-    @Volatile
-    private var network: Network? = null
+    private data class TunConfig(val address: String, val profileId: String, val settings: AppSettings)
+
+    @Volatile private var network: Network? = null
+    private val networkVersion = AtomicLong()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            val previous = this@RtpVpnService.network
-            Log.d(TAG, "Underlying network $network, was $previous")
-            this@RtpVpnService.network = network
-            setUnderlyingNetworks(arrayOf(network))
-            if (previous != null && previous != network) {
-                Log.i(TAG, "The network changed; repairing the tunnel")
-                engine?.networkChanged()
-            }
+        override fun onAvailable(network: Network) = underlyingChanged(network)
+        override fun onLost(network: Network) {
+            if (this@RtpVpnService.network == network) underlyingChanged(null)
         }
+    }
+
+    private fun underlyingChanged(next: Network?) {
+        if (network == next) return
+        network = next
+        networkVersion.incrementAndGet()
+        setUnderlyingNetworks(next?.let { arrayOf(it) })
+        // A path prepared on a vanished network must not be handed to the packet worker.
+        preparation?.cancel()
+        scope.launch(engineDispatcher) { engine?.networkChanged() }
     }
 
     private val protector = object : RtpPlatform {
@@ -95,105 +111,199 @@ class RtpVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val ticket = generation.replace()
+        preparation?.cancel()
+        runJob?.cancel()
         if (intent?.action == ACTION_STOP) {
-            scope.launch(engineDispatcher) { stop(VpnState.Disconnected) }
+            scope.launch(engineDispatcher) {
+                transitions.withLock {
+                    if (generation.isCurrent(ticket)) stop(VpnState.Disconnected)
+                }
+            }
             return START_NOT_STICKY
         }
 
-        // Started by the app with a profile, or restarted by the system with no intent after the
-        // process was killed while connected: then uses the selected one.
-        val requestedId = intent?.getStringExtra(EXTRA_PROFILE_ID)
         showNotification("Connecting…")
+        val requestedId = intent?.getStringExtra(EXTRA_PROFILE_ID)
         scope.launch(engineDispatcher) {
-            val stored = app.repository.profiles.first()
-            val profile = stored.profiles.firstOrNull { it.id == requestedId } ?: stored.selected
-            if (profile == null) {
-                stop(VpnState.Failed("Add a profile to connect"))
-                return@launch
+            transitions.withLock {
+                runJob?.cancelAndJoin()
+                stopEngine()
+                if (!generation.isCurrent(ticket)) return@withLock
+                try {
+                    val stored = app.repository.profiles.first()
+                    val selected = stored.profiles.firstOrNull { it.id == requestedId } ?: stored.selected
+                    if (selected == null) {
+                        stop(VpnState.Failed("Add a profile to connect"))
+                        return@withLock
+                    }
+                    // The transaction finishes its durable UUID write before any allocation.
+                    val profile = app.repository.connectionProfile(selected.id)
+                    val settings = app.settingsRepository.settings.first()
+                    if (!generation.isCurrent(ticket)) return@withLock
+                    controller.reportState(VpnState.Starting(profile.id))
+                    runJob = scope.launch(engineDispatcher) { run(profile, settings, ticket) }
+                } catch (_: IllegalArgumentException) {
+                    if (generation.isCurrent(ticket)) stop(VpnState.Failed(
+                        "Saved client identity is invalid. Restore it or delete and recreate the profile.",
+                    ))
+                } catch (_: Exception) {
+                    if (generation.isCurrent(ticket)) stop(VpnState.Failed("Could not load the profile. Open it and save again."))
+                }
             }
-            val key = app.keys.load(profile.id)
-            if (key == null) {
-                stop(VpnState.Failed("Enter the password of ${profile.name} again"))
-                return@launch
-            }
-            runJob?.cancelAndJoin()
-            stopEngine()
-            controller.reportState(VpnState.Starting(profile.id))
-            val settings = app.settingsRepository.settings.first()
-            runJob = launch { run(profile, key, settings) }
         }
         return START_STICKY
     }
 
     override fun onRevoke() {
-        // Another VPN took over, or the user turned this one off in the settings.
-        scope.launch(engineDispatcher) { stop(VpnState.Disconnected) }
+        val ticket = generation.replace()
+        preparation?.cancel()
+        runJob?.cancel()
+        scope.launch(engineDispatcher) {
+            transitions.withLock { if (generation.isCurrent(ticket)) stop(VpnState.Disconnected) }
+        }
     }
 
     override fun onDestroy() {
+        generation.replace()
+        preparation?.cancel()
+        runJob?.cancel()
         getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback)
-        runBlocking(engineDispatcher) {
-            runJob?.cancelAndJoin()
-            stopEngine()
+        // No joins, HTTP release or native destruction on the UI thread.
+        scope.launch(engineDispatcher) {
+            transitions.withLock {
+                runJob?.cancelAndJoin()
+                runJob = null
+                stopEngine()
+                closeTun()
+                scope.cancel()
+            }
         }
-        scope.cancel()
         super.onDestroy()
     }
 
-    /** Runs the engine until cancelled, starting it again whenever it fails. */
-    private suspend fun CoroutineScope.run(profile: Profile, key: ByteArray, settings: AppSettings) {
+    /** Runtime repair/rotation runs first. Only a failed worker reaches full recreation here. */
+    private suspend fun run(profile: Profile, settings: AppSettings, ticket: Long) {
         var failures = 0
-        while (isActive) {
-            val started = runCatching { start(profile, key, settings) }
-            val running = started.getOrElse { e ->
-                Log.e(TAG, "Failed to start the engine", e)
-                val message = (e as? RtpException.Failed)?.reason ?: e.message ?: e.toString()
-                if (failures == 0) {
-                    // A first start that fails is a problem with the profile, not the network.
-                    stop(VpnState.Failed(message))
-                    return
+        try {
+            while (kotlin.coroutines.coroutineContext.isActive && generation.isCurrent(ticket)) {
+                try {
+                    val running = start(profile, settings, ticket)
+                    engine = running
+                    monitor(profile, running)
+                } catch (e: Exception) {
+                    kotlin.coroutines.coroutineContext.ensureActive()
+                    if (!generation.isCurrent(ticket)) return
+                    val permanent = when (e) {
+                        is RtpException.Configuration -> "Check the HTTP control endpoint, server identity and DNS settings."
+                        is RtpException.Identity -> "Saved client identity is invalid. Restore it or recreate the profile."
+                        is RtpException.Rejected -> "Endpoint rejected the connection. Check the password and server identity."
+                        is MissingKey -> "Enter the password of ${profile.name} again"
+                        is TunFailure -> "Could not establish the VPN. Grant VPN permission and reconnect."
+                        else -> null
+                    }
+                    if (permanent != null) {
+                        finish(VpnState.Failed(permanent))
+                        return
+                    }
+                    Log.i(TAG, "Transient RTP startup failure; retrying")
+                } finally {
+                    stopEngine()
                 }
-                null
+                if (!generation.isCurrent(ticket)) return
+                failures++
+                controller.reportState(VpnState.Running(profile.id, TunnelState.Restarting))
+                showNotification("Reconnecting to ${profile.name}…")
+                delay(RESTART_DELAYS_MS[minOf(failures, RESTART_DELAYS_MS.size) - 1])
             }
-            if (running != null) {
-                engine = running
-                monitor(profile, running)
-                stopEngine()
-            }
-            failures++
-            controller.reportState(VpnState.Running(profile.id, TunnelState.Restarting))
-            showNotification("Restarting ${profile.name}…")
-            delay(RESTART_DELAYS_MS[minOf(failures, RESTART_DELAYS_MS.size) - 1])
+        } finally {
+            stopEngine()
+            // The service retains the TUN across worker failures and profile changes. Only an
+            // explicit stop/revoke/destroy/permanent error removes its captured routes.
         }
     }
 
-    private fun start(profile: Profile, key: ByteArray, settings: AppSettings): RtpEngine {
+    private class MissingKey : Exception()
+    private class TunFailure : Exception()
+
+    private suspend fun start(profile: Profile, settings: AppSettings, ticket: Long): RtpEngine {
+        check(generation.isCurrent(ticket))
+        val key = app.keys.load(profile.id) ?: throw MissingKey()
+        val operation = try {
+            createRtpPreparation(profile.engineProfileJson(), key, checkNotNull(profile.clientId), protector)
+        } finally { key.fill(0) }
+        preparation = operation
+        val version = networkVersion.get()
+        try {
+            if (!generation.isCurrent(ticket)) operation.cancel()
+            val address = operation.prepare()
+            check(generation.isCurrent(ticket))
+            if (version != networkVersion.get()) throw RtpException.Cancelled()
+            val config = TunConfig(address, profile.id, settings)
+            if (tunConfig != config || tun == null) {
+                val replacement = establish(profile, settings, address, ticket)
+                // Keep the previous interface until establish returns its replacement.
+                val previous = tun
+                tun = replacement
+                tunConfig = config
+                previous?.close()
+            }
+            if (!generation.isCurrent(ticket)) operation.cancel()
+            val owned = ParcelFileDescriptor.dup(checkNotNull(tun).fileDescriptor)
+            // start accepts ownership of this duplicate even on failure. The service reference
+            // keeps routes installed while failed workers close their copies.
+            val running = operation.start(owned.detachFd())
+            if (!generation.isCurrent(ticket)) {
+                running.stop()
+                running.close()
+                throw RtpException.Cancelled()
+            }
+            if (version != networkVersion.get()) running.networkChanged()
+            return running
+        } finally {
+            preparation = null
+            operation.discard()
+            operation.close()
+        }
+    }
+
+    private suspend fun establish(profile: Profile, settings: AppSettings, address: String, ticket: Long): ParcelFileDescriptor {
         val builder = Builder()
             .setSession(profile.name)
             .setMtu(tunnelMtu().toInt())
-            .addAddress(profile.address, 32)
+            .addAddress(address, 32)
             .addDnsServer(dnsAddress())
             .setConfigureIntent(mainActivityIntent())
         for (route in routes) {
-            val (address, prefix) = route.split('/')
-            builder.addRoute(address, prefix.toInt())
+            val (destination, prefix) = route.split('/')
+            builder.addRoute(destination, prefix.toInt())
         }
-        // The tunnel carries IPv4 only. Without an IPv6 address apps do not use IPv6; the route
-        // keeps it off the underlying network either way, and the engine refuses it.
         builder.addRoute("::", 0)
         builder.route(settings.routing(ownPackage = packageName))
         network?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
         val began = SystemClock.elapsedRealtime()
-        val tun = builder.establish() ?: error("The VPN permission was revoked")
-        Log.i(TAG, "Established the TUN with ${routes.size} routes in ${SystemClock.elapsedRealtime() - began} ms")
-        // The engine owns the descriptor from here, and closes it even when it fails to start.
-        return startRtpEngine(tun.detachFd(), profile.engineProfileJson(), key, protector)
+        var replacement: ParcelFileDescriptor? = null
+        try {
+            // Serialize only the final installation with main-thread stop/revoke requests.
+            // Route construction and native I/O stay off main. If cancellation wins while
+            // returning across dispatchers, close the newly established interface here.
+            withContext(Dispatchers.Main) {
+                ensureActive()
+                if (!generation.isCurrent(ticket)) throw CancellationException()
+                replacement = builder.establish() ?: throw TunFailure()
+            }
+        } catch (e: Exception) {
+            replacement?.close()
+            throw e
+        }
+        Log.i(TAG, "Established the assigned-address TUN with ${routes.size} routes in ${SystemClock.elapsedRealtime() - began} ms")
+        return checkNotNull(replacement)
     }
 
     /** Reports the engine's status every second until it fails or the job is cancelled. */
-    private suspend fun CoroutineScope.monitor(profile: Profile, engine: RtpEngine) {
+    private suspend fun monitor(profile: Profile, engine: RtpEngine) {
         var shown: TunnelState? = null
-        while (isActive) {
+        while (kotlin.coroutines.coroutineContext.isActive) {
             val status = engine.status()
             val tunnel = when (status.state) {
                 RtpState.CONNECTING -> TunnelState.Connecting
@@ -241,12 +351,23 @@ class RtpVpnService : VpnService() {
     }
 
     private suspend fun stop(state: VpnState) {
-        runJob?.takeUnless { it == kotlin.coroutines.coroutineContext[Job] }?.cancelAndJoin()
+        runJob?.cancelAndJoin()
         runJob = null
+        finish(state)
+    }
+
+    private fun finish(state: VpnState) {
         stopEngine()
+        closeTun()
         controller.reportState(state)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun closeTun() {
+        tun?.close()
+        tun = null
+        tunConfig = null
     }
 
     private fun stopEngine() {
