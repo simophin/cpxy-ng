@@ -2,20 +2,21 @@
 use super::http_client::{Client, Pending};
 use crate::{
     v2::{
-        codec::{Control, Direction, MAX_FRAME, Packet, Rx, Tx},
+        codec::{Control, Direction, Packet, Rx, Tx, MAX_FRAME},
         http::{random, unhex},
         state::{Health, HealthAction},
     },
     worker::{Events, PacketIo, SocketProvider},
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     collections::VecDeque,
     io,
     net::{SocketAddr, UdpSocket},
+    os::fd::AsRawFd,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     thread,
     time::{Duration, Instant},
@@ -115,6 +116,7 @@ impl Allocation {
         let mut peer = entry;
         peer.set_port(port);
         let socket = provider.client_socket(peer)?;
+        crate::worker::buffer_transport(&socket)?;
         socket.set_nonblocking(true)?;
         Ok(Self {
             id,
@@ -163,6 +165,7 @@ impl Allocation {
             return Ok(());
         }
         let socket = provider.client_socket(self.peer)?;
+        crate::worker::buffer_transport(&socket)?;
         socket.set_nonblocking(true)?;
         self.candidate = Some(socket);
         self.attempt = self.attempt.checked_add(1).ok_or_else(invalid)?;
@@ -745,7 +748,15 @@ fn run_inner(
                     Err(e) => return Err(e),
                 }
             }
-            thread::sleep(Duration::from_millis(2));
+            crate::worker::wait_readable(
+                packet.as_ref(),
+                allocations.iter().flat_map(|a| {
+                    std::iter::once(&a.socket)
+                        .chain(a.candidate.iter())
+                        .chain(a.old_socket.iter().map(|(_, s)| s))
+                        .map(AsRawFd::as_raw_fd)
+                }),
+            )?;
         }
         Ok(())
     })();

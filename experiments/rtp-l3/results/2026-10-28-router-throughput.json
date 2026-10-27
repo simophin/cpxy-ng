@@ -1,0 +1,2090 @@
+{
+  "date_local": "2026-10-28 Australia/Melbourne",
+  "hardware": "tr3600: two Cortex-A53 cores at 2 GHz; OpenWrt Linux 6.12.94",
+  "method": "Alternating CPXY HTTP proxy and RTP downloads from one temporary private hh-hk HTTP origin. 25,000,000 bytes per stream. Aggregate uses total received bytes divided by the full concurrent phase wall time, not the sum of individual rates. All controlled samples HTTP 200 and exact length.",
+  "scope": "Router-originated curl; RTP explicitly bound to rtpr0. Does not measure Wi-Fi or forwarded LAN throughput. Proxy public hostname resolved both families; server observed IPv6 ingress; RTP entry explicit IPv6. Original deployment versus final changes, not a recreation of historical RTP v1.",
+  "live_final_hashes": {
+    "router": "fbebe095401013e22bcd71fd98722f38c14a446afd9d8b1b6bedc7fdc1e7ba84",
+    "endpoint": "fb2d4e4c6d3a3eb89a381bb04b7928018fc2ac052e1e01f6e578774a4589ad77"
+  },
+  "original_hashes": {
+    "router": "4b207033ee6c3ef4c297d1a9d19b7fb4a3b19319ea8b8bf4f808f9c92d78dd2e",
+    "endpoint": "d7e5c75ae0971d451f89d458436b871da6c6fe5cbdfba660de6bb2b3f1aa0b18"
+  },
+  "initial_public_downloads": {
+    "url": "https://speed.cloudflare.com/__down?bytes=25000000",
+    "proxy_Bps": [
+      9422552,
+      9385800,
+      8203956
+    ],
+    "rtp_Bps": [
+      5059519,
+      5051322
+    ],
+    "note": "These alternating clean initial samples precede rate limiting. Later HTTP 403/429 responses excluded. Last initial RTP sample overlapped the first multistream phase and is excluded."
+  },
+  "variants": {
+    "poll_and_buffers": [
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 459530.67,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 24078515.0,
+            "seconds": 1.038381
+          }
+        ],
+        "counters": [
+          50511,
+          50511
+        ],
+        "cpu_ticks": [
+          [
+            185,
+            243
+          ],
+          [
+            188,
+            244
+          ]
+        ],
+        "end_uptime": 459531.74,
+        "wall_seconds": 1.07,
+        "valid": true,
+        "aggregate_mbps": 186.916,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 3.74
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 459531.75,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 11562928.0,
+            "seconds": 2.16219
+          }
+        ],
+        "counters": [
+          50511,
+          50517
+        ],
+        "cpu_ticks": [
+          [
+            188,
+            244
+          ],
+          [
+            252,
+            341
+          ]
+        ],
+        "end_uptime": 459533.94,
+        "wall_seconds": 2.19,
+        "valid": true,
+        "aggregate_mbps": 91.324,
+        "udp6_buffer_drops": 6,
+        "process_cpu_percent_one_core": 73.52
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 459533.96,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10048368.0,
+            "seconds": 2.488071
+          }
+        ],
+        "counters": [
+          50517,
+          50517
+        ],
+        "cpu_ticks": [
+          [
+            252,
+            341
+          ],
+          [
+            257,
+            342
+          ]
+        ],
+        "end_uptime": 459536.47,
+        "wall_seconds": 2.51,
+        "valid": true,
+        "aggregate_mbps": 79.681,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.39
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 459536.48,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 11972371.0,
+            "seconds": 2.088252
+          }
+        ],
+        "counters": [
+          50517,
+          50517
+        ],
+        "cpu_ticks": [
+          [
+            257,
+            342
+          ],
+          [
+            313,
+            443
+          ]
+        ],
+        "end_uptime": 459538.6,
+        "wall_seconds": 2.12,
+        "valid": true,
+        "aggregate_mbps": 94.34,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 74.06
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 3,
+        "start_uptime": 459538.61,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 23309610.0,
+            "seconds": 1.072637
+          }
+        ],
+        "counters": [
+          50517,
+          50517
+        ],
+        "cpu_ticks": [
+          [
+            313,
+            443
+          ],
+          [
+            314,
+            444
+          ]
+        ],
+        "end_uptime": 459539.71,
+        "wall_seconds": 1.1,
+        "valid": true,
+        "aggregate_mbps": 181.818,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 1.82
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 3,
+        "start_uptime": 459539.73,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 11505435.0,
+            "seconds": 2.173016
+          }
+        ],
+        "counters": [
+          50517,
+          50517
+        ],
+        "cpu_ticks": [
+          [
+            314,
+            444
+          ],
+          [
+            379,
+            538
+          ]
+        ],
+        "end_uptime": 459541.93,
+        "wall_seconds": 2.2,
+        "valid": true,
+        "aggregate_mbps": 90.909,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 72.27
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 459541.95,
+        "downloads": [
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 22934328.0,
+            "seconds": 1.090178
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10475789.0,
+            "seconds": 2.386566
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10433151.0,
+            "seconds": 2.396338
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10320991.0,
+            "seconds": 2.422382
+          }
+        ],
+        "counters": [
+          50517,
+          50517
+        ],
+        "cpu_ticks": [
+          [
+            379,
+            538
+          ],
+          [
+            380,
+            543
+          ]
+        ],
+        "end_uptime": 459544.39,
+        "wall_seconds": 2.44,
+        "valid": true,
+        "aggregate_mbps": 327.869,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.46
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 459544.41,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4316445.0,
+            "seconds": 5.791935
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3798854.0,
+            "seconds": 6.581053
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3775838.0,
+            "seconds": 6.621188
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3762751.0,
+            "seconds": 6.64418
+          }
+        ],
+        "counters": [
+          50517,
+          60588
+        ],
+        "cpu_ticks": [
+          [
+            380,
+            543
+          ],
+          [
+            607,
+            974
+          ]
+        ],
+        "end_uptime": 459551.08,
+        "wall_seconds": 6.67,
+        "valid": true,
+        "aggregate_mbps": 119.94,
+        "udp6_buffer_drops": 10071,
+        "process_cpu_percent_one_core": 98.65
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 459551.1,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 18770403.0,
+            "seconds": 1.332051
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 17892288.0,
+            "seconds": 1.397446
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10377017.0,
+            "seconds": 2.409281
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9715125.0,
+            "seconds": 2.573423
+          }
+        ],
+        "counters": [
+          60588,
+          60588
+        ],
+        "cpu_ticks": [
+          [
+            607,
+            974
+          ],
+          [
+            610,
+            981
+          ]
+        ],
+        "end_uptime": 459553.7,
+        "wall_seconds": 2.6,
+        "valid": true,
+        "aggregate_mbps": 307.692,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 3.85
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 459553.71,
+        "downloads": [
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3579971.0,
+            "seconds": 6.983405
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3384540.0,
+            "seconds": 7.386694
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3279205.0,
+            "seconds": 7.623906
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3227446.0,
+            "seconds": 7.74618
+          }
+        ],
+        "counters": [
+          60588,
+          65104
+        ],
+        "cpu_ticks": [
+          [
+            610,
+            981
+          ],
+          [
+            844,
+            1464
+          ]
+        ],
+        "end_uptime": 459561.49,
+        "wall_seconds": 7.78,
+        "valid": true,
+        "aggregate_mbps": 102.828,
+        "udp6_buffer_drops": 4516,
+        "process_cpu_percent_one_core": 92.16
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 3,
+        "start_uptime": 459561.51,
+        "downloads": [
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 14663952.0,
+            "seconds": 1.704976
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 14624295.0,
+            "seconds": 1.709608
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 14158690.0,
+            "seconds": 1.765805
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 8713157.0,
+            "seconds": 2.86933
+          }
+        ],
+        "counters": [
+          65104,
+          65104
+        ],
+        "cpu_ticks": [
+          [
+            844,
+            1464
+          ],
+          [
+            850,
+            1469
+          ]
+        ],
+        "end_uptime": 459564.41,
+        "wall_seconds": 2.9,
+        "valid": true,
+        "aggregate_mbps": 275.862,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 3.79
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 3,
+        "start_uptime": 459564.43,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4100266.0,
+            "seconds": 6.097344
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3971870.0,
+            "seconds": 6.29437
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3684998.0,
+            "seconds": 6.784367
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3557246.0,
+            "seconds": 7.028015
+          }
+        ],
+        "counters": [
+          65104,
+          75355
+        ],
+        "cpu_ticks": [
+          [
+            850,
+            1469
+          ],
+          [
+            1097,
+            1886
+          ]
+        ],
+        "end_uptime": 459571.48,
+        "wall_seconds": 7.05,
+        "valid": true,
+        "aggregate_mbps": 113.475,
+        "udp6_buffer_drops": 10251,
+        "process_cpu_percent_one_core": 94.18
+      }
+    ],
+    "final_before_original": [
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 459708.46,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 22137607.0,
+            "seconds": 1.129393
+          }
+        ],
+        "counters": [
+          75355,
+          75355
+        ],
+        "cpu_ticks": [
+          [
+            18,
+            2
+          ],
+          [
+            20,
+            2
+          ]
+        ],
+        "end_uptime": 459709.61,
+        "wall_seconds": 1.15,
+        "valid": true,
+        "aggregate_mbps": 173.913,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 1.74
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 459709.64,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 8155617.0,
+            "seconds": 3.065481
+          }
+        ],
+        "counters": [
+          75355,
+          75762
+        ],
+        "cpu_ticks": [
+          [
+            21,
+            2
+          ],
+          [
+            65,
+            113
+          ]
+        ],
+        "end_uptime": 459712.74,
+        "wall_seconds": 3.1,
+        "valid": true,
+        "aggregate_mbps": 64.516,
+        "udp6_buffer_drops": 407,
+        "process_cpu_percent_one_core": 50.0
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 459712.75,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 19964941.0,
+            "seconds": 1.2523
+          }
+        ],
+        "counters": [
+          75762,
+          75762
+        ],
+        "cpu_ticks": [
+          [
+            65,
+            113
+          ],
+          [
+            66,
+            115
+          ]
+        ],
+        "end_uptime": 459714.03,
+        "wall_seconds": 1.28,
+        "valid": true,
+        "aggregate_mbps": 156.25,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.34
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 459714.05,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 13746800.0,
+            "seconds": 1.818705
+          }
+        ],
+        "counters": [
+          75762,
+          76418
+        ],
+        "cpu_ticks": [
+          [
+            66,
+            115
+          ],
+          [
+            112,
+            205
+          ]
+        ],
+        "end_uptime": 459715.89,
+        "wall_seconds": 1.84,
+        "valid": true,
+        "aggregate_mbps": 108.696,
+        "udp6_buffer_drops": 656,
+        "process_cpu_percent_one_core": 73.91
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 3,
+        "start_uptime": 459715.91,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 22393888.0,
+            "seconds": 1.116484
+          }
+        ],
+        "counters": [
+          76418,
+          76418
+        ],
+        "cpu_ticks": [
+          [
+            112,
+            205
+          ],
+          [
+            112,
+            208
+          ]
+        ],
+        "end_uptime": 459717.05,
+        "wall_seconds": 1.14,
+        "valid": true,
+        "aggregate_mbps": 175.439,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.63
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 3,
+        "start_uptime": 459717.06,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 11963708.0,
+            "seconds": 2.089792
+          }
+        ],
+        "counters": [
+          76418,
+          77426
+        ],
+        "cpu_ticks": [
+          [
+            113,
+            208
+          ],
+          [
+            161,
+            296
+          ]
+        ],
+        "end_uptime": 459719.18,
+        "wall_seconds": 2.12,
+        "valid": true,
+        "aggregate_mbps": 94.34,
+        "udp6_buffer_drops": 1008,
+        "process_cpu_percent_one_core": 64.15
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 459719.19,
+        "downloads": [
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 18828080.0,
+            "seconds": 1.327969
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 18478468.0,
+            "seconds": 1.353026
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10449604.0,
+            "seconds": 2.392637
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9990333.0,
+            "seconds": 2.502559
+          }
+        ],
+        "counters": [
+          77426,
+          77426
+        ],
+        "cpu_ticks": [
+          [
+            161,
+            296
+          ],
+          [
+            162,
+            302
+          ]
+        ],
+        "end_uptime": 459721.72,
+        "wall_seconds": 2.53,
+        "valid": true,
+        "aggregate_mbps": 316.206,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.77
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 459721.74,
+        "downloads": [
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 5891693.0,
+            "seconds": 4.243931
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 5010728.0,
+            "seconds": 4.98941
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4491898.0,
+            "seconds": 5.565681
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4204140.0,
+            "seconds": 5.946623
+          }
+        ],
+        "counters": [
+          77426,
+          81805
+        ],
+        "cpu_ticks": [
+          [
+            162,
+            302
+          ],
+          [
+            324,
+            725
+          ]
+        ],
+        "end_uptime": 459727.71,
+        "wall_seconds": 5.97,
+        "valid": true,
+        "aggregate_mbps": 134.003,
+        "udp6_buffer_drops": 4379,
+        "process_cpu_percent_one_core": 97.99
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 459727.73,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 19814881.0,
+            "seconds": 1.26188
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10412367.0,
+            "seconds": 2.401136
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10352661.0,
+            "seconds": 2.414963
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10203119.0,
+            "seconds": 2.450351
+          }
+        ],
+        "counters": [
+          81805,
+          81805
+        ],
+        "cpu_ticks": [
+          [
+            324,
+            725
+          ],
+          [
+            325,
+            731
+          ]
+        ],
+        "end_uptime": 459730.22,
+        "wall_seconds": 2.49,
+        "valid": true,
+        "aggregate_mbps": 321.285,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.81
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 459730.23,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4948718.0,
+            "seconds": 5.051924
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4863968.0,
+            "seconds": 5.139946
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4683216.0,
+            "seconds": 5.338311
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4104110.0,
+            "seconds": 6.091559
+          }
+        ],
+        "counters": [
+          81805,
+          87119
+        ],
+        "cpu_ticks": [
+          [
+            325,
+            731
+          ],
+          [
+            528,
+            1126
+          ]
+        ],
+        "end_uptime": 459736.36,
+        "wall_seconds": 6.13,
+        "valid": true,
+        "aggregate_mbps": 130.506,
+        "udp6_buffer_drops": 5314,
+        "process_cpu_percent_one_core": 97.55
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 3,
+        "start_uptime": 459736.38,
+        "downloads": [
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10621371.0,
+            "seconds": 2.353904
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10129388.0,
+            "seconds": 2.468203
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10070582.0,
+            "seconds": 2.48259
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9443933.0,
+            "seconds": 2.64731
+          }
+        ],
+        "counters": [
+          87119,
+          87119
+        ],
+        "cpu_ticks": [
+          [
+            528,
+            1126
+          ],
+          [
+            532,
+            1129
+          ]
+        ],
+        "end_uptime": 459739.05,
+        "wall_seconds": 2.67,
+        "valid": true,
+        "aggregate_mbps": 299.625,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.62
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 3,
+        "start_uptime": 459739.07,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 5094528.0,
+            "seconds": 4.907408
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 5047117.0,
+            "seconds": 4.953425
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4746006.0,
+            "seconds": 5.267715
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3986811.0,
+            "seconds": 6.270781
+          }
+        ],
+        "counters": [
+          87119,
+          91789
+        ],
+        "cpu_ticks": [
+          [
+            532,
+            1129
+          ],
+          [
+            727,
+            1543
+          ]
+        ],
+        "end_uptime": 459745.36,
+        "wall_seconds": 6.29,
+        "valid": true,
+        "aggregate_mbps": 127.186,
+        "udp6_buffer_drops": 4670,
+        "process_cpu_percent_one_core": 96.82
+      }
+    ],
+    "original": [
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 459969.8,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10551470.0,
+            "seconds": 2.369464
+          }
+        ],
+        "counters": [
+          137435,
+          137435
+        ],
+        "cpu_ticks": [
+          [
+            15,
+            4
+          ],
+          [
+            16,
+            8
+          ]
+        ],
+        "end_uptime": 459972.2,
+        "wall_seconds": 2.4,
+        "valid": true,
+        "aggregate_mbps": 83.333,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.08
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 459972.25,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 6604201.0,
+            "seconds": 3.785647
+          }
+        ],
+        "counters": [
+          137435,
+          139962
+        ],
+        "cpu_ticks": [
+          [
+            17,
+            8
+          ],
+          [
+            75,
+            113
+          ]
+        ],
+        "end_uptime": 459976.1,
+        "wall_seconds": 3.85,
+        "valid": true,
+        "aggregate_mbps": 51.948,
+        "udp6_buffer_drops": 2527,
+        "process_cpu_percent_one_core": 42.34
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 459976.12,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 11176850.0,
+            "seconds": 2.236878
+          }
+        ],
+        "counters": [
+          139962,
+          139962
+        ],
+        "cpu_ticks": [
+          [
+            75,
+            113
+          ],
+          [
+            75,
+            117
+          ]
+        ],
+        "end_uptime": 459978.38,
+        "wall_seconds": 2.26,
+        "valid": true,
+        "aggregate_mbps": 88.496,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 1.77
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 459978.39,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 7448352.0,
+            "seconds": 3.35661
+          }
+        ],
+        "counters": [
+          139962,
+          142392
+        ],
+        "cpu_ticks": [
+          [
+            75,
+            117
+          ],
+          [
+            129,
+            219
+          ]
+        ],
+        "end_uptime": 459981.78,
+        "wall_seconds": 3.39,
+        "valid": true,
+        "aggregate_mbps": 58.997,
+        "udp6_buffer_drops": 2430,
+        "process_cpu_percent_one_core": 46.02
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 459981.79,
+        "downloads": [
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 20498809.0,
+            "seconds": 1.219864
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10800899.0,
+            "seconds": 2.314743
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10362556.0,
+            "seconds": 2.412691
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10030979.0,
+            "seconds": 2.492386
+          }
+        ],
+        "counters": [
+          142392,
+          142392
+        ],
+        "cpu_ticks": [
+          [
+            129,
+            219
+          ],
+          [
+            129,
+            224
+          ]
+        ],
+        "end_uptime": 459984.32,
+        "wall_seconds": 2.53,
+        "valid": true,
+        "aggregate_mbps": 316.206,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 1.98
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 459984.34,
+        "downloads": [
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3101393.0,
+            "seconds": 8.061061
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 2149271.0,
+            "seconds": 11.631955
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 2000521.0,
+            "seconds": 12.496844
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 1918008.0,
+            "seconds": 13.034454
+          }
+        ],
+        "counters": [
+          142392,
+          151273
+        ],
+        "cpu_ticks": [
+          [
+            129,
+            224
+          ],
+          [
+            370,
+            682
+          ]
+        ],
+        "end_uptime": 459997.4,
+        "wall_seconds": 13.06,
+        "valid": true,
+        "aggregate_mbps": 61.256,
+        "udp6_buffer_drops": 8881,
+        "process_cpu_percent_one_core": 53.52
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 459997.41,
+        "downloads": [
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 18764542.0,
+            "seconds": 1.332413
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9620879.0,
+            "seconds": 2.598762
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9513940.0,
+            "seconds": 2.627829
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9340287.0,
+            "seconds": 2.676692
+          }
+        ],
+        "counters": [
+          151273,
+          151273
+        ],
+        "cpu_ticks": [
+          [
+            370,
+            682
+          ],
+          [
+            373,
+            685
+          ]
+        ],
+        "end_uptime": 460000.12,
+        "wall_seconds": 2.71,
+        "valid": true,
+        "aggregate_mbps": 295.203,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.21
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 460000.14,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3304674.0,
+            "seconds": 7.565147
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 2350130.0,
+            "seconds": 10.637817
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 2155837.0,
+            "seconds": 11.596572
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 1994629.0,
+            "seconds": 12.533754
+          }
+        ],
+        "counters": [
+          151273,
+          161861
+        ],
+        "cpu_ticks": [
+          [
+            373,
+            685
+          ],
+          [
+            623,
+            1128
+          ]
+        ],
+        "end_uptime": 460012.72,
+        "wall_seconds": 12.58,
+        "valid": true,
+        "aggregate_mbps": 63.593,
+        "udp6_buffer_drops": 10588,
+        "process_cpu_percent_one_core": 55.09
+      }
+    ],
+    "final_after_original": [
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 460035.89,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10658485.0,
+            "seconds": 2.345665
+          }
+        ],
+        "counters": [
+          161861,
+          161861
+        ],
+        "cpu_ticks": [
+          [
+            21,
+            13
+          ],
+          [
+            24,
+            15
+          ]
+        ],
+        "end_uptime": 460038.26,
+        "wall_seconds": 2.37,
+        "valid": true,
+        "aggregate_mbps": 84.388,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.11
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 1,
+        "start_uptime": 460038.28,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10735506.0,
+            "seconds": 2.329025
+          }
+        ],
+        "counters": [
+          161861,
+          161861
+        ],
+        "cpu_ticks": [
+          [
+            25,
+            15
+          ],
+          [
+            66,
+            120
+          ]
+        ],
+        "end_uptime": 460040.63,
+        "wall_seconds": 2.35,
+        "valid": true,
+        "aggregate_mbps": 85.106,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 62.13
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 460040.64,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9485542.0,
+            "seconds": 2.635717
+          }
+        ],
+        "counters": [
+          161861,
+          161861
+        ],
+        "cpu_ticks": [
+          [
+            66,
+            120
+          ],
+          [
+            70,
+            122
+          ]
+        ],
+        "end_uptime": 460043.3,
+        "wall_seconds": 2.66,
+        "valid": true,
+        "aggregate_mbps": 75.188,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.26
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 2,
+        "start_uptime": 460043.32,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9806944.0,
+            "seconds": 2.549327
+          }
+        ],
+        "counters": [
+          161861,
+          161923
+        ],
+        "cpu_ticks": [
+          [
+            70,
+            122
+          ],
+          [
+            110,
+            231
+          ]
+        ],
+        "end_uptime": 460045.9,
+        "wall_seconds": 2.58,
+        "valid": true,
+        "aggregate_mbps": 77.519,
+        "udp6_buffer_drops": 62,
+        "process_cpu_percent_one_core": 57.75
+      },
+      {
+        "mode": "proxy",
+        "streams": 1,
+        "round": 3,
+        "start_uptime": 460045.92,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10032883.0,
+            "seconds": 2.491927
+          }
+        ],
+        "counters": [
+          161923,
+          161923
+        ],
+        "cpu_ticks": [
+          [
+            110,
+            231
+          ],
+          [
+            113,
+            235
+          ]
+        ],
+        "end_uptime": 460048.44,
+        "wall_seconds": 2.52,
+        "valid": true,
+        "aggregate_mbps": 79.365,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.78
+      },
+      {
+        "mode": "rtp",
+        "streams": 1,
+        "round": 3,
+        "start_uptime": 460048.46,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10796897.0,
+            "seconds": 2.315619
+          }
+        ],
+        "counters": [
+          161923,
+          161980
+        ],
+        "cpu_ticks": [
+          [
+            113,
+            235
+          ],
+          [
+            157,
+            340
+          ]
+        ],
+        "end_uptime": 460050.8,
+        "wall_seconds": 2.34,
+        "valid": true,
+        "aggregate_mbps": 85.47,
+        "udp6_buffer_drops": 57,
+        "process_cpu_percent_one_core": 63.68
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 460050.82,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 19820065.0,
+            "seconds": 1.261454
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10631290.0,
+            "seconds": 2.351666
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 9865431.0,
+            "seconds": 2.53427
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 8993278.0,
+            "seconds": 2.779957
+          }
+        ],
+        "counters": [
+          161980,
+          161980
+        ],
+        "cpu_ticks": [
+          [
+            157,
+            340
+          ],
+          [
+            160,
+            345
+          ]
+        ],
+        "end_uptime": 460053.63,
+        "wall_seconds": 2.81,
+        "valid": true,
+        "aggregate_mbps": 284.698,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.85
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 1,
+        "start_uptime": 460053.64,
+        "downloads": [
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3888318.0,
+            "seconds": 6.429622
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3835650.0,
+            "seconds": 6.518017
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3675106.0,
+            "seconds": 6.802632
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3629859.0,
+            "seconds": 6.88742
+          }
+        ],
+        "counters": [
+          161980,
+          169322
+        ],
+        "cpu_ticks": [
+          [
+            160,
+            345
+          ],
+          [
+            335,
+            776
+          ]
+        ],
+        "end_uptime": 460060.56,
+        "wall_seconds": 6.92,
+        "valid": true,
+        "aggregate_mbps": 115.607,
+        "udp6_buffer_drops": 7342,
+        "process_cpu_percent_one_core": 87.57
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 460060.57,
+        "downloads": [
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 21025966.0,
+            "seconds": 1.189335
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10299976.0,
+            "seconds": 2.427292
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10255493.0,
+            "seconds": 2.437856
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10207293.0,
+            "seconds": 2.449332
+          }
+        ],
+        "counters": [
+          169322,
+          169322
+        ],
+        "cpu_ticks": [
+          [
+            335,
+            776
+          ],
+          [
+            338,
+            781
+          ]
+        ],
+        "end_uptime": 460063.05,
+        "wall_seconds": 2.48,
+        "valid": true,
+        "aggregate_mbps": 322.581,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 3.23
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 2,
+        "start_uptime": 460063.07,
+        "downloads": [
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4069982.0,
+            "seconds": 6.142652
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 4054243.0,
+            "seconds": 6.166616
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3894679.0,
+            "seconds": 6.419117
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3781780.0,
+            "seconds": 6.610743
+          }
+        ],
+        "counters": [
+          169322,
+          179063
+        ],
+        "cpu_ticks": [
+          [
+            338,
+            781
+          ],
+          [
+            513,
+            1209
+          ]
+        ],
+        "end_uptime": 460069.71,
+        "wall_seconds": 6.64,
+        "valid": true,
+        "aggregate_mbps": 120.482,
+        "udp6_buffer_drops": 9741,
+        "process_cpu_percent_one_core": 90.81
+      },
+      {
+        "mode": "proxy",
+        "streams": 4,
+        "round": 3,
+        "start_uptime": 460069.72,
+        "downloads": [
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10435441.0,
+            "seconds": 2.395839
+          },
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10286296.0,
+            "seconds": 2.430524
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10209924.0,
+            "seconds": 2.448717
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 10168533.0,
+            "seconds": 2.458671
+          }
+        ],
+        "counters": [
+          179063,
+          179063
+        ],
+        "cpu_ticks": [
+          [
+            513,
+            1209
+          ],
+          [
+            514,
+            1214
+          ]
+        ],
+        "end_uptime": 460072.21,
+        "wall_seconds": 2.49,
+        "valid": true,
+        "aggregate_mbps": 321.285,
+        "udp6_buffer_drops": 0,
+        "process_cpu_percent_one_core": 2.41
+      },
+      {
+        "mode": "rtp",
+        "streams": 4,
+        "round": 3,
+        "start_uptime": 460072.22,
+        "downloads": [
+          {
+            "stream": 2,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3964821.0,
+            "seconds": 6.305559
+          },
+          {
+            "stream": 3,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3955777.0,
+            "seconds": 6.319978
+          },
+          {
+            "stream": 4,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3941342.0,
+            "seconds": 6.343169
+          },
+          {
+            "stream": 1,
+            "code": 200,
+            "bytes": 25000000,
+            "speed_Bps": 3649477.0,
+            "seconds": 6.850476
+          }
+        ],
+        "counters": [
+          179063,
+          184204
+        ],
+        "cpu_ticks": [
+          [
+            514,
+            1214
+          ],
+          [
+            693,
+            1651
+          ]
+        ],
+        "end_uptime": 460079.1,
+        "wall_seconds": 6.88,
+        "valid": true,
+        "aggregate_mbps": 116.279,
+        "udp6_buffer_drops": 5141,
+        "process_cpu_percent_one_core": 89.53
+      }
+    ]
+  },
+  "sustained_final": {
+    "bytes_per_stream": 100000000,
+    "streams": 4,
+    "rtp_max_completion_seconds": [
+      24.268079,
+      20.894331
+    ],
+    "proxy_max_completion_seconds": 9.749223,
+    "note": "Separate nearby windows; useful capacity context, not an isolated microbenchmark. Background user traffic remains possible."
+  },
+  "profile": {
+    "wall_seconds": 20.95,
+    "cpu0_busy_percent": 91.6,
+    "cpu1_busy_percent": 86.9,
+    "worker_cpu_percent_one_core": 63.48,
+    "shim_threads_cpu_percent_one_core": 40.62,
+    "system_wide_user_percent": 26.65,
+    "system_wide_system_percent": 54.74,
+    "system_wide_irq_softirq_percent": 7.9,
+    "udp6_buffer_drops": 22698,
+    "idle_ping": {
+      "sent": 5,
+      "received": 5,
+      "avg_ms": 39.444,
+      "max_ms": 41.197
+    },
+    "loaded_ping": {
+      "sent": 20,
+      "received": 18,
+      "avg_ms": 79.425,
+      "max_ms": 159.572
+    },
+    "note": "/proc/stat and /proc/PID/task/TID/stat deltas; USER_HZ=100, consistent with two-core uptime totals. System-wide CPU includes unrelated work, and drops are host-wide counters."
+  },
+  "mtu": {
+    "inner_both_ends": 1200,
+    "tcp_syn_mss_both_directions": 1160,
+    "data_payload_with_timestamps": 1148,
+    "full_mtu_ping_sent": 4,
+    "full_mtu_ping_received": 4,
+    "ipv6_fragment_fail_counter_unchanged": 5957
+  },
+  "validation": {
+    "rtp_l3_tests": 20,
+    "rtp_mobile_tests": 18,
+    "rtp_service_tests": 26,
+    "rotation_test": "Passed separately: 311.10 seconds; production 5-minute schedule, bidirectional traffic, old lease retired. Ran before replay-only optimization; final regular suite rerun afterward.",
+    "internet_fixture": "INTERNET_EXIT_OK in private network/mount namespaces on hh-hk using final binary",
+    "clippy": "stable 1.99 --no-deps completed; five existing warnings; pinned 1.97 clippy unavailable",
+    "builds": "release ARM64 musl router/service and x86_64 musl service"
+  }
+}
