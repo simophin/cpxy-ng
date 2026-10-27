@@ -148,7 +148,9 @@ impl State {
                     return (Err("port_pool_exhausted"), None);
                 };
                 let port = socket.local_addr().unwrap().port();
-                if socket.set_nonblocking(true).is_err() || self.provider.commit_port(port).is_err()
+                if rtp_l3::worker::buffer_transport(&socket).is_err()
+                    || socket.set_nonblocking(true).is_err()
+                    || self.provider.commit_port(port).is_err()
                 {
                     if self.provider.retire_port(port).is_err() {
                         self.quarantine.push(socket);

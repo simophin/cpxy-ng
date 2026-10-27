@@ -18,6 +18,7 @@ use std::{
     collections::VecDeque,
     io,
     net::{Ipv4Addr, TcpListener},
+    os::fd::AsRawFd,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -324,6 +325,11 @@ fn packets(
             );
             stats_at = now.saturating_add(10000);
         }
+        let sockets: Vec<_> = allocations
+            .values()
+            .filter(|a| !a.retired)
+            .map(|a| a.socket.as_raw_fd())
+            .collect();
         drop(guard);
         for _ in 0..32 {
             let Some((id, at, ip)) = writes.front() else {
@@ -343,7 +349,7 @@ fn packets(
                 Err(e) => return Err(e),
             }
         }
-        thread::sleep(Duration::from_millis(2));
+        rtp_l3::worker::wait_readable(packet, sockets.into_iter())?;
     }
     Ok(())
 }
