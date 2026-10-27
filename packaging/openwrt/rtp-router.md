@@ -67,12 +67,13 @@ prefixes within the regional set. DNS uses the same regional classifier: upstrea
 resolvers are contacted directly and alternatives through RTP. LAN TCP and UDP
 DNS on port 53 is redirected to the split resolver on 5353. Local names go to
 local dnsmasq; `dns_local_domain` and `dns_search_domain` are repeatable. Alternative
-resolvers currently accept IPv4 addresses and use UDP. External IPv6 is refused
+resolvers currently accept IPv4 addresses and use UDP. IPv6 DNS to the router is refused. External IPv6 is refused
 for selected networks; local on-link IPv6 and the router itself remain reachable.
 QUIC UDP/443 and TCP/853 are refused, matching the mobile VPN policy. The 1200-byte
 inner MTU cannot carry QUIC's required minimum datagram size without fragmentation.
 
-Policy uses tables 20000/30000, priorities 12000–12004, the nft table
+An early boot service restores guards before netifd starts; the packet worker
+starts after network/firewall initialization. Policy uses tables 20000/30000, priorities 12000–12004, the nft table
 `inet cpxy_rtp_guard`, and firewall UCI sections prefixed `cpxy_rtp_`. These resources
 must be free at first activation. The service rejects overlap with enabled
 `cpxy-router` networks/devices. Keep the services on different network devices;
@@ -103,7 +104,7 @@ HTTP/UDP/DNS destinations and a separate RTP endpoint. No live router or public
 server is modified. Firmware and dependency SHA-256 values are checked by the
 fetcher against the pinned image and official release feed manifests.
 
-Install host `qemu-system-x86`, `iproute2`, `curl`, `dnsutils`, Python 3 and sudo.
+Install host `qemu-system-x86`, `iproute2`, `curl`, Python 3 and sudo.
 Build x86-64 static binaries and an IPK as above. Use a private asset directory:
 
 ```sh

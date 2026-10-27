@@ -1,6 +1,6 @@
 # HTTP-controlled RTP v2 validation
 
-Date: 2026-10-27. Scope: Linux core implementation on
+Date: 2026-10-28. Scope: Linux core and opt-in OpenWrt integration on
 `feat/http-controlled-rtp`. No public or cross-host deployment was performed.
 Historical v1 reports remain historical; results below exercise the v2 code.
 
@@ -37,13 +37,13 @@ consistency identifiers for trusted PSK holders, not independent credentials.
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --offline -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile` | 61 tests passed: codec/control 17, service 26, admission 7, mobile helpers 11. The long rotation test is ignored in this ordinary invocation and was run separately. |
+| `cargo test --locked --offline -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile` | 64 tests passed: shared codec/control/HTTP 19, service 26, admission 7, packet/DNS helpers 12. The long rotation test is ignored in this ordinary invocation and was run separately. |
 | `cargo test -p rtp-service five_minute_rotation --offline -- --ignored --nocapture` | Passed in 311.09 seconds with continuous bidirectional packet traffic; activation near 300 seconds and one remaining lease after drain. |
 | `cargo check --workspace --locked --offline` | Passed, including shared mobile API consumers. One preexisting `AsyncFd::new` deprecation warning in `mobile-engine`. |
 | `cargo build -p rtp-service -p rtp-mobile --bins --offline` | Passed. |
 | `cargo fmt -p rtp-l3 -p rtp-service -- --check`, `git diff --check`, shell syntax checks | Passed. |
 | Independent Python/HMAC/HKDF + system libsodium oracle | Both UDP directions and HTTP request/response vectors match the Rust implementation. Public fixtures and generator are checked in. |
-| `bash rtp-mobile/tests/linux-lab.sh` | `MOBILE_V2_UNSUPPORTED_OK`; rejects before profile/TUN/runtime/socket setup. |
+| `bash rtp-mobile/tests/linux-lab.sh` | `RTP_MOBILE_LAB_OK`; real v2 TUN TCP/UDP, direct routing, DNS split, refusals, path change and endpoint-loss behavior. |
 | `cargo clippy -p rtp-l3 -p rtp-service --all-targets --locked --offline -- -D warnings` | Not run: Clippy is absent from the pinned local toolchain. No lint pass is claimed. |
 
 Real Linux fixtures were invoked inside disposable local mount/network
@@ -167,10 +167,13 @@ removed. Final inspection found zero task-private service/D-Bus processes,
 zero executable staging directories, and no fixture interfaces in host
 networking. The private `/dev`, routes, nftables rules and namespace resources
 were released with their namespaces. No private keys were generated in the
-checkout; fixture passwords existed only in process environments.
+checkout; Linux fixture passwords existed only in process environments. QEMU generates a
+separate temporary password; its private serial log contains setup commands and
+is discarded with the fixture artifacts.
 
-Mobile HTTP/socket-protection/UUID integration remains deliberately unsupported;
-its v1 lab is archived. No mobile delivery, throughput claim, public deployment,
+Android app migration remains explicitly outside this PR's scope; its binding
+rejects startup. The shared Rust crate historically named `rtp-mobile` now
+supplies the Linux/OpenWrt packet/DNS engine, with a real v2 Linux lab. No mobile delivery, throughput claim, public deployment,
 inner IPv6, FEC, reliable data delivery or forward secrecy is included.
 
 Other timers and cache/queue ceilings currently use the pinned v2 defaults;
@@ -179,3 +182,75 @@ cross-field validation remains follow-up work from the plan. The tests do not
 constitute exhaustive fuzzing, every cancellation boundary, or a comprehensive
 netem loss/reorder matrix. Independent UDP reordering/replay and real path-loss
 checks are reported only at their demonstrated scope.
+
+
+## Linux/OpenWrt extension (2026-10-28)
+
+The user requested replacing the undeployed RTP VPN while retaining the original
+`cpxy-router`, then clarified Linux/OpenWrt only. Android app files are unchanged
+from before this extension. HTTP client framing, identity persistence and the
+UDP client owner now live in `rtp-l3::v2`; Linux service and router packet/DNS
+engines use that same owner. No second RTP protocol or rotation implementation
+was introduced.
+
+The opt-in `cpxy-rtp` package supplies a separate `cpxy_rtp` UCI file, procd
+service, nonpersistent `rtpr0`, regional route generations, selected-LAN terminal
+guards and an independent nft forwarding/DNS guard. A private validated UCI
+snapshot isolates crash recovery from rejected edits. Guards are restored before
+netifd at boot, while the packet worker starts after network initialization.
+The former combined early startup exposed a boot-ordering failure during QEMU
+testing and was split accordingly. Explicit cleanup releases the policy;
+stopping/crashing does not release it.
+
+Additional completed checks:
+
+- Focused Rust suite: 64 passed, one production-length rotation test remains
+  separately exercised as recorded above. The new callback test observes both
+  TCP and UDP descriptors before connection and checks control-socket cancellation.
+- Workspace compilation and formatting passed. The existing unrelated
+  `mobile-engine` AsyncFd deprecation remains.
+- Real Linux packet/DNS namespace lab passed against HTTP-controlled v2, including
+  TCP/UDP, direct routing, DNS selection, refusals, path repair and fail-closed
+  endpoint loss. Android UI/native delivery is excluded.
+- Static x86-64 and ARM64 musl builds passed for both executables. The ARM64
+  toolchain emits a verbose linker-wrapper warning but exits successfully.
+- IPK installs in OpenWrt QEMU; APK v3 builds and metadata checks passed. Actual
+  APK installation on an APK-based OpenWrt release and physical router performance
+  remain untested.
+- ShellCheck passes for new package/service scripts. Actionlint structure checks
+  pass; its full ShellCheck mode reports existing unrelated workflow advisories.
+
+The reproducible [QEMU fixture](../packaging/openwrt/test/qemu-rtp.py) uses the
+[official OpenWrt 24.10.0 image](https://downloads.openwrt.org/releases/24.10.0/targets/x86/64/),
+SHA-256 `a873d9f2e6e667d03dd06f75ed1f1b580beb7ce4337d5a44b60911a266965fb5`,
+matching `6.6.73-r1` TUN module and verified feed dependencies. It runs with
+software emulation, three isolated Ethernet segments and a separate local RTP
+endpoint, using a disposable disk snapshot. The fixture checks preservation of
+an enabled original-router configuration on the unselected LAN; it does not
+claim simultaneous packet tests of both router binaries.
+
+Final QEMU run passed all assertions:
+
+| Scenario | Observed result |
+| --- | --- |
+| Selected guest LAN TCP and UDP | Regional destinations saw WAN source `192.0.2.2`; nonregional destinations saw assigned RTP source `10.88.0.2` |
+| Unselected LAN | Continued ordinary WAN forwarding |
+| UDP and TCP DNS | Regional/direct and alternative/through-RTP answers; AAAA suppressed |
+| IPv6 | A working external IPv6 baseline was demonstrated before refusal; local router IPv6 stayed reachable; IPv6 DNS to the router was promptly refused |
+| Service and firewall reload | All four TCP/UDP paths recovered |
+| Suspended packet worker | Regional TCP/UDP remained direct; nonregional TCP did not bypass RTP |
+| WAN gateway update through netifd | Direct routes reconciled and RTP forwarding recovered |
+| Retained-router overlap | Rejected before replacing the running worker |
+| SIGKILL | procd restarted the worker; UUID and assigned IPv4 remained stable |
+| VM reboot | Early guards and late worker restored forwarding and the same assigned IPv4 |
+| Endpoint loss and explicit stop | Nonregional traffic stayed blocked; regional direct routing continued |
+| Explicit cleanup and IPK removal | Ordinary WAN routing returned; original configuration checksum remained unchanged |
+| Transition monitoring | Continuous selected-LAN TCP probes plus WAN TCP/UDP capture found no unintended direct nonregional bypass |
+
+The fixtures were corrected during development for serial-console line limits,
+network-service readiness, the endpoint's required IPv4 forwarding, exact UDP
+reply source addresses and an unavailable host DNS client. The final run uses the
+repository's standard-library DNS client and exits successfully. Emulation found
+and verified the separate early/late boot lifecycle and scoped IPv6 DNS guard.
+No OpenWrt hardware or throughput acceptance is claimed. IPK/APK builds and QEMU
+checks are wired into CI; remote CI results are separate from these local passes.

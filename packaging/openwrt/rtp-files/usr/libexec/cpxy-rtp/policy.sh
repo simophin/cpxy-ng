@@ -197,7 +197,7 @@ reconcile() {
 	[ -z "$active" ] || ip -4 route flush table "$active" 2>/dev/null || :
 }
 case "${1:-}" in
-prepare)
+prepare|boot)
 	umask 077; mkdir -p "$R" "$P" "$R/next" "$R/config" "$R/deltas"
 	rm -f "$R/enabled"
 	# Restore persisted guards even when configuration is disabled at boot.
@@ -212,8 +212,10 @@ prepare)
 	/usr/libexec/cpxy-rtp/guard.sh
 	guard
 	mv "$R/routes.new" "$R/routes"
-	firewall
-	touch "$R/enabled"
+	if [ "$1" = prepare ]; then
+		firewall
+		touch "$R/enabled"
+	fi
 	;;
 run)
 	load "$R/config"; devices="$(cat "$P/devices")"

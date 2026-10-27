@@ -1,0 +1,7 @@
+#!/bin/sh /etc/rc.common
+# Restore/prepare guards before netifd can expose selected LANs. The worker starts
+# after network/firewall initialization; early protection never depends on it.
+# shellcheck disable=SC2034
+START=18
+start() { /usr/libexec/cpxy-rtp/policy.sh boot; }
+stop() { :; }

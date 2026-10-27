@@ -664,11 +664,17 @@ jobs:
             arch="${dir#artifacts/openwrt-}"
             mkdir -p "$out/openwrt/$arch"
             cp "$dir"/*.ipk "$out/openwrt/$arch/cpxy.ipk"
+            cp "$dir"/rtp/*.ipk "$out/openwrt/$arch/cpxy-rtp.ipk"
             packaging/openwrt/make-feed.sh "$out/openwrt/$arch" "$key"
             for apk_dir in "$dir"/apk/*; do
               apk_arch="${apk_dir##*/}"
               mkdir -p "$out/openwrt-apk/$apk_arch"
               cp "$apk_dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy.apk"
+            done
+            for apk_dir in "$dir"/rtp/apk/*; do
+              apk_arch="${apk_dir##*/}"
+              mkdir -p "$out/openwrt-apk/$apk_arch"
+              cp "$apk_dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy-rtp.apk"
             done
           done
           rm "$key"

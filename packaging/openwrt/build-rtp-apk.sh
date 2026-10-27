@@ -20,6 +20,7 @@ printf '/etc/config/cpxy_rtp %s\n' "${checksum##* }" >"$work/data/lib/apk/packag
 (cd "$work/data" && find . -type f | sed 's|^\./|/|' | sort) >"$work/data/lib/apk/packages/cpxy-rtp.list"
 cat >"$work/install" <<'EOT'
 #!/bin/sh
+/etc/init.d/cpxy-rtp-guard enable
 /etc/init.d/cpxy-rtp-router enable
 /etc/init.d/cpxy-rtp-router restart
 EOT
@@ -27,6 +28,7 @@ cat >"$work/remove" <<'EOT'
 #!/bin/sh
 /etc/init.d/cpxy-rtp-router cleanup
 /etc/init.d/cpxy-rtp-router disable
+ /etc/init.d/cpxy-rtp-guard disable
 EOT
 printf '#!/bin/sh\n/etc/init.d/cpxy-rtp-router stop\n' >"$work/upgrade"
 chmod 755 "$work/install" "$work/remove" "$work/upgrade"

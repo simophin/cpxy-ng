@@ -24,6 +24,7 @@ printf '/etc/config/cpxy_rtp\n' >"$work/control/conffiles"
 cat >"$work/control/postinst" <<'EOT'
 #!/bin/sh
 [ -z "$IPKG_INSTROOT" ] || exit 0
+/etc/init.d/cpxy-rtp-guard enable
 /etc/init.d/cpxy-rtp-router enable
 /etc/init.d/cpxy-rtp-router restart
 exit 0
@@ -36,6 +37,7 @@ if [ "$PKG_UPGRADE" = 1 ]; then
 else
  /etc/init.d/cpxy-rtp-router cleanup
  /etc/init.d/cpxy-rtp-router disable
+ /etc/init.d/cpxy-rtp-guard disable
 fi
 exit 0
 EOT

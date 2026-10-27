@@ -1,7 +1,7 @@
 #!/bin/sh /etc/rc.common
 # shellcheck disable=SC2034
 USE_PROCD=1
-START=19
+START=95
 STOP=10
 EXTRA_COMMANDS="cleanup"
 EXTRA_HELP="        cleanup Remove RTP policy and restore ordinary LAN routing"
