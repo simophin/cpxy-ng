@@ -1,7 +1,8 @@
 # RTP packet-path efficiency and scaling plan
 
-Status: proposed for review; no implementation or deployment is authorized by
-this document. Follow-up to the measured throughput fixes in
+Status: implementation started on 2026-10-28 at the user’s request. The measured
+throughput reference is merged into this branch. Deployment and later phases
+remain subject to the acceptance gates below. Follow-up to the measured throughput fixes in
 [PR #155](https://github.com/simophin/cpxy-ng/pull/155).
 
 ## Recommendation
@@ -312,3 +313,43 @@ UDP batching, followed by measurements**. An io_uring prototype requires those
 results to justify its added complexity; it is not an automatic next step.
 Socketpair removal is a separate profiling-led decision. Worker distribution
 remains an evidence-gated option rather than the main direction.
+
+
+## Implementation log
+
+### 2026-10-28: reference and profiling foundation
+
+- Merged `fix/rtp-router-throughput` so experiments use the measured polling,
+  buffer and codec fixes, rather than the original 2 ms sleep baseline.
+- Added `experiments/rtp-l3/scripts/profile-packet-path.py`: a bounded local/SSH
+  sampler requiring only shell and procfs on the target. JSONL records per-core
+  CPU ticks, per-thread user/system CPU and context switches, scheduler wait,
+  RSS, network/softirq counters and process-owned UDP queue bytes/drops by
+  FD/inode. It excludes process arguments, packet data and peer addresses.
+- Socket inode/start-time labels distinguish socket replacement/PID reuse.
+  Host-wide UDP counters remain explicitly separate from per-socket drops.
+  Socketpair/TUN pressure and syscall rates are not available from these proc
+  tables; worker instrumentation and sampled profiling remain pending.
+- Step 1 is in progress. Loaded direction/stream/client matrices, worker queue
+  instrumentation and step 2 production integration are not complete.
+
+Example (samples bracket a separately controlled, bounded load):
+
+```sh
+python3 experiments/rtp-l3/scripts/profile-packet-path.py PID \
+  --ssh root@tr3600 --samples 31 > /tmp/rtp-profile.jsonl
+```
+
+Use target `/proc/uptime` deltas for rates; SSH receipt time includes transport
+jitter. CPU tick columns follow `/proc/stat` (user, nice, system, idle, iowait,
+IRQ, softirq, steal, guest, guest_nice); guest time is already included in user
+and nice, so do not count it twice. Thread RSS is shared process memory, not
+additive across threads. An absent socket sample is not evidence of zero drops.
+
+Validation: parser attribution/offset tests and local two-sample smoke test passed.
+An eleven-sample read-only router capture spanned 11.03 seconds, without task-
+generated traffic. Both cores averaged about 20% busy; sampled process UDP
+sockets reported zero receive drops and zero queue bytes at the last sample.
+This is shared-router background activity, not an idle-latency or load benchmark.
+The [sanitized capture](../experiments/rtp-l3/results/2026-10-28-packet-path-baseline.json)
+contains no socket addresses or process arguments. No service was restarted.
