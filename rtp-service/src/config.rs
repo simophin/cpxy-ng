@@ -95,7 +95,7 @@ pub struct Settings {
     pub profile: String,
     pub journal: PathBuf,
     pub interface: String,
-    /// Required for clients: every outer socket is bound to this host device.
+    /// Optional client socket device override; None uses normal OS routing.
     pub outbound_interface: Option<String>,
     pub address: String,
     pub transport: Role,
@@ -160,7 +160,7 @@ impl Settings {
             return Err(io::Error::other("keepalive_seconds must be 5..45"));
         }
         if matches!(self.transport, Role::Client { .. })
-            && self.outbound_interface.as_ref().is_none_or(|name| {
+            && self.outbound_interface.as_ref().is_some_and(|name| {
                 name.is_empty()
                     || name.len() > 15
                     || name == &self.interface
@@ -169,9 +169,7 @@ impl Settings {
                         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
             })
         {
-            return Err(io::Error::other(
-                "client requires a physical outbound_interface",
-            ));
+            return Err(io::Error::other("invalid outbound_interface override"));
         }
         if let Role::Client { entry, bind } = self.transport {
             if entry.is_ipv4() != bind.is_ipv4() {

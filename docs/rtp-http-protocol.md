@@ -192,7 +192,10 @@ after route switch. Superseded paths cannot change new lease state.
 
 Client rotation deadline is activation+300 s; prepare at deadline-10 s, retain
 working path on failure, retry with exponential 1..30 s delay and 20% jitter.
-Fresh UDP socket for each allocation/repair; HTTP and UDP must use host bypass.
+Fresh UDP socket for each allocation/repair. HTTP and UDP use normal OS routing
+by default; an optional interface override binds these outer sockets to a device
+without installing routes. Namespace clients obtain every transport socket from
+the host broker so tunnel routes in the child cannot capture recovery traffic.
 No base UDP listener or server rotation message exists.
 
 Idle PING after 15 s without outbound traffic, sampled +/-20%; independently

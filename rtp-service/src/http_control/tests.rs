@@ -161,8 +161,6 @@ impl Lab {
             "client",
             "--entry",
             &self.entry.to_string(),
-            "--outbound-interface",
-            "lo",
             "--address",
             ip,
         ];

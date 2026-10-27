@@ -97,6 +97,28 @@ tests cover incoming-only NAT maintenance, active-upload return-path probes,
 matching PONGs and nonextendable 1/2/4-second retry deadlines. Queue tests cover
 expiry, pressure and FIFO order. These checks are not a zero-loss guarantee.
 
+## Optional outbound interface follow-up
+
+The client now uses normal OS routing when `--outbound-interface` is omitted.
+An explicit override still applies SO_BINDTODEVICE before connecting HTTP or UDP
+sockets. This flag does not add routes. Namespace clients always obtain sockets
+from the host broker, using host routing by default, so their child tunnel routes
+do not capture control or repair traffic.
+
+The baseline full-suite results above predate this follow-up. Focused validation
+of the optional-interface change:
+
+| Check | Result |
+| --- | --- |
+| `cargo test -p rtp-service --lib --locked --offline` | 28 passed, one long rotation test ignored. Covers missing/invalid/explicit interface settings and default/explicit TCP/UDP socket binding. |
+| `cargo test -p rtp-service broker::tests --lib --locked --offline` | Six passed, including socket-option checks confirming unbound defaults and retained explicit UDP/TCP interface binding. |
+| `cargo build -p rtp-service --locked --offline` | Passed. |
+| `RTP_TEST_REPAIR=1` lifecycle fixture via the private Linux wrapper | `HTTP_NAMESPACE_OK`: dynamic addressing, TUN traffic, UDP blackhole recovery over HTTP, and restart passed with no outbound-interface argument/environment value. |
+| Namespace broker fixture via the private Linux wrapper | Passed with no outbound-interface argument: HTTP and UDP sockets remain in host networking while the child has only its tunnel route. |
+| Formatting, whitespace and fixture shell syntax | Passed. |
+
+The existing selected-network route and fail-closed guard logic is unchanged.
+
 ## Automatic UDP port selection
 
 When `--udp-ports` is omitted, the server binds UDP port zero and lets the OS

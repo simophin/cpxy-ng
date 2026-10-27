@@ -184,25 +184,7 @@ fn client_socket(settings: &Settings, peer: SocketAddr) -> io::Result<UdpSocket>
         return Err(io::Error::other("peer outside configured entry"));
     }
     let socket = UdpSocket::bind(bind)?;
-    let device = std::ffi::CString::new(
-        settings
-            .outbound_interface
-            .as_deref()
-            .ok_or_else(|| io::Error::other("missing outbound_interface"))?,
-    )
-    .map_err(io::Error::other)?;
-    if unsafe {
-        libc::setsockopt(
-            socket.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_BINDTODEVICE,
-            device.as_ptr().cast(),
-            device.as_bytes_with_nul().len() as _,
-        )
-    } < 0
-    {
-        return Err(io::Error::last_os_error());
-    }
+    broker::bind_device(&socket, settings.outbound_interface.as_deref())?;
     socket.connect(peer)?;
     Ok(socket)
 }
@@ -305,11 +287,7 @@ impl SocketProvider for Host {
                 }
                 Ok(socket)
             }
-            None => broker::tcp_socket(
-                peer,
-                bind,
-                self.settings.outbound_interface.as_deref().unwrap(),
-            ),
+            None => broker::tcp_socket(peer, bind, self.settings.outbound_interface.as_deref()),
         }
     }
 

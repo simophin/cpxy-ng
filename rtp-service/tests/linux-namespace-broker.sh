@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Managed CLI, real TUN/UDP and candidate replacements. No host route mutations.
+# Managed CLI, real TUN and host-network HTTP/UDP without a device override.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BIN=${RTP_SERVICE_BIN:-$ROOT/target/debug/cpxy-rtp}
@@ -8,7 +8,7 @@ if [[ ${1:-} != __inner ]]; then
     unshare -Urnm bash "$0" __inner
     after=$(ip -4 -j route show table all; ip -4 -j rule show)
     [[ "$before" == "$after" ]]
-    echo 'namespace broker: managed app and candidate replacement passed; host routes unchanged'
+    echo 'namespace broker: HTTP/UDP default host routing passed; host routes unchanged'
     exit
 fi
 D=$(mktemp -d)
@@ -35,7 +35,7 @@ for _ in $(seq 1 100); do
 done
 grep -Eq '"event":"ready"' "$D/endpoint.log"
 # The application can bind no host loopback, and its only IPv4 route is the TUN.
-"$BIN" client --state-dir "$D/client" --interface rtpc --outbound-interface lo \
+"$BIN" client --state-dir "$D/client" --interface rtpc \
     --entry 127.0.0.1:39000 --bind 127.0.0.1:0 namespace -- sh -c '
     test "$(ip -o -4 route show | wc -l)" -eq 1
     test -z "$(ip -o -4 addr show dev lo)"

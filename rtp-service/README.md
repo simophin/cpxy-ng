@@ -23,7 +23,7 @@ CPXY_RTP_PASSWORD=... cpxy-rtp endpoint --listen 203.0.113.10:30000 \
     --service-cidr 10.90.0.0/24
 
 CPXY_RTP_PASSWORD=... cpxy-rtp client --entry 203.0.113.10:30000 \
-    --outbound-interface eth0 --dynamic-address --service-cidr 10.90.0.0/24
+    --dynamic-address --service-cidr 10.90.0.0/24
 ```
 
 `--listen` and `--entry` identify the **TCP HTTP control** port. The administrator
@@ -61,6 +61,7 @@ Flags also have `CPXY_RTP_*` environment forms; consult `--help`.
 | --- | --- |
 | `--server-identity` | `cpxy-rtp`; identical at both peers, bound into control AEAD |
 | `--udp-ports` | Omitted: OS-assigned available ports via bind(:0). Optional LOW-HIGH constrains allocation. |
+| `--outbound-interface` | Omitted: normal OS routing. Optional device override for HTTP and UDP sockets. |
 | `--state-dir` | `/var/lib/cpxy-rtp`; private durable identity/address/lease journals |
 | `--interface` | `rtp0`; refuses an existing administrator interface |
 | `--address` | Endpoint `.1/24`, static client `.2/24` in `10.88.0.0/24` |
@@ -74,8 +75,11 @@ drain. Startup deadline is 30 s, authenticated inactivity expiry 120 s. Health
 probes also detect missing inbound traffic during uploads: waits 1/2/4 s, one
 outstanding probe, matching PONG only. Unknown HTTP outcomes are retried with
 the same operation and fresh envelope/path. Preparation failures retain the
-working path. New sockets and HTTP connections bind the physical device before
-connect; namespace mode obtains both TCP and UDP descriptors from its host broker.
+working path. New UDP sockets and HTTP connections use normal OS routing by
+default. `--outbound-interface` optionally binds them to a specified device before
+connect; it does not install routes. Namespace mode always obtains both TCP and
+UDP descriptors from its host broker, including repair/replacement connections,
+so the child tunnel cannot capture its own transport sockets.
 
 One TUN reader dispatches downstream to one bounded FIFO per client. It expires
 packets after one second, limits each client to 256 packets/256 KiB and all
@@ -118,8 +122,9 @@ cpxy-rtp client ... doctor
 
 `client ... namespace -- COMMAND` creates the TUN/routes inside an unprivileged
 namespace and starts COMMAND after connection (90-second startup bound). Its
-host parent handles only protected socket descriptors. It never sees keys or
-inner packets. Every recovery connection still uses host networking.
+host parent handles only transport socket descriptors created in host networking,
+using normal host routing or the explicit interface override. It never sees keys
+or inner packets. Every recovery connection still uses host networking.
 
 `--listen '[::]:PORT'` supports both outer families; `--entry '[2001:db8::1]:PORT'`
 uses an IPv6 outer path. Inner IPv6 remains unsupported; no host-wide IPv6 setting

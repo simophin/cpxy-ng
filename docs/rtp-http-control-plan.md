@@ -24,6 +24,8 @@ operational deployment remain separate. The implemented wire contract is
   as a draft for the Linux core; remaining configuration/coverage work is explicit.
 - [x] Default to OS-assigned UDP ports when no range is configured; retain
   optional explicit ranges and admit/journal only each actual bound port.
+- [x] Make the outbound interface optional: default to OS routing, retain an
+  explicit device override, and keep namespace sockets in host networking.
 - [ ] Follow up full timing-policy configuration and remaining exhaustive fault matrices.
 
 ## Objective and agreed constraints

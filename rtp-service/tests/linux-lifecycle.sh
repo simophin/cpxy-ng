@@ -25,7 +25,7 @@ export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -
 export CPXY_RTP_KEEPALIVE_SECONDS=5
 server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtps CPXY_RTP_LISTEN=192.0.2.2:30000
   CPXY_RTP_UDP_PORTS=30001-30008 CPXY_RTP_FIREWALL=none)
-client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
+client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc
   CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0 CPXY_RTP_DYNAMIC_ADDRESS=true)
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
 ip netns exec s "${server_env[@]}" "$bin" endpoint >"$work/s.out" 2>"$work/s.log" & server=$!

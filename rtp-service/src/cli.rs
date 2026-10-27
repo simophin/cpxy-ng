@@ -172,9 +172,9 @@ pub struct ClientArgs {
     /// Local UDP bind address; defaults to the entry's address family.
     #[arg(long, env = "CPXY_RTP_BIND")]
     pub bind: Option<SocketAddr>,
-    /// Physical interface every outer socket is bound to (bypasses the TUN).
+    /// Optional interface for HTTP/UDP sockets; defaults to normal OS routing.
     #[arg(long, env = "CPXY_RTP_OUTBOUND_INTERFACE")]
-    pub outbound_interface: String,
+    pub outbound_interface: Option<String>,
     /// Tunnel address and prefix of this client.
     #[arg(long, env = "CPXY_RTP_ADDRESS", default_value = "10.88.0.2/24")]
     pub address: String,
@@ -315,7 +315,7 @@ impl ClientArgs {
             profile: NAME.into(),
             journal: journal(c),
             interface: c.interface.clone(),
-            outbound_interface: Some(self.outbound_interface.clone()),
+            outbound_interface: self.outbound_interface.clone(),
             address: self.address.clone(),
             transport: Role::Client {
                 entry: self.entry,
@@ -507,8 +507,21 @@ mod tests {
         assert!(settings.validate().is_err());
     }
     #[test]
-    fn client_requires_entry_and_outbound_interface_and_owns_its_address() {
-        assert!(Cli::try_parse_from(["cpxy-rtp", "client", "--entry", "192.0.2.2:30000"]).is_err());
+    fn client_requires_entry_and_defaults_to_os_routing() {
+        assert!(Cli::try_parse_from(["cpxy-rtp", "client"]).is_err());
+        let Cli {
+            role: RoleCommand::Client { args, .. },
+        } = parse(&["client", "--entry", "192.0.2.2:30000"])
+        else {
+            panic!()
+        };
+        let settings = args.settings().unwrap();
+        assert!(settings.outbound_interface.is_none());
+        for interface in ["", "rtp0", "invalid/interface", "abcdefghijklmnop"] {
+            let mut invalid = settings.clone();
+            invalid.outbound_interface = Some(interface.into());
+            assert!(invalid.validate().is_err());
+        }
         let Cli {
             role: RoleCommand::Client { args, action },
         } = parse(&[
@@ -531,6 +544,7 @@ mod tests {
             matches!(action, Some(ClientAction::Namespace { ref command }) if command == &["curl", "http://10.90.0.2/"])
         );
         let s = args.settings().unwrap();
+        assert_eq!(s.outbound_interface.as_deref(), Some("eth0"));
         assert_eq!(s.firewall, FirewallMode::None);
         assert_eq!(
             s.network.unwrap().client_addresses,
