@@ -8,9 +8,12 @@ this document. Follow-up to the measured throughput fixes in
 
 Reduce kernel crossings, copying and packet handoffs before introducing
 parallel flow processing. Keep one lifecycle owner and the existing wire format.
-Make the first implementation a Linux batching experiment, followed by a
-router-specific experiment that removes the datagram socketpair hop while
-preserving packet policy and split DNS. Measure each independently.
+Make the first implementation a simple Linux `recvmmsg`/`sendmmsg` batching
+experiment. Measure its throughput, CPU, drops and latency before starting any
+io_uring implementation. Only pursue io_uring if the measured remaining cost
+justifies it. A router-specific experiment can separately remove the datagram
+socketpair hop while preserving packet policy and split DNS. Measure each
+independently.
 
 Do not add a general crypto pool, per-flow allocations, new port mappings or
 more threads by default. The tested tr3600 already uses both of its physical
@@ -127,6 +130,16 @@ both single and multiple streams without flow-management complexity. A 2x gain
 or proxy-equivalent speed is not promised.
 
 ### 2a. Compare io_uring against the simpler batching adapter
+
+**Prerequisite: finish and measure step 2 first.** Do not implement io_uring in
+parallel with the initial mmsg batching change or bundle both into one PR.
+Publish adjacent reference/mmsg/reference results for throughput, total and
+per-core CPU, drops, queue pressure and idle/loaded latency. If the simple path
+meets the practical performance goal, stop there. Start an io_uring prototype
+only if the measurements show a meaningful remaining I/O submission/wakeup cost
+that it could plausibly reduce; kernel copying or network-stack cost alone does
+not establish that. Record that decision in the follow-up PR before adding the
+more complex backend.
 
 `io_uring` is a credible alternative for UDP I/O scheduling, without distributing
 flows or changing lifecycle ownership. On the actual router (Linux 6.12.94),
@@ -294,7 +307,8 @@ per-shard metrics. Do not ask users to configure ports or distribute flows
 manually. Endpoint client sharding may eventually justify this cost for many
 clients; the present router measurements do not justify paying it now.
 
-The recommended next implementation is therefore **profiling plus bounded UDP
-batching**, with an io_uring comparison and the socketpair-removal prototype as
-subsequent decisions. Worker distribution remains an evidence-gated option
-rather than the main direction.
+The recommended next implementation is therefore **profiling plus simple bounded
+UDP batching, followed by measurements**. An io_uring prototype requires those
+results to justify its added complexity; it is not an automatic next step.
+Socketpair removal is a separate profiling-led decision. Worker distribution
+remains an evidence-gated option rather than the main direction.
