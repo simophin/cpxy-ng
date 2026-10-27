@@ -9,6 +9,7 @@
 
 uniffi::setup_scaffolding!();
 
+mod connect;
 mod dns;
 mod ffi;
 pub mod packet;
@@ -129,7 +130,7 @@ pub struct Prepared {
     settings: profile::Settings,
     endpoint: SocketAddr,
     inner: Ipv4Addr,
-    control: Client,
+    path: client_runtime::PreparedPath,
     provider: Arc<Provider>,
 }
 pub fn prepare(
@@ -140,25 +141,36 @@ pub fn prepare(
 ) -> anyhow::Result<Prepared> {
     anyhow::ensure!(!client_id.is_nil(), "Invalid persisted client UUID");
     let settings = profile.settings()?;
-    let endpoint = settings.resolve_endpoint()?;
-    let provider = Arc::new(Provider {
-        platform,
-        repair: Arc::new(AtomicBool::new(false)),
-        stopping: AtomicBool::new(false),
-        control: Mutex::new(None),
-    });
-    let mut control = Client::new(&key, "cpxy-rtp", endpoint, provider.clone(), client_id)?;
-    let result = control.call("allocate_ip", Default::default())?;
-    let inner: Ipv4Addr = serde_json::from_value(result["inner"].clone())?;
-    anyhow::ensure!(
-        !settings.dns_alternative.contains(&inner) && inner != DNS_ADDRESS,
-        "Allocated address conflicts with configured DNS"
-    );
+    let endpoints = settings.resolve_endpoints()?;
+    let alternative = settings.dns_alternative.clone();
+    let (path, provider) = connect::race(endpoints, move |endpoint, cancelled| {
+        let provider = Arc::new(Provider {
+            platform: platform.clone(),
+            repair: Arc::new(AtomicBool::new(false)),
+            stopping: AtomicBool::new(false),
+            control: Mutex::new(None),
+        });
+        let control = Client::new(&key, "cpxy-rtp", endpoint, provider.clone(), client_id)?;
+        let path = client_runtime::prepare_path(
+            control,
+            provider.as_ref(),
+            &cancelled,
+            KEEPALIVE_SECONDS,
+        )?;
+        anyhow::ensure!(
+            !alternative.contains(&path.inner()) && path.inner() != DNS_ADDRESS,
+            "Allocated address conflicts with configured DNS"
+        );
+        Ok((path, provider))
+    })?;
+    let endpoint = path.entry();
+    let inner = path.inner();
+    tracing::info!(%endpoint, "Selected authenticated RTP UDP path");
     Ok(Prepared {
         settings,
         endpoint,
         inner,
-        control,
+        path,
         provider,
     })
 }
@@ -171,7 +183,7 @@ impl Prepared {
             settings,
             endpoint,
             inner,
-            control,
+            path,
             provider,
         } = self;
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -217,9 +229,9 @@ impl Prepared {
         let worker = std::thread::Builder::new()
             .name("rtp-worker".into())
             .spawn(move || {
-                let result = client_runtime::run(
+                let result = client_runtime::run_prepared(
                     config,
-                    control,
+                    path,
                     Box::new(PairDevice(worker_end)),
                     worker_provider,
                     events,

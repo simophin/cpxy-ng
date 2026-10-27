@@ -2,20 +2,20 @@
 use super::http_client::{Client, Pending};
 use crate::{
     v2::{
-        codec::{Control, Direction, Packet, Rx, Tx, MAX_FRAME},
+        codec::{Control, Direction, MAX_FRAME, Packet, Rx, Tx},
         http::{random, unhex},
         state::{Health, HealthAction},
     },
     worker::{Events, PacketIo, SocketProvider},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     io,
     net::{SocketAddr, UdpSocket},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -241,13 +241,187 @@ fn release_job(mut client: Client, id: Uuid) -> Job {
     })
 }
 
+/// An authenticated, bidirectional UDP path, not yet activated. Racing candidates
+/// must not steal the active route from each other. The winner is transferred to
+/// the packet worker with the same keys, socket and counters; losers release their leases.
+pub struct PreparedPath {
+    control: Option<Client>,
+    allocation: Option<Allocation>,
+    start: Instant,
+    entry: SocketAddr,
+    inner: std::net::Ipv4Addr,
+}
+impl PreparedPath {
+    pub fn entry(&self) -> SocketAddr {
+        self.entry
+    }
+    pub fn inner(&self) -> std::net::Ipv4Addr {
+        self.inner
+    }
+}
+impl Drop for PreparedPath {
+    fn drop(&mut self) {
+        if let (Some(client), Some(allocation)) = (&mut self.control, &self.allocation) {
+            let _ = client.call(
+                "release_udp",
+                json!({"allocation_id": allocation.id})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            );
+        }
+    }
+}
+
+/// Complete HTTP setup and the authenticated UDP challenge before considering an
+/// address usable. Cancellation never activates a losing candidate.
+pub fn prepare_path(
+    mut control: Client,
+    provider: &dyn SocketProvider,
+    cancelled: &AtomicBool,
+    keepalive: u64,
+) -> io::Result<PreparedPath> {
+    if !(5..=45).contains(&keepalive) {
+        return Err(io::Error::other("invalid keepalive interval"));
+    }
+    let start = Instant::now();
+    let result = control.call("allocate_ip", Default::default())?;
+    let inner = serde_json::from_value(result["inner"].clone()).map_err(|_| invalid())?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(io::ErrorKind::Interrupted.into());
+    }
+    let value = control.call(
+        "create_udp",
+        json!({"inner":inner}).as_object().unwrap().clone(),
+    )?;
+    let allocation =
+        match Allocation::new(value.clone(), control.peer, inner, provider, 0, keepalive) {
+            Ok(allocation) => allocation,
+            Err(error) => {
+                if let Some(id) = value["allocation_id"].as_str() {
+                    let _ = control.call(
+                        "release_udp",
+                        json!({"allocation_id":id}).as_object().unwrap().clone(),
+                    );
+                }
+                return Err(error);
+            }
+        };
+    let mut prepared = PreparedPath {
+        entry: control.peer,
+        inner,
+        control: Some(control),
+        allocation: Some(allocation),
+        start,
+    };
+    let a = prepared.allocation.as_mut().unwrap();
+    let mut wire = [0; MAX_FRAME + 1];
+    let deadline = Instant::now() + Duration::from_secs(7);
+    while !cancelled.load(Ordering::Acquire) && Instant::now() < deadline {
+        let now = milliseconds(start);
+        for _ in 0..32 {
+            match a.socket.recv_from(&mut wire) {
+                Ok((n, peer)) if peer == a.peer => match a.rx.open(&wire[..n]) {
+                    Some(Packet::Control(Control::PathChallenge {
+                        attempt,
+                        token,
+                        challenge,
+                    })) if attempt == a.attempt && token == a.token => {
+                        a.phase = Phase::Response(challenge);
+                        a.retry = 0;
+                    }
+                    Some(Packet::Control(Control::PathReady { attempt, token }))
+                        if attempt == a.attempt && token == a.token =>
+                    {
+                        a.phase = Phase::Ready;
+                        return Ok(prepared);
+                    }
+                    _ => {}
+                },
+                Ok(_) => {}
+                Err(e) if transient(&e) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        if now >= a.retry {
+            let c = match a.phase {
+                Phase::Response(challenge) => Control::PathResponse {
+                    attempt: a.attempt,
+                    token: a.token,
+                    challenge,
+                },
+                _ => Control::PathOpen {
+                    attempt: a.attempt,
+                    token: a.token,
+                },
+            };
+            a.send(c, now, false, keepalive);
+            a.retry = now + 500;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    Err(io::Error::new(
+        if cancelled.load(Ordering::Acquire) {
+            io::ErrorKind::Interrupted
+        } else {
+            io::ErrorKind::TimedOut
+        },
+        "UDP candidate path did not become ready",
+    ))
+}
+
+/// Start the winning path without creating a second allocation or reusing counters.
+pub fn run_prepared(
+    settings: ClientConfig,
+    prepared: PreparedPath,
+    packet: Box<dyn PacketIo>,
+    provider: Arc<dyn SocketProvider>,
+    events: Events,
+    running: Arc<AtomicBool>,
+) -> io::Result<()> {
+    if settings.entry != prepared.entry || settings.inner != prepared.inner {
+        return Err(io::Error::other(
+            "prepared path does not match client settings",
+        ));
+    }
+    run_inner(
+        settings,
+        None,
+        packet,
+        provider,
+        events,
+        running,
+        Some(prepared),
+    )
+}
+
 pub fn run(
     settings: ClientConfig,
     control: Client,
+    packet: Box<dyn PacketIo>,
+    provider: Arc<dyn SocketProvider>,
+    events: Events,
+    running: Arc<AtomicBool>,
+) -> io::Result<()> {
+    run_inner(
+        settings,
+        Some(control),
+        packet,
+        provider,
+        events,
+        running,
+        None,
+    )
+}
+
+fn run_inner(
+    settings: ClientConfig,
+    control: Option<Client>,
     mut packet: Box<dyn PacketIo>,
     provider: Arc<dyn SocketProvider>,
     events: Events,
     running: Arc<AtomicBool>,
+    prepared: Option<PreparedPath>,
 ) -> io::Result<()> {
     let entry = settings.entry;
     let inner = settings.inner;
@@ -262,10 +436,16 @@ pub fn run(
         return Err(io::Error::last_os_error());
     }
     provider.packet_ready()?;
-    let start = Instant::now();
+    let (start, mut allocations, control) = match prepared {
+        Some(mut path) => (
+            path.start,
+            vec![path.allocation.take().unwrap()],
+            path.control.take().unwrap(),
+        ),
+        None => (Instant::now(), Vec::new(), control.unwrap()),
+    };
     let mut http = Some(control);
     let mut job: Option<Job> = None;
-    let mut allocations: Vec<Allocation> = Vec::new();
     let mut releases: VecDeque<Uuid> = VecDeque::new();
     let mut active = None;
     let mut activation = 0u64;

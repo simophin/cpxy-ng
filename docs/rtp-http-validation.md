@@ -254,3 +254,35 @@ repository's standard-library DNS client and exits successfully. Emulation found
 and verified the separate early/late boot lifecycle and scoped IPv6 DNS guard.
 No OpenWrt hardware or throughput acceptance is claimed. IPK/APK builds and QEMU
 checks are wired into CI; remote CI results are separate from these local passes.
+
+## Resolver-ordered connection racing (2026-10-28)
+
+The router/packet engine no longer searches DNS results for IPv4 first. It starts
+with getaddrinfo's first family, preserves order within each family and interleaves
+families. Attempts are staggered by 250 ms with at most two in flight, respecting
+the server's per-UUID allocation quota. An attempt must complete authenticated
+HTTP allocation and the bidirectional UDP path challenge. Only the winner is
+activated; its live socket, allocation, cipher counters and replay window transfer
+to the existing packet worker. Losing allocations are released, including late
+successes after selection. A 30-second selection deadline cancels pending attempts;
+HTTP I/O retains its existing bounded timeouts. Uncertain HTTP create outcomes may
+still require server lease expiry, as before. DNS resolution itself precedes the
+selection deadline. Repair and rotation use the selected address; re-resolution
+requires worker restart. This chooses connection responsiveness, not throughput.
+
+Validation completed with 37 library tests (`rtp-l3`: 19, `rtp-mobile`: 18), including
+both resolver-family orders, family interleaving, stalled-first-path fallback,
+startup cancellation and cleanup of late successful losers. Static ARM64 router
+and x86-64 fixture builds passed. The extended Linux packet/DNS fixture passed
+three runs in private network/mount namespaces on a remote Linux host:
+
+- `RTP_LAB_OUTER=block4`: hostname with A+AAAA and working HTTP on both families;
+  IPv4 UDP blackholed; IPv6 selected.
+- `RTP_LAB_OUTER=block6`: same hostname/HTTP setup; IPv6 UDP blackholed; IPv4 selected.
+- `RTP_LAB_OUTER=6`: explicit IPv6 endpoint.
+
+All three runs verified inner TCP/UDP, regional direct traffic, split DNS,
+QUIC/DoT refusal, reported network-change repair and fail-closed endpoint loss.
+The fixture ran with its own TUN devices, veth links, DNS fixtures and firewall
+rules; the live host service/network was not modified by these tests. Host Wi-Fi
+and sustained throughput are separate acceptance checks.

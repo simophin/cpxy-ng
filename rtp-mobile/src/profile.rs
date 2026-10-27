@@ -103,19 +103,19 @@ impl Profile {
 }
 
 impl Settings {
-    /// Looks the endpoint up with the system resolver, which the engine's sockets use outside the
-    /// tunnel. Prefers IPv4, which every network can reach through NAT64 or directly.
-    pub fn resolve_endpoint(&self) -> anyhow::Result<SocketAddr> {
-        let addrs: Vec<_> = (self.host.as_str(), self.port)
+    /// Preserve system getaddrinfo ordering; do not impose an address-family policy.
+    pub fn resolve_endpoints(&self) -> anyhow::Result<Vec<SocketAddr>> {
+        let mut addrs = Vec::new();
+        for addr in (self.host.as_str(), self.port)
             .to_socket_addrs()
             .with_context(|| format!("Cannot resolve {}", self.host))?
-            .collect();
-        addrs
-            .iter()
-            .find(|a| a.is_ipv4())
-            .or(addrs.first())
-            .copied()
-            .with_context(|| format!("No address for {}", self.host))
+        {
+            if !addrs.contains(&addr) {
+                addrs.push(addr);
+            }
+        }
+        ensure!(!addrs.is_empty(), "No address for {}", self.host);
+        Ok(addrs)
     }
 }
 
@@ -197,8 +197,8 @@ mod tests {
         let mut p = profile();
         p.endpoint = "192.0.2.1:30000".into();
         assert_eq!(
-            p.settings().unwrap().resolve_endpoint().unwrap(),
-            "192.0.2.1:30000".parse::<SocketAddr>().unwrap()
+            p.settings().unwrap().resolve_endpoints().unwrap(),
+            vec!["192.0.2.1:30000".parse::<SocketAddr>().unwrap()]
         );
     }
 }

@@ -23,6 +23,8 @@ pair() {
 }
 pair cr ec c e; pair eb be e b; pair el le e l
 ip -n c addr add 192.0.2.1/24 dev cr
+ip -n c -6 addr add fd00:5254::1/64 dev cr nodad
+ip -n e -6 addr add fd00:5254::fe/64 dev ec nodad
 ip -n c route add default via 192.0.2.254
 ip -n e addr add 192.0.2.254/24 dev ec
 ip -n e addr add 172.31.1.1/30 dev eb
@@ -69,7 +71,27 @@ ip netns exec b python3 "$work/echo.py" 203.0.113.2 >"$work/b-echo.log" 2>&1 & p
 ip netns exec l python3 "$work/echo.py" 223.5.5.5 >"$work/l-echo.log" 2>&1 & pids+=($!)
 ip netns exec b python3 "$dns" serve 8.8.8.8 0 remote.test=203.0.113.2 local.test=203.0.113.3 >"$work/b-dns.log" 2>&1 & pids+=($!)
 ip netns exec l python3 "$dns" serve 223.5.5.5 0 remote.test=203.0.113.9 local.test=223.5.5.5 >"$work/l-dns.log" 2>&1 & pids+=($!)
-ip netns exec e "$service" endpoint --internet-exit --listen 192.0.2.254:30000 --interface rtpe \
+entry=192.0.2.254:30000
+case "${RTP_LAB_OUTER:-4}" in
+ 4) ;;
+ 6) entry='[fd00:5254::fe]:30000' ;;
+ block4|block6)
+  # HTTP works on both families, but one UDP path is blackholed. Selecting
+  # based only on HTTP would falsely accept that candidate.
+  cp /etc/hosts "$work/hosts"
+  printf '\nfd00:5254::fe rtp-fixture.test\n192.0.2.254 rtp-fixture.test\n' >>"$work/hosts"
+  mount --bind "$work/hosts" /etc/hosts
+  entry=rtp-fixture.test:30000
+  family=ipv4; [ "$RTP_LAB_OUTER" != block6 ] || family=ipv6
+  ip netns exec e nft -f - <<NFT
+add table inet broken_path
+add chain inet broken_path output { type filter hook output priority -100; policy accept; }
+add rule inet broken_path output meta nfproto $family meta l4proto udp drop
+NFT
+ ;;
+ *) echo 'Invalid RTP_LAB_OUTER' >&2; exit 1 ;;
+esac
+ip netns exec e "$service" endpoint --internet-exit --listen '[::]:30000' --interface rtpe \
   --firewall none --state-dir "$work/e" >"$work/e.out" 2>"$work/e.log" & endpoint=$!; pids+=($endpoint)
 
 # What VpnService does on the phone: a TUN with the engine's routes and an IPv6 catch-all.
@@ -80,12 +102,16 @@ ip -n c link set rtpc mtu 1200 up
 [ "$(wc -l < "$work/routes")" -gt 1000 ]
 ip -n c -batch "$work/routes"
 cat > "$work/profile.json" <<JSON
-{"endpoint":"192.0.2.254:30000","dns_upstream":["223.5.5.5"],"dns_alternative":["8.8.8.8"]}
+{"endpoint":"$entry","dns_upstream":["223.5.5.5"],"dns_alternative":["8.8.8.8"]}
 JSON
 mkdir "$work/control"
 ip netns exec c "$mobile" run "$work/profile.json" rtpc cr "$work/control" >"$work/c.out" 2>"$work/c.log" & phone=$!; pids+=($phone)
 for i in $(seq 1 100); do grep -q '"state":"connected"' "$work/c.out" && break; sleep .1; done
 grep -q '"state":"connected"' "$work/c.out"
+case "${RTP_LAB_OUTER:-4}" in
+ 6|block4) grep 'Selected authenticated RTP UDP path' "$work/c.log" | grep -qF '[fd00:5254::fe]:30000' ;;
+ block6) grep 'Selected authenticated RTP UDP path' "$work/c.log" | grep -qF '192.0.2.254:30000' ;;
+esac
 app() { ip netns exec c python3 "$work/app.py" "$@"; }
 
 # Tunnelled traffic reaches the internet from the tunnel address; direct traffic does not use it.
@@ -109,7 +135,7 @@ grep -q 'Connection refused' <<<"$out"
 echo 'refusals ok'
 
 # A new network: the phone's address changes and the platform reports it.
-ip -n c addr flush dev cr
+ip -n c -4 addr flush dev cr
 ip -n c addr add 192.0.2.7/24 dev cr
 ip -n c route add default via 192.0.2.254
 touch "$work/control/repair"

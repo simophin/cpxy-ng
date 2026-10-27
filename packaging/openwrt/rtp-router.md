@@ -54,6 +54,15 @@ config vpn 'main'
 logread -e cpxy-rtp
 ```
 
+Hostnames start with the system resolver's first address family, retaining its
+order within each family and interleaving families. Startup staggers candidates
+by 250 ms, with at most two in flight, and selects the first to complete authenticated
+HTTP setup and bidirectional UDP path validation. IPv4 has no special preference.
+Only the selected path is activated; losing UDP allocations are released. Explicit
+IP literals select that family. Resolution/racing happens at startup; repair and
+rotation keep using the selected address until the worker restarts. It does not
+measure bulk throughput or guarantee the fastest sustained path.
+
 The server assigns the inner IPv4 address. The router stores its persistent UUID
 under `/etc/cpxy-rtp/state/main`; keep this directory across restarts. Its TUN is
 `rtpr0`, the endpoint's default is `rtp0`. Neither an inner address nor an outbound
