@@ -108,6 +108,51 @@ idempotency conflicts, address conflict/pool exhaustion, allocation quota,
 port pool exhaustion, firewall unavailability and temporary server failure.
 Separate unauthenticated envelope errors from encrypted application errors.
 
+### Random HTTP paths and content-based dispatch
+
+Do not register a recognizable RPC URL or use the HTTP path to select a control
+operation. Accept a valid control POST at any syntactically valid origin-form
+path within the configured request-target bounds. Authenticate and validate the
+body, then dispatch its encrypted message kind to bootstrap or JSON-RPC handling.
+Both the bootstrap exchange and application RPCs follow this rule; neither has
+a fixed public discovery path. Do not interpret path segments as filesystem
+paths, client identifiers, versions, secrets or RPC methods.
+
+For every HTTP request, the client generates a fresh CSPRNG-based path containing
+random ASCII alphanumeric segments separated by `/`. Initial generation policy:
+2 to 5 nonempty segments and 24 to 64 total path bytes, including the leading
+and separating slashes. Choose segment lengths within those bounds and randomize
+the separator positions. Do not add a stable prefix, UUID, operation token,
+query string, fragment or percent encoding. Regenerate the path on retries;
+idempotency remains bound to the encrypted operation UUID, not the URL. These
+are client-generation bounds, not a server requirement that only random-looking
+paths are accepted. Set a separate bounded server request-target limit.
+
+Invalid or unauthenticated content receives the same generic HTTP 404 response,
+with a small fixed body and no RPC, authentication or version diagnostics.
+Use this response for unsupported methods and invalid envelopes, failed AEAD
+authentication, or malformed decrypted control/JSON-RPC structure when HTTP
+framing permits a response. Do not redirect, advertise an RPC route, provide an
+unauthenticated challenge banner, or distinguish unknown paths. Grossly malformed
+HTTP or exhausted resource limits may require closing the connection; preserve
+strict parser, body-size, timeout and concurrency limits before expensive work.
+
+After content authentication and structural validation, legitimate application
+errors (including stale challenges, address conflicts and unknown RPC methods)
+use encrypted responses under the control protocol. This preserves recoverable
+errors for valid peers without exposing them to unauthenticated probes. Bind
+AEAD purpose to the encrypted message kind/protocol context, not a fixed HTTP
+path; bind responses to the request token/content as already required.
+
+This removes a fixed URL signature; it does not make the service impossible to
+identify. Plain HTTP metadata, ciphertext shape, timing and generic responses
+remain observable. Do not claim indistinguishability from an ordinary website.
+Add tests that the same valid request works at unrelated short paths, bootstrap
+and RPC retries change paths without changing operation semantics, and invalid
+requests return the same 404 regardless of their path or authentication failure.
+Verify randomized client paths meet length/segment bounds without testing exact
+random output. Audit logs must not expose body secrets or add response hints.
+
 ### Envelope, replay and retry contract
 
 Use a maintained XChaCha20-Poly1305 implementation, HKDF-SHA256 purpose/direction
