@@ -15,10 +15,15 @@ pub mod packet;
 pub mod profile;
 mod shim;
 
-use anyhow::Context;
 use ipnet::Ipv4Net;
 use profile::Profile;
-use rtp_l3::worker::{self, SocketProvider};
+use rtp_l3::{
+    v2::{
+        client_runtime::{self, ClientConfig},
+        http_client::Client,
+    },
+    worker::SocketProvider,
+};
 use shim::{Counters, Datagrams, Shim};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
@@ -51,7 +56,7 @@ pub fn tunnel_routes() -> Vec<Ipv4Net> {
 
 pub trait Platform: Send + Sync + 'static {
     /// Makes `socket` bypass the VPN before anything is sent on it.
-    fn protect_socket(&self, socket: &UdpSocket) -> io::Result<()>;
+    fn protect_socket(&self, fd: RawFd) -> io::Result<()>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -114,114 +119,156 @@ pub struct Engine {
     runtime: Mutex<Option<tokio::runtime::Runtime>>,
     status: Arc<Mutex<WorkerStatus>>,
     counters: Arc<Counters>,
+    provider: Arc<Provider>,
+    dns: Arc<client::dns_split::server::DnsSplitHandler>,
 }
 
-/// Starts the engine on `tun`, which it closes when stopped. Blocks while the endpoint name is
-/// looked up and the DNS servers are set up, so do not call it on a UI thread. Registration with
-/// the endpoint continues in the background; see [`Engine::status`].
-pub fn start(
-    tun: OwnedFd,
+/// A prepared control session. Address allocation and protected HTTP happen
+/// before the platform establishes TUN; no transport keys/counters are reused.
+pub struct Prepared {
+    settings: profile::Settings,
+    endpoint: SocketAddr,
+    inner: Ipv4Addr,
+    control: Client,
+    provider: Arc<Provider>,
+}
+pub fn prepare(
     profile: &Profile,
     key: [u8; 32],
+    client_id: uuid::Uuid,
     platform: Arc<dyn Platform>,
-) -> anyhow::Result<Engine> {
-    // Fail before DNS/runtime/socket/TUN work. There is no insecure v1 fallback.
-    worker::require_http_integration()?;
+) -> anyhow::Result<Prepared> {
+    anyhow::ensure!(!client_id.is_nil(), "Invalid persisted client UUID");
     let settings = profile.settings()?;
     let endpoint = settings.resolve_endpoint()?;
-    tracing::info!("Connecting to {endpoint}");
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .thread_name("rtp-engine")
-        .enable_all()
-        .build()?;
-    let (worker_end, shim_end) = socketpair()?;
-    let counters = Arc::new(Counters::default());
-    let shim = runtime.block_on(async {
-        let tun = Datagrams::new(tun, FAMILY_HEADER)?;
-        let tunnel = Datagrams::new(shim_end, false)?;
-        let queries = Arc::new(dns::TunnelQueries::new(settings.address, tunnel.clone()));
-        let handler = dns::handler(
-            &settings.dns_upstream,
-            &settings.dns_alternative,
-            queries.clone(),
-        )
-        .await?;
-        anyhow::Ok(Arc::new(Shim {
-            tun,
-            tunnel,
-            own: settings.address,
-            dns: DNS_ADDRESS,
-            resolvers: settings.dns_alternative.clone(),
-            handler: Arc::new(handler),
-            queries,
-            counters: counters.clone(),
-        }))
-    })?;
-
-    let repair = Arc::new(AtomicBool::new(false));
     let provider = Arc::new(Provider {
         platform,
-        repair: repair.clone(),
+        repair: Arc::new(AtomicBool::new(false)),
+        stopping: AtomicBool::new(false),
+        control: Mutex::new(None),
     });
-    let socket = provider
-        .client_socket(endpoint)
-        .context("Cannot open a socket to the endpoint")?;
-    let status = Arc::new(Mutex::new(WorkerStatus::default()));
-    let running = Arc::new(AtomicBool::new(true));
-    let config = worker::WorkerConfig {
-        client: true,
-        psk: key,
-        inner: settings.address,
-        prefix: 32,
-        rotation_low: 0,
-        rotation_high: 0,
-        initial_rotation_port: None,
-        rotation_seconds: 0,
-        keepalive_seconds: KEEPALIVE_SECONDS,
-    };
-    let events_status = status.clone();
-    let resources = worker::Resources {
-        packet: Box::new(PairDevice(worker_end)),
-        socket,
+    let mut control = Client::new(&key, "cpxy-rtp", endpoint, provider.clone(), client_id)?;
+    let result = control.call("allocate_ip", Default::default())?;
+    let inner: Ipv4Addr = serde_json::from_value(result["inner"].clone())?;
+    anyhow::ensure!(
+        !settings.dns_alternative.contains(&inner) && inner != DNS_ADDRESS,
+        "Allocated address conflicts with configured DNS"
+    );
+    Ok(Prepared {
+        settings,
+        endpoint,
+        inner,
+        control,
         provider,
-        events: Arc::new(move |event: serde_json::Value| {
-            tracing::debug!("{event}");
-            events_status.lock().unwrap().observe(&event);
-        }),
-        clock: Arc::new(worker::MonotonicClock::default()),
-    };
-    let worker_running = running.clone();
-    let worker_status = status.clone();
-    let worker = std::thread::Builder::new()
-        .name("rtp-worker".into())
-        .spawn(move || {
-            let result = worker::run_client(config, resources, worker_running, endpoint);
-            let mut status = worker_status.lock().unwrap();
-            match result {
-                Ok(()) => status.state = Some(State::Stopped),
-                Err(e) => {
-                    tracing::warn!("The tunnel worker failed: {e}");
-                    status.error = Some(format!("{:?}", e.kind()));
-                    status.state = Some(State::Failed);
-                }
-            }
+    })
+}
+impl Prepared {
+    pub fn address(&self) -> Ipv4Addr {
+        self.inner
+    }
+    pub fn start(self, tun: OwnedFd) -> anyhow::Result<Engine> {
+        let Self {
+            settings,
+            endpoint,
+            inner,
+            control,
+            provider,
+        } = self;
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("rtp-engine")
+            .enable_all()
+            .build()?;
+        let (worker_end, shim_end) = socketpair()?;
+        let counters = Arc::new(Counters::default());
+        let shim = runtime.block_on(async {
+            let tun = Datagrams::new(tun, FAMILY_HEADER)?;
+            let tunnel = Datagrams::new(shim_end, false)?;
+            let queries = Arc::new(dns::TunnelQueries::new(inner, tunnel.clone()));
+            let handler = dns::handler(&settings, queries.clone()).await?;
+            anyhow::Ok(Arc::new(Shim {
+                tun,
+                tunnel,
+                own: inner,
+                dns: DNS_ADDRESS,
+                resolvers: settings.dns_alternative.clone(),
+                handler: Arc::new(handler),
+                queries,
+                counters: counters.clone(),
+            }))
         })?;
 
-    runtime.spawn(shim.clone().outbound());
-    runtime.spawn(shim.inbound());
-    Ok(Engine {
-        running,
-        repair,
-        worker: Mutex::new(Some(worker)),
-        runtime: Mutex::new(Some(runtime)),
-        status,
-        counters,
-    })
+        let repair = provider.repair.clone();
+        let status = Arc::new(Mutex::new(WorkerStatus::default()));
+        let running = Arc::new(AtomicBool::new(true));
+        let config = ClientConfig {
+            entry: endpoint,
+            inner,
+            keepalive_seconds: KEEPALIVE_SECONDS,
+        };
+        let events_status = status.clone();
+        let events: rtp_l3::worker::Events = Arc::new(move |event: serde_json::Value| {
+            tracing::debug!("{event}");
+            events_status.lock().unwrap().observe(&event);
+        });
+        let worker_provider = provider.clone();
+        let worker_running = running.clone();
+        let worker_status = status.clone();
+        let worker = std::thread::Builder::new()
+            .name("rtp-worker".into())
+            .spawn(move || {
+                let result = client_runtime::run(
+                    config,
+                    control,
+                    Box::new(PairDevice(worker_end)),
+                    worker_provider,
+                    events,
+                    worker_running,
+                );
+                let mut status = worker_status.lock().unwrap();
+                match result {
+                    Ok(()) => status.state = Some(State::Stopped),
+                    Err(e) => {
+                        tracing::warn!("The tunnel worker failed: {e}");
+                        status.error = Some(format!("{:?}", e.kind()));
+                        status.state = Some(State::Failed);
+                    }
+                }
+            })?;
+
+        let dns = shim.handler.clone();
+        runtime.spawn(shim.clone().outbound());
+        runtime.spawn(shim.inbound());
+        Ok(Engine {
+            running,
+            repair,
+            worker: Mutex::new(Some(worker)),
+            runtime: Mutex::new(Some(runtime)),
+            status,
+            counters,
+            provider,
+            dns,
+        })
+    }
 }
 
 impl Engine {
+    /// Open scoped router DNS listeners on the same split policy as the packet shim.
+    /// Alternative DNS continues through injected tunnel queries, including TCP clients.
+    pub fn serve_dns(&self, address: SocketAddr) -> anyhow::Result<()> {
+        let runtime = self.runtime.lock().unwrap();
+        let runtime = runtime
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Engine stopped"))?;
+        let (udp, tcp) = runtime.block_on(async {
+            let udp = tokio::net::UdpSocket::bind(address).await?;
+            let tcp = tokio::net::TcpListener::bind(address).await?;
+            anyhow::Ok((udp, tcp))
+        })?;
+        runtime.spawn(client::dns_split::server::serve_udp(udp, self.dns.clone()));
+        runtime.spawn(client::dns_split::server::serve_tcp(tcp, self.dns.clone()));
+        Ok(())
+    }
     pub fn status(&self) -> Status {
         let worker = self.status.lock().unwrap();
         let count = |c: &std::sync::atomic::AtomicU64| c.load(Ordering::Relaxed);
@@ -250,6 +297,11 @@ impl Engine {
     pub fn stop(&self) {
         self.running.store(false, Ordering::Release);
         if let Some(worker) = self.worker.lock().unwrap().take() {
+            let deadline = std::time::Instant::now() + Duration::from_millis(500);
+            while !worker.is_finished() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            self.provider.cancel_control();
             let _ = worker.join();
         }
         if let Some(runtime) = self.runtime.lock().unwrap().take() {
@@ -269,15 +321,50 @@ impl Drop for Engine {
 struct Provider {
     platform: Arc<dyn Platform>,
     repair: Arc<AtomicBool>,
+    stopping: AtomicBool,
+    control: Mutex<Option<std::net::TcpStream>>,
 }
-
+impl Provider {
+    fn cancel_control(&self) {
+        self.stopping.store(true, Ordering::Release);
+        if let Some(socket) = self.control.lock().unwrap().take() {
+            let _ = socket.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
 impl SocketProvider for Provider {
+    fn control_socket(&self, peer: SocketAddr) -> io::Result<std::net::TcpStream> {
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "transport stopping",
+            ));
+        }
+        let socket = socket2::Socket::new(
+            socket2::Domain::for_address(peer),
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )?;
+        self.platform.protect_socket(socket.as_raw_fd())?;
+        {
+            let mut current = self.control.lock().unwrap();
+            if self.stopping.load(Ordering::Acquire) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "transport stopping",
+                ));
+            }
+            *current = Some(socket.try_clone()?.into());
+        }
+        socket.connect_timeout(&peer.into(), Duration::from_secs(3))?;
+        Ok(socket.into())
+    }
     fn client_socket(&self, peer: SocketAddr) -> io::Result<UdpSocket> {
         let socket = match peer {
             SocketAddr::V4(_) => UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?,
             SocketAddr::V6(_) => UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0))?,
         };
-        self.platform.protect_socket(&socket)?;
+        self.platform.protect_socket(socket.as_raw_fd())?;
         Ok(socket)
     }
     fn prepare_port(&self, _: SocketAddr) -> io::Result<UdpSocket> {

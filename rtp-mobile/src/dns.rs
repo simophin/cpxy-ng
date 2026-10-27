@@ -7,7 +7,6 @@ use client::dns_split::cache::{CacheOptions, DnsCache, purge_expired_every};
 use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
 use client::dns_split::server::DnsSplitHandler;
-use client::dns_split::spec::ServerSpec;
 use client::dns_split::upstream::{DnsUpstream, Group, HickoryUpstream, tls_client_config};
 use client::ipv6::Ipv6Mode;
 use futures::future::BoxFuture;
@@ -20,7 +19,7 @@ use tokio::sync::oneshot;
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Fits a tunnel packet with room for the IPv4 and UDP headers, without fragmenting.
-const EDNS_PAYLOAD: u16 = 1232;
+const EDNS_PAYLOAD: u16 = (rtp_l3::MTU - 20 - 8) as u16;
 const CACHE_OPTIONS: CacheOptions = CacheOptions {
     min_ttl: 30,
     max_ttl: 86400,
@@ -30,13 +29,12 @@ const PURGE_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Must run on the engine's runtime, which then purges the cache's expired answers.
 pub async fn handler(
-    upstream: &[ServerSpec],
-    alternative: &[Ipv4Addr],
+    settings: &crate::profile::Settings,
     tunnel: Arc<TunnelQueries>,
 ) -> anyhow::Result<DnsSplitHandler> {
     let tls_config = tls_client_config()?;
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
-    for spec in upstream {
+    for spec in &settings.dns_upstream {
         // The app is outside its own VPN, so these sockets go direct.
         let server = HickoryUpstream::new(spec, tls_config.clone(), QUERY_TIMEOUT, None)
             .await
@@ -44,7 +42,7 @@ pub async fn handler(
         tracing::info!("Using upstream DNS server {}", server.name());
         servers.push((Group::Upstream, Arc::new(server)));
     }
-    for &server in alternative {
+    for &server in &settings.dns_alternative {
         tracing::info!("Using alternative DNS server {server} through the tunnel");
         servers.push((
             Group::Alternative,
@@ -57,12 +55,18 @@ pub async fn handler(
     }
     let cache = Arc::new(DnsCache::open_in_memory(CACHE_OPTIONS).await?);
     tokio::spawn(purge_expired_every(cache.clone(), PURGE_INTERVAL));
-    Ok(DnsSplitHandler::new(
+    let mut handler = DnsSplitHandler::new(
         Racer::new(servers, QUERY_TIMEOUT, is_local_region_ip),
         Some(cache),
     )
     // The tunnel carries IPv4 only.
-    .with_ipv6(Ipv6Mode::Off))
+    .with_ipv6(Ipv6Mode::Off)
+    .with_search_domains(settings.dns_search_domains.clone());
+    if let Some(spec) = &settings.dns_local_server {
+        let local = HickoryUpstream::new(spec, tls_config, QUERY_TIMEOUT, None).await?;
+        handler = handler.with_local(Arc::new(local), settings.dns_local_domains.clone());
+    }
+    Ok(handler)
 }
 
 /// DNS queries the engine itself sends through the tunnel, as UDP from the tunnel address.
@@ -95,11 +99,13 @@ impl TunnelQueries {
     }
 
     async fn query(&self, server: Ipv4Addr, mut request: Message) -> anyhow::Result<Message> {
-        if request.extensions().is_none() {
-            let mut edns = Edns::new();
-            edns.set_max_payload(EDNS_PAYLOAD);
-            request.set_edns(edns);
-        }
+        let payload = request
+            .extensions()
+            .as_ref()
+            .map_or(EDNS_PAYLOAD, |edns| edns.max_payload().min(EDNS_PAYLOAD));
+        let mut edns = request.extensions().clone().unwrap_or_else(Edns::new);
+        edns.set_max_payload(payload);
+        request.set_edns(edns);
         let (tx, rx) = oneshot::channel();
         let port = self.reserve(tx)?;
         let _release = Release(self, port);

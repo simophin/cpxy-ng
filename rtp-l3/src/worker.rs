@@ -1,34 +1,13 @@
-//! Host socket contracts. Legacy worker entry points fail explicitly; the Linux
-//! HTTP v2 runtime lives in rtp-service. Mobile needs a protected TCP provider.
+//! Host socket contracts for the shared HTTP-controlled client and Linux service.
 #[cfg(target_os = "linux")]
 use std::{fs, os::fd::FromRawFd};
 use std::{
     io::{self, Read, Write},
-    net::{Ipv4Addr, SocketAddr, UdpSocket},
+    net::{SocketAddr, UdpSocket},
     os::fd::AsRawFd,
-    sync::{atomic::AtomicBool, Arc},
-    time::{Duration, Instant},
+    sync::Arc,
 };
 include!("worker_api.rs");
-/// Mobile integration is deferred; never emit the removed v1 wire format.
-pub fn require_http_integration() -> io::Result<()> {
-    Err(io::Error::new(io::ErrorKind::Unsupported,"HTTP-controlled RTP v2 requires protected TCP control sockets and persistent UUID state; mobile/legacy worker integration is unsupported"))
-}
-pub fn run(
-    _config: WorkerConfig,
-    _resources: Resources,
-    _running: Arc<AtomicBool>,
-) -> io::Result<()> {
-    require_http_integration()
-}
-pub fn run_client(
-    _config: WorkerConfig,
-    _resources: Resources,
-    _running: Arc<AtomicBool>,
-    _peer: SocketAddr,
-) -> io::Result<()> {
-    require_http_integration()
-}
 #[cfg(target_os = "linux")]
 pub fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
     let request = port.to_be_bytes();

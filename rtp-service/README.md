@@ -5,9 +5,9 @@ frames. Plain HTTP carries encrypted JSON-RPC control; it does not use TLS.
 The client creates a dedicated UDP allocation and rotates it every five minutes.
 There is no base UDP listener, fallback port or server rotation epoch.
 
-This is a matched v2 client/server breaking change. Mobile integration is
-separate: mobile and the old experiment worker return an explicit unsupported
-protocol error. See the [wire contract](../docs/rtp-http-protocol.md) and
+This is a matched v2 client/server breaking change. The Android RTP app and
+opt-in OpenWrt RTP router use the same HTTP/UDP client runtime. The historical
+experiment executable directs users to this service. See the [wire contract](../docs/rtp-http-protocol.md) and
 [validation report](../docs/rtp-http-validation.md).
 
 ## Run
@@ -149,7 +149,8 @@ bash rtp-mobile/tests/linux-lab.sh
 
 The firewalld fixture runs on a private bus in disposable namespaces. Its
 administrator-owned TCP admission is separate from service UDP ownership.
-Historical mobile-v1 fixtures are archived and are not v2 acceptance evidence.
+The mobile Linux lab exercises v2 address assignment, protected sockets, split
+DNS, repair and failure behavior. Historical v1 fixtures remain archived.
 If the host lacks a TUN device, the optional root wrapper creates one entirely
 inside private namespaces:
 

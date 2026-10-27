@@ -82,7 +82,6 @@ private fun EditProfileForm(
 ) {
     var name by remember(initial.id) { mutableStateOf(initial.name) }
     var endpoint by remember(initial.id) { mutableStateOf(initial.endpoint) }
-    var address by remember(initial.id) { mutableStateOf(initial.address) }
     var password by remember(initial.id) { mutableStateOf("") }
     var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
     var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
@@ -95,7 +94,6 @@ private fun EditProfileForm(
     val profile = initial.copy(
         name = name.trim(),
         endpoint = endpoint.trim(),
-        address = address.trim(),
         dnsUpstream = parseServerList(dnsUpstream),
         dnsAlternative = parseServerList(dnsAlternative),
     )
@@ -185,15 +183,7 @@ private fun EditProfileForm(
                 keyboardType = KeyboardType.Password,
                 visualTransformation = PasswordVisualTransformation(),
             )
-            Field(
-                label = "Tunnel address",
-                value = address,
-                onValueChange = { address = it },
-                error = errors[ProfileField.Address],
-                onNext = next,
-                hint = "One of the endpoint's client addresses. Two devices with the same one disconnect each other.",
-                keyboardType = KeyboardType.Decimal,
-            )
+            Text("The server assigns this device's tunnel address automatically.")
             Field(
                 label = "Upstream DNS",
                 value = dnsUpstream,

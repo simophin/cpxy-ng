@@ -3629,6 +3629,7 @@ dependencies = [
  "argon2",
  "chacha20poly1305",
  "hkdf",
+ "httparse",
  "libc",
  "rand 0.8.8",
  "serde",
@@ -3642,6 +3643,7 @@ name = "rtp-mobile"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "client",
  "etherparse 0.21.0",
  "futures",
@@ -3653,11 +3655,13 @@ dependencies = [
  "rtp-l3",
  "serde",
  "serde_json",
+ "socket2",
  "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "uniffi",
+ "uuid",
 ]
 
 [[package]]
@@ -3665,7 +3669,6 @@ name = "rtp-service"
 version = "0.1.0"
 dependencies = [
  "clap",
- "httparse",
  "libc",
  "port-admission",
  "rand 0.8.8",

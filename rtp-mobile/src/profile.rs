@@ -9,23 +9,29 @@ use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
-    /// `host:port` of the RTP endpoint's base port; the host may be a name or an IP literal.
+    /// `host:port` of the RTP endpoint's HTTP control port; the host may be a name or an IP literal.
     pub endpoint: String,
-    /// This device's tunnel address: one of the endpoint's `--client-address` values.
-    pub address: Ipv4Addr,
     /// Local-region resolvers, asked directly (`client::dns_split::spec` syntax).
     pub dns_upstream: Vec<String>,
     /// Resolvers asked over UDP through the tunnel.
     pub dns_alternative: Vec<Ipv4Addr>,
+    #[serde(default)]
+    pub dns_local_server: Option<String>,
+    #[serde(default)]
+    pub dns_local_domains: Vec<String>,
+    #[serde(default)]
+    pub dns_search_domains: Vec<String>,
 }
 
 /// A checked [`Profile`].
 pub struct Settings {
     pub host: String,
     pub port: u16,
-    pub address: Ipv4Addr,
     pub dns_upstream: Vec<ServerSpec>,
     pub dns_alternative: Vec<Ipv4Addr>,
+    pub dns_local_server: Option<ServerSpec>,
+    pub dns_local_domains: Vec<hickory_proto::rr::Name>,
+    pub dns_search_domains: Vec<hickory_proto::rr::Name>,
 }
 
 impl Profile {
@@ -35,15 +41,6 @@ impl Profile {
 
     pub fn settings(&self) -> anyhow::Result<Settings> {
         let (host, port) = split_host_port(&self.endpoint)?;
-        let a = self.address;
-        ensure!(
-            !(a.is_unspecified()
-                || a.is_loopback()
-                || a.is_multicast()
-                || a.is_broadcast()
-                || a == crate::DNS_ADDRESS),
-            "Invalid tunnel address {a}"
-        );
         ensure!(
             !self.dns_upstream.is_empty(),
             "At least one upstream DNS server is required"
@@ -72,17 +69,35 @@ impl Profile {
                     || ip.is_loopback()
                     || ip.is_multicast()
                     || ip.is_broadcast()
-                    || ip == crate::DNS_ADDRESS
-                    || ip == a),
+                    || ip == crate::DNS_ADDRESS),
                 "Invalid alternative DNS server {ip}"
             );
         }
+        let dns_local_server = self
+            .dns_local_server
+            .as_ref()
+            .map(|text| text.parse::<ServerSpec>())
+            .transpose()?;
+        if let Some(server) = &dns_local_server {
+            ensure!(
+                server.via == Via::Direct,
+                "Local DNS must use host networking"
+            );
+        }
+        let names = |values: &Vec<String>| {
+            values
+                .iter()
+                .map(|name| hickory_proto::rr::Name::from_ascii(name).map_err(anyhow::Error::from))
+                .collect::<anyhow::Result<Vec<_>>>()
+        };
         Ok(Settings {
             host,
             port,
-            address: a,
             dns_upstream,
             dns_alternative: self.dns_alternative.clone(),
+            dns_local_server,
+            dns_local_domains: names(&self.dns_local_domains)?,
+            dns_search_domains: names(&self.dns_search_domains)?,
         })
     }
 }
@@ -134,7 +149,7 @@ mod tests {
 
     fn profile() -> Profile {
         Profile::from_json(
-            r#"{"endpoint":"vpn.example.net:30000","address":"10.88.0.2",
+            r#"{"endpoint":"vpn.example.net:30000",
             "dns_upstream":["223.5.5.5","tls://dns.alidns.com"],"dns_alternative":["8.8.8.8"]}"#,
         )
         .unwrap()
@@ -162,8 +177,8 @@ mod tests {
             |p| p.endpoint = "vpn.example.net:0".into(),
             |p| p.endpoint = ":30000".into(),
             |p| p.endpoint = "a b:30000".into(),
-            |p| p.address = Ipv4Addr::UNSPECIFIED,
-            |p| p.address = crate::DNS_ADDRESS,
+            |p| p.dns_local_server = Some("tcp://1.1.1.1?via=cpxy".into()),
+            |p| p.dns_local_domains = vec!["bad domain".into()],
             |p| p.dns_upstream.clear(),
             |p| p.dns_upstream = vec!["tcp://1.1.1.1?via=cpxy".into()],
             |p| p.dns_alternative.clear(),
