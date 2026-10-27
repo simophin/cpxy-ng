@@ -126,6 +126,62 @@ drops; moderate implementation cost with a small platform adapter. It may help
 both single and multiple streams without flow-management complexity. A 2x gain
 or proxy-equivalent speed is not promised.
 
+### 2a. Compare io_uring against the simpler batching adapter
+
+`io_uring` is a credible alternative for UDP I/O scheduling, without distributing
+flows or changing lifecycle ownership. On the actual router (Linux 6.12.94),
+`kernel.io_uring_disabled` was 0 and a temporary static probe successfully created
+and closed a two-entry ring with no polling thread. The probe and ring were
+removed. This establishes basic availability, not UDP multishot, TUN-operation
+support, feature completeness or a performance benefit.
+
+An experiment should compare the readiness/mmsg baseline with a single-issuer
+ring, bounded provided buffers, multishot `recvmsg` for UDP, and batched send
+submissions. Preserve the current logical owner for allocation, path and replay
+state. Do not rewrite the DNS/Tokio runtime or introduce concurrent flow owners
+to use it. The same Linux adapter boundary should permit a startup-probed
+fallback to mmsg on unsupported kernels/platforms.
+
+[Multishot recvmsg](https://man7.org/linux/man-pages/man3/io_uring_prep_recvmsg_multishot.3.html)
+has been available since Linux 6.0. It posts multiple completions for one receive
+submission and requires provided-buffer selection. The source address and
+ancillary metadata must be decoded from its output layout before the existing
+peer validation. Check `IORING_CQE_F_MORE` on every completion and rearm when
+the request ends, including buffer exhaustion. Keep a buffer owned until all
+AEAD/packet processing and any pending send using it finish; replenish the pool
+explicitly. Test truncated datagrams, completion overflow, buffer exhaustion,
+cancel/completion races and stale generation completions during rotation/stop.
+
+For TUN, separately probe/read-test the actual operation and completion behavior
+inside the namespace fixture; socket multishot support does not establish that
+the same API works on TUN. Merely replacing calls with ring operations leaves
+the current socketpair hop, ordinary packet copies, encryption, NAT and kernel
+network processing in place. Attribute any gain to fewer submissions/wakeups,
+not an assumed bypass of the network stack.
+
+Start without SQPOLL or other busy-polling. Dedicating CPU to polling could
+worsen contention or idle power on this already busy dual-core router. Account
+for kernel/helper-thread CPU in the same per-core measurements as application
+threads; do not call shifting work out of the process a CPU saving.
+
+Treat zero-copy as a separate later experiment. The kernel's classic
+[MSG_ZEROCOPY guidance](https://kernel.org/doc/html/v6.6/networking/msg_zerocopy.html)
+explains that page accounting/completion overhead generally makes it useful for
+writes above roughly 10 KB. That is not a measured break-even for io_uring
+`SEND_ZC`, but it argues against assuming a win for our approximately 1.2 KB
+datagrams. Native io_uring
+[zero-copy receive](https://docs.kernel.org/networking/iou-zcrx.html) is another
+feature with specific NIC queue/header-split/steering requirements; do not assume
+that basic ring availability makes it usable for this router's encrypted UDP
+path or budget a firmware/NIC change into the first implementation.
+
+Expected impact: possible lower per-packet syscall/submission overhead and more
+efficient buffer reuse, with no new flow-management model. Maintenance cost is
+higher than mmsg because buffer ownership, asynchronous completions, cancellation
+and kernel-feature fallback are explicit. Retain it only if it beats mmsg by the
+same acceptance gates below. Do not maintain two permanent optimized Linux
+backends for a noise-level difference.
+
 ### 3. Remove the router's extra packet handoff
 
 After profiling and batching, prototype a Linux router packet adapter that
@@ -239,5 +295,6 @@ manually. Endpoint client sharding may eventually justify this cost for many
 clients; the present router measurements do not justify paying it now.
 
 The recommended next implementation is therefore **profiling plus bounded UDP
-batching**, with the socketpair-removal prototype as the next decision. Worker
-distribution remains an evidence-gated option rather than the main direction.
+batching**, with an io_uring comparison and the socketpair-removal prototype as
+subsequent decisions. Worker distribution remains an evidence-gated option
+rather than the main direction.
