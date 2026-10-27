@@ -40,6 +40,8 @@ sed "s|^P=.*|P=$work/state|" "$root/packaging/openwrt/rtp-files/usr/libexec/cpxy
 # Exercise removal of the old terminal IPv6 prohibition only after the nft guard is in place.
 ip -6 rule add priority 12004 iif br-hybrid prohibit
 bash "$work/guard.sh"
+# Used by the production guard function loaded immediately below.
+# shellcheck disable=SC2034
 P="$work/state" PRIO=12000 devices=br-hybrid
 eval "$(sed -n '/^guard() {/,/^}/p' "$root/packaging/openwrt/rtp-files/usr/libexec/cpxy-rtp/policy.sh")"
 guard

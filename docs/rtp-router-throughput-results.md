@@ -151,6 +151,9 @@ profiling before adding flow-sharding and lifecycle complexity.
 - Stable 1.99 Clippy completed with five existing warnings in unchanged logic.
   The pinned 1.97 toolchain has no installed Clippy component.
 - Benchmark shell syntax and `git diff --check` passed.
+- Packaging CI's pre-existing forced-POSIX lint rejected a Bash fixture. Lint
+  now honors script shebangs, and dynamically consumed guard variables are
+  annotated. The complete packaging ShellCheck invocation passes locally.
 
 The live router executable is `/usr/bin/cpxy-rtp-router`; hh-hk uses
 `/usr/local/bin/cpxy-rtp`. The changed binaries persist across restart; the
