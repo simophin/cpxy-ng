@@ -31,6 +31,7 @@ const PURGE_INTERVAL: Duration = Duration::from_secs(300);
 pub async fn handler(
     settings: &crate::profile::Settings,
     tunnel: Arc<TunnelQueries>,
+    direct_ipv6: bool,
 ) -> anyhow::Result<DnsSplitHandler> {
     let tls_config = tls_client_config()?;
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
@@ -62,6 +63,9 @@ pub async fn handler(
     // The tunnel carries IPv4 only.
     .with_ipv6(Ipv6Mode::Off)
     .with_search_domains(settings.dns_search_domains.clone());
+    if direct_ipv6 {
+        handler = handler.with_ipv6_address_filter(|ip| is_local_region_ip(ip.into()));
+    }
     if let Some(spec) = &settings.dns_local_server {
         let local = HickoryUpstream::new(spec, tls_config, QUERY_TIMEOUT, None).await?;
         handler = handler.with_local(Arc::new(local), settings.dns_local_domains.clone());

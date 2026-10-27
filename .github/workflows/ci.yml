@@ -558,6 +558,8 @@ jobs:
           RTP_TEST_OS_PORTS=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
       - name: Exercise HTTP-controlled mobile transport in Linux namespaces
         run: unshare -Urnm bash rtp-mobile/tests/linux-lab.sh
+      - name: Exercise OpenWrt regional IPv6 guard and fast rejection
+        run: unshare -Urnm bash packaging/openwrt/test/ipv6-direct.sh
 
   # Self-contained static binaries: copy to any Linux host, no libc or packaging needed.
   build_rtp:

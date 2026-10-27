@@ -105,6 +105,39 @@ cleanup. Changing `enabled` to 0 prevents the worker from starting; previously
 installed guards remain until explicit cleanup. The old service/configuration is
 never removed by installing or cleaning up RTP.
 
+## Optional regional IPv6 forwarding
+
+Set `option ipv6_direct '1'` in `cpxy_rtp.main` to allow China IPv6 destinations
+through ordinary kernel routing. The reviewed `CN6` dataset supplies both the
+firewall's exact prefix set and the DNS classifier. RTP and its TUN remain
+IPv4-only. DNS returns only regional AAAA answers, independently of a name's IPv4
+classification and without an additional A lookup. Foreign AAAA answers become
+NODATA; existing local/alternative resolver selection is retained.
+
+The independent guard permits only regional IPv6 destinations, resets blocked
+TCP connections and sends ICMPv6 administratively prohibited for other blocked
+IPv6 traffic. IPv6 DNS remains refused so clients use the IPv4 split resolver.
+Router-originated IPv6 (including RTP control/UDP) is outside this selected-LAN
+policy. Local router access and on-link neighbor discovery remain available.
+QUIC over regional native IPv6 is permitted; the RTP IPv4 QUIC refusal is unchanged.
+
+Provision IPv6 on the selected network through netifd and odhcpd separately. For
+example, an existing delegated `/64` can have RA/DHCPv6 re-enabled after installing
+the guard; DNS advertisements should continue pointing clients at the IPv4 split
+resolver. The package does not edit network/DHCP settings. Persisted IPv6 prefixes
+restore protection before netifd starts, independently of packet-worker health.
+Turning the option off restores the previous IPv6 terminal guard. Applications
+must implement IPv4 fallback themselves; resets/errors cannot force it, and IPv6-only
+nonregional services remain unavailable. ICMP rate limiting can delay repeated
+error notifications under load.
+
+The namespace fixture tests native regional TCP/UDP, fast nonregional rejection,
+router-originated traffic, local ICMPv6, guard reinstatement and option disablement:
+
+```sh
+unshare -Urnm bash packaging/openwrt/test/ipv6-direct.sh
+```
+
 ## Disposable QEMU validation
 
 The fixture uses an official pinned OpenWrt 24.10.0 x86-64 image, an ephemeral QEMU

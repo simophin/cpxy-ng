@@ -22,6 +22,7 @@ pub struct DnsSplitHandler {
     local: Option<LocalNames>,
     search_domains: Vec<Name>,
     ipv6: Ipv6Mode,
+    ipv6_filter: Option<fn(std::net::Ipv6Addr) -> bool>,
 }
 
 /// Names only the local network knows, answered by its own resolver instead of the split.
@@ -50,12 +51,21 @@ impl DnsSplitHandler {
             local: None,
             search_domains: Vec::new(),
             ipv6: Ipv6Mode::Off,
+            ipv6_filter: None,
         }
     }
 
     /// Which AAAA records to hand out; [`Ipv6Mode::Off`], which answers none, by default.
     pub fn with_ipv6(mut self, mode: Ipv6Mode) -> Self {
         self.ipv6 = mode;
+        self
+    }
+
+    /// A host-forwarding policy can filter AAAA independently of a name's IPv4
+    /// classification. Applies to local and cached answers too; avoids extra A lookups.
+    pub fn with_ipv6_address_filter(mut self, filter: fn(std::net::Ipv6Addr) -> bool) -> Self {
+        self.ipv6 = Ipv6Mode::Full;
+        self.ipv6_filter = Some(filter);
         self
     }
 
@@ -122,6 +132,24 @@ impl DnsSplitHandler {
 
     /// Resolve one exact name, so expanded names share routing and cache policy.
     async fn resolve(&self, request: &Message, query: &Query) -> Message {
+        if query.query_type() == RecordType::AAAA
+            && let Some(filter) = self.ipv6_filter
+        {
+            let mut response = match &self.local {
+                Some(local) if local.matches(query.name()) => local.resolve(request, query).await,
+                _ => self.resolve_split(request, query).await,
+            };
+            let keep = |record: &Record| match record_ip(record) {
+                Some(std::net::IpAddr::V6(ip)) => filter(ip),
+                _ => true,
+            };
+            response.answers_mut().retain(keep);
+            response.additionals_mut().retain(keep);
+            response.set_answer_count(response.answers().len() as u16);
+            response.set_additional_count(response.additionals().len() as u16);
+            response.set_authentic_data(false);
+            return response;
+        }
         if let Some(local) = &self.local
             && local.matches(query.name())
         {
@@ -597,6 +625,54 @@ mod tests {
 
     fn v6(ips: &[&str]) -> Message {
         answer_v6(&ips.iter().map(|ip| ip.parse().unwrap()).collect::<Vec<_>>())
+    }
+
+    #[tokio::test]
+    async fn address_filter_keeps_regional_aaaa_without_ipv4_probe_and_covers_local_dns() {
+        for local in [false, true] {
+            let upstream =
+                TypedUpstream::new([(RecordType::AAAA, v6(&[LOCAL_V6, REMOTE_V6, PRIVATE_V6]))]);
+            let mut handler = ipv6_handler(upstream.clone(), Ipv6Mode::Off)
+                .with_ipv6_address_filter(|ip| local_ip(ip.into()));
+            if local {
+                handler = handler.with_local(
+                    upstream.clone(),
+                    vec![Name::from_ascii("example.com.").unwrap()],
+                );
+            }
+            let response = handler
+                .handle(&request("example.com.", RecordType::AAAA))
+                .await;
+            assert_eq!(
+                addresses(&response),
+                [LOCAL_V6.parse::<std::net::IpAddr>().unwrap()]
+            );
+            assert_eq!(*upstream.calls.lock().unwrap(), [RecordType::AAAA]);
+            assert!(!response.authentic_data());
+        }
+    }
+
+    #[tokio::test]
+    async fn address_filter_returns_nodata_for_foreign_aaaa_but_preserves_a() {
+        let upstream = TypedUpstream::new([
+            (RecordType::AAAA, v6(&[REMOTE_V6])),
+            (RecordType::A, answer(&[Ipv4Addr::new(8, 8, 8, 8)])),
+        ]);
+        let handler = ipv6_handler(upstream, Ipv6Mode::Off)
+            .with_ipv6_address_filter(|ip| local_ip(ip.into()));
+        let response = handler
+            .handle(&request("example.com.", RecordType::AAAA))
+            .await;
+        assert_eq!(response.response_code(), ResponseCode::NoError);
+        assert_eq!(response.answer_count(), 0);
+        assert_eq!(
+            addresses(
+                &handler
+                    .handle(&request("example.com.", RecordType::A))
+                    .await
+            ),
+            ["8.8.8.8".parse::<std::net::IpAddr>().unwrap()]
+        );
     }
 
     #[tokio::test]

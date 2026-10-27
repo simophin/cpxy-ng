@@ -179,6 +179,13 @@ impl Prepared {
         self.inner
     }
     pub fn start(self, tun: OwnedFd) -> anyhow::Result<Engine> {
+        self.start_inner(tun, false)
+    }
+    /// OpenWrt forwards regional IPv6 in the kernel; the RTP TUN stays IPv4-only.
+    pub fn start_direct_ipv6(self, tun: OwnedFd) -> anyhow::Result<Engine> {
+        self.start_inner(tun, true)
+    }
+    fn start_inner(self, tun: OwnedFd, direct_ipv6: bool) -> anyhow::Result<Engine> {
         let Self {
             settings,
             endpoint,
@@ -197,7 +204,7 @@ impl Prepared {
             let tun = Datagrams::new(tun, FAMILY_HEADER)?;
             let tunnel = Datagrams::new(shim_end, false)?;
             let queries = Arc::new(dns::TunnelQueries::new(inner, tunnel.clone()));
-            let handler = dns::handler(&settings, queries.clone()).await?;
+            let handler = dns::handler(&settings, queries.clone(), direct_ipv6).await?;
             anyhow::Ok(Arc::new(Shim {
                 tun,
                 tunnel,

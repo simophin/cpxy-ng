@@ -286,3 +286,26 @@ QUIC/DoT refusal, reported network-change repair and fail-closed endpoint loss.
 The fixture ran with its own TUN devices, veth links, DNS fixtures and firewall
 rules; the live host service/network was not modified by these tests. Host Wi-Fi
 and sustained throughput are separate acceptance checks.
+
+
+## OpenWrt regional IPv6 policy (2026-10-28)
+
+The opt-in `ipv6_direct` setting permits China IPv6 through kernel forwarding
+while keeping RTP IPv4-only. DNS and nftables share the reviewed CN6 input;
+regional AAAA filtering does not depend on an additional IPv4 lookup. The guard
+resets blocked TCP and rejects other blocked IPv6 with an ICMPv6 administrative
+error. Persisted prefixes restore guards at boot, and the old IPv6 terminal
+policy is released only after the independent nft guard has been installed.
+IPv6 DNS stays refused; router-originated IPv6 is outside the selected-LAN guard.
+
+Validation: 81 affected library tests passed (client 58, geoip-data 5, rtp-mobile
+18), including exact IPv6 range coverage and AAAA filtering of regional, foreign
+and local-resolver answers. Static ARM64 package and x86-64 fixture builds passed.
+The real guard and policy function passed the new namespace fixture: regional
+TCP/UDP succeeded, foreign TCP received a reset and UDP received an error in less
+than one second, router-originated foreign IPv6 worked, local IPv6 ping worked,
+guard reinstatement preserved the policy and disabling the option restored the
+terminal IPv6 prohibition. That last legacy kernel prohibition can rate-limit
+ICMP errors, so the fast-rejection timing assertion applies to the enabled mode.
+The fixture ran in private network/mount namespaces and is included in CI. These
+checks do not establish phone-specific IPv4 fallback behavior or Wi-Fi performance.

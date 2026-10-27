@@ -2,7 +2,7 @@
 use anyhow::{Context, ensure};
 use clap::Parser;
 use std::{
-    net::{Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
     os::fd::{AsRawFd, OwnedFd, RawFd},
     path::PathBuf,
     sync::{
@@ -21,7 +21,7 @@ extern "C" fn repair(_: i32) {
 }
 #[derive(Parser)]
 struct Args {
-    #[arg(long, required_unless_present = "export_direct_routes")]
+    #[arg(long, required_unless_present_any = ["export_direct_routes", "export_direct_routes6"])]
     entry: Option<String>,
     #[arg(long, default_value = "rtpr0")]
     interface: String,
@@ -43,6 +43,11 @@ struct Args {
     dns_search_domain: Vec<String>,
     #[arg(long)]
     export_direct_routes: bool,
+    #[arg(long)]
+    export_direct_routes6: bool,
+    /// Advertise only regional AAAA; host policy forwards permitted IPv6 outside RTP.
+    #[arg(long)]
+    ipv6_direct: bool,
     /// Validate configuration without opening sockets or changing network state.
     #[arg(long)]
     check: bool,
@@ -120,6 +125,12 @@ fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    if args.export_direct_routes6 {
+        for (ip, prefix) in geoip_data::routes::direct_ipv6() {
+            println!("{}/{prefix}", Ipv6Addr::from(ip));
+        }
+        return Ok(());
+    }
     unsafe {
         libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
         libc::signal(libc::SIGINT, stop as *const () as libc::sighandler_t);
@@ -158,7 +169,12 @@ fn main() -> anyhow::Result<()> {
         .transpose()?;
     let prepared = rtp_mobile::prepare(&profile, key, id, Arc::new(Platform(device)))?;
     let address = prepared.address();
-    let engine = prepared.start(tun(&args.interface, address)?)?;
+    let tun = tun(&args.interface, address)?;
+    let engine = if args.ipv6_direct {
+        prepared.start_direct_ipv6(tun)?
+    } else {
+        prepared.start(tun)?
+    };
     engine.serve_dns(args.dns_listen)?;
     eprintln!(
         "{}",

@@ -31,6 +31,7 @@ load() {
     local_domains="$(setting dns_local_domain lan)"
     search_domains="$(setting dns_search_domain)"
     proxies="$(setting proxy_route)"
+    ipv6_direct="$(setting ipv6_direct 0)"
 }
 flush_rules() {
 	local fam n
@@ -44,6 +45,12 @@ guard() {
 	local dev fam
 	for dev in $devices; do
 		for fam in -4 -6; do
+			if [ "$fam" = -6 ] && [ -s "$P/routes6" ]; then
+				# The nft guard is already installed before releasing this terminal rule.
+				# Normal IPv6 routing must reach the forward hook to send TCP resets.
+				while ip -6 rule del priority "$((PRIO+4))" iif "$dev" prohibit 2>/dev/null; do :; done
+				continue
+			fi
 			ip "$fam" rule show priority "$((PRIO+4))" | grep -qF "iif $dev " ||
 				ip "$fam" rule add priority "$((PRIO+4))" iif "$dev" prohibit
 			ip "$fam" rule show priority "$PRIO" | grep -qF "iif $dev " ||
@@ -82,10 +89,12 @@ engine() {
 	for value in $alternative; do set -- "$@" --dns-alternative "$value"; done
 	for value in $local_domains; do set -- "$@" --dns-local-domain "$value"; done
 	for value in $search_domains; do set -- "$@" --dns-search-domain "$value"; done
+	[ "$ipv6_direct" != 1 ] || set -- "$@" --ipv6-direct
 	[ "${check_mode:-}" != check ] || set -- "$@" --check
 	CPXY_RTP_PASSWORD="$password" exec "$@"
 }
 validate() {
+	case "$ipv6_direct" in 0|1) :;; *) fail 'ipv6_direct must be 0 or 1';; esac
 	[ -n "$entry" ] && [ "${#password}" -ge 12 ] || fail 'set entry and a password of at least 12 characters'
 	(engine check) || fail 'invalid transport or DNS configuration'
 	[ -n "$networks" ] || fail 'select at least one network'
@@ -118,6 +127,10 @@ validate() {
 	set -- --export-direct-routes
 	for prefix in $proxies; do set -- "$@" --proxy-route "$prefix"; done
 	/usr/bin/cpxy-rtp-router "$@" >"$R/routes.new" || fail 'route export failed'
+	if [ "$ipv6_direct" = 1 ]; then
+		/usr/bin/cpxy-rtp-router --export-direct-routes6 >"$R/routes6.new" || fail 'IPv6 route export failed'
+		[ -s "$R/routes6.new" ] || fail 'IPv6 regional data is empty'
+	fi
 	if [ -f "$P/devices" ]; then
 		[ "$(cat "$P/devices")" = "$devices" ] || fail 'cleanup before changing selected devices'
 	else
@@ -209,6 +222,7 @@ prepare|boot)
 	printf '%s\n' "$devices" >"$P/devices"
 	cp "$R/routes.new" "$P/routes.new"
 	if ! cmp -s "$P/routes.new" "$P/routes"; then mv "$P/routes.new" "$P/routes"; else rm "$P/routes.new"; fi
+	if [ "$ipv6_direct" = 1 ]; then cp "$R/routes6.new" "$P/routes6.new"; mv "$P/routes6.new" "$P/routes6"; else rm -f "$P/routes6"; fi
 	/usr/libexec/cpxy-rtp/guard.sh
 	guard
 	mv "$R/routes.new" "$R/routes"
@@ -249,7 +263,7 @@ cleanup)
 	for section in $(uci show firewall | sed -n 's/^firewall\.\(cpxy_rtp_[A-Za-z0-9_]*\)=.*/\1/p'); do uci delete "firewall.$section"; done
 	uci commit firewall
 	/etc/init.d/firewall reload
-	rm -f "$P/devices" "$P/routes" "$R/enabled"
+	rm -f "$P/devices" "$P/routes" "$P/routes6" "$R/enabled"
 	;;
 *) fail 'expected prepare, run or cleanup';;
 esac

@@ -42,6 +42,35 @@ pub fn tunnel_ipv4(proxy: &[(u32, u32)], longest_direct: u8) -> Vec<(u32, u8)> {
     compile(vec![(0, 1 << 32)], direct)
 }
 
+/// Exact China IPv6 prefixes from the same reviewed data used by DNS.
+/// Inclusive ends avoid overflowing at the end of the IPv6 address space.
+pub fn direct_ipv6() -> Vec<(u128, u8)> {
+    let mut result = Vec::new();
+    for range in crate::CN6.chunks_exact(32) {
+        let mut start = u128::from_be_bytes(range[..16].try_into().unwrap());
+        let end = u128::from_be_bytes(range[16..].try_into().unwrap());
+        loop {
+            let remaining = end - start;
+            let size_bits = if remaining == u128::MAX {
+                128
+            } else {
+                (remaining + 1).ilog2()
+            };
+            let bits = start.trailing_zeros().min(size_bits);
+            result.push((start, (128 - bits) as u8));
+            if bits == 128 {
+                break;
+            }
+            let size = 1u128 << bits;
+            if remaining < size {
+                break;
+            }
+            start += size;
+        }
+    }
+    result
+}
+
 fn merge(mut ranges: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     ranges.sort_unstable();
     let mut merged: Vec<(u64, u64)> = Vec::new();
@@ -152,5 +181,36 @@ mod tests {
         assert!(direct_ipv4(&[(0, u32::MAX)]).is_empty());
         let prefixes = direct_ipv4(&[(0x72000000, 0x72ffffff)]);
         assert!(!prefixes.iter().any(|&(ip, _)| ip >> 24 == 114));
+    }
+}
+
+#[cfg(test)]
+mod ipv6_tests {
+    use super::*;
+
+    #[test]
+    fn exported_ipv6_prefixes_exactly_cover_reviewed_ranges() {
+        let mut exported = direct_ipv6().into_iter();
+        for row in crate::CN6.chunks_exact(32) {
+            let mut next = u128::from_be_bytes(row[..16].try_into().unwrap());
+            let end = u128::from_be_bytes(row[16..].try_into().unwrap());
+            loop {
+                let (start, prefix) = exported.next().expect("complete range coverage");
+                assert_eq!(start, next, "no gaps or overlaps");
+                let mask = if prefix == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - prefix)
+                };
+                assert_eq!(start & mask, start);
+                let last = start | !mask;
+                assert!(last <= end, "no prefix extends beyond the source range");
+                if last == end {
+                    break;
+                }
+                next = last + 1;
+            }
+        }
+        assert!(exported.next().is_none());
     }
 }
