@@ -48,6 +48,15 @@ class ProfileTest {
     }
 
     @Test
+    fun identityUsesUtf8ByteLimitAndIsPassedWithoutNormalization() {
+        val maximum = "é".repeat(127) + "a"
+        assertTrue(profile.copy(serverIdentity = maximum).validationErrors().isEmpty())
+        assertTrue(ProfileField.ServerIdentity in profile.copy(serverIdentity = maximum + "b").validationErrors())
+        assertTrue(ProfileField.ServerIdentity in profile.copy(serverIdentity = "").validationErrors())
+        assertTrue(profile.copy(serverIdentity = " custom ").engineProfileJson().contains(" custom "))
+    }
+
+    @Test
     fun ipv4CheckRejectsLeadingZerosAndNames() {
         assertTrue(isIpv4("10.88.0.2"))
         for (bad in listOf("10.88.0", "010.88.0.2", "10.88.0.2.1", "a.b.c.d", "", "1.1.1.1 ")) {

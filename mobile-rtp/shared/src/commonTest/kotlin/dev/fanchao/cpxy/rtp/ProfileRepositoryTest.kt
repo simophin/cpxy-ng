@@ -70,7 +70,7 @@ class ProfileRepositoryTest {
         }
         assertFailsWith<IllegalArgumentException> { repo.connectionProfile("key-id") }
         assertEquals("broken", repo.profiles.first().selected?.clientId)
-        for (identity in listOf("null", "\"\"", "\"00000000-0000-0000-0000-000000000000\"")) {
+        for (identity in listOf("null", "{}", "[]", "true", "123", "\"\"", "\"00000000-0000-0000-0000-000000000000\"")) {
             data.edit {
                 it[stringPreferencesKey("profiles_json")] = """{"profiles":[{"id":"key-id","name":"Legacy","endpoint":"a:1","clientId":$identity}]}"""
             }

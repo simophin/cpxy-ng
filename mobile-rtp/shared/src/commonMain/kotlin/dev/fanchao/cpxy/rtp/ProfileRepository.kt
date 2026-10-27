@@ -10,7 +10,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okio.Path
@@ -77,13 +80,18 @@ class ProfileRepository(private val dataStore: DataStore<Preferences>) {
 
     private fun decode(raw: String?): StoredProfiles {
         if (raw == null) return StoredProfiles()
-        val decoded = json.decodeFromString<StoredProfiles>(raw)
-        val entries = json.parseToJsonElement(raw).jsonObject["profiles"]?.jsonArray
-        // Only an absent field denotes a legacy identity. Explicit null is corrupt data too.
-        return decoded.copy(profiles = decoded.profiles.mapIndexed { index, profile ->
-            if (entries?.get(index)?.jsonObject?.get("clientId") == JsonNull) profile.copy(clientId = "")
-            else profile
-        })
+        val root = json.parseToJsonElement(raw).jsonObject
+        val entries = root["profiles"]?.jsonArray ?: return json.decodeFromString(raw)
+        val normalized = entries.map { entry ->
+            val fields = entry.jsonObject
+            val identity = fields["clientId"]
+            // Only an absent field denotes a legacy identity. Preserve all malformed identities
+            // as invalid (never as missing), including null, objects and non-string primitives.
+            if (identity != null && (identity !is JsonPrimitive || !identity.isString)) {
+                JsonObject(fields + ("clientId" to JsonPrimitive("")))
+            } else entry
+        }
+        return json.decodeFromJsonElement(JsonObject(root + ("profiles" to JsonArray(normalized))))
     }
 
     companion object {
