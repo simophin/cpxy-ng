@@ -6,7 +6,7 @@ use crate::{
 };
 use clap::Parser;
 use rtp_l3::worker::{PacketIo, SocketProvider};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
     fs,
@@ -17,8 +17,9 @@ use std::{
         unix::net::UnixDatagram,
     },
     sync::{
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc,
     },
     thread,
     time::{Duration, Instant},
@@ -46,8 +47,12 @@ impl Write for Device {
 #[derive(Default)]
 struct Host {
     ports: Mutex<BTreeSet<u16>>,
+    repair: AtomicBool,
 }
 impl SocketProvider for Host {
+    fn repair_requested(&self) -> bool {
+        self.repair.swap(false, Ordering::AcqRel)
+    }
     fn prepare_port(&self, a: SocketAddr) -> io::Result<UdpSocket> {
         let s = UdpSocket::bind(a)?;
         assert!(self.ports.lock().unwrap().insert(s.local_addr()?.port()));
@@ -484,4 +489,78 @@ fn concurrent_duplicate_creates_share_one_prepared_lease() {
     let second = thread::spawn(move || b.execute(&duplicate).unwrap());
     assert_eq!(first.join().unwrap(), second.join().unwrap());
     assert_eq!(lab.host.ports.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn changed_assignment_after_server_restart_requests_platform_tun_replacement() {
+    let mut lab = Lab::new();
+    let control = lab.control(Uuid::new_v4());
+    let (packet, device) = UnixDatagram::pair().unwrap();
+    let run = Arc::new(AtomicBool::new(true));
+    let running = run.clone();
+    let provider = lab.host.clone();
+    let entry = lab.entry;
+    let (events, rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        rtp_l3::v2::client_runtime::run(
+            rtp_l3::v2::client_runtime::ClientConfig {
+                entry,
+                inner: "10.88.0.2".parse().unwrap(),
+                keepalive_seconds: 15,
+            },
+            control,
+            Box::new(Device(device)),
+            provider,
+            Arc::new(move |event| {
+                let _ = events.send(event);
+            }),
+            running,
+        )
+    });
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+        "connected"
+    );
+    drop(lab.server.take());
+    let mut settings = endpoint(lab.entry, 40000, &lab.root);
+    settings.transport = crate::config::Role::Endpoint {
+        listen: lab.entry,
+        udp_low: 0,
+        udp_high: 0,
+    };
+    settings.journal = lab.root.join("replacement.json");
+    settings.control.pool_low = Some("10.88.0.9".parse().unwrap());
+    let provider = lab.host.clone();
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    let (ready, wait) = mpsc::channel();
+    let (_retained_packet, device) = UnixDatagram::pair().unwrap();
+    lab.server = Some(Task {
+        run: running,
+        thread: Some(thread::spawn(move || {
+            server::run(
+                settings,
+                [7; 32],
+                Box::new(Device(device)),
+                provider,
+                Arc::new(move |event| {
+                    let _ = ready.send(event);
+                }),
+                r,
+            )
+        })),
+    });
+    assert_eq!(
+        wait.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+        "ready"
+    );
+    lab.host.repair.store(true, Ordering::Release);
+    let deadline = Instant::now() + Duration::from_secs(25);
+    while !worker.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    run.store(false, Ordering::Release);
+    let error = worker.join().unwrap().unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
+    drop(packet);
 }

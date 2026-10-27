@@ -185,6 +185,7 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, running: Arc<Atomic
     thread::spawn(move || {
         let mut pending: Option<Pending> = None;
         let mut delay = 1000;
+        let mut verify_mapping = false;
         loop {
             if !running.load(Ordering::Relaxed) {
                 return (
@@ -196,6 +197,18 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, running: Arc<Atomic
                 );
             }
             let result = (|| {
+                if verify_mapping {
+                    let assigned = client.call("allocate_ip", Default::default())?;
+                    let assigned: std::net::Ipv4Addr =
+                        serde_json::from_value(assigned["inner"].clone()).map_err(|_| invalid())?;
+                    if assigned != inner {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AddrNotAvailable,
+                            "assigned tunnel address changed",
+                        ));
+                    }
+                    verify_mapping = false;
+                }
                 if pending.is_none() {
                     pending = Some(client.operation(
                         "create_udp",
@@ -207,6 +220,12 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, running: Arc<Atomic
             match result {
                 Ok(value) => return (client, Ok(JobResult::Create(value))),
                 Err(e) => {
+                    if e.kind() == io::ErrorKind::AddrNotAvailable {
+                        return (client, Err(e));
+                    }
+                    if e.kind() == io::ErrorKind::ConnectionReset {
+                        verify_mapping = true;
+                    }
                     // These responses are authenticated known outcomes with no
                     // recoverable live create. A new operation may be attempted.
                     if e.kind() == io::ErrorKind::ConnectionReset
@@ -471,6 +490,14 @@ fn run_inner(
                     .join()
                     .map_err(|_| io::Error::other("HTTP preparation panicked"))?;
                 http = Some(client);
+                if result
+                    .as_ref()
+                    .is_err_and(|e| e.kind() == io::ErrorKind::AddrNotAvailable)
+                {
+                    // The platform must replace TUN using a fresh preparation; keep its retained
+                    // interface installed while this worker closes only its own descriptor.
+                    return Err(result.err().unwrap());
+                }
                 if let Ok(JobResult::Create(value)) = result {
                     match Allocation::new(
                         value.clone(),

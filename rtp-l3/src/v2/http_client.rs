@@ -4,7 +4,7 @@ use crate::{
     v2::http::{self, Bootstrap, BootstrapReply, Codec, Command, Kind, Reply, Rpc},
     worker::SocketProvider,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{io, net::SocketAddr, sync::Arc, time::Instant};
 use uuid::Uuid;
 
@@ -66,7 +66,17 @@ impl Client {
         {
             return Err(invalid());
         }
+        let generation_changed = self
+            .bootstrap
+            .as_ref()
+            .is_some_and(|(previous, _)| previous.generation != reply.generation);
         self.bootstrap = Some((reply, started));
+        if generation_changed {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "server generation changed",
+            ));
+        }
         Ok(())
     }
     /// A caller retries with the same Operation value after an unknown outcome.

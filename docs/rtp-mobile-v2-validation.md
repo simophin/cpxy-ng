@@ -51,6 +51,9 @@ persisted.
   descriptor ownership, and caller-cancel race coverage.
 - Kotlin shared JVM tests: 17 passed, covering legacy JSON, ID/selection/DNS,
   durable UUID transactions under concurrent access, edits/copies and corruption.
+- A real loopback HTTP/UDP regression passed: after restarting the server with a
+  different address pool, the existing worker returns `AddrNotAvailable`, allowing
+  the platform to prepare a replacement TUN instead of retrying a stale address.
 - Regenerated UniFFI bindings and Android debug Kotlin compiled successfully.
 - `rtp-mobile/tests/linux-lab.sh` passed in isolated user/network/mount namespaces
   for outer IPv4, outer IPv6, blocked IPv4 UDP and blocked IPv6 UDP. This covers
