@@ -2,20 +2,20 @@
 use super::http_client::{Client, Pending};
 use crate::{
     v2::{
-        codec::{Control, Direction, MAX_FRAME, Packet, Rx, Tx},
+        codec::{Control, Direction, Packet, Rx, Tx, MAX_FRAME},
         http::{random, unhex},
         state::{Health, HealthAction},
     },
     worker::{Events, PacketIo, SocketProvider},
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     collections::VecDeque,
     io,
     net::{SocketAddr, UdpSocket},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     thread,
     time::{Duration, Instant},
@@ -185,7 +185,10 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, running: Arc<Atomic
     thread::spawn(move || {
         let mut pending: Option<Pending> = None;
         let mut delay = 1000;
-        let mut verify_mapping = false;
+        // Release or another HTTP operation may already have observed a new generation.
+        // Verify every subsequent recreation/rotation, not only an execute() reset here.
+        // A fresh manually-addressed Linux caller still claims its configured address first.
+        let mut verify_mapping = client.has_session();
         loop {
             if !running.load(Ordering::Relaxed) {
                 return (

@@ -4,7 +4,7 @@ use crate::{
     v2::http::{self, Bootstrap, BootstrapReply, Codec, Command, Kind, Reply, Rpc},
     worker::SocketProvider,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{io, net::SocketAddr, sync::Arc, time::Instant};
 use uuid::Uuid;
 
@@ -33,6 +33,9 @@ impl Client {
             client,
             bootstrap: None,
         })
+    }
+    pub(super) fn has_session(&self) -> bool {
+        self.bootstrap.is_some()
     }
     fn post(&self, body: &[u8]) -> io::Result<Vec<u8>> {
         wire::post(

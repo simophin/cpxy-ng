@@ -1,12 +1,11 @@
 //! Strict, bounded HTTP/1.1 framing. Paths never select an RPC operation.
-use crate::v2::http::{MAX_BODY, random_path};
+use crate::v2::http::{random_path, MAX_BODY};
 use std::{
     io::{self, Read, Write},
     net::{TcpListener, TcpStream},
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc,
+        mpsc, Arc,
     },
     thread,
     time::{Duration, Instant},

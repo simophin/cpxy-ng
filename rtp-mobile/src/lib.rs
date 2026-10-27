@@ -180,8 +180,9 @@ pub fn prepare_cancellable(
     let key = zeroize::Zeroizing::new(key);
     cancellation.check()?;
     anyhow::ensure!(!client_id.is_nil(), "Invalid persisted client UUID");
-    let settings = profile.settings()?;
-    let endpoints = resolve_cancellable(&settings, &cancellation)?;
+    let mut settings = profile.settings()?;
+    let endpoints = resolve_cancellable(&settings.host, settings.port, &cancellation)?;
+    resolve_dns_servers(&mut settings, &cancellation)?;
     cancellation.check()?;
     let alternative = settings.dns_alternative.clone();
     let server_identity = settings.server_identity.clone();
@@ -235,15 +236,16 @@ pub fn prepare_cancellable(
 // libc getaddrinfo cannot be interrupted portably. Bound it to two detached workers and a
 // five-second caller deadline; a late result contains addresses only and can never open sockets.
 fn resolve_cancellable(
-    settings: &profile::Settings,
+    host: &str,
+    port: u16,
     cancellation: &PreparationCancellation,
 ) -> anyhow::Result<Vec<SocketAddr>> {
     use std::net::ToSocketAddrs;
     use std::sync::{atomic::AtomicUsize, mpsc};
     static RESOLVING: AtomicUsize = AtomicUsize::new(0);
-    if let Ok(address) = settings.host.parse::<std::net::IpAddr>() {
+    if let Ok(address) = host.parse::<std::net::IpAddr>() {
         cancellation.check()?;
-        return Ok(vec![SocketAddr::new(address, settings.port)]);
+        return Ok(vec![SocketAddr::new(address, port)]);
     }
     anyhow::ensure!(
         RESOLVING
@@ -259,8 +261,7 @@ fn resolve_cancellable(
         }
     }
     let slot = Slot;
-    let host = settings.host.clone();
-    let port = settings.port;
+    let host = host.to_owned();
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::Builder::new()
         .name("rtp-resolve".into())
@@ -290,6 +291,36 @@ fn resolve_cancellable(
             Err(error) => return Err(error.into()),
         }
     }
+}
+
+// Resolve DoT/DoH names before handoff too. Retain the original host for TLS SNI, but pin
+// the already-resolved address so start() cannot block in an uncancellable Tokio getaddrinfo.
+fn resolve_dns_servers(
+    settings: &mut profile::Settings,
+    cancellation: &PreparationCancellation,
+) -> anyhow::Result<()> {
+    use client::dns_split::spec::Endpoint;
+    for spec in settings
+        .dns_upstream
+        .iter_mut()
+        .chain(settings.dns_local_server.iter_mut())
+    {
+        cancellation.check()?;
+        if let Endpoint::Tls { host, port, ip } | Endpoint::Https { host, port, ip, .. } =
+            &mut spec.endpoint
+        {
+            if ip.is_none() {
+                let addresses = resolve_cancellable(host, *port, cancellation)?;
+                *ip = Some(
+                    addresses
+                        .first()
+                        .ok_or_else(|| anyhow::anyhow!("No DNS server address"))?
+                        .ip(),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Prepared {
@@ -647,6 +678,24 @@ mod tests {
             "a local-region resolver"
         );
         assert!(routes.len() < 2500, "{} routes", routes.len());
+    }
+
+    #[test]
+    fn dns_hostnames_are_resolved_cancellably_before_tun_handoff_and_keep_sni() {
+        use client::dns_split::spec::Endpoint;
+        let profile = Profile::from_json(r#"{"endpoint":"127.0.0.1:1","dns_upstream":["tls://localhost"],"dns_alternative":["8.8.8.8"]}"#).unwrap();
+        let mut settings = profile.settings().unwrap();
+        resolve_dns_servers(&mut settings, &PreparationCancellation::default()).unwrap();
+        match &settings.dns_upstream[0].endpoint {
+            Endpoint::Tls { host, ip, .. } => {
+                assert_eq!(host, "localhost");
+                assert!(ip.unwrap().is_loopback());
+            }
+            _ => panic!("TLS must be preserved"),
+        }
+        let cancelled = PreparationCancellation::default();
+        cancelled.cancel();
+        assert!(resolve_dns_servers(&mut settings, &cancelled).is_err());
     }
 
     #[test]

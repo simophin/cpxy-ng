@@ -63,6 +63,7 @@ class RtpVpnService : VpnService() {
     private val transitions = Mutex()
     private val generation = ConnectionGeneration()
     private var runJob: Job? = null
+    private var latestStartId = 0
     private var engine: RtpEngine? = null
     @Volatile private var preparation: RtpPreparation? = null
     private var tun: ParcelFileDescriptor? = null
@@ -111,13 +112,15 @@ class RtpVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         val ticket = generation.replace()
+        Log.d(TAG, "Service command ${intent?.action}, generation $ticket, start $startId")
         preparation?.cancel()
         runJob?.cancel()
         if (intent?.action == ACTION_STOP) {
             scope.launch(engineDispatcher) {
                 transitions.withLock {
-                    if (generation.isCurrent(ticket)) stop(VpnState.Disconnected)
+                    if (generation.isCurrent(ticket)) stop(VpnState.Disconnected, ticket)
                 }
             }
             return START_NOT_STICKY
@@ -134,7 +137,7 @@ class RtpVpnService : VpnService() {
                     val stored = app.repository.profiles.first()
                     val selected = stored.profiles.firstOrNull { it.id == requestedId } ?: stored.selected
                     if (selected == null) {
-                        stop(VpnState.Failed("Add a profile to connect"))
+                        stop(VpnState.Failed("Add a profile to connect"), ticket)
                         return@withLock
                     }
                     // The transaction finishes its durable UUID write before any allocation.
@@ -142,13 +145,14 @@ class RtpVpnService : VpnService() {
                     val settings = app.settingsRepository.settings.first()
                     if (!generation.isCurrent(ticket)) return@withLock
                     controller.reportState(VpnState.Starting(profile.id))
+                    Log.d(TAG, "Launching generation $ticket")
                     runJob = scope.launch(engineDispatcher) { run(profile, settings, ticket) }
                 } catch (_: IllegalArgumentException) {
                     if (generation.isCurrent(ticket)) stop(VpnState.Failed(
                         "Saved client identity is invalid. Restore it or delete and recreate the profile.",
-                    ))
+                    ), ticket)
                 } catch (_: Exception) {
-                    if (generation.isCurrent(ticket)) stop(VpnState.Failed("Could not load the profile. Open it and save again."))
+                    if (generation.isCurrent(ticket)) stop(VpnState.Failed("Could not load the profile. Open it and save again."), ticket)
                 }
             }
         }
@@ -160,11 +164,12 @@ class RtpVpnService : VpnService() {
         preparation?.cancel()
         runJob?.cancel()
         scope.launch(engineDispatcher) {
-            transitions.withLock { if (generation.isCurrent(ticket)) stop(VpnState.Disconnected) }
+            transitions.withLock { if (generation.isCurrent(ticket)) stop(VpnState.Disconnected, ticket) }
         }
     }
 
     override fun onDestroy() {
+        Log.d(TAG, "Service destroyed")
         generation.replace()
         preparation?.cancel()
         runJob?.cancel()
@@ -203,7 +208,7 @@ class RtpVpnService : VpnService() {
                         else -> null
                     }
                     if (permanent != null) {
-                        finish(VpnState.Failed(permanent))
+                        finish(VpnState.Failed(permanent), ticket)
                         return
                     }
                     Log.i(TAG, "Transient RTP startup failure; retrying")
@@ -350,18 +355,25 @@ class RtpVpnService : VpnService() {
         }
     }
 
-    private suspend fun stop(state: VpnState) {
+    private suspend fun stop(state: VpnState, ticket: Long) {
+        Log.d(TAG, "Stopping service")
         runJob?.cancelAndJoin()
         runJob = null
-        finish(state)
+        finish(state, ticket)
     }
 
-    private fun finish(state: VpnState) {
+    private suspend fun finish(state: VpnState, ticket: Long) {
+        if (!generation.isCurrent(ticket)) return
         stopEngine()
         closeTun()
-        controller.reportState(state)
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        withContext(Dispatchers.Main) {
+            if (!generation.isCurrent(ticket)) return@withContext
+            // Stop before publishing completion. Otherwise an immediate Connect can reach this
+            // instance between a worker's Disconnected report and a stale stopSelf call.
+            ServiceCompat.stopForeground(this@RtpVpnService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelfResult(latestStartId)
+            controller.reportState(state)
+        }
     }
 
     private fun closeTun() {

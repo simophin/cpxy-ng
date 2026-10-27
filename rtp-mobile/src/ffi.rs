@@ -245,6 +245,11 @@ fn preparation_error(error: anyhow::Error) -> RtpError {
                 .contains("invalid authenticated control response")
     }) {
         RtpError::Rejected
+    } else if error
+        .chain()
+        .any(|e| e.to_string() == "Allocated address conflicts with configured DNS")
+    {
+        RtpError::Configuration
     } else if error.chain().any(|e| {
         e.downcast_ref::<std::io::Error>()
             .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
