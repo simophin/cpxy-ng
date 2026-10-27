@@ -10,11 +10,11 @@ configuration and behavior while adding an opt-in RTP router service/package.
   inner address before establishing TUN.
 - [x] Remove obsolete RTP bootstrap/worker interfaces. Preserve the deferred
   Android binding and app unchanged; it must reject transport startup explicitly.
-- [ ] Package the new RTP transport and an opt-in OpenWrt router service without
+- [x] Package the new RTP transport and an opt-in OpenWrt router service without
   taking over the existing cpxy-router configuration or selected networks.
 - [ ] Preserve scoped routing guards, selected-network isolation, DNS policy and
   IPv6 refusal; validate configuration and resource ownership before mutation.
-- [ ] Add QEMU OpenWrt fixtures using disposable disks and isolated networks.
+- [x] Add QEMU OpenWrt fixtures using disposable disks and isolated networks.
   Verify TCP/UDP, address assignment, recovery, reload/reboot, cleanup and
   coexistence with the retained router.
 - [ ] Run Rust/mobile/package checks, document actual results and limitations,

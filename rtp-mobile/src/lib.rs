@@ -455,6 +455,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tcp_and_udp_are_protected_before_connect_and_stop_closes_control() {
+        use std::os::fd::BorrowedFd;
+        use std::sync::atomic::AtomicUsize;
+        struct Protection(AtomicUsize);
+        impl Platform for Protection {
+            fn protect_socket(&self, fd: RawFd) -> io::Result<()> {
+                let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+                assert!(socket2::SockRef::from(&borrowed).peer_addr().is_err());
+                self.0.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+        }
+        let protection = Arc::new(Protection(AtomicUsize::new(0)));
+        let provider = Provider {
+            platform: protection.clone(),
+            repair: Arc::new(AtomicBool::new(false)),
+            stopping: AtomicBool::new(false),
+            control: Mutex::new(None),
+        };
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let peer = listener.local_addr().unwrap();
+        let _tcp = provider.control_socket(peer).unwrap();
+        let (mut accepted, _) = listener.accept().unwrap();
+        accepted
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let _udp = provider.client_socket(peer).unwrap();
+        assert_eq!(protection.0.load(Ordering::Relaxed), 2);
+        provider.cancel_control();
+        assert_eq!(accepted.read(&mut [0]).unwrap(), 0);
+        assert_eq!(
+            provider.control_socket(peer).unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+    }
+
+    #[test]
     fn routes_cover_the_dns_address_and_not_private_networks() {
         let routes = tunnel_routes();
         let covers = |ip: Ipv4Addr| routes.iter().any(|r| r.contains(&ip));

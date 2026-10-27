@@ -43,6 +43,9 @@ struct Args {
     dns_search_domain: Vec<String>,
     #[arg(long)]
     export_direct_routes: bool,
+    /// Validate configuration without opening sockets or changing network state.
+    #[arg(long)]
+    check: bool,
     #[arg(long, value_delimiter = ',')]
     proxy_route: Vec<ipnet::Ipv4Net>,
 }
@@ -117,6 +120,11 @@ fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    unsafe {
+        libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, stop as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGUSR1, repair as *const () as libc::sighandler_t);
+    }
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .init();
@@ -126,12 +134,6 @@ fn main() -> anyhow::Result<()> {
         std::env::remove_var("CPXY_RTP_PASSWORD");
     }
     let key = rtp_l3::derive_psk(&password).map_err(anyhow::Error::msg)?;
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&args.state_dir)?;
-    let id = rtp_l3::v2::identity::client_id(&args.state_dir.join("client-id"))?;
     let profile = rtp_mobile::profile::Profile {
         endpoint: args.entry.unwrap(),
         dns_upstream: args.dns_upstream,
@@ -140,6 +142,16 @@ fn main() -> anyhow::Result<()> {
         dns_local_domains: args.dns_local_domain,
         dns_search_domains: args.dns_search_domain,
     };
+    profile.settings()?;
+    if args.check {
+        return Ok(());
+    }
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&args.state_dir)?;
+    let id = rtp_l3::v2::identity::client_id(&args.state_dir.join("client-id"))?;
     let device = args
         .outbound_interface
         .map(std::ffi::CString::new)
@@ -148,21 +160,22 @@ fn main() -> anyhow::Result<()> {
     let address = prepared.address();
     let engine = prepared.start(tun(&args.interface, address)?)?;
     engine.serve_dns(args.dns_listen)?;
-    unsafe {
-        libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGINT, stop as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGUSR1, repair as *const () as libc::sighandler_t);
-    }
     eprintln!(
         "{}",
         serde_json::json!({"event":"ready","inner":address,"interface":args.interface,"protocol":"rtp-http-v2"})
     );
+    let mut shown = None;
+    let mut reported = std::time::Instant::now();
     while RUN.load(Ordering::Relaxed) {
         if REPAIR.swap(false, Ordering::Relaxed) {
             engine.network_changed();
         }
         let status = engine.status();
-        println!("{}", serde_json::to_string(&status)?);
+        if shown != Some(status.state) || reported.elapsed() >= Duration::from_secs(10) {
+            println!("{}", serde_json::to_string(&status)?);
+            shown = Some(status.state);
+            reported = std::time::Instant::now();
+        }
         if matches!(
             status.state,
             rtp_mobile::State::Failed | rtp_mobile::State::Stopped
