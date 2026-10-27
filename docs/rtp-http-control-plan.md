@@ -10,7 +10,9 @@ in [rtp-l3-protocol.md](rtp-l3-protocol.md) until implementation lands.
 - [x] Inspect shared worker/mobile and generation-scoped admission APIs.
 - [x] Freeze v2 encodings, replay/retry rules and state transitions in
   [rtp-http-protocol.md](rtp-http-protocol.md).
-- [ ] Implement authenticated codecs and deterministic state machines/vectors.
+- [x] Implement authenticated UDP/control-envelope codecs, path/activation and
+  liveness state machines, bounded queues and independent libsodium UDP vectors.
+- [ ] Complete address/operation state, persistence and integration acceptance.
 - [ ] Integrate bounded HTTP, persistence and supervised allocation lifecycle.
 - [ ] Integrate Linux transport, rotation, repair and buffering.
 - [ ] Run local acceptance fixtures and record cleanup/environment limits.

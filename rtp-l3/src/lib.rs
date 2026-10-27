@@ -13,6 +13,7 @@ use sha2::Sha256;
 
 pub mod control;
 pub mod state;
+pub mod v2;
 
 pub const PROTOCOL: &str = "rtp-l3";
 pub const MTU: usize = 1200;

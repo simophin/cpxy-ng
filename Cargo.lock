@@ -3628,12 +3628,15 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "chacha20 0.9.1",
+ "chacha20poly1305",
  "hkdf",
  "hmac",
  "libc",
  "rand 0.8.8",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
+ "uuid",
 ]
 
 [[package]]
@@ -4958,6 +4961,7 @@ checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 
