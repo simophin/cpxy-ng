@@ -5,7 +5,7 @@ use crate::{
     config::Settings,
 };
 use clap::Parser;
-use rtp_l3::worker::{PacketIo, SocketProvider};
+use rtp_l3::worker::SocketProvider;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -181,7 +181,8 @@ impl Lab {
             transport::run(
                 settings,
                 control,
-                Box::new(Device(device)) as Box<dyn PacketIo>,
+                device.into(),
+                |_: &[u8]| true,
                 host,
                 Arc::new(move |e| {
                     let _ = tx.send(e);

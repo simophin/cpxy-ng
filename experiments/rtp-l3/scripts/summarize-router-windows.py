@@ -83,8 +83,11 @@ def status_delta(info):
     for k in ('sent_packets', 'received_packets'):
         d[k] = after[k] - before[k]
     for group in ('worker', 'shim_tun', 'shim_pair'):
+        if group not in after or group not in before:
+            continue
         for k, v in after[group].items():
-            d[f'{group}.{k}'] = v - before[group][k] if k != 'write_queue_high' else v
+            # High-water marks are maxima, not cumulative counts.
+            d[f'{group}.{k}'] = v if k.endswith('_high') else v - before[group].get(k, 0)
     return d
 
 
@@ -132,11 +135,6 @@ for r in rows:
     if not s:
         continue
     pk = s['sent_packets'] + s['received_packets']
-    keys = ['worker.waits', 'worker.idle_waits', 'worker.device_reads', 'worker.device_read_blocked',
-            'worker.device_writes', 'worker.device_write_blocked', 'worker.udp_recvs', 'worker.udp_recv_blocked',
-            'worker.udp_rejected', 'worker.udp_foreign', 'worker.udp_send_failed', 'worker.write_queue_full',
-            'worker.write_queue_stale', 'worker.write_queue_high', 'shim_tun.recv_calls', 'shim_tun.recv_blocked',
-            'shim_tun.send_calls', 'shim_tun.send_blocked', 'shim_pair.recv_calls', 'shim_pair.recv_blocked',
-            'shim_pair.send_calls', 'shim_pair.send_blocked', 'shim_pair.send_failed']
+    keys = [k for k in s if '.' in k]
     print(f"w{r['window']}-{r['binary']}-{r['phase']} packets={pk} sent={s['sent_packets']} recv={s['received_packets']} "
           + ' '.join(f"{k.replace('worker.', 'w.')}={s.get(k)}" for k in keys))

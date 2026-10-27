@@ -75,89 +75,20 @@ pub fn wait_readable(
     packet: &dyn PacketIo,
     sockets: impl Iterator<Item = std::os::fd::RawFd>,
 ) -> io::Result<()> {
-    wait(packet, false, sockets, 2).map(|_| ())
-}
-
-/// Wait up to `timeout_ms` for readable input, or for a writable packet device when
-/// `write_pending`. False when nothing became ready.
-pub fn wait(
-    packet: &dyn PacketIo,
-    write_pending: bool,
-    sockets: impl Iterator<Item = std::os::fd::RawFd>,
-    timeout_ms: i32,
-) -> io::Result<bool> {
-    let device = libc::pollfd {
-        fd: packet.as_raw_fd(),
-        events: if write_pending {
-            libc::POLLIN | libc::POLLOUT
-        } else {
-            libc::POLLIN
-        },
-        revents: 0,
-    };
-    let mut descriptors: Vec<_> = std::iter::once(device)
-        .chain(sockets.map(|fd| libc::pollfd {
+    let mut descriptors: Vec<_> = std::iter::once(packet.as_raw_fd())
+        .chain(sockets)
+        .map(|fd| libc::pollfd {
             fd,
             events: libc::POLLIN,
             revents: 0,
-        }))
+        })
         .collect();
-    let result =
-        unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, timeout_ms) };
+    let result = unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, 2) };
     if result < 0 {
         let error = io::Error::last_os_error();
         if error.kind() != io::ErrorKind::Interrupted {
             return Err(error);
         }
-        return Ok(true);
     }
-    Ok(result > 0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::unix::net::UnixDatagram;
-
-    struct Device(UnixDatagram);
-    impl Read for Device {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.0.recv(buf)
-        }
-    }
-    impl Write for Device {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.send(buf)
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    impl AsRawFd for Device {
-        fn as_raw_fd(&self) -> std::os::fd::RawFd {
-            self.0.as_raw_fd()
-        }
-    }
-
-    #[test]
-    fn wait_wakes_on_input_or_pending_writes_and_otherwise_times_out() {
-        let (device, peer) = UnixDatagram::pair().unwrap();
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let device = Device(device);
-        let sockets = || std::iter::once(socket.as_raw_fd());
-        let started = std::time::Instant::now();
-        assert!(!wait(&device, false, sockets(), 20).unwrap());
-        assert!(started.elapsed() >= std::time::Duration::from_millis(15));
-        // A writable device only wakes the wait while writes are queued.
-        assert!(wait(&device, true, sockets(), 1000).unwrap());
-        peer.send(b"packet").unwrap();
-        assert!(wait(&device, false, sockets(), 1000).unwrap());
-        let mut buf = [0; 16];
-        assert_eq!(device.0.recv(&mut buf).unwrap(), 6);
-        let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
-        sender
-            .send_to(b"frame", socket.local_addr().unwrap())
-            .unwrap();
-        assert!(wait(&device, false, sockets(), 1000).unwrap());
-    }
+    Ok(())
 }

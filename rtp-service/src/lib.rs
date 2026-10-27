@@ -534,12 +534,12 @@ impl Service {
         let final_health = self.health.clone();
         let final_events = self.events.clone();
         let thread = thread::Builder::new().name(format!("rtp-{}", self.settings.profile)).spawn(move || {
-            let device: Box<dyn linux::PacketIo>=Box::new(network::PolicyPacket{file:packet,settings:settings.clone()});
-            let result=if client {
-                http_control::transport::run(settings,control_client.unwrap(),device,worker_host.clone(),worker_events,run)
+            let result = network::write_policy(&settings).and_then(|accept| if client {
+                http_control::transport::run(settings,control_client.unwrap(),packet.into(),accept,worker_host.clone(),worker_events,run)
             } else {
+                let device: Box<dyn linux::PacketIo> = Box::new(network::PolicyPacket{file:packet,accept});
                 http_control::server::run(settings,psk,device,worker_host.clone(),worker_events,run)
-            };
+            });
             let cleanup = worker_host.leases.cleanup();
             let result = result.and(cleanup).and(worker_host.release_tunnel());
             final_health.lock().unwrap().state = if result.is_ok() { "stopped" } else { "failed" }.into();
