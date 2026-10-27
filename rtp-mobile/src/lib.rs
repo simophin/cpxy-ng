@@ -20,12 +20,12 @@ use ipnet::Ipv4Net;
 use profile::Profile;
 use rtp_l3::{
     v2::{
-        client_runtime::{self, ClientConfig},
+        client_runtime::{self, ClientConfig, PathCounters},
         http_client::Client,
     },
     worker::SocketProvider,
 };
-use shim::{Counters, Datagrams, Shim};
+use shim::{Counters, Datagrams, IoCounts, Shim};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -85,6 +85,11 @@ pub struct Status {
     pub refused: u64,
     pub repairs: u64,
     pub fallbacks: u64,
+    /// The worker's packet-path counts as of its latest report, about every 10 seconds.
+    pub worker: Option<PathCounters>,
+    /// Shim calls on the TUN and on its end of the worker socketpair.
+    pub shim_tun: IoCounts,
+    pub shim_pair: IoCounts,
 }
 
 #[derive(Default)]
@@ -93,6 +98,7 @@ struct WorkerStatus {
     error: Option<String>,
     repairs: u64,
     fallbacks: u64,
+    path: Option<PathCounters>,
 }
 
 impl WorkerStatus {
@@ -105,6 +111,9 @@ impl WorkerStatus {
                 let count = |name: &str| event[name].as_u64().unwrap_or(0);
                 self.repairs = count("active_repairs");
                 self.fallbacks = count("fallbacks");
+                if let Ok(path) = serde_json::from_value(event["path"].clone()) {
+                    self.path = Some(path);
+                }
                 return;
             }
             _ => return,
@@ -201,8 +210,8 @@ impl Prepared {
         let (worker_end, shim_end) = socketpair()?;
         let counters = Arc::new(Counters::default());
         let shim = runtime.block_on(async {
-            let tun = Datagrams::new(tun, FAMILY_HEADER)?;
-            let tunnel = Datagrams::new(shim_end, false)?;
+            let tun = Datagrams::new(tun, FAMILY_HEADER, counters.tun.clone())?;
+            let tunnel = Datagrams::new(shim_end, false, counters.pair.clone())?;
             let queries = Arc::new(dns::TunnelQueries::new(inner, tunnel.clone()));
             let handler = dns::handler(&settings, queries.clone(), direct_ipv6).await?;
             anyhow::Ok(Arc::new(Shim {
@@ -302,6 +311,9 @@ impl Engine {
             refused: count(&self.counters.refused),
             repairs: worker.repairs,
             fallbacks: worker.fallbacks,
+            worker: worker.path,
+            shim_tun: self.counters.tun.counts(),
+            shim_pair: self.counters.pair.counts(),
         }
     }
 
@@ -546,5 +558,13 @@ mod tests {
         status.observe(&serde_json::json!({"event":"stats","active_repairs":2,"fallbacks":1}));
         assert_eq!((status.repairs, status.fallbacks), (2, 1));
         assert_eq!(status.state, Some(State::Connected));
+        assert_eq!(status.path, None);
+        let path = PathCounters {
+            waits: 7,
+            write_queue_high: 3,
+            ..Default::default()
+        };
+        status.observe(&serde_json::json!({"event":"stats","path":path}));
+        assert_eq!(status.path, Some(path));
     }
 }

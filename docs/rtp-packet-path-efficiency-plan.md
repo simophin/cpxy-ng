@@ -370,3 +370,21 @@ contains no socket addresses or process arguments. No service was restarted.
 - [Full method, results, limitations and remaining integration work](rtp-udp-batch-experiment.md).
   Steps 1 and 2 remain in progress. Lifecycle, loaded latency, multi-client,
   queue/backpressure, forwarding/QEMU and LAN acceptance remain pending.
+
+### 2026-10-28: path counters and worker idle poll
+
+- Added aggregate worker `PathCounters` (in its `stats` event) and per-descriptor
+  shim counts, surfaced in the router's status line, plus interface drop counters
+  in the profiler. Replaced the client worker's fixed 2 ms poll: it waits for
+  device writability while writes are queued and otherwise times out after 50 ms.
+- Ten interleaved ref/counters/counters+poll windows on tr3600: counters had no
+  measurable cost; the poll cut idle worker CPU by about 80% with no loaded
+  change. [Results](rtp-path-counters-results.md).
+- Below capacity (81 Mbit/s), inbound packets are dropped at the worker's full
+  UDP socket and at its 218-packet write queue to the shim. The router's
+  `net.unix.max_dgram_qlen` is 10, so the socketpair holds only ten datagrams.
+  Each packet costs about four syscalls, two of them the socketpair hop. This
+  favors step 3 over UDP batching or io_uring as the next experiment.
+- Step 1 remains partly open: upload/bidirectional and stream-count matrices,
+  endpoint multi-client runs, and kernel-stage attribution (the router kernel
+  has no perf events). The router runs the unchanged reference binary.

@@ -32,6 +32,12 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result['network_counters']['Udp6RcvbufErrors'], 30)
         self.assertNotIn('ADDR', str(result))
 
+    def test_interface_counters(self):
+        result = profile.parse_sample([
+            'NETDEV', 'Inter-|   Receive', ' face |bytes    packets errs drop',
+            ' rtpr0: 100 5 0 1 0 0 0 0 200 7 0 2 0 0 0 0'])
+        self.assertEqual(result['interfaces'], {'rtpr0': dict(rx_packets=5, rx_drop=1, tx_packets=7, tx_drop=2)})
+
     def test_disappearing_task_and_socket(self):
         result = profile.parse_sample(['TASK', 'STATUS', 'Name: gone', 'FDS', 'UDP'])
         self.assertEqual(result['threads'], [])

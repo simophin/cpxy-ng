@@ -31,6 +31,39 @@ pub struct ClientConfig {
     pub keepalive_seconds: u64,
 }
 
+/// The idle poll deadline. Timers here are 500 ms or longer, and the run flag and repair
+/// requests have no descriptor, so this bounds how late either is noticed.
+const IDLE_WAIT_MS: i32 = 50;
+
+/// Cumulative packet-path counts, reported as `path` in each `stats` event. Aggregates only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PathCounters {
+    /// Polls, and polls that timed out with nothing ready.
+    pub waits: u64,
+    pub idle_waits: u64,
+    /// Packet-device read and write calls, and those that would block.
+    pub device_reads: u64,
+    pub device_read_blocked: u64,
+    pub device_writes: u64,
+    pub device_write_blocked: u64,
+    /// Outbound packets with no active allocation or no frame to seal them into.
+    pub outbound_unrouted: u64,
+    /// UDP receive calls, those that would block, and datagrams from another source or
+    /// failing authentication/replay.
+    pub udp_recvs: u64,
+    pub udp_recv_blocked: u64,
+    pub udp_foreign: u64,
+    pub udp_rejected: u64,
+    /// Data frames sent, and those dropped because the send failed.
+    pub udp_sends: u64,
+    pub udp_send_failed: u64,
+    /// Inbound packets dropped on a full device write queue, dropped stale (expired or for a
+    /// retired allocation), and the queue's high-water mark.
+    pub write_queue_full: u64,
+    pub write_queue_stale: u64,
+    pub write_queue_high: u64,
+}
+
 fn invalid() -> io::Error {
     io::Error::other("invalid UDP allocation response")
 }
@@ -458,12 +491,13 @@ fn run_inner(
     let mut next_prepare = 0;
     let mut recreate = false;
     let (mut ipv6_drops, mut stats_at) = (0u64, 10000u64);
+    let mut counters = PathCounters::default();
     let result = (|| {
         while running.load(Ordering::Relaxed) {
             let now = milliseconds(start);
             if now >= stats_at {
                 events(
-                    json!({"event":"stats","protocol":"rtp-http-v2","inner_ipv6_drops":ipv6_drops}),
+                    json!({"event":"stats","protocol":"rtp-http-v2","inner_ipv6_drops":ipv6_drops,"path":counters}),
                 );
                 stats_at = now.saturating_add(10000);
             }
@@ -546,14 +580,20 @@ fn run_inner(
                     .chain(a.old_socket.iter().map(|(_, s)| s))
                 {
                     for _ in 0..32 {
+                        counters.udp_recvs += 1;
                         match socket.recv_from(&mut wire) {
                             Ok((n, peer)) if peer == a.peer => {
                                 if let Some(packet) = a.rx.open(&wire[..n]) {
                                     inbound.push(packet);
+                                } else {
+                                    counters.udp_rejected += 1;
                                 }
                             }
-                            Ok(_) => {}
-                            Err(e) if transient(&e) => break,
+                            Ok(_) => counters.udp_foreign += 1,
+                            Err(e) if transient(&e) => {
+                                counters.udp_recv_blocked += 1;
+                                break;
+                            }
                             Err(_) => break,
                         }
                     }
@@ -564,6 +604,10 @@ fn run_inner(
                             a.health.received(now, None);
                             if writes.len() < 218 {
                                 writes.push_back((a.id, now, ip));
+                                counters.write_queue_high =
+                                    counters.write_queue_high.max(writes.len() as u64);
+                            } else {
+                                counters.write_queue_full += 1;
                             }
                         }
                         Packet::Control(c) => {
@@ -710,24 +754,35 @@ fn run_inner(
                 }
             });
             for _ in 0..32 {
+                counters.device_reads += 1;
                 match packet.read(&mut tun) {
                     Ok(n) if n > 0 && tun[0] >> 4 == 6 => {
                         ipv6_drops += 1;
                     }
                     Ok(n) if n <= 1200 => {
-                        if let Some(a) =
-                            active.and_then(|id| allocations.iter_mut().find(|a| a.id == id))
-                        {
-                            if let Some(frame) = a.tx.data(&tun[..n], (now as u32).wrapping_mul(90))
-                            {
+                        let frame = active
+                            .and_then(|id| allocations.iter_mut().find(|a| a.id == id))
+                            .and_then(|a| {
+                                let frame = a.tx.data(&tun[..n], (now as u32).wrapping_mul(90))?;
+                                Some((a, frame))
+                            });
+                        match frame {
+                            Some((a, frame)) => {
+                                counters.udp_sends += 1;
                                 if a.socket.send_to(&frame, a.peer).is_ok() {
                                     a.health.sent(now, idle_delay(keepalive));
+                                } else {
+                                    counters.udp_send_failed += 1;
                                 }
                             }
+                            None => counters.outbound_unrouted += 1,
                         }
                     }
                     Ok(_) => {}
-                    Err(e) if transient(&e) => break,
+                    Err(e) if transient(&e) => {
+                        counters.device_read_blocked += 1;
+                        break;
+                    }
                     Err(e) => return Err(e),
                 }
             }
@@ -737,26 +792,39 @@ fn run_inner(
                 };
                 if now.saturating_sub(*at) >= 1000 || !allocations.iter().any(|a| a.id == *id) {
                     writes.pop_front();
+                    counters.write_queue_stale += 1;
                     continue;
                 }
+                counters.device_writes += 1;
                 match packet.write(ip) {
                     Ok(n) if n == ip.len() => {
                         writes.pop_front();
                     }
                     Ok(_) => return Err(io::Error::other("partial packet write")),
-                    Err(e) if transient(&e) => break,
+                    Err(e) if transient(&e) => {
+                        counters.device_write_blocked += 1;
+                        break;
+                    }
                     Err(e) => return Err(e),
                 }
             }
-            crate::worker::wait_readable(
+            // Readiness wakes queued work at once; the timeout only drives timers. A running
+            // HTTP job has no descriptor, so poll its completion promptly.
+            counters.waits += 1;
+            let ready = crate::worker::wait(
                 packet.as_ref(),
+                !writes.is_empty(),
                 allocations.iter().flat_map(|a| {
                     std::iter::once(&a.socket)
                         .chain(a.candidate.iter())
                         .chain(a.old_socket.iter().map(|(_, s)| s))
                         .map(AsRawFd::as_raw_fd)
                 }),
+                if job.is_some() { 2 } else { IDLE_WAIT_MS },
             )?;
+            if !ready {
+                counters.idle_waits += 1;
+            }
         }
         Ok(())
     })();

@@ -23,6 +23,44 @@ pub struct Counters {
     pub received_bytes: AtomicU64,
     pub dns_queries: AtomicU64,
     pub refused: AtomicU64,
+    pub tun: Arc<IoCounters>,
+    pub pair: Arc<IoCounters>,
+}
+
+/// Calls on one descriptor: each `read`/`write`, those that would block, and failed sends.
+#[derive(Default)]
+pub struct IoCounters {
+    recv_calls: AtomicU64,
+    recv_blocked: AtomicU64,
+    send_calls: AtomicU64,
+    send_blocked: AtomicU64,
+    send_failed: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct IoCounts {
+    pub recv_calls: u64,
+    pub recv_blocked: u64,
+    pub send_calls: u64,
+    pub send_blocked: u64,
+    pub send_failed: u64,
+}
+
+impl IoCounters {
+    pub fn counts(&self) -> IoCounts {
+        let count = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        IoCounts {
+            recv_calls: count(&self.recv_calls),
+            recv_blocked: count(&self.recv_blocked),
+            send_calls: count(&self.send_calls),
+            send_blocked: count(&self.send_blocked),
+            send_failed: count(&self.send_failed),
+        }
+    }
+}
+
+fn bump(counter: &AtomicU64) {
+    counter.fetch_add(1, Ordering::Relaxed);
 }
 
 /// One packet per read or write on a nonblocking descriptor: a TUN or a datagram socket.
@@ -31,11 +69,12 @@ pub struct Datagrams {
     fd: Arc<AsyncFd<OwnedFd>>,
     /// The utun packet-information header (iOS, macOS): a 4-byte address family.
     family_header: bool,
+    counters: Arc<IoCounters>,
 }
 
 impl Datagrams {
     /// Must be called on the runtime.
-    pub fn new(fd: OwnedFd, family_header: bool) -> io::Result<Self> {
+    pub fn new(fd: OwnedFd, family_header: bool, counters: Arc<IoCounters>) -> io::Result<Self> {
         set_nonblocking(&fd)?;
         // SAFETY: the AsyncFd owns the descriptor, so it stays open while registered.
         let fd = unsafe {
@@ -44,12 +83,14 @@ impl Datagrams {
         Ok(Self {
             fd: Arc::new(fd),
             family_header,
+            counters,
         })
     }
 
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
             let mut guard = self.fd.readable().await?;
+            bump(&self.counters.recv_calls);
             let n = match guard.try_io(|fd| {
                 // SAFETY: reads into a buffer of the given length.
                 let n = unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
@@ -60,7 +101,10 @@ impl Datagrams {
                 }
             }) {
                 Ok(result) => result?,
-                Err(_would_block) => continue,
+                Err(_would_block) => {
+                    bump(&self.counters.recv_blocked);
+                    continue;
+                }
             };
             if n == 0 {
                 return Err(io::ErrorKind::UnexpectedEof.into());
@@ -91,7 +135,8 @@ impl Datagrams {
         };
         loop {
             let mut guard = self.fd.writable().await?;
-            match guard.try_io(|fd| {
+            bump(&self.counters.send_calls);
+            let result = guard.try_io(|fd| {
                 // SAFETY: writes from a buffer of the given length.
                 let n =
                     unsafe { libc::write(fd.as_raw_fd(), packet.as_ptr().cast(), packet.len()) };
@@ -100,12 +145,18 @@ impl Datagrams {
                 } else {
                     Ok(n as usize)
                 }
-            }) {
+            });
+            let failed = match result {
                 Ok(Ok(n)) if n == packet.len() => return Ok(()),
-                Ok(Ok(_)) => return Err(io::ErrorKind::WriteZero.into()),
-                Ok(Err(e)) => return Err(e),
-                Err(_would_block) => continue,
-            }
+                Ok(Ok(_)) => io::ErrorKind::WriteZero.into(),
+                Ok(Err(e)) => e,
+                Err(_would_block) => {
+                    bump(&self.counters.send_blocked);
+                    continue;
+                }
+            };
+            bump(&self.counters.send_failed);
+            return Err(failed);
         }
     }
 }

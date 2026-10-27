@@ -24,6 +24,7 @@ while [ "$i" -lt {count} ] && [ -d /proc/$pid/task ]; do
     echo CPU; cat /proc/stat
     echo SOFTIRQ; cat /proc/softirqs
     echo SNMP; cat /proc/$pid/net/snmp /proc/$pid/net/snmp6
+    echo NETDEV; cat /proc/$pid/net/dev
     for task in /proc/$pid/task/*; do
         [ -r "$task/stat" ] || continue
         echo TASK; cat "$task/stat" 2>/dev/null || true
@@ -46,8 +47,8 @@ done
 
 def parse_sample(lines):
     result = {'cpu_ticks': {}, 'softirq': {}, 'threads': [], 'sockets': [],
-              'network_counters': {}}
-    sections = {'UPTIME', 'CPU', 'SOFTIRQ', 'SNMP', 'TASK', 'STATUS',
+              'network_counters': {}, 'interfaces': {}}
+    sections = {'UPTIME', 'CPU', 'SOFTIRQ', 'SNMP', 'NETDEV', 'TASK', 'STATUS',
                 'SCHEDSTAT', 'FDS', 'UDP', 'UDP6'}
     section = None
     fds = {}
@@ -77,6 +78,14 @@ def parse_sample(lines):
                     result['network_counters'][name] = dict(zip(headers[name], map(int, fields[1:])))
             elif fields[0].startswith(('Udp6', 'Ip6')):
                 result['network_counters'][fields[0]] = int(fields[1])
+        elif section == 'NETDEV' and ':' in line:
+            # Interface packet and drop counters; a TUN's tx_drop is its full device queue.
+            name, values = line.split(':', 1)
+            values = list(map(int, values.split()))
+            if len(values) >= 12:
+                result['interfaces'][name.strip()] = {
+                    'rx_packets': values[1], 'rx_drop': values[3],
+                    'tx_packets': values[9], 'tx_drop': values[11]}
         elif section == 'TASK':
             # comm can contain spaces and parentheses; stat fields start after the last ')'.
             tail = line.rsplit(')', 1)[1].split()
