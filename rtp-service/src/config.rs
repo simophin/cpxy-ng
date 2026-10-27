@@ -15,7 +15,10 @@ pub enum Role {
     },
     Endpoint {
         listen: SocketAddr,
+        /// Both zero means let the OS assign a port with bind(:0).
+        #[serde(default)]
         udp_low: u16,
+        #[serde(default)]
         udp_high: u16,
     },
 }
@@ -186,9 +189,9 @@ impl Settings {
                 udp_low,
                 udp_high,
             } => {
-                if listen.port() == 0 || udp_low == 0 || udp_high < udp_low {
+                if listen.port() == 0 || (udp_low == 0) != (udp_high == 0) || udp_high < udp_low {
                     return Err(io::Error::other(
-                        "endpoint requires TCP control port and nonempty UDP pool",
+                        "endpoint requires TCP control port and either automatic UDP ports or a valid nonzero range",
                     ));
                 }
                 if self.inner()?.1 > 30 || self.control.dynamic_address {

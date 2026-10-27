@@ -79,12 +79,19 @@ fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
         Some(zone) => zone.clone(),
         None => DbusFirewall.zone(&interface)?,
     };
+    // Automatic sockets are admitted only after bind(:0) reveals their actual
+    // port. This is delegation of individual leases, never a range-wide rule.
+    let (low, high) = if udp_low == 0 {
+        (1, u16::MAX)
+    } else {
+        (udp_low, udp_high)
+    };
     Ok(Some(Policy {
         profile: settings.profile.clone(),
         bind: listen.ip(),
-        base: udp_low,
-        low: udp_low,
-        high: udp_high,
+        base: low,
+        low,
+        high,
         zone,
         interface,
         sources: options.sources.clone(),
@@ -104,7 +111,7 @@ fn admission(settings: &Settings, events: &Events) -> io::Result<(Box<dyn Admiss
                 serde_json::json!({"event":"admission", "mode":"firewalld", "zone":p.zone, "interface":p.interface})
             }
             None => {
-                serde_json::json!({"event":"admission", "mode":"administrator", "detail":"firewalld not managed; open the TCP control port and UDP pool externally"})
+                serde_json::json!({"event":"admission", "mode":"administrator", "detail":"firewalld not managed; admit the TCP control port and allocated UDP ports externally"})
             }
         });
     }
@@ -320,8 +327,10 @@ impl SocketProvider for Host {
             return Err(io::Error::other("port outside profile namespace"));
         }
         let socket = endpoint_socket(address)?;
-        if let Err(e) = self.leases.prepare_port(address) {
-            if self.leases.retire_port(address.port()).is_err() {
+        // Port zero is a bind request, never a firewall/journal port.
+        let allocated_address = socket.local_addr()?;
+        if let Err(e) = self.leases.prepare_port(allocated_address) {
+            if self.leases.retire_port(allocated_address.port()).is_err() {
                 self.quarantine.lock().unwrap().push(socket);
             }
             return Err(e);
@@ -652,7 +661,13 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
     };
     let socket = match settings.transport {
         Role::Client { entry, .. } => client_socket(settings, entry.into()),
-        Role::Endpoint { listen, .. } => endpoint_socket(listen),
+        Role::Endpoint {
+            listen, udp_low, ..
+        } => {
+            let mut address = listen;
+            address.set_port(udp_low);
+            endpoint_socket(address)
+        }
     };
     serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "password_env":std::env::var_os(PASSWORD_ENV).is_some(), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.firewall,"firewalld_available":DbusFirewall::available(),"policy":firewalld_policy(settings).map(|p| p.map(|p| serde_json::json!({"zone":p.zone,"interface":p.interface,"sources":p.sources}))).map_err(|e| e.to_string()),"tunnel_zone":settings.firewalld.tunnel_zone,"masquerade":settings.firewalld.masquerade,"verified":false,"detail":"read-only diagnostics do not assert admission; the running service verifies rules before readiness and periodically"}, "network":settings.network,"dns_policy":{"mode":"externally_managed_only","verified":false,"detail":"service never mutates DNS; administrator must provision persistent fail-closed private suffix routing"},"fail_closed":"configured CIDRs use reserved policy rules and unreachable guard; explicit stop/cleanup releases policy", "mtu":1200,"ipv4_only":true,"outer_transport":"ipv4_or_ipv6"})
 }
@@ -660,6 +675,57 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
 #[cfg(test)]
 mod transport_tests {
     use super::*;
+    #[test]
+    fn automatic_port_is_bound_before_journaling_and_retired_by_actual_port() {
+        use clap::Parser;
+        let root =
+            std::env::temp_dir().join(format!("rtp-automatic-admission-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let cli::Cli {
+            role: cli::RoleCommand::Endpoint { args, .. },
+        } = cli::Cli::parse_from([
+            "rtp",
+            "endpoint",
+            "--listen",
+            "127.0.0.1:30000",
+            "--firewall",
+            "none",
+            "--state-dir",
+            root.to_str().unwrap(),
+        ])
+        else {
+            panic!()
+        };
+        let settings = args.settings().unwrap();
+        let journal = settings.journal.clone();
+        let host = Host {
+            settings,
+            leases: LeaseManager::open(
+                journal.clone(),
+                cli::NAME.into(),
+                Box::new(AdministratorManaged),
+            )
+            .unwrap(),
+            broker: None,
+            forwarding: None,
+            quarantine: Mutex::new(Vec::new()),
+        };
+        let socket = host.prepare_port("127.0.0.1:0".parse().unwrap()).unwrap();
+        let actual = socket.local_addr().unwrap();
+        assert_ne!(actual.port(), 0);
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+        assert_eq!(saved["leases"][0]["address"], actual.to_string());
+        host.commit_port(actual.port()).unwrap();
+        host.retire_port(actual.port()).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+        assert_eq!(saved["leases"], serde_json::json!([]));
+        drop(socket);
+        assert!(UdpSocket::bind(actual).is_ok());
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn wildcard_endpoint_accepts_both_families_on_one_port() {
         let endpoint = endpoint_socket("[::]:0".parse().unwrap()).unwrap();

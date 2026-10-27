@@ -15,8 +15,9 @@ replacement for daemon restarts. These API facts are documented in the official
 [D-Bus manual](https://firewalld.org/documentation/man-pages/firewalld.dbus.html)
 and [rich-language manual](https://firewalld.org/documentation/man-pages/firewalld.richlanguage.html).
 
-The administrator delegates an explicit bind-address/port-pool/zone namespace
-to one local lease manager. A small privileged agent validates every request
+The administrator delegates a bind-address/zone namespace and optional UDP pool
+to one local lease manager. Automatic port selection permits per-port leases
+across the UDP port space; only the actual bound ports receive admission rules. A small privileged agent validates every request
 against that policy. Workers receive sockets/TUN descriptors and cannot submit
 arbitrary rules, shell commands, zones or destinations. Serialize multiple
 profiles through that manager. Keep permanent configuration and unrelated rules
@@ -57,8 +58,10 @@ Keeping live rules untimed separates service liveness/ownership from rule TTLs.
 
 ## Prepare, advertise and retire
 
-1. Reserve a free port in the configured pool and bind its socket. Keep the
-   current path serving; do not change the active route.
+1. Bind UDP port zero by default so the OS selects an available port. An
+   explicitly configured pool limits selection to its range. Keep the socket
+   bound and use its actual nonzero address for admission and journaling.
+   Keep the current path serving; do not change the active route.
 2. Journal intent and inspect the exact admission rules. Refuse ambiguous
    ownership. A preexisting identical rule is not automatically ours to delete;
    require an explicit administrator-managed policy or report the conflict.

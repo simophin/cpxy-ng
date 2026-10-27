@@ -174,6 +174,12 @@ preparing -> awaiting_path -> ready -> active -> draining -> released
                   +-----------+---------+----------+--> expired/released
 ```
 
+By default, create binds UDP port zero and uses the OS-assigned available port.
+An explicitly configured UDP pool instead selects a random available port
+inside that pool. In both cases, bind precedes admission; the actual nonzero port
+is journaled, admitted and returned to the client. Port selection is independent
+of the HTTP TCP port, and no whole-range firewall rule is installed.
+
 Admission prepare/commit run outside packet owner. Late completions carry the
 allocation ID; retirement holds the UDP socket until generation-scoped firewall
 removal succeeds. A failed candidate never alters the established route.

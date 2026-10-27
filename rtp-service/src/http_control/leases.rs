@@ -121,9 +121,15 @@ impl State {
                         )
                         .collect()
                 };
-                let mut ports: Vec<_> = (self.low..=self.high)
-                    .filter(|p| !used.contains(p))
-                    .collect();
+                // No configured range means bind(:0). Bound live/retiring
+                // sockets remain reserved, so the kernel cannot reuse them.
+                let mut ports: Vec<_> = if self.low == 0 {
+                    vec![0]
+                } else {
+                    (self.low..=self.high)
+                        .filter(|p| !used.contains(p))
+                        .collect()
+                };
                 ports.shuffle(&mut rand::rngs::OsRng);
                 let mut prepared = None;
                 for port in ports {

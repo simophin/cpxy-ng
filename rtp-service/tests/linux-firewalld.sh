@@ -53,8 +53,10 @@ export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -
 export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
 # `auto` must discover firewalld on the (private) system bus.
 server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtps CPXY_RTP_LISTEN=192.0.2.2:30000
-  CPXY_RTP_UDP_PORTS=30001-30008
   CPXY_RTP_FIREWALL=auto CPXY_RTP_FIREWALLD_SOURCES=192.0.2.0/24 CPXY_RTP_ROUTE_TABLE=18801)
+if [ "${RTP_TEST_OS_PORTS:-0}" != 1 ]; then
+  server_env+=(CPXY_RTP_UDP_PORTS=30001-30008)
+fi
 client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
   CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
@@ -76,6 +78,11 @@ for i in $(seq 1 300); do
   if grep -Eq '"event":"connected"' "$work/c.log"; then break; fi
   sleep .1
 done
+python3 - "$work/server/state.json" <<'PYPORTS'
+import json,sys
+leases=json.load(open(sys.argv[1]))['leases']
+assert leases and all(int(row['address'].rsplit(':',1)[1])>0 for row in leases)
+PYPORTS
 ip netns exec c ping -c 4 -W 2 10.90.0.2
 grep -Eq '"event":"admission","interface":"vs","mode":"firewalld","zone":"public"' "$work/s.log"
 if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then

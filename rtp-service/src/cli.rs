@@ -128,7 +128,7 @@ pub struct EndpointArgs {
     /// Plain HTTP control listen address and TCP port.
     #[arg(long, env = "CPXY_RTP_LISTEN")]
     pub listen: SocketAddr,
-    /// Dedicated UDP allocation pool LOW-HIGH; defaults to the next 8 ports.
+    /// Optional UDP allocation pool LOW-HIGH; otherwise the OS assigns ports.
     #[arg(long, env = "CPXY_RTP_UDP_PORTS", value_parser = port_range)]
     pub udp_ports: Option<(u16, u16)>,
     /// Tunnel address and prefix of this endpoint.
@@ -188,8 +188,11 @@ pub enum FirewallArg {
 
 fn port_range(s: &str) -> Result<(u16, u16), String> {
     let (low, high) = s.split_once('-').ok_or("expected LOW-HIGH")?;
-    let low = low.parse().map_err(|_| "invalid low port")?;
-    let high = high.parse().map_err(|_| "invalid high port")?;
+    let low: u16 = low.parse().map_err(|_| "invalid low port")?;
+    let high: u16 = high.parse().map_err(|_| "invalid high port")?;
+    if low == 0 || high < low {
+        return Err("expected nonzero LOW-HIGH with LOW <= HIGH".into());
+    }
     Ok((low, high))
 }
 /// Canonical network containing an `IPv4/prefix` address.
@@ -241,13 +244,7 @@ fn journal(common: &Common) -> PathBuf {
 impl EndpointArgs {
     pub fn settings(&self) -> io::Result<Settings> {
         let c = &self.common;
-        let (udp_low, udp_high) = self.udp_ports.unwrap_or_else(|| {
-            let control_port = self.listen.port();
-            (
-                control_port.saturating_add(1),
-                control_port.saturating_add(8),
-            )
-        });
+        let (udp_low, udp_high) = self.udp_ports.unwrap_or((0, 0));
         let settings = Settings {
             control: crate::config::ControlSettings {
                 server_identity: c.server_identity.clone(),
@@ -434,7 +431,7 @@ mod tests {
         Cli::try_parse_from(std::iter::once("cpxy-rtp").chain(args.iter().copied())).unwrap()
     }
     #[test]
-    fn endpoint_defaults_derive_udp_pool_journal_and_network() {
+    fn endpoint_defaults_to_os_assigned_udp_ports_and_preserves_network_settings() {
         let Cli {
             role: RoleCommand::Endpoint { args, action },
         } = parse(&[
@@ -455,8 +452,8 @@ mod tests {
         assert!(matches!(
             s.transport,
             Role::Endpoint {
-                udp_low: 30001,
-                udp_high: 30008,
+                udp_low: 0,
+                udp_high: 0,
                 ..
             }
         ));
@@ -467,6 +464,47 @@ mod tests {
         assert_eq!(n.tunnel_pool, "10.88.0.0/24");
         assert!(n.client_addresses.is_empty());
         assert_eq!(n.service_cidrs.len(), 2);
+    }
+    #[test]
+    fn explicit_udp_range_is_preserved_and_zero_is_not_a_range() {
+        let Cli {
+            role: RoleCommand::Endpoint { args, .. },
+        } = parse(&[
+            "endpoint",
+            "--listen",
+            "127.0.0.1:30000",
+            "--udp-ports",
+            "40000-40010",
+        ])
+        else {
+            panic!()
+        };
+        let mut settings = args.settings().unwrap();
+        assert!(matches!(
+            settings.transport,
+            Role::Endpoint {
+                udp_low: 40000,
+                udp_high: 40010,
+                ..
+            }
+        ));
+        for range in ["0-0", "0-40000", "40000-0", "40010-40000"] {
+            assert!(Cli::try_parse_from([
+                "rtp",
+                "endpoint",
+                "--listen",
+                "127.0.0.1:30000",
+                "--udp-ports",
+                range
+            ])
+            .is_err());
+        }
+        settings.transport = Role::Endpoint {
+            listen: "127.0.0.1:30000".parse().unwrap(),
+            udp_low: 0,
+            udp_high: 40000,
+        };
+        assert!(settings.validate().is_err());
     }
     #[test]
     fn client_requires_entry_and_outbound_interface_and_owns_its_address() {

@@ -37,7 +37,7 @@ consistency identifiers for trusted PSK holders, not independent credentials.
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --offline -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile` | 58 tests passed: codec/control 17, service 23, admission 7, mobile helpers 11. The long rotation test is ignored in this ordinary invocation and was run separately. |
+| `cargo test --locked --offline -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile` | 61 tests passed: codec/control 17, service 26, admission 7, mobile helpers 11. The long rotation test is ignored in this ordinary invocation and was run separately. |
 | `cargo test -p rtp-service five_minute_rotation --offline -- --ignored --nocapture` | Passed in 311.09 seconds with continuous bidirectional packet traffic; activation near 300 seconds and one remaining lease after drain. |
 | `cargo check --workspace --locked --offline` | Passed, including shared mobile API consumers. One preexisting `AsyncFd::new` deprecation warning in `mobile-engine`. |
 | `cargo build -p rtp-service -p rtp-mobile --bins --offline` | Passed. |
@@ -66,6 +66,7 @@ sudo unshare -nm bash rtp-service/tests/private-linux-lab.sh FIXTURE [ARGS...]
 | `rtp-service/tests/linux-internet.sh` | `INTERNET_EXIT_OK`: explicit gateway routing/NAT, TCP/UDP, router-local bypass and crash guards. |
 | `rtp-service/tests/linux-firewalld.sh` | `HTTP_FIREWALL_NAMESPACE_OK`: actual firewalld on a private D-Bus, scoped rules/forwarding/masquerade, conflicting administrator rules, hung backend, reload/restart, SIGKILL and repeated independent cleanup. |
 | Same firewalld fixture with `RTP_TEST_REPAIR=1` | Passed UDP-blackhole recovery and the firewall lifecycle suite together. |
+| Same firewalld fixture with `RTP_TEST_OS_PORTS=1` | Passed with no UDP range: actual OS-assigned ports carried TUN/application traffic, survived reload/restart, and were removed by crash/independent cleanup. |
 
 The firewalld fixture explicitly provisions its administrator-owned TCP control
 admission separately from service-owned UDP rich rules. Unrelated runtime and
@@ -96,10 +97,27 @@ tests cover incoming-only NAT maintenance, active-upload return-path probes,
 matching PONGs and nonextendable 1/2/4-second retry deadlines. Queue tests cover
 expiry, pressure and FIFO order. These checks are not a zero-loss guarantee.
 
+## Automatic UDP port selection
+
+When `--udp-ports` is omitted, the server binds UDP port zero and lets the OS
+select an available port. The TCP control port does not determine a default
+UDP range. Explicit nonzero LOW-HIGH ranges remain supported.
+
+The socket remains bound while its actual address is journaled and admitted.
+Firewall rules, commit/retirement calls and HTTP results always use that actual
+nonzero port. Automatic admission delegates individual port leases across the
+UDP port space; it never installs a range-wide rule. Failed or uncertain cleanup
+continues holding the socket so the kernel cannot reuse it.
+
+Additional tests cover two simultaneous clients with OS-assigned UDP ports,
+actual-port journaling/commit/retirement, and explicit-range validation. The real
+isolated firewalld suite also passes in automatic mode and is included in CI.
+
 ## Defaults and wire overhead
 
 | Policy | Value |
 | --- | --- |
+| UDP port selection | OS-assigned by default via bind(:0); optional explicit LOW-HIGH range |
 | Inner IPv4 MTU | 1200 bytes |
 | Startup / inactivity | 30 / 120 seconds |
 | Activation-to-activation rotation / preparation lead / drain | 300 / 10 / 10 seconds |

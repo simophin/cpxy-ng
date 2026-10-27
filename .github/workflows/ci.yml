@@ -534,6 +534,7 @@ jobs:
         run: |
           unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
           RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
+          RTP_TEST_OS_PORTS=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
       - name: Verify the deferred mobile protocol fails explicitly
         run: unshare -Urnm bash rtp-mobile/tests/linux-lab.sh
 

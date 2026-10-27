@@ -20,7 +20,7 @@ and derived with Argon2id (19 MiB, two passes). It never appears in argv.
 
 ```sh
 CPXY_RTP_PASSWORD=... cpxy-rtp endpoint --listen 203.0.113.10:30000 \
-    --udp-ports 30001-30100 --service-cidr 10.90.0.0/24
+    --service-cidr 10.90.0.0/24
 
 CPXY_RTP_PASSWORD=... cpxy-rtp client --entry 203.0.113.10:30000 \
     --outbound-interface eth0 --dynamic-address --service-cidr 10.90.0.0/24
@@ -28,8 +28,13 @@ CPXY_RTP_PASSWORD=... cpxy-rtp client --entry 203.0.113.10:30000 \
 
 `--listen` and `--entry` identify the **TCP HTTP control** port. The administrator
 must admit that TCP port; UDP rules are managed separately per allocation.
-With `--firewall none`, the administrator also provisions UDP admission and
-forwarding. No code opens the entire pool or changes permanent firewall policy.
+Without `--udp-ports`, each allocation binds UDP port `0`: the OS chooses an
+available port, which the service returns over authenticated HTTP. It binds the
+socket first, then journals and admits only that actual port. Port zero is never
+advertised or admitted. `--udp-ports LOW-HIGH` is optional when a deployment needs
+a restricted pool. With `--firewall none`, the administrator provisions UDP
+admission and forwarding; an explicit range can help with external firewalls.
+No code opens an entire range or changes permanent firewall policy.
 
 The endpoint's `--address` defaults to `10.88.0.1/24`. Dynamic addressing defaults
 to usable addresses in that subnet, excluding server/network/broadcast, static
@@ -55,7 +60,7 @@ Flags also have `CPXY_RTP_*` environment forms; consult `--help`.
 | Setting | Default / meaning |
 | --- | --- |
 | `--server-identity` | `cpxy-rtp`; identical at both peers, bound into control AEAD |
-| `--udp-ports` | Eight UDP ports after the TCP port; explicit LOW-HIGH recommended |
+| `--udp-ports` | Omitted: OS-assigned available ports via bind(:0). Optional LOW-HIGH constrains allocation. |
 | `--state-dir` | `/var/lib/cpxy-rtp`; private durable identity/address/lease journals |
 | `--interface` | `rtp0`; refuses an existing administrator interface |
 | `--address` | Endpoint `.1/24`, static client `.2/24` in `10.88.0.0/24` |

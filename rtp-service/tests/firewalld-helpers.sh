@@ -39,12 +39,12 @@ forwarding_present() {
   fw --zone=public --query-rich-rule="$masq"
 }
 firewall_exercise() {
-  # Occupied socket is skipped before any firewall mutation.
+  # Occupied sockets must not be disturbed by allocation.
   kill -0 "$occupied"
   forwarding_present
   backend_app
-  # Block every unused candidate with administrator-owned identical rules. Failed
-  # prepare must preserve those rules, route ownership and traffic on the live path.
+  # Add administrator-owned rules on other fixture-range ports. These remain
+  # unrelated rules in OS-assigned mode; active traffic and ownership survive.
   python3 - "$work" <<'PYTEST'
 import json,sys
 w=sys.argv[1]; live={x['address'].split(':')[-1] for x in json.load(open(w+'/server/state.json'))['leases']}

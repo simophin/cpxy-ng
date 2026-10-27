@@ -22,6 +22,8 @@ operational deployment remain separate. The implemented wire contract is
 - [x] Finish validation report/documentation and push reviewable implementation commits.
 - [x] Open [implementation PR #153](https://github.com/simophin/cpxy-ng/pull/153)
   as a draft for the Linux core; remaining configuration/coverage work is explicit.
+- [x] Default to OS-assigned UDP ports when no range is configured; retain
+  optional explicit ranges and admit/journal only each actual bound port.
 - [ ] Follow up full timing-policy configuration and remaining exhaustive fault matrices.
 
 ## Objective and agreed constraints
@@ -309,8 +311,10 @@ Failure/expiry can retire any live state. Allocation ID and firewall generation
 remain distinct from the numeric port.
 
 1. Validate UUID/address consistency and limits; reserve an allocation slot.
-2. Randomly select/bind an available port from the configured pool. Generate
-   keys and prepare its owned runtime firewall admission through the supervisor.
+2. By default bind UDP port zero and let the OS select an available port.
+   An explicitly configured pool instead limits random selection to that range.
+   Generate keys and prepare owned runtime firewall admission for the actual
+   bound port through the supervisor.
 3. Verify admission and commit the allocation before returning success. A
    partially completed or cancelled create must be rolled back/reconciled.
 4. Require first authenticated client UDP traffic within 30 seconds of creation.

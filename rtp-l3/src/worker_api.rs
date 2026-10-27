@@ -1,12 +1,13 @@
 /// Host operations supplied by the supervisor. A packet worker never chooses
-/// firewall rules, routes or commands. Implementations must enforce a port pool.
+/// firewall rules, routes or commands. Implementations must enforce the configured bind and allocation policy.
 pub trait SocketProvider: std::marker::Send + Sync {
     /// Open a TCP control connection outside the protected tunnel.
     fn control_socket(&self, _peer: SocketAddr) -> io::Result<std::net::TcpStream> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "HTTP control socket protection is required"))
     }
 
-    /// Bind and admit a socket. Failure must not disturb any committed path.
+    /// Bind and admit a socket. Port zero requests an OS-assigned port; admit
+    /// the actual bound port. Failure must not disturb any committed path.
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket>;
     /// Complete admission before exposing an allocation to a client.
     fn commit_port(&self, port: u16) -> io::Result<()>;

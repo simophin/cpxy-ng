@@ -50,7 +50,7 @@ struct Host {
 impl SocketProvider for Host {
     fn prepare_port(&self, a: SocketAddr) -> io::Result<UdpSocket> {
         let s = UdpSocket::bind(a)?;
-        assert!(self.ports.lock().unwrap().insert(a.port()));
+        assert!(self.ports.lock().unwrap().insert(s.local_addr()?.port()));
         Ok(s)
     }
     fn commit_port(&self, p: u16) -> io::Result<()> {
@@ -96,6 +96,9 @@ struct Lab {
 }
 impl Lab {
     fn new() -> Self {
+        Self::with_port_selection(false)
+    }
+    fn with_port_selection(automatic: bool) -> Self {
         let root = std::env::temp_dir().join(format!("rtp-http-lab-{}", Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -104,7 +107,15 @@ impl Lab {
         let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
         let low = udp.local_addr().unwrap().port().min(65000);
         drop(udp);
-        let settings = endpoint(entry, low, &root);
+        let mut settings = endpoint(entry, low, &root);
+        if automatic {
+            settings.transport = crate::config::Role::Endpoint {
+                listen: entry,
+                udp_low: 0,
+                udp_high: 0,
+            };
+            settings.validate().unwrap();
+        }
         let host = Arc::new(Host::default());
         let run = Arc::new(AtomicBool::new(true));
         let (packet, device) = UnixDatagram::pair().unwrap();
@@ -247,6 +258,22 @@ fn two_clients_real_http_udp_and_exact_packet_dispatch() {
     }
     drop(a);
     drop(b);
+}
+#[test]
+fn automatic_udp_ports_are_committed_and_support_two_clients() {
+    let lab = Lab::with_port_selection(true);
+    let (a, ap, _) = lab.client("10.88.0.2/24");
+    let (b, bp, _) = lab.client("10.88.0.3/24");
+    let ports = lab.host.ports.lock().unwrap().clone();
+    assert_eq!(ports.len(), 2);
+    assert!(!ports.contains(&0));
+    transfer(&ap, &lab.packet, &packet([10, 88, 0, 2], [10, 90, 0, 2], 1));
+    transfer(&lab.packet, &ap, &packet([10, 90, 0, 2], [10, 88, 0, 2], 2));
+    transfer(&bp, &lab.packet, &packet([10, 88, 0, 3], [10, 90, 0, 2], 3));
+    transfer(&lab.packet, &bp, &packet([10, 90, 0, 2], [10, 88, 0, 3], 4));
+    drop(a);
+    drop(b);
+    assert!(lab.host.ports.lock().unwrap().is_empty());
 }
 #[test]
 fn address_and_create_retry_release_terminal_and_static_conflict() {
