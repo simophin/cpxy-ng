@@ -167,17 +167,76 @@ each fresh directional key. All data and control packets share that direction's
 counter. Never wrap it, reset it under a reused key, or create two independent
 transmitters sharing it. Restart requires a fresh allocation/key.
 
-Preserve raw inner IPv4 as the data body; reserve non-IPv4 leading values for
-bounded, explicitly encoded control types. Pin all encodings and vectors before
+Carry inner IPv4 with its allocation-associated address omitted, as specified
+below; reserve non-IP leading values for bounded, explicitly encoded control
+types. Reserve the IPv6 version nibble for future IPv6 data, not control.
+Pin all encodings and vectors before
 runtime integration. Authentication/replay failures have no route, endpoint,
 lease, liveness or buffering effects. A 1024-packet receive bitmap per direction
 accepts unseen reordered packets and rejects duplicates/old packets. Only a
 successfully authenticated packet may advance the window.
 
-Overhead above inner IP is 36 bytes above UDP, 64 bytes including outer IPv4
-and UDP: 8 bytes more than the present format. A 1200-byte inner IPv4 packet
-produces 1264 outer IPv4 bytes. Control message bodies add their own bytes.
+Framing adds 36 bytes above UDP, or 64 bytes including outer IPv4 and UDP.
+Omitting four inner address bytes makes the net data overhead 60 bytes above
+the original inner packet: 4 bytes more than the present format. A 1200-byte
+inner IPv4 packet produces 1260 outer IPv4 bytes (1280 over outer IPv6, if
+supported). Control bodies do not receive this address compression and add
+their own bytes to the full framing overhead.
 Verify lengths and bounds rather than assuming the old constants still apply.
+
+### Allocation-associated IPv4 address compression
+
+For client-to-server data omit the four source-address bytes at original IPv4
+offsets 12..16. For server-to-client data omit the four destination-address bytes
+at original offsets 16..20. The remaining bytes retain their original order;
+the version/IHL byte stays first. Each allocation binds exactly one client inner
+address, including static addresses, so direction plus allocation state makes
+the omission unambiguous. Preserve the remote endpoint's address.
+
+Validate the full original packet and its client-associated address before
+compression/encryption. After authentication/decryption, reconstruct the missing
+address from allocation state before parsing/validating or writing to TUN. Bound
+the compressed input length and account for the four missing bytes when checking
+IHL, IPv4 total length and MTU; never pass a compressed packet to the ordinary
+IPv4 parser. Preserve IPv4 options, fragments and all remaining bytes exactly.
+The original total-length field and IP/transport checksums are unchanged and
+remain valid after exact reconstruction; this is header compression, not NAT.
+Do not silently replace a mismatching source/destination address during encoding.
+
+No compression flag or per-packet address selector is needed for this matched
+protocol version. Additional client addresses or routed source prefixes require
+an explicit future protocol change. Add byte-exact roundtrip tests in both
+directions, minimum and maximum lengths, IPv4 options/fragments, malformed IHL
+and length fields, wrong allocation/address, and preserved checksums. Update
+wire vectors, overhead constants, socket bounds and reports accordingly.
+
+### IPv6 scope and future design
+
+Inner IP family and outer transport family are independent: IPv4 inner traffic
+can use an IPv6 UDP path without adding inner IPv6 support. Do not infer inner
+address allocation or compression from the HTTP/UDP socket's address family.
+
+This implementation remains inner-IPv4-only. Explicitly reject/count inner IPv6
+at packet boundaries and reject IPv6 address requests as unsupported. Keep
+existing scoped routing guards; do not disable IPv6 host-wide. A future
+full-tunnel configuration must either carry IPv6 or explicitly block its bypass
+within the protected scope; IPv4-only routing alone does not protect IPv6.
+
+Recommendation for a separately authorized dual-stack phase: persist UUID to
+IPv4/IPv6 assignments, bind both client addresses to the same UDP allocation,
+dispatch by destination family/address, and distinguish data by the retained IP
+version nibble. Omit the 16-byte IPv6 source address upstream and destination
+address downstream, reconstructing the original packet before validation/TUN.
+Preserve extension headers and transport checksums; IPv6 has no header checksum.
+Carry ICMPv6, including Packet Too Big, and define bounded extension-header and
+fragment handling. Do not assume IPv4 header parsing applies to IPv6.
+
+Before enabling inner IPv6, replace the current 1200-byte inner MTU policy:
+IPv6 requires a link MTU of at least 1280 bytes, and encapsulation requires
+additional outer-path headroom or a deliberate below-IPv6 fragmentation/
+reassembly solution. Specify path-MTU/error handling and test it before claiming
+support. Do not quietly enable IPv6 on a 1200-byte TUN. This future work is not
+an implementation gate for the IPv4 core plan.
 
 ## Allocation and firewall lifecycle
 
@@ -404,3 +463,5 @@ marking it passed. Do not expand the work into mobile delivery or deployment.
   reference for return-reachability validation, not adoption of QUIC.
 - [RFC 8085](https://www.rfc-editor.org/rfc/rfc8085.html): UDP transport and
   middlebox considerations.
+- [RFC 8200](https://www.rfc-editor.org/rfc/rfc8200.html): IPv6 headers and
+  minimum link MTU; [RFC 4443](https://www.rfc-editor.org/rfc/rfc4443.html): ICMPv6.
