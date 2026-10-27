@@ -443,10 +443,32 @@ impl Service {
             None
         };
         if self.settings.control.dynamic_address {
-            let value = control_client
+            let client = control_client
                 .as_mut()
-                .ok_or_else(|| io::Error::other("dynamic address is client-only"))?
-                .call("allocate_ip", Default::default())?;
+                .ok_or_else(|| io::Error::other("dynamic address is client-only"))?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let value = loop {
+                match client.call("allocate_ip", Default::default()) {
+                    Ok(value) => break value,
+                    Err(e)
+                        if std::time::Instant::now() < deadline
+                            && matches!(
+                                e.kind(),
+                                io::ErrorKind::ConnectionRefused
+                                    | io::ErrorKind::TimedOut
+                                    | io::ErrorKind::NotConnected
+                                    | io::ErrorKind::BrokenPipe
+                                    | io::ErrorKind::WouldBlock
+                                    | io::ErrorKind::ConnectionReset
+                                    | io::ErrorKind::ConnectionAborted
+                                    | io::ErrorKind::UnexpectedEof
+                            ) =>
+                    {
+                        thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => return Err(e),
+                }
+            };
             let inner: std::net::Ipv4Addr = serde_json::from_value(value["inner"].clone())?;
             let prefix = value["prefix"]
                 .as_u64()

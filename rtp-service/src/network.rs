@@ -89,7 +89,7 @@ impl Network {
             return Err(bad("endpoint cannot also be a client address"));
         }
 
-        if self.client_addresses.is_empty()
+        if (matches!(s.transport, Role::Client { .. }) && self.client_addresses.is_empty())
             || self.service_cidrs.is_empty()
             || !(10000..=2000000000).contains(&self.table)
             || !(100..=30000).contains(&self.rule_priority)

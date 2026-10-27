@@ -90,8 +90,10 @@ impl Codec {
         .concat()
     }
     pub fn seal(&self, kind: Kind, value: &impl Serialize) -> Option<Vec<u8>> {
+        self.seal_nonce(kind, value, random::<24>())
+    }
+    fn seal_nonce(&self, kind: Kind, value: &impl Serialize, nonce: [u8; 24]) -> Option<Vec<u8>> {
         let plaintext = serde_json::to_vec(value).ok()?;
-        let nonce = random::<24>();
         let encrypted = self
             .cipher(kind)
             .encrypt(
@@ -344,6 +346,31 @@ mod tests {
             },
         )
         .unwrap()
+    }
+    #[test]
+    fn independent_libsodium_http_vectors_both_directions() {
+        let vectors: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/http-v2.json")).unwrap();
+        let codec = Codec::new(&[7; 32], "test").unwrap();
+        for (index, kind) in [Kind::Bootstrap, Kind::BootstrapReply]
+            .into_iter()
+            .enumerate()
+        {
+            let v = &vectors[index];
+            let value: Value = serde_json::from_str(v["plaintext"].as_str().unwrap()).unwrap();
+            let b = v["body"].as_str().unwrap();
+            let expected: Vec<_> = (0..b.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&b[i..i + 2], 16).unwrap())
+                .collect();
+            assert_eq!(
+                codec
+                    .seal_nonce(kind, &value, core::array::from_fn(|i| 0x40 + i as u8))
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(codec.open::<Value>(kind, &expected), Some(value));
+        }
     }
     #[test]
     fn challenge_duplicates_consumption_expiry_restart_and_pressure() {

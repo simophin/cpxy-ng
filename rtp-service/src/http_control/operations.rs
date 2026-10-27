@@ -39,6 +39,24 @@ pub enum Operation {
 }
 impl Operation {
     pub fn parse(rpc: &Rpc) -> Result<Self, &'static str> {
+        for field in ["client_id", "operation_id", "allocation_id"] {
+            if let Some(value) = rpc.params.get(field) {
+                let text = value.as_str().ok_or("invalid_params")?;
+                let id = Uuid::parse_str(text).map_err(|_| "invalid_params")?;
+                if id.to_string() != text {
+                    return Err("invalid_params");
+                }
+            }
+        }
+        if rpc.method == "create_udp"
+            && rpc
+                .params
+                .get("inner")
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.parse::<std::net::Ipv6Addr>().is_ok())
+        {
+            return Err("unsupported_address_family");
+        }
         let params = Value::Object(rpc.params.clone());
         let op = match rpc.method.as_str() {
             "allocate_ip" => {

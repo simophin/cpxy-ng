@@ -26,7 +26,7 @@ export CPXY_RTP_KEEPALIVE_SECONDS=5
 server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtps CPXY_RTP_LISTEN=192.0.2.2:30000
   CPXY_RTP_UDP_PORTS=30001-30008 CPXY_RTP_FIREWALL=none)
 client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
-  CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
+  CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0 CPXY_RTP_DYNAMIC_ADDRESS=true)
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
 ip netns exec s "${server_env[@]}" "$bin" endpoint >"$work/s.out" 2>"$work/s.log" & server=$!
 ip netns exec c "${client_env[@]}" "$bin" client >"$work/c.out" 2>"$work/c.log" & client=$!
@@ -85,8 +85,9 @@ fi
 kill -HUP "$client"
 wait "$client"
 if ip -n c link show rtpc 2>/dev/null; then exit 1; fi
+expected=$(( $(grep -c '"event":"connected"' "$work/c.log") + 1 ))
 ip netns exec c "${client_env[@]}" "$bin" client >>"$work/c.out" 2>>"$work/c.log" & client=$!
-connected 2
+connected "$expected"
 ip netns exec c ping -c 4 -W 2 10.88.0.1
 kill -TERM "$client" "$server"
 wait "$client"

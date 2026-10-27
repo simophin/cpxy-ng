@@ -102,6 +102,16 @@ fn request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Vec<u8>> {
                     || req.method != Some("POST")
                     || req.version != Some(1)
                     || !req.path.is_some_and(target)
+                    || req
+                        .headers
+                        .iter()
+                        .filter(|h| h.name.eq_ignore_ascii_case("host"))
+                        .count()
+                        != 1
+                    || req
+                        .headers
+                        .iter()
+                        .any(|h| h.name.eq_ignore_ascii_case("host") && h.value.is_empty())
                 {
                     return Err(bad());
                 }
@@ -289,7 +299,7 @@ mod tests {
         for path in ["/a", "/unrelated/x", "/", "/query?x=1"] {
             let raw = [
                 format!(
-                    "POST {path} HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+                    "POST {path} HTTP/1.1\r\nHost: example.invalid\r\nContent-Length: {}\r\n\r\n",
                     b.len()
                 )
                 .into_bytes(),
@@ -304,7 +314,7 @@ mod tests {
                 good = Some(reply);
             }
             for method in ["GET", "POST"] {
-                let raw = format!("{method} {path} HTTP/1.1\r\nContent-Length: 3\r\n\r\nbad")
+                let raw = format!("{method} {path} HTTP/1.1\r\nHost: example.invalid\r\nContent-Length: 3\r\n\r\nbad")
                     .into_bytes();
                 assert_eq!(roundtrip(raw, server.clone()), NOT_FOUND);
             }
@@ -313,7 +323,7 @@ mod tests {
         tampered[30] ^= 1;
         let raw = [
             format!(
-                "POST /a HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+                "POST /a HTTP/1.1\r\nHost: example.invalid\r\nContent-Length: {}\r\n\r\n",
                 tampered.len()
             )
             .into_bytes(),
@@ -343,7 +353,10 @@ mod tests {
             "/fragment#x".into(),
             "http://example/x".into(),
         ] {
-            let raw = format!("POST {path} HTTP/1.1\r\nContent-Length: 0\r\n\r\n").into_bytes();
+            let raw = format!(
+                "POST {path} HTTP/1.1\r\nHost: example.invalid\r\nContent-Length: 0\r\n\r\n"
+            )
+            .into_bytes();
             assert_eq!(roundtrip(raw, server.clone()), NOT_FOUND);
         }
     }

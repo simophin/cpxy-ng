@@ -125,6 +125,10 @@ impl Client {
         {
             return Err(invalid());
         }
+        let fields = reply.rpc.as_object().ok_or_else(invalid)?;
+        if fields.len() != 3 || (fields.contains_key("result") == fields.contains_key("error")) {
+            return Err(invalid());
+        }
         if reply.rpc.get("error").is_some() {
             let code = reply.rpc["error"]["code"].as_i64().ok_or_else(invalid)?;
             return Err(io::Error::new(
@@ -160,6 +164,7 @@ impl Client {
     }
 }
 /// No Debug: operation contents may later grow sensitive fields.
+#[derive(Clone)]
 pub struct Pending {
     method: String,
     params: serde_json::Map<String, Value>,

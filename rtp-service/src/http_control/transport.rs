@@ -266,9 +266,16 @@ pub fn run(
     let mut writes: VecDeque<(Uuid, u64, Vec<u8>)> = VecDeque::new();
     let mut next_prepare = 0;
     let mut recreate = false;
+    let (mut ipv6_drops, mut stats_at) = (0u64, 10000u64);
     let result = (|| {
         while running.load(Ordering::Relaxed) {
             let now = milliseconds(start);
+            if now >= stats_at {
+                events(
+                    json!({"event":"stats","protocol":"rtp-http-v2","inner_ipv6_drops":ipv6_drops}),
+                );
+                stats_at = now.saturating_add(10000);
+            }
             if job.as_ref().is_some_and(|t| t.is_finished()) {
                 let (client, result) = job
                     .take()
@@ -513,6 +520,9 @@ pub fn run(
             });
             for _ in 0..32 {
                 match packet.read(&mut tun) {
+                    Ok(n) if n > 0 && tun[0] >> 4 == 6 => {
+                        ipv6_drops += 1;
+                    }
                     Ok(n) if n <= 1200 => {
                         if let Some(a) =
                             active.and_then(|id| allocations.iter_mut().find(|a| a.id == id))

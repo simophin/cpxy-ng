@@ -154,6 +154,7 @@ pub fn run(
         &running,
         start,
         &[&listener_thread, &control_thread],
+        &events,
     );
     running.store(false, Ordering::Relaxed);
     let control_result = control_thread
@@ -172,10 +173,12 @@ fn packets(
     running: &AtomicBool,
     start: Instant,
     workers: &[&thread::JoinHandle<io::Result<()>>],
+    events: &Events,
 ) -> io::Result<()> {
     let mut tun = [0; 1201];
     let mut wire = [0; MAX_FRAME + 1];
     let mut writes: VecDeque<(uuid::Uuid, u64, Vec<u8>)> = VecDeque::new();
+    let (mut rejected, mut ipv6_drops, mut stats_at) = (0u64, 0u64, 10000u64);
     while running.load(Ordering::Relaxed) {
         if workers.iter().any(|w| w.is_finished()) {
             return Err(io::Error::other("HTTP control worker stopped"));
@@ -202,6 +205,7 @@ fn packets(
                     }
                 };
                 let Some(body) = a.rx.open(&wire[..n]) else {
+                    rejected += 1;
                     continue;
                 };
                 // Decoder authentication/replay checks precede every state effect.
@@ -277,7 +281,12 @@ fn packets(
                         "packet device closed",
                     ))
                 }
-                Ok(_) => {}
+                Ok(n) if n > 0 && tun[0] >> 4 == 6 => {
+                    ipv6_drops += 1;
+                }
+                Ok(_) => {
+                    rejected += 1;
+                }
                 Err(e) if transient(&e) => break,
                 Err(e) => return Err(e),
             }
@@ -308,6 +317,12 @@ fn packets(
                     }
                 }
             }
+        }
+        if now >= stats_at {
+            events(
+                serde_json::json!({"event":"stats","protocol":"rtp-http-v2","inner_ipv6_drops":ipv6_drops,"rejected":rejected,"queue_expired":queues.expired,"queue_pressure":queues.pressure,"unknown_destination":queues.unknown}),
+            );
+            stats_at = now.saturating_add(10000);
         }
         drop(guard);
         for _ in 0..32 {

@@ -64,10 +64,10 @@ ip netns exec s "${server_env[@]}" "$bin" endpoint >"$work/s.out" 2>"$work/s.log
 ip netns exec c "${client_env[@]}" "$bin" client >"$work/c.out" 2>"$work/c.log" & client=$!
 ping_pid=""
 cleanup() {
-  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}"; do
+  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}" "${bus:-}"; do
     if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
   done
-  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}"; do
+  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}" "${bus:-}"; do
     if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || true; fi
   done
 }

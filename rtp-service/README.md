@@ -140,3 +140,12 @@ bash rtp-mobile/tests/linux-lab.sh
 The firewalld fixture runs on a private bus in disposable namespaces. Its
 administrator-owned TCP admission is separate from service UDP ownership.
 Historical mobile-v1 fixtures are archived and are not v2 acceptance evidence.
+If the host lacks a TUN device, the optional root wrapper creates one entirely
+inside private namespaces:
+
+```sh
+sudo unshare -nm bash rtp-service/tests/private-linux-lab.sh rtp-service/tests/linux-lifecycle.sh
+```
+
+It refuses the host network/mount namespace, stages only the executable in a
+private temporary directory, and removes it on exit.

@@ -323,3 +323,140 @@ fn five_minute_rotation_keeps_bidirectional_traffic_and_retires_old_lease() {
     assert_eq!(lab.host.ports.lock().unwrap().len(), 1);
     drop(task);
 }
+
+#[test]
+fn lost_activation_ack_roaming_and_delayed_old_path_cannot_restore_route() {
+    use rtp_l3::v2::{
+        codec::{Control, Direction, Packet, Rx, Tx},
+        http::unhex,
+    };
+    let lab = Lab::new();
+    let mut control = lab.control(Uuid::new_v4());
+    let allocation = control
+        .call(
+            "create_udp",
+            json!({"inner":"10.88.0.2"}).as_object().unwrap().clone(),
+        )
+        .unwrap();
+    let id: Uuid = serde_json::from_value(allocation["allocation_id"].clone()).unwrap();
+    let secret = unhex::<32>(allocation["secret"].as_str().unwrap()).unwrap();
+    let inner = "10.88.0.2".parse().unwrap();
+    let mut tx = Tx::new(&secret, *id.as_bytes(), Direction::Upstream, inner);
+    let mut rx = Rx::new(&secret, *id.as_bytes(), Direction::Downstream, inner);
+    let mut peer = lab.entry;
+    peer.set_port(allocation["port"].as_u64().unwrap() as u16);
+    let old = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let new = UdpSocket::bind("127.0.0.1:0").unwrap();
+    for s in [&old, &new] {
+        s.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    }
+    let send = |tx: &mut Tx, s: &UdpSocket, c: Control| {
+        s.send_to(&tx.control(c, 0).unwrap(), peer).unwrap();
+    };
+    let receive = |rx: &mut Rx, s: &UdpSocket| {
+        let mut b = [0; 1300];
+        let n = s.recv(&mut b).unwrap();
+        rx.open(&b[..n]).unwrap()
+    };
+    let validate = |tx: &mut Tx, rx: &mut Rx, s: &UdpSocket, attempt, token| {
+        send(tx, s, Control::PathOpen { attempt, token });
+        let Packet::Control(Control::PathChallenge { challenge, .. }) = receive(rx, s) else {
+            panic!()
+        };
+        send(
+            tx,
+            s,
+            Control::PathResponse {
+                attempt,
+                token,
+                challenge,
+            },
+        );
+        assert_eq!(
+            receive(rx, s),
+            Packet::Control(Control::PathReady { attempt, token })
+        );
+    };
+    // Queue exists once the allocation is committed, before UDP is ready.
+    let downstream = packet([10, 90, 0, 2], [10, 88, 0, 2], 1);
+    lab.packet.send(&downstream).unwrap();
+    thread::sleep(Duration::from_millis(20));
+    validate(&mut tx, &mut rx, &old, 1, [1; 16]);
+    let activate = Control::Activate {
+        activation: 1,
+        attempt: 1,
+        token: [1; 16],
+    };
+    send(&mut tx, &old, activate);
+    // Discard ACTIVATED to simulate a lost reply. The server already owns the
+    // route and flushes its pending FIFO before any newer packet.
+    let mut lost = [0; 1300];
+    old.recv(&mut lost).unwrap();
+    assert_eq!(receive(&mut rx, &old), Packet::Data(downstream.clone()));
+    send(&mut tx, &old, activate);
+    assert_eq!(
+        receive(&mut rx, &old),
+        Packet::Control(Control::Activated {
+            activation: 1,
+            attempt: 1,
+            token: [1; 16]
+        })
+    );
+    validate(&mut tx, &mut rx, &new, 2, [2; 16]);
+    // Validation alone does not redirect downstream.
+    lab.packet.send(&downstream).unwrap();
+    assert_eq!(receive(&mut rx, &old), Packet::Data(downstream.clone()));
+    send(
+        &mut tx,
+        &new,
+        Control::Activate {
+            activation: 2,
+            attempt: 2,
+            token: [2; 16],
+        },
+    );
+    assert_eq!(
+        receive(&mut rx, &new),
+        Packet::Control(Control::Activated {
+            activation: 2,
+            attempt: 2,
+            token: [2; 16]
+        })
+    );
+    // A fresh authenticated delayed old attempt still cannot roll the tuple back.
+    send(
+        &mut tx,
+        &old,
+        Control::PathOpen {
+            attempt: 1,
+            token: [1; 16],
+        },
+    );
+    send(&mut tx, &old, activate);
+    lab.packet.send(&downstream).unwrap();
+    assert_eq!(receive(&mut rx, &new), Packet::Data(downstream));
+    let upstream = packet([10, 88, 0, 2], [10, 90, 0, 2], 2);
+    new.send_to(&tx.data(&upstream, 0).unwrap(), peer).unwrap();
+    let mut b = [0; 1200];
+    let n = lab.packet.recv(&mut b).unwrap();
+    assert_eq!(&b[..n], upstream);
+}
+
+#[test]
+fn concurrent_duplicate_creates_share_one_prepared_lease() {
+    let lab = Lab::new();
+    let id = Uuid::new_v4();
+    let mut a = lab.control(id);
+    let mut b = lab.control(id);
+    let operation = a
+        .operation(
+            "create_udp",
+            json!({"inner":"10.88.0.2"}).as_object().unwrap().clone(),
+        )
+        .unwrap();
+    let duplicate = operation.clone();
+    let first = thread::spawn(move || a.execute(&operation).unwrap());
+    let second = thread::spawn(move || b.execute(&duplicate).unwrap());
+    assert_eq!(first.join().unwrap(), second.join().unwrap());
+    assert_eq!(lab.host.ports.lock().unwrap().len(), 1);
+}

@@ -134,14 +134,6 @@ pub struct EndpointArgs {
     /// Tunnel address and prefix of this endpoint.
     #[arg(long, env = "CPXY_RTP_ADDRESS", default_value = "10.88.0.1/24")]
     pub address: String,
-    /// Client tunnel addresses allowed to reach the service CIDRs.
-    #[arg(
-        long = "client-address",
-        env = "CPXY_RTP_CLIENT_ADDRESSES",
-        value_delimiter = ',',
-        default_value = "10.88.0.2"
-    )]
-    pub client_addresses: Vec<Ipv4Addr>,
     /// `auto` manages firewalld when it answers on the system bus.
     #[arg(long, env = "CPXY_RTP_FIREWALL", value_enum, default_value_t = FirewallArg::Auto)]
     pub firewall: FirewallArg,
@@ -250,8 +242,11 @@ impl EndpointArgs {
     pub fn settings(&self) -> io::Result<Settings> {
         let c = &self.common;
         let (udp_low, udp_high) = self.udp_ports.unwrap_or_else(|| {
-            let base = self.listen.port();
-            (base.saturating_add(1), base.saturating_add(8))
+            let control_port = self.listen.port();
+            (
+                control_port.saturating_add(1),
+                control_port.saturating_add(8),
+            )
         });
         let settings = Settings {
             control: crate::config::ControlSettings {
@@ -271,7 +266,7 @@ impl EndpointArgs {
                 udp_low,
                 udp_high,
             },
-            network: network(c, &self.address, self.client_addresses.clone())?,
+            network: network(c, &self.address, Vec::new())?,
             keepalive_seconds: c.keepalive_seconds,
             firewall: match self.firewall {
                 FirewallArg::Auto => FirewallMode::Auto,
@@ -439,7 +434,7 @@ mod tests {
         Cli::try_parse_from(std::iter::once("cpxy-rtp").chain(args.iter().copied())).unwrap()
     }
     #[test]
-    fn endpoint_defaults_derive_rotation_pool_journal_and_network() {
+    fn endpoint_defaults_derive_udp_pool_journal_and_network() {
         let Cli {
             role: RoleCommand::Endpoint { args, action },
         } = parse(&[
@@ -470,7 +465,7 @@ mod tests {
         assert_eq!(s.firewall, FirewallMode::Auto);
         let n = s.network.unwrap();
         assert_eq!(n.tunnel_pool, "10.88.0.0/24");
-        assert_eq!(n.client_addresses, vec![Ipv4Addr::new(10, 88, 0, 2)]);
+        assert!(n.client_addresses.is_empty());
         assert_eq!(n.service_cidrs.len(), 2);
     }
     #[test]

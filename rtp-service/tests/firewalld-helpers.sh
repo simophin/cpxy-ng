@@ -10,7 +10,7 @@ firewall_setup() {
   cat > "$work/bus.conf" <<BUS
 <busconfig><type>system</type><listen>unix:path=/run/dbus-test</listen><auth>EXTERNAL</auth><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/><allow user="*"/></policy></busconfig>
 BUS
-  dbus-daemon --config-file="$work/bus.conf" --fork
+  bus=$(dbus-daemon --config-file="$work/bus.conf" --fork --print-pid=1)
   export DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus-test
   firewall_start
   fw --zone=public --add-interface=vs
