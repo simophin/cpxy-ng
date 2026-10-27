@@ -222,10 +222,12 @@ impl Replay {
                 let old = self.bits;
                 self.bits = [0; 16];
                 if shift < 1024 {
-                    for bit in 0..1024 - shift as usize {
-                        if old[bit / 64] & (1 << (bit % 64)) != 0 {
-                            let target = bit + shift as usize;
-                            self.bits[target / 64] |= 1 << (target % 64);
+                    let words = shift as usize / 64;
+                    let bits = shift as u32 % 64;
+                    for target in words..16 {
+                        self.bits[target] = old[target - words] << bits;
+                        if bits != 0 && target > words {
+                            self.bits[target] |= old[target - words - 1] >> (64 - bits);
                         }
                     }
                 }
@@ -492,6 +494,41 @@ mod tests {
         let q = tx.data(&ip(20, false), 0).unwrap();
         assert!(rx.open(&q).is_some());
         assert!(rx.open(&p[1029]).is_none());
+    }
+    #[test]
+    fn replay_word_shifts_match_received_packet_history() {
+        use std::collections::BTreeSet;
+        for shift in [
+            1, 2, 31, 63, 64, 65, 127, 128, 129, 511, 512, 513, 959, 960, 1023, 1024, 1025,
+        ] {
+            let mut replay = Replay::default();
+            let mut received = BTreeSet::new();
+            for number in 0..=2048 {
+                if number % 7 != 0 || number == 2048 {
+                    replay.accept(number);
+                    received.insert(number);
+                }
+            }
+            let high = 2048 + shift;
+            replay.accept(high);
+            received.insert(high);
+            for number in 0..=high + 1 {
+                let expected =
+                    number > high || (high - number < 1024 && !received.contains(&number));
+                assert_eq!(
+                    replay.permits(number),
+                    expected,
+                    "shift={shift} number={number}"
+                );
+            }
+            // Reordered packets fill holes without moving the high-water mark.
+            for number in (high - 1023..high).rev() {
+                if replay.permits(number) {
+                    replay.accept(number);
+                }
+                assert!(!replay.permits(number));
+            }
+        }
     }
     #[test]
     fn exhaustion_does_not_wrap_and_rtp_rollover_is_independent() {
