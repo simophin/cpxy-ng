@@ -1,9 +1,20 @@
 # HTTP-controlled RTP transport implementation plan
 
-Status: proposed implementation plan. This document does not change the running
+Status: implementation in progress on `feat/http-controlled-rtp`. This document does not change the running
 protocol. Implement the core server and Linux client first; mobile integration
 and operational deployment are deferred. The existing protocol remains described
 in [rtp-l3-protocol.md](rtp-l3-protocol.md) until implementation lands.
+
+## Progress
+
+- [x] Inspect shared worker/mobile and generation-scoped admission APIs.
+- [x] Freeze v2 encodings, replay/retry rules and state transitions in
+  [rtp-http-protocol.md](rtp-http-protocol.md).
+- [ ] Implement authenticated codecs and deterministic state machines/vectors.
+- [ ] Integrate bounded HTTP, persistence and supervised allocation lifecycle.
+- [ ] Integrate Linux transport, rotation, repair and buffering.
+- [ ] Run local acceptance fixtures and record cleanup/environment limits.
+- [ ] Remove superseded core paths, adapt mobile boundary, finish docs and PR.
 
 ## Objective and agreed constraints
 
