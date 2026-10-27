@@ -353,3 +353,20 @@ sockets reported zero receive drops and zero queue bytes at the last sample.
 This is shared-router background activity, not an idle-latency or load benchmark.
 The [sanitized capture](../experiments/rtp-l3/results/2026-10-28-packet-path-baseline.json)
 contains no socket addresses or process arguments. No service was restarted.
+
+### 2026-10-28: bounded UDP adapter prototype
+
+- Added an explicitly selected portable/Linux `recvmmsg`/`sendmmsg` adapter,
+  reused storage/descriptors, per-message source/truncation metadata and optional
+  socket overflow counters. It is not connected to production packet workers.
+- Added five adapter tests and a bounded, byte-verifying loopback benchmark.
+  All 25 library tests pass on glibc and static x86-64 musl; ARM64 musl and iOS
+  compile checks pass, and the ARM64 static example ran on tr3600.
+- Ran three interleaved portable/mmsg/portable sequences at budgets 16/32/64 on
+  the development host and router. Development CPU cost fell; router median
+  process CPU per datagram rose 3–4%. This synthetic loopback test includes both
+  directions in one process and does not establish tunnel throughput or total
+  CPU savings. No production backend change or io_uring work is justified yet.
+- [Full method, results, limitations and remaining integration work](rtp-udp-batch-experiment.md).
+  Steps 1 and 2 remain in progress. Lifecycle, loaded latency, multi-client,
+  queue/backpressure, forwarding/QEMU and LAN acceptance remain pending.
