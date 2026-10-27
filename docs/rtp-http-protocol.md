@@ -225,7 +225,8 @@ cancels outstanding writes and drops buffers before closing descriptors.
 | Lost activation ACK | Same logical activation, fresh counters; retain both receivers |
 | Delayed old path or activation | Never roll route/endpoint backward |
 
-Mobile control HTTP and host-protected TCP sockets are a separate integration.
-Until adapted, mobile must report unsupported protocol before opening a tunnel;
-it must not send v1 frames to v2 servers. Privileged namespace/firewalld fixtures
+The Linux and OpenWrt packet/DNS engines use the shared HTTP/UDP client runtime,
+persist the client UUID, and obtain the assigned address before creating TUN.
+The former v1 worker/bootstrap interface has been removed. Android migration
+remains deferred by scope: its existing binding rejects transport startup. Privileged namespace/firewalld fixtures
 are separate acceptance gates; deterministic tests alone do not prove them.

@@ -1,3 +1,8 @@
+> Scope update: the user subsequently requested replacing the undeployed RTP VPN
+> and adding a separate OpenWrt router in this PR, then clarified Linux/OpenWrt
+> only. Android integration remains excluded; [the integration checklist](rtp-vpn-integration-plan.md)
+> tracks the authorized extension.
+
 # HTTP-controlled RTP transport implementation plan
 
 Status: Linux v2 core implemented on `feat/http-controlled-rtp`; validation and

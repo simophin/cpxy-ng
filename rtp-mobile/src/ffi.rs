@@ -1,9 +1,9 @@
 //! The UniFFI surface the app calls (see `src/bin/uniffi-bindgen.rs`). A thin wrapper over
-//! [`crate::start`].
+//! the shared Linux packet engine. Android transport integration remains deferred.
 
 use crate::profile::Profile;
 use std::os::fd::{FromRawFd, OwnedFd};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RtpError {
@@ -21,18 +21,6 @@ fn failed(reason: impl Into<String>) -> RtpError {
 pub trait RtpPlatform: Send + Sync {
     /// Makes the socket bypass the VPN (`VpnService.protect`); the descriptor is borrowed.
     fn protect_socket(&self, fd: i32) -> bool;
-}
-
-struct PlatformAdapter(Box<dyn RtpPlatform>);
-
-impl crate::Platform for PlatformAdapter {
-    fn protect_socket(&self, fd: i32) -> std::io::Result<()> {
-        if self.0.protect_socket(fd) {
-            Ok(())
-        } else {
-            Err(std::io::Error::other("Cannot protect the socket"))
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -91,55 +79,25 @@ pub struct RtpEngine {
     engine: crate::Engine,
 }
 
-/// A protected HTTP session prepared before Android establishes its TUN.
-#[derive(uniffi::Object)]
-pub struct RtpPreparedSession {
-    inner: String,
-    prepared: Mutex<Option<crate::Prepared>>,
-}
+/// Starts the engine on `tun_fd`, which it takes ownership of and closes when stopped. Blocks
+/// while the endpoint is looked up and DNS is set up, so do not call it on a UI thread.
 #[uniffi::export]
-pub fn prepare_rtp_session(
+pub fn start_rtp_engine(
+    tun_fd: i32,
     profile_json: String,
     key: Vec<u8>,
-    client_id: String,
     platform: Box<dyn RtpPlatform>,
-) -> Result<Arc<RtpPreparedSession>, RtpError> {
-    init_logging();
-    let key: [u8; 32] = key
-        .try_into()
-        .map_err(|_| failed("The key must be 32 bytes"))?;
-    let id =
-        uuid::Uuid::parse_str(&client_id).map_err(|_| failed("Invalid persisted client UUID"))?;
-    let profile = Profile::from_json(&profile_json).map_err(|e| failed(format!("{e:#}")))?;
-    let prepared = crate::prepare(&profile, key, id, Arc::new(PlatformAdapter(platform)))
-        .map_err(|e| failed(format!("{e:#}")))?;
-    Ok(Arc::new(RtpPreparedSession {
-        inner: prepared.address().to_string(),
-        prepared: Mutex::new(Some(prepared)),
-    }))
-}
-#[uniffi::export]
-impl RtpPreparedSession {
-    pub fn inner_address(&self) -> String {
-        self.inner.clone()
+) -> Result<Arc<RtpEngine>, RtpError> {
+    // Android migration is outside the Linux/OpenWrt scope. Preserve the public
+    // binding and FD ownership, but never start a legacy RTP worker.
+    let _ = (profile_json, key, platform);
+    if tun_fd < 0 {
+        return Err(failed(format!("Invalid TUN descriptor {tun_fd}")));
     }
-    /// Takes ownership of the TUN, including every error path. A session starts once.
-    pub fn start(&self, tun_fd: i32) -> Result<Arc<RtpEngine>, RtpError> {
-        if tun_fd < 0 {
-            return Err(failed("Invalid TUN descriptor"));
-        }
-        let tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
-        let prepared = self
-            .prepared
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| failed("Session already started"))?;
-        prepared
-            .start(tun)
-            .map(|engine| Arc::new(RtpEngine { engine }))
-            .map_err(|e| failed(format!("{e:#}")))
-    }
+    let _tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
+    Err(failed(
+        "HTTP-controlled RTP is available on Linux/OpenWrt; Android integration is deferred",
+    ))
 }
 
 #[uniffi::export]
@@ -190,23 +148,19 @@ pub fn derive_key(password: String) -> Result<Vec<u8>, RtpError> {
 /// Why a profile cannot be used, or `None` when it can.
 #[uniffi::export]
 pub fn validate_profile(profile_json: String) -> Option<String> {
+    // The deferred app still emits its former manual-address field.
+    let profile_json = serde_json::from_str::<serde_json::Value>(&profile_json)
+        .map(|mut value| {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("address");
+            }
+            value.to_string()
+        })
+        .unwrap_or(profile_json);
     Profile::from_json(&profile_json)
         .and_then(|p| p.settings())
         .err()
         .map(|e| format!("{e:#}"))
-}
-
-/// Sends the engine's logs to logcat on Android.
-fn init_logging() {
-    #[cfg(target_os = "android")]
-    {
-        use tracing_subscriber::layer::SubscriberExt;
-        let subscriber = tracing_subscriber::registry()
-            .with(tracing_subscriber::filter::LevelFilter::INFO)
-            .with(paranoid_android::layer("cpxy-rtp").with_ansi(false));
-        // Fails when already set by an earlier start, which is fine.
-        let _ = tracing::subscriber::set_global_default(subscriber);
-    }
 }
 
 #[cfg(test)]
@@ -221,25 +175,8 @@ mod tests {
                 false
             }
         }
-        let profile = r#"{"endpoint":"192.0.2.1:30000","dns_upstream":["223.5.5.5"],"dns_alternative":["8.8.8.8"]}"#;
-        assert!(
-            prepare_rtp_session(
-                profile.into(),
-                vec![0; 31],
-                uuid::Uuid::new_v4().to_string(),
-                Box::new(Never)
-            )
-            .is_err()
-        );
-        assert!(
-            prepare_rtp_session(
-                profile.into(),
-                vec![0; 32],
-                "invalid".into(),
-                Box::new(Never)
-            )
-            .is_err()
-        );
+        let profile = r#"{"endpoint":"192.0.2.1:30000","address":"10.88.0.2","dns_upstream":["223.5.5.5"],"dns_alternative":["8.8.8.8"]}"#;
+        assert!(start_rtp_engine(-1, profile.into(), vec![0; 32], Box::new(Never)).is_err());
         assert!(validate_profile(profile.into()).is_none());
         assert!(validate_profile("{}".into()).is_some());
         assert!(derive_key("short".into()).is_err());

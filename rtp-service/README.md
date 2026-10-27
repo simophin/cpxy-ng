@@ -5,8 +5,9 @@ frames. Plain HTTP carries encrypted JSON-RPC control; it does not use TLS.
 The client creates a dedicated UDP allocation and rotates it every five minutes.
 There is no base UDP listener, fallback port or server rotation epoch.
 
-This is a matched v2 client/server breaking change. The Android RTP app and
-opt-in OpenWrt RTP router use the same HTTP/UDP client runtime. The historical
+This is a matched v2 client/server breaking change. The Linux packet/DNS engine and
+opt-in OpenWrt RTP router use the same HTTP/UDP client runtime. Android migration
+remains deferred and its existing binding rejects startup explicitly. The historical
 experiment executable directs users to this service. See the [wire contract](../docs/rtp-http-protocol.md) and
 [validation report](../docs/rtp-http-validation.md).
 

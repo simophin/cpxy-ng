@@ -1,15 +1,15 @@
 # RTP VPN replacement and OpenWrt integration
 
-Status: implementation in progress in PR #153. The former RTP VPN has not been
-deployed, so replace its mobile/worker integration with HTTP-controlled v2.
-Keep the existing `cpxy-router` binary, service, configuration and behavior while
-adding an opt-in RTP router service/package beside it.
+Status: implementation in progress in PR #153. Replace the undeployed RTP VPN
+with HTTP-controlled v2 on Linux and OpenWrt. The user explicitly excluded the
+Android app migration. Keep the existing `cpxy-router` binary, service,
+configuration and behavior while adding an opt-in RTP router service/package.
 
-- [x] Share the production HTTP/UDP client runtime between Linux and mobile.
-- [x] Replace the mobile v1 facade with v2, protect TCP and UDP before connect,
-  persist client identity, and obtain the inner address before establishing TUN.
-- [x] Remove obsolete RTP bootstrap/worker interfaces and replace manual mobile address entry.
-- [x] Finish replacement mobile documentation and Android build validation.
+- [x] Share the production HTTP/UDP client runtime with the Linux packet/DNS engine.
+- [x] Protect TCP and UDP before connect, persist client identity, and obtain the
+  inner address before establishing TUN.
+- [x] Remove obsolete RTP bootstrap/worker interfaces. Preserve the deferred
+  Android binding and app unchanged; it must reject transport startup explicitly.
 - [ ] Package the new RTP transport and an opt-in OpenWrt router service without
   taking over the existing cpxy-router configuration or selected networks.
 - [ ] Preserve scoped routing guards, selected-network isolation, DNS policy and

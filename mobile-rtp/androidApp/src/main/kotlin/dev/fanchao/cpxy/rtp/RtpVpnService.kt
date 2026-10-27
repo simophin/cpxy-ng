@@ -25,7 +25,7 @@ import dev.fanchao.cpxy.rtp.engine.RtpException
 import dev.fanchao.cpxy.rtp.engine.RtpPlatform
 import dev.fanchao.cpxy.rtp.engine.RtpState
 import dev.fanchao.cpxy.rtp.engine.dnsAddress
-import dev.fanchao.cpxy.rtp.engine.prepareRtpSession
+import dev.fanchao.cpxy.rtp.engine.startRtpEngine
 import dev.fanchao.cpxy.rtp.engine.tunnelMtu
 import dev.fanchao.cpxy.rtp.engine.tunnelRoutes
 import kotlinx.coroutines.CoroutineScope
@@ -155,7 +155,6 @@ class RtpVpnService : VpnService() {
                 }
                 null
             }
-            if (!isActive) { running?.let { it.stop(); it.close() }; return }
             if (running != null) {
                 engine = running
                 monitor(profile, running)
@@ -169,12 +168,10 @@ class RtpVpnService : VpnService() {
     }
 
     private fun start(profile: Profile, key: ByteArray, settings: AppSettings): RtpEngine {
-        val prepared = prepareRtpSession(profile.engineProfileJson(), key, profile.id, protector)
-        try {
         val builder = Builder()
             .setSession(profile.name)
             .setMtu(tunnelMtu().toInt())
-            .addAddress(prepared.innerAddress(), 32)
+            .addAddress(profile.address, 32)
             .addDnsServer(dnsAddress())
             .setConfigureIntent(mainActivityIntent())
         for (route in routes) {
@@ -190,8 +187,7 @@ class RtpVpnService : VpnService() {
         val tun = builder.establish() ?: error("The VPN permission was revoked")
         Log.i(TAG, "Established the TUN with ${routes.size} routes in ${SystemClock.elapsedRealtime() - began} ms")
         // The engine owns the descriptor from here, and closes it even when it fails to start.
-        return prepared.start(tun.detachFd())
-        } finally { prepared.close() }
+        return startRtpEngine(tun.detachFd(), profile.engineProfileJson(), key, protector)
     }
 
     /** Reports the engine's status every second until it fails or the job is cancelled. */

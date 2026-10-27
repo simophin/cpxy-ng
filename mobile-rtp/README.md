@@ -1,3 +1,8 @@
+> HTTP-controlled RTP v2 migration: mobile transport integration is deferred.
+> The shared engine now fails explicitly before runtime/socket setup. See
+> [Linux v2 transport](../rtp-service/README.md). The implementation notes below
+> describe the former mobile-v1 engine and are historical until adapted.
+
 # CPXY RTP app
 
 The Android VPN app for an RTP internet-exit endpoint (`cpxy-rtp endpoint --internet-exit`). It
@@ -28,16 +33,11 @@ bindings from a host debug build, as the proxy app does; the toolchain setup is 
 
 ## Using it
 
-1. Run `cpxy-rtp endpoint --listen 0.0.0.0:4000 --internet-exit` with
-   `CPXY_RTP_PASSWORD` set to your shared password (at least 12 characters).
-2. Add a profile: the endpoint's HTTP control `host:port`, password and DNS servers.
-   The app stores the derived key and a persistent profile UUID. The endpoint assigns
-   the tunnel address before Android establishes the VPN; no manual address is needed.
+1. Run an endpoint with `--internet-exit`, and note its password and a `--client-address` for
+   this device (the first is `10.88.0.2`).
+2. Add a profile: the endpoint's `host:port`, the password, the tunnel address and the DNS
+   servers. The app keeps only the key derived from the password.
 3. Connect. Addresses in the local region and private networks go direct; everything else goes
    through the tunnel. Under "Apps using the VPN", choose which apps use it.
 
 The engine logs to logcat with the tag `cpxy-rtp`, and the service with `RtpVpnService`.
-
-TCP control and UDP transport sockets are protected before connecting. Deleting a
-profile creates a new client identity; reconnecting preserves its assigned address.
-The former RTP wire format is replaced by HTTP-controlled v2.

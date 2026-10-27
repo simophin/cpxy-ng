@@ -9,14 +9,17 @@ import kotlinx.serialization.json.Json
 data class Profile(
     val id: String,
     val name: String,
-    /** `host:port` of the endpoint's HTTP control port. */
+    /** `host:port` of the endpoint's base port. */
     val endpoint: String,
+    /** This device's tunnel address, one of the endpoint's `--client-address` values. */
+    val address: String = DefaultAddress,
     /** Local-region resolvers, asked directly. */
     val dnsUpstream: List<String> = DefaultDnsUpstream,
     /** IPv4 resolvers asked through the tunnel. */
     val dnsAlternative: List<String> = DefaultDnsAlternative,
 ) {
     companion object {
+        const val DefaultAddress = "10.88.0.2"
         val DefaultDnsUpstream = listOf("223.5.5.5")
         val DefaultDnsAlternative = listOf("8.8.8.8", "1.1.1.1")
     }
@@ -26,12 +29,13 @@ data class Profile(
 @Serializable
 private data class EngineProfile(
     val endpoint: String,
+    val address: String,
     @SerialName("dns_upstream") val dnsUpstream: List<String>,
     @SerialName("dns_alternative") val dnsAlternative: List<String>,
 )
 
 fun Profile.engineProfileJson(): String = Json.encodeToString(
-    EngineProfile(endpoint.trim(), dnsUpstream, dnsAlternative),
+    EngineProfile(endpoint.trim(), address.trim(), dnsUpstream, dnsAlternative),
 )
 
 /**
@@ -41,6 +45,7 @@ fun Profile.engineProfileJson(): String = Json.encodeToString(
 fun Profile.validationErrors(): Map<ProfileField, String> = buildMap {
     if (name.isBlank()) put(ProfileField.Name, "Name must not be blank")
     if (endpoint.isBlank()) put(ProfileField.Endpoint, "Endpoint must not be blank")
+    if (!isIpv4(address.trim())) put(ProfileField.Address, "Must be an IPv4 address, such as 10.88.0.2")
     if (dnsUpstream.isEmpty()) put(ProfileField.DnsUpstream, "At least one server is required")
     when {
         dnsAlternative.isEmpty() -> put(ProfileField.DnsAlternative, "At least one server is required")
@@ -48,7 +53,7 @@ fun Profile.validationErrors(): Map<ProfileField, String> = buildMap {
     }
 }
 
-enum class ProfileField { Name, Endpoint, Password, DnsUpstream, DnsAlternative }
+enum class ProfileField { Name, Endpoint, Address, Password, DnsUpstream, DnsAlternative }
 
 /** The shortest password the endpoint accepts. */
 const val MinPasswordLength = 12
