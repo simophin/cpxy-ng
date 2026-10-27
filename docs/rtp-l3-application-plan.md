@@ -3,6 +3,12 @@
 Status: direct Linux service and packet-engine API implemented. The generic UDP
 relay and cross-host port coordination were removed on 2026-10-25.
 
+Proposed next core-protocol change: the
+[HTTP control implementation plan](rtp-http-control-plan.md) replaces base UDP
+bootstrap with encrypted HTTP RPC, per-client UDP allocations, authenticated
+data and client-driven rotation. It is a plan, not implemented behavior; mobile
+integration and deployment are deferred from that work.
+
 ## Current architecture
 
 ```text
