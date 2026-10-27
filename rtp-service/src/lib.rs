@@ -53,8 +53,8 @@ fn listen_interface(ip: std::net::IpAddr) -> io::Result<String> {
 fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
     let Role::Endpoint {
         listen,
-        rotation_low,
-        rotation_high,
+        udp_low,
+        udp_high,
         ..
     } = settings.transport
     else {
@@ -82,9 +82,9 @@ fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
     Ok(Some(Policy {
         profile: settings.profile.clone(),
         bind: listen.ip(),
-        base: listen.port(),
-        low: rotation_low,
-        high: rotation_high,
+        base: udp_low,
+        low: udp_low,
+        high: udp_high,
         zone,
         interface,
         sources: options.sources.clone(),
@@ -104,7 +104,7 @@ fn admission(settings: &Settings, events: &Events) -> io::Result<(Box<dyn Admiss
                 serde_json::json!({"event":"admission", "mode":"firewalld", "zone":p.zone, "interface":p.interface})
             }
             None => {
-                serde_json::json!({"event":"admission", "mode":"administrator", "detail":"firewalld not managed; open the listen and rotation UDP ports externally"})
+                serde_json::json!({"event":"admission", "mode":"administrator", "detail":"firewalld not managed; open the TCP control port and UDP pool externally"})
             }
         });
     }
@@ -309,17 +309,14 @@ impl SocketProvider for Host {
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket> {
         let Role::Endpoint {
             listen,
-            rotation_low,
-            rotation_high,
+            udp_low,
+            udp_high,
             ..
         } = self.settings.transport
         else {
             return Err(io::Error::other("client cannot lease listeners"));
         };
-        if address.ip() != listen.ip()
-            || address.port() != listen.port()
-                && !(rotation_low..=rotation_high).contains(&address.port())
-        {
+        if address.ip() != listen.ip() || !(udp_low..=udp_high).contains(&address.port()) {
             return Err(io::Error::other("port outside profile namespace"));
         }
         let socket = endpoint_socket(address)?;

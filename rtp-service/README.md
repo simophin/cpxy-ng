@@ -1,187 +1,142 @@
-# cpxy-rtp: managed Linux RTP service
+# cpxy-rtp: HTTP-controlled RTP transport
 
-`cpxy-rtp` runs one end of the RTP-framed IPv4 tunnel. An **endpoint** accepts
-clients over UDP and forwards their traffic to selected private networks (service
-CIDRs). A **client** connects directly to the endpoint. It is not an
-internet VPN by default: only configured service CIDRs are routed. Explicit
-`--internet-exit` mode permits a full IPv4 exit. Inner packets remain IPv4 with
-MTU 1200; outer UDP sockets support IPv4 and IPv6.
+The Linux service carries IPv4 through allocation-scoped, authenticated UDP
+frames. Plain HTTP carries encrypted JSON-RPC control; it does not use TLS.
+The client creates a dedicated UDP allocation and rotates it every five minutes.
+There is no base UDP listener, fallback port or server rotation epoch.
 
-## Running an endpoint
+This is a matched v2 client/server breaking change. Mobile integration is
+separate: mobile and the old experiment worker return an explicit unsupported
+protocol error. See the [wire contract](../docs/rtp-http-protocol.md) and
+[validation report](../docs/rtp-http-validation.md).
 
-CI builds static musl binaries for x86_64 and aarch64 (the `cpxy-rtp-<target>`
-artifacts). They have no runtime
-dependencies: copy one to a Linux host with `/dev/net/tun`, iproute2 and a public
-IPv4 or IPv6 address, and run it as root (it owns a TUN, routes and firewall rules):
+## Run
+
+Build with `cargo build -p rtp-service --release`. Linux needs TUN, iproute2,
+and the privileges to create its interface, routes and scoped admission rules.
+Set the same password and server identity at both ends. The password is read
+only from `CPXY_RTP_PASSWORD`, removed from the process environment after use,
+and derived with Argon2id (19 MiB, two passes). It never appears in argv.
 
 ```sh
 CPXY_RTP_PASSWORD=... cpxy-rtp endpoint --listen 203.0.113.10:30000 \
-    --service-cidr 10.90.0.0/24
+    --udp-ports 30001-30100 --service-cidr 10.90.0.0/24
+
+CPXY_RTP_PASSWORD=... cpxy-rtp client --entry 203.0.113.10:30000 \
+    --outbound-interface eth0 --dynamic-address --service-cidr 10.90.0.0/24
 ```
 
-Enable IPv4 forwarding (`net.ipv4.ip_forward=1`) first; the service never changes
-it. With firewalld running, nothing else is needed: see [Firewall](#firewall).
-Without it, open the listen port and the rotation port range for UDP yourself,
-allow forwarding from the TUN to the service CIDRs, and make sure backends can
-route replies back (a route to the tunnel pool via this host, or your own SNAT).
-Run it under whatever supervisor you use; it stays in the foreground and logs
-JSON events to stderr. After a crash, run `cpxy-rtp endpoint ... cleanup-ports`
-(release ports, keep routing guards) or `cleanup` (release everything) with the
-same settings.
+`--listen` and `--entry` identify the **TCP HTTP control** port. The administrator
+must admit that TCP port; UDP rules are managed separately per allocation.
+With `--firewall none`, the administrator also provisions UDP admission and
+forwarding. No code opens the entire pool or changes permanent firewall policy.
 
-A client on Linux uses the same binary:
+The endpoint's `--address` defaults to `10.88.0.1/24`. Dynamic addressing defaults
+to usable addresses in that subnet, excluding server/network/broadcast, static
+reservations and existing claims. Configure `--pool-low`, `--pool-high` and
+repeat `--reserved-address` to separate the dynamic pool from static clients.
+The pool is bounded to 1048576 addresses. A static client omits `--dynamic-address`
+and uses `--address 10.88.0.20/24`; create records its claim atomically before a
+dynamic assignment can collide. Address conflicts are errors, never route theft.
+
+Each client persists its UUID in the state directory, separate from transient
+leases. The server persists UUID/address mappings indefinitely: disconnect and
+UDP expiry do not recycle an address. Back up this state. A copied UUID shares
+one identity and its two-allocation quota; lost/corrupt state is diagnosed.
+Live transport secrets and packet counters are never persisted. New creates
+return an authenticated activation floor so a restarted client can supersede a
+stale route without reusing keys/counters. Abandoned candidates may still require
+lease expiry before another allocation fits the quota.
+
+## Configuration and operation
+
+Flags also have `CPXY_RTP_*` environment forms; consult `--help`.
+
+| Setting | Default / meaning |
+| --- | --- |
+| `--server-identity` | `cpxy-rtp`; identical at both peers, bound into control AEAD |
+| `--udp-ports` | Eight UDP ports after the TCP port; explicit LOW-HIGH recommended |
+| `--state-dir` | `/var/lib/cpxy-rtp`; private durable identity/address/lease journals |
+| `--interface` | `rtp0`; refuses an existing administrator interface |
+| `--address` | Endpoint `.1/24`, static client `.2/24` in `10.88.0.0/24` |
+| `--keepalive-seconds` | 15, jitter +/-20%, validated range 5..45 |
+| `--firewall` | `auto`; firewalld when available, otherwise administrator managed |
+| `--service-cidr` | Selected forwarding destinations; no public exit by default |
+| `--internet-exit` | Explicit IPv4 exit; router routing/NAT provisioned externally |
+
+Rotation is activation+300 s, with preparation 10 s early and a 10 s old-path
+drain. Startup deadline is 30 s, authenticated inactivity expiry 120 s. Health
+probes also detect missing inbound traffic during uploads: waits 1/2/4 s, one
+outstanding probe, matching PONG only. Unknown HTTP outcomes are retried with
+the same operation and fresh envelope/path. Preparation failures retain the
+working path. New sockets and HTTP connections bind the physical device before
+connect; namespace mode obtains both TCP and UDP descriptors from its host broker.
+
+One TUN reader dispatches downstream to one bounded FIFO per client. It expires
+packets after one second, limits each client to 256 packets/256 KiB and all
+clients to 16 MiB, and sends at most 32 packets per allocation per turn. Inner
+MTU remains 1200: maximum outer size is 1260 bytes over IPv4 or 1280 over IPv6.
+This is RTP-shaped transport, not SRTP or a traffic-camouflage claim.
+
+Peers sharing the PSK are trusted members. UUIDs are consistency identifiers,
+not credentials. AEAD and replay windows protect against outside attackers;
+this design does not provide forward secrecy or isolation between PSK holders.
+
+## Firewall and routing
+
+Managed firewalld uses generation-scoped UDP leases through `port-admission`.
+Prepare/query/commit completes before returning an allocation. HTTP/firewall
+work runs separately from packet processing; no packet-table lock spans D-Bus
+I/O. Failed retirement retains the bound socket until reconciliation succeeds.
+Journals contain ownership metadata, not keys. Reload/backend recovery is checked
+every second. The service never reloads the host firewall or adopts identical
+administrator rules. The TCP control port remains administrator provisioned.
+
+For selected-network forwarding, the service binds its own TUN to the configured
+runtime zone and optionally masquerades tunnel-subnet traffic to service CIDRs.
+Configure host IPv4 forwarding explicitly; the service never toggles it.
+Allocation framing enforces each client's inner address before forwarding;
+selected destination policy remains enforced separately. Endpoint return routes
+cover the configured tunnel subnet so dynamically assigned clients work.
+
+Client selected routes use reserved tables/rule priorities with an unreachable
+guard. Process death or failed startup keeps the guard; explicit stop/`cleanup`
+releases it. `cleanup-ports` removes only admission leases, preserving guards.
+Unrelated routes, rules, interfaces and permanent configuration remain owned by
+the administrator. DNS remains external fail-closed policy metadata only.
 
 ```sh
-CPXY_RTP_PASSWORD=... cpxy-rtp client --entry 203.0.113.10:30000 \
-    --outbound-interface eth0 --service-cidr 10.90.0.0/24
+cpxy-rtp endpoint ... cleanup-ports
+cpxy-rtp endpoint ... cleanup
+cpxy-rtp client ... doctor
 ```
 
-`cpxy-rtp client ... namespace -- COMMAND` instead runs COMMAND in an
-unprivileged user/network namespace whose only route is the tunnel; see
-[Namespace client](#namespace-client).
+`client ... namespace -- COMMAND` creates the TUN/routes inside an unprivileged
+namespace and starts COMMAND after connection (90-second startup bound). Its
+host parent handles only protected socket descriptors. It never sees keys or
+inner packets. Every recovery connection still uses host networking.
 
-## IPv6 outer transport and dual-stack listeners
-
-`--listen '[::]:30000'` explicitly creates dual-stack base and rotation sockets.
-They accept IPv4 and IPv6 clients on the same port pool. Managed firewalld
-admission creates rules for both address families; a specific IPv6 listen
-address admits only IPv6. Source restrictions must cover each desired family.
-Clients use `--entry '[2001:db8::10]:30000'`; their default UDP bind becomes
-`[::]:0`. An explicit `--bind` must match the entry's address family. Replacement
-sockets remain bound to the configured outbound device or protected namespace
-broker. IPv4-mapped peers on a dual-stack server are normalized to IPv4 before
-session lookup. Port rotation and the wire format are unchanged.
-
-IPv6 is only the **outer transport** for this Linux service. Tunnel addresses, selected routes, DNS
-metadata and packet validation remain IPv4. IPv6 packets inside the tunnel are
-rejected. A 1200-byte inner packet plus RTP framing and IPv6/UDP headers fits
-within 1280 bytes.
-
-`--internet-exit` uses ordinary endpoint routing and source-scoped masquerade
-when firewalld is managed. Its client leaves policy routing, DNS, LAN forwarding
-and NAT to the gateway administrator; it does not install a host default route.
-Give concurrent endpoints separate interfaces, tunnel pools, state directories,
-return-routing tables and unused rule priorities.
-
-## Configuration
-
-Everything is a flag, and every flag also reads a `CPXY_RTP_*` environment
-variable (`cpxy-rtp endpoint --help` lists both). There is no configuration file
-and no reload: change the environment and restart. SIGTERM, SIGINT and SIGHUP
-stop gracefully.
-
-The shared password is read **only** from `CPXY_RTP_PASSWORD`, never from a flag,
-so it stays out of process listings. It must be at least 12 characters. Both
-sides derive the 32-byte key with Argon2id (19 MiB, 2 passes) and a fixed
-protocol salt, so a password change needs every client updated. The service
-removes the variable from its environment after reading it, so namespace
-applications never inherit it.
-
-Commonly used endpoint settings, with defaults:
-
-| Flag / variable | Default | Meaning |
-| --- | --- | --- |
-| `--listen` / `CPXY_RTP_LISTEN` | required | Public IP and base UDP port; `[::]:PORT` accepts both families |
-| `--rotation-ports` | next 8 ports | Rotation pool `LOW-HIGH` |
-| `--rotation-seconds` | 300 | 0 disables scheduled rotation |
-| `--service-cidr` (comma-separated) | none | Networks clients may reach; enables routing policy |
-| `--address` | `10.88.0.1/24` | Endpoint tunnel address; its network is the tunnel pool |
-| `--client-address` (comma-separated) | `10.88.0.2` | Client tunnel addresses allowed in |
-| `--interface` | `rtp0` | TUN name; must not already exist |
-| `--state-dir` | `/var/lib/cpxy-rtp` | Lease, routing and firewall journals; created 0700 |
-| `--route-table`, `--rule-priority` | 18800, 1000 | Reserved per instance; see [Routing](#routing) |
-| `--firewall` | `auto` | `auto`, `firewalld` or `none` |
-
-Each process uses the fixed identity `cpxy-rtp` for its leases and firewall
-rules. Run one endpoint per state directory.
-
-`cpxy-rtp endpoint doctor` prints read-only diagnostics as JSON: whether the
-password variable is set, TUN availability, socket binding, the firewalld policy
-it would use, and the routing and DNS policy. It never prints the password.
-
-## Firewall
-
-`--firewall auto` (the default) manages firewalld in-process when it answers on
-the system bus, and otherwise logs that UDP admission is the administrator's job.
-`--firewall firewalld` fails startup when firewalld is absent; `none` never
-touches it. The startup `admission` event says which mode is in effect. All
-changes are runtime-only: permanent configuration is never modified, and a
-`firewall-cmd --reload` or firewalld restart is repaired within about a second
-by periodic reconciliation.
-
-When firewalld is managed, the endpoint:
-
-- opens exactly the listen port and each rotation port as it is used, as rich
-  rules restricted to `--firewalld-source` CIDRs (defaults match the listener family; dual-stack wildcard uses both
-  `0.0.0.0/0` and `::/0`, at most 4)
-  and the listen address, in the zone of the listen interface (`--firewalld-zone`
-  and `--firewalld-interface` override the lookup). A port whose identical rule
-  already exists is refused instead of shared, and removed rules always belong
-  to this service.
-- binds its own TUN to `--firewalld-tunnel-zone` (default `trusted`) so firewalld
-  forwards decrypted packets. The service's packet allowlist still limits them
-  to configured client addresses and service CIDRs. Administrator interfaces
-  are never reassigned.
-- adds, unless `--no-masquerade`, one rule per service CIDR,
-  `source <tunnel pool> destination <cidr> masquerade`, in the zone of the
-  interface that routes to that CIDR. Backends then need no return route but
-  see the endpoint's address rather than the client's.
-
-Every owned rule and binding is journaled before it is applied. A normal stop
-removes them; after a crash, `cleanup-ports` releases ports and `cleanup`
-releases ports, forwarding and routing policy.
-
-## Routing
-
-`--service-cidr` installs policy rules at `--rule-priority` that send those
-destinations to the reserved `--route-table`, which holds the live TUN routes
-and an unreachable default. If the TUN disappears, the guard keeps rejecting
-traffic instead of falling through to a physical route. Startup refuses table
-or rule collisions and earlier custom rules that could overlap its destinations.
-Proven-disjoint client-return selectors for other endpoints are allowed.
-Normal stop and `cleanup` release
-the guard; a crash, failed startup or `cleanup-ports` deliberately keep it until
-restart or explicit cleanup. Cleanup never flushes a table or replaces
-administrator routes. A reboot removes kernel policy, so start the service
-before applications that need guarded access.
-
-On the endpoint, inner packets are accepted only from listed client addresses to
-the service CIDRs; on a client, only from the service CIDRs to its own address.
-The existing experimental protocol uses one shared key and unauthenticated data
-encryption: it provides no per-client cryptographic identity. Use separate
-endpoint instances (and passwords) when clients must be isolated from each other.
-
-DNS is metadata only: `--dns-resolver` (inside a service CIDR) with
-`--dns-suffix` records the private resolver, and the administrator must provide a
-persistent fail-closed local resolver that never retries those suffixes publicly.
-The service never changes DNS.
-
-## Namespace client
-
-`cpxy-rtp client ... namespace -- COMMAND` needs unprivileged user, network and
-mount namespaces. The host-side parent keeps a private socketpair and creates
-every outer UDP socket in host networking, bound to `--outbound-interface` and
-connected only to the configured entry IP; it never handles keys or tunnel
-packets and never changes host routes or firewall. TUN and routes live in the
-child namespace. COMMAND starts once connected (90-second limit) and its exit
-stops the service; without COMMAND it runs until a signal.
+`--listen '[::]:PORT'` supports both outer families; `--entry '[2001:db8::1]:PORT'`
+uses an IPv6 outer path. Inner IPv6 remains unsupported; no host-wide IPv6 setting
+is changed. A full-tunnel deployment must separately prevent IPv6 bypass within
+its protected scope.
 
 ## Verification
 
 ```sh
-cargo test -p port-admission -p rtp-l3 -p rtp-service --locked
-cargo build -p rtp-service -p port-admission
+cargo test --locked -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile
+cargo test -p rtp-service five_minute_rotation -- --ignored
+cargo check --workspace --locked
+cargo build -p rtp-service -p port-admission -p rtp-mobile --bins
 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
 RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
 unshare -Urnm bash rtp-service/tests/linux-applications.sh
-unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
 bash rtp-service/tests/linux-namespace-broker.sh
+bash rtp-service/tests/linux-dual-stack.sh
+unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
+bash rtp-mobile/tests/linux-lab.sh
 ```
 
-The namespace tests need TUN, iproute2, ping, Python 3 and unprivileged
-namespaces; the firewalld test also needs firewalld, dbus-daemon and busctl, and
-runs a private firewalld on a private bus without touching the host firewall. It
-covers auto-detection, owned and conflicting rules, the TUN zone binding and
-masquerade to a backend with no return route, a hung firewalld, reload and
-restart recovery, SIGKILL plus repeated independent cleanup, graceful-stop
-cleanup, and failing closed when firewalld is required but absent.
+The firewalld fixture runs on a private bus in disposable namespaces. Its
+administrator-owned TCP admission is separate from service UDP ownership.
+Historical mobile-v1 fixtures are archived and are not v2 acceptance evidence.

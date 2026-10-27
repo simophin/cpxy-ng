@@ -161,6 +161,16 @@ impl Routes {
         );
         Ok(None)
     }
+    pub fn next_activation(&self, client: Uuid) -> Option<u64> {
+        self.owners
+            .get(&client)
+            .map_or(Some(1), |o| o.activation.checked_add(1))
+    }
+    pub fn drained(&self, allocation: Uuid, now: u64) -> bool {
+        self.superseded
+            .get(&allocation)
+            .is_some_and(|until| now >= *until)
+    }
     pub fn owner(&self, client: Uuid) -> Option<Uuid> {
         self.owners.get(&client).map(|o| o.allocation)
     }

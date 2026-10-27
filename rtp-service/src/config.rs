@@ -15,48 +15,13 @@ pub enum Role {
     },
     Endpoint {
         listen: SocketAddr,
-        rotation_low: u16,
-        rotation_high: u16,
-        #[serde(default = "rotation")]
-        rotation_seconds: u64,
+        udp_low: u16,
+        udp_high: u16,
     },
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initial_data_port_is_endpoint_owned_and_inside_its_pool() {
-        let mut settings: Settings = serde_json::from_value(serde_json::json!({
-            "profile":"fixed", "journal":"/tmp/fixed.json",
-            "interface":"rtp0", "address":"10.88.0.1/24",
-            "transport":{"role":"endpoint", "listen":"192.0.2.2:30000",
-                "rotation_low":30001, "rotation_high":30008, "rotation_seconds":0},
-            "initial_rotation_port":30001, "firewall":"none"
-        }))
-        .unwrap();
-        settings.validate().unwrap();
-        for invalid in [0, 30000, 30009] {
-            settings.initial_rotation_port = Some(invalid);
-            assert!(settings.validate().is_err());
-        }
-        settings.initial_rotation_port = Some(30001);
-        settings.transport = Role::Client {
-            entry: "192.0.2.2:30000".parse().unwrap(),
-            bind: "0.0.0.0:0".parse().unwrap(),
-        };
-        settings.outbound_interface = Some("eth0".into());
-        assert!(settings.validate().is_err());
-        settings.initial_rotation_port = None;
-        settings.validate().unwrap();
-    }
-}
 fn localhost_any() -> SocketAddr {
     SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0)
-}
-fn rotation() -> u64 {
-    300
 }
 fn keepalive() -> u64 {
     15
@@ -131,10 +96,6 @@ pub struct Settings {
     pub outbound_interface: Option<String>,
     pub address: String,
     pub transport: Role,
-    /// Optional deterministic initial data port inside the rotation pool.
-    /// Scheduled rotations still use the configured pool.
-    #[serde(default)]
-    pub initial_rotation_port: Option<u16>,
     #[serde(default)]
     pub network: Option<crate::network::Network>,
     #[serde(default = "keepalive")]
@@ -217,38 +178,23 @@ impl Settings {
             }
         }
         match self.transport {
-            Role::Client { .. } if self.initial_rotation_port.is_some() => {
-                return Err(io::Error::other("initial_rotation_port is endpoint-only"));
-            }
             Role::Client { entry, .. } if entry.port() == 0 => {
                 return Err(io::Error::other("entry port must be nonzero"))
             }
             Role::Endpoint {
                 listen,
-                rotation_low,
-                rotation_high,
-                rotation_seconds,
+                udp_low,
+                udp_high,
             } => {
-                if self.initial_rotation_port.is_some_and(|port| {
-                    port == listen.port() || !(rotation_low..=rotation_high).contains(&port)
-                }) {
+                if listen.port() == 0 || udp_low == 0 || udp_high < udp_low {
                     return Err(io::Error::other(
-                        "initial_rotation_port must be a non-base port in the rotation pool",
+                        "endpoint requires TCP control port and nonempty UDP pool",
                     ));
                 }
-                if listen.port() == 0
-                    || rotation_low == 0
-                    || rotation_high < rotation_low
-                    || u32::from(rotation_high) - u32::from(rotation_low) + 1
-                        - u32::from((rotation_low..=rotation_high).contains(&listen.port()))
-                        < 3
-                {
+                if self.inner()?.1 > 30 || self.control.dynamic_address {
                     return Err(io::Error::other(
-                        "endpoint needs base and three non-base rotation ports",
+                        "endpoint requires a usable IPv4 subnet and static server address",
                     ));
-                }
-                if rotation_seconds == 1 || rotation_seconds > u64::MAX / 3 {
-                    return Err(io::Error::other("invalid rotation_seconds"));
                 }
             }
             _ => {}

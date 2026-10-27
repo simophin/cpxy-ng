@@ -65,6 +65,8 @@ struct Allocation {
     retire: Option<u64>,
     health: Health,
     repair_after: u64,
+    activate_early: bool,
+    activation_floor: u64,
 }
 impl Allocation {
     fn new(
@@ -125,6 +127,11 @@ impl Allocation {
             retire: None,
             health: Health::new(now, idle_delay(keepalive)),
             repair_after: 0,
+            activate_early: false,
+            activation_floor: result["activation_floor"]
+                .as_u64()
+                .filter(|n| *n > 0)
+                .ok_or_else(invalid)?,
         })
     }
     fn handshake_socket(&self) -> &UdpSocket {
@@ -278,7 +285,8 @@ pub fn run(
                         now,
                         keepalive,
                     ) {
-                        Ok(a) => {
+                        Ok(mut a) => {
+                            a.activate_early = recreate;
                             if allocations
                                 .first()
                                 .is_some_and(|old| old.generation != a.generation)
@@ -412,10 +420,17 @@ pub fn run(
                     }
                 }
                 if matches!(a.phase, Phase::Ready)
-                    && (a.candidate.is_some() || active.is_none() || now >= rotation_due)
+                    && (a.candidate.is_some()
+                        || a.activate_early
+                        || active.is_none()
+                        || now >= rotation_due)
                 {
-                    activation = activation.checked_add(1).ok_or_else(invalid)?;
+                    activation = activation
+                        .max(a.activation_floor - 1)
+                        .checked_add(1)
+                        .ok_or_else(invalid)?;
                     a.phase = Phase::Activating(activation);
+                    a.started = now;
                     a.retry = 0;
                 }
                 if now >= a.retry {
@@ -455,7 +470,9 @@ pub fn run(
                         }
                         Some(HealthAction::Suspect) => {
                             events(json!({"event":"repairing"}));
-                            let _ = a.repair(provider.as_ref(), now);
+                            if a.repair(provider.as_ref(), now).is_err() || a.candidate.is_none() {
+                                recreate = true;
+                            }
                         }
                         None => {}
                     }

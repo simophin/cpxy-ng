@@ -93,6 +93,7 @@ mod linux {
         }
     }
     pub fn main() -> io::Result<()> {
+        rtp_l3::worker::require_http_integration()?;
         let a: Vec<String> = env::args().collect();
         let client = a.get(1).map(String::as_str) == Some("client");
         if !(client && a.len() == 6

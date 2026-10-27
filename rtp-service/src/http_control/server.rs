@@ -51,8 +51,8 @@ pub fn run(
 ) -> io::Result<()> {
     let Role::Endpoint {
         listen,
-        rotation_low: low,
-        rotation_high: high,
+        udp_low: low,
+        udp_high: high,
         ..
     } = settings.transport
     else {

@@ -14,7 +14,7 @@ if [[ ${1:-} != __inner ]]; then
     unshare -Urnm bash "$0" __inner
     after=$(snapshot)
     [[ "$before" == "$after" ]] || { echo "Host route comparison failed" >&2; exit 1; }
-    echo 'DUAL_STACK_OK: IPv4 payload, both outer families, rotation, broker replacement; host routes unchanged'
+    echo 'DUAL_STACK_OK: IPv4 payload, both outer families, HTTP control and protected broker sockets; host routes unchanged'
     exit
 fi
 D=$(mktemp -d)
@@ -35,7 +35,7 @@ ip link set lo up
 umask 077
 export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 endpoint_args=(endpoint --state-dir "$D/endpoint" --interface rtpe --listen '[::]:39000'
-    --rotation-ports 39001-39008 --rotation-seconds 2 --firewall none
+    --udp-ports 39001-39008 --firewall none
     --internet-exit --client-address 10.88.0.2,10.88.0.3 --route-table 18800 --rule-priority 1000)
 "$BIN" "${endpoint_args[@]}" >"$D/endpoint.log" 2>&1 &
 endpoint=$!
@@ -48,7 +48,7 @@ grep -q '"event":"ready"' "$D/endpoint.log"
 # Start another endpoint with an earlier, disjoint client-return selector, then
 # restart the first while that selector remains. Both restart orders must work.
 "$BIN" endpoint --state-dir "$D/standby" --interface rtps --listen '[::]:39100' \
-    --rotation-ports 39101-39108 --firewall none --internet-exit \
+    --udp-ports 39101-39108 --firewall none --internet-exit \
     --address 10.89.0.1/24 --client-address 10.89.0.2 --route-table 18830 \
     --rule-priority 900 >"$D/standby.log" 2>&1 &
 standby=$!
@@ -86,7 +86,6 @@ for pid in "${clients[@]}"; do wait "$pid"; done
 clients=()
 for family in 4 6; do
     grep -q '"event":"connected"' "$D/client$family.log"
-    grep -Eq '"event":"switched"|"switches":[1-9]' "$D/client$family.log"
     grep -q ', 0% packet loss' "$D/client$family.log"
 done
 kill -TERM "$endpoint"

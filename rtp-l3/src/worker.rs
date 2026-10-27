@@ -1,132 +1,163 @@
-//! Unix packet worker; all privileged operations are injected.
-use crate::*;
+//! Host socket contracts. Legacy worker entry points fail explicitly; the Linux
+//! HTTP v2 runtime lives in rtp-service. Mobile needs a protected TCP provider.
+#[cfg(target_os = "linux")]
+use std::{fs, os::fd::FromRawFd};
 use std::{
-    env,
     io::{self, Read, Write},
     net::{Ipv4Addr, SocketAddr, UdpSocket},
     os::fd::AsRawFd,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
 };
-#[cfg(target_os = "linux")]
-use std::{fs, os::fd::FromRawFd};
-#[derive(Default)]
-struct Counts {
-    tx_packets: u64,
-    rx_packets: u64,
-    tx_plain: u64,
-    rx_plain: u64,
-    tx_wire: u64,
-    rx_wire: u64,
-    invalid: u64,
-    tun_drops: u64,
-    socket_drops: u64,
-    kernel_rx_drops: u64,
-    sessions: usize,
-    rotations: u64,
-    announces_sent: u64,
-    announce_retries: u64,
-    switches: u64,
-    pings_sent: u64,
-    pings_unanswered: u64,
-    fallbacks: u64,
-    control_rejected: u64,
-    unknown_destination: u64,
-    session_conflicts: u64,
-    rotation_bind_failures: u64,
-    control_tx: u64,
-    control_rx: u64,
-    path_candidates: u64,
-    candidate_probes: u64,
-    candidate_retries: u64,
-    socket_renewals: u64,
-    active_repairs: u64,
+include!("worker_api.rs");
+/// Mobile integration is deferred; never emit the removed v1 wire format.
+pub fn require_http_integration() -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported,"HTTP-controlled RTP v2 requires protected TCP control sockets and persistent UUID state; mobile/legacy worker integration is unsupported"))
 }
-impl Counts {
-    fn report(&self, elapsed: f64, final_report: bool, events: &dyn Fn(serde_json::Value)) {
-        // There is no replay detection: `rejected` only covers malformed,
-        // non-IPv4-after-XOR or foreign-source datagrams.
-        let j = serde_json::json!({"event":if final_report{"final"}else{"stats"},"protocol":PROTOCOL,"seconds":elapsed,"tx_packets":self.tx_packets,"rx_packets":self.rx_packets,"tx_plain_bytes":self.tx_plain,"rx_plain_bytes":self.rx_plain,"tx_udp_payload_bytes":self.tx_wire,"rx_udp_payload_bytes":self.rx_wire,"tun_write_drops":self.tun_drops,"socket_send_drops":self.socket_drops,"socket_receive_drops":self.kernel_rx_drops,"rejected":self.invalid,"sessions":self.sessions,"rotations":self.rotations,"announces_sent":self.announces_sent,"announce_retries":self.announce_retries,"switches":self.switches,"pings_sent":self.pings_sent,"pings_unanswered":self.pings_unanswered,"fallbacks":self.fallbacks,"control_rejected":self.control_rejected,"unknown_destination":self.unknown_destination,"session_conflicts":self.session_conflicts,"rotation_bind_failures":self.rotation_bind_failures,"control_tx_packets":self.control_tx,"control_rx_packets":self.control_rx,"path_candidates":self.path_candidates,"candidate_probes":self.candidate_probes,"candidate_retries":self.candidate_retries,"socket_renewals":self.socket_renewals,"active_repairs":self.active_repairs});
-        events(j);
-    }
+pub fn run(
+    _config: WorkerConfig,
+    _resources: Resources,
+    _running: Arc<AtomicBool>,
+) -> io::Result<()> {
+    require_http_integration()
+}
+pub fn run_client(
+    _config: WorkerConfig,
+    _resources: Resources,
+    _running: Arc<AtomicBool>,
+    _peer: SocketAddr,
+) -> io::Result<()> {
+    require_http_integration()
 }
 #[cfg(target_os = "linux")]
-fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, Option<u32>)> {
+pub fn broker_socket(broker: &fs::File, port: u16) -> io::Result<UdpSocket> {
+    let request = port.to_be_bytes();
     unsafe {
-        let mut addr: libc::sockaddr_storage = std::mem::zeroed();
-        let mut control = [0usize; 8];
-        let mut iov = libc::iovec {
-            iov_base: b.as_mut_ptr() as *mut _,
-            iov_len: b.len(),
-        };
-        let mut msg: libc::msghdr = std::mem::zeroed();
-        msg.msg_name = &mut addr as *mut _ as *mut _;
-        msg.msg_namelen = std::mem::size_of_val(&addr) as _;
-        msg.msg_iov = &mut iov;
-        msg.msg_iovlen = 1;
-        msg.msg_control = control.as_mut_ptr() as *mut _;
-        // Field widths differ between glibc (usize) and musl (socklen_t).
-        msg.msg_controllen = std::mem::size_of_val(&control) as _;
-        let n = libc::recvmsg(socket.as_raw_fd(), &mut msg, 0);
-        if n < 0 {
+        if libc::send(
+            broker.as_raw_fd(),
+            request.as_ptr().cast(),
+            2,
+            libc::MSG_NOSIGNAL,
+        ) != 2
+        {
             return Err(io::Error::last_os_error());
         }
-        if msg.msg_flags & libc::MSG_TRUNC != 0 {
-            return Err(io::Error::other("truncated UDP"));
-        }
-        let peer = match addr.ss_family as libc::c_int {
-            libc::AF_INET
-                if msg.msg_namelen as usize >= std::mem::size_of::<libc::sockaddr_in>() =>
-            {
-                let addr = std::ptr::read(
-                    (&addr as *const libc::sockaddr_storage).cast::<libc::sockaddr_in>(),
-                );
-                SocketAddr::new(
-                    Ipv4Addr::from(addr.sin_addr.s_addr.to_ne_bytes()).into(),
-                    u16::from_be(addr.sin_port),
-                )
-            }
-            libc::AF_INET6
-                if msg.msg_namelen as usize >= std::mem::size_of::<libc::sockaddr_in6>() =>
-            {
-                let addr = std::ptr::read(
-                    (&addr as *const libc::sockaddr_storage).cast::<libc::sockaddr_in6>(),
-                );
-                let ip = std::net::Ipv6Addr::from(addr.sin6_addr.s6_addr);
-                match ip.to_ipv4_mapped() {
-                    Some(ip) => SocketAddr::new(ip.into(), u16::from_be(addr.sin6_port)),
-                    None => SocketAddr::V6(std::net::SocketAddrV6::new(
-                        ip,
-                        u16::from_be(addr.sin6_port),
-                        u32::from_be(addr.sin6_flowinfo),
-                        addr.sin6_scope_id,
-                    )),
-                }
-            }
-            _ => return Err(io::Error::other("unsupported UDP address family")),
+        let mut poll = libc::pollfd {
+            fd: broker.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
         };
-        let mut drops = None;
+        if libc::poll(&mut poll, 1, 1000) != 1 {
+            return Err(io::Error::other("socket broker unavailable"));
+        }
+        let mut label = [0u8; 2];
+        let mut ancillary = [0usize; 8];
+        let mut iov = libc::iovec {
+            iov_base: label.as_mut_ptr().cast(),
+            iov_len: 2,
+        };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = ancillary.as_mut_ptr().cast();
+        // Field widths differ between glibc (usize) and musl (socklen_t).
+        msg.msg_controllen = std::mem::size_of_val(&ancillary) as _;
+        let received = libc::recvmsg(broker.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
+        if received < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // Own every delivered descriptor before validating the response.
+        let mut sockets = Vec::new();
         let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
         while !cmsg.is_null() {
-            if (*cmsg).cmsg_level == libc::SOL_SOCKET
-                && (*cmsg).cmsg_type == libc::SO_RXQ_OVFL
-                && (*cmsg).cmsg_len as usize >= libc::CMSG_LEN(4) as usize
-            {
-                drops = Some(std::ptr::read_unaligned(libc::CMSG_DATA(cmsg) as *const u32));
+            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
+                let count =
+                    ((*cmsg).cmsg_len as usize).saturating_sub(libc::CMSG_LEN(0) as usize) / 4;
+                for index in 0..count {
+                    let fd =
+                        std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<i32>().add(index));
+                    sockets.push(UdpSocket::from_raw_fd(fd));
+                }
             }
             cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
         }
-        Ok((n as usize, peer, drops))
+        if received != 2
+            || label != request
+            || msg.msg_flags & (libc::MSG_CTRUNC | libc::MSG_TRUNC) != 0
+            || sockets.len() != 1
+        {
+            return Err(io::Error::other("invalid socket broker label"));
+        }
+        let socket = sockets.pop().unwrap();
+        socket.set_nonblocking(true)?;
+        Ok(socket)
     }
 }
-
-include!("worker_api.rs");
-include!("runtime.rs");
-
-#[cfg(not(target_os = "linux"))]
-fn receive(socket: &UdpSocket, b: &mut [u8]) -> io::Result<(usize, SocketAddr, Option<u32>)> {
-    socket.recv_from(b).map(|(n, peer)| (n, peer, None))
+#[cfg(target_os = "linux")]
+fn disconnect(socket: &UdpSocket) -> io::Result<SocketAddr> {
+    let peer = socket.peer_addr()?;
+    let local = socket.local_addr()?;
+    let addr = libc::sockaddr {
+        sa_family: libc::AF_UNSPEC as _,
+        sa_data: [0; 14],
+    };
+    if unsafe { libc::connect(socket.as_raw_fd(), &addr, std::mem::size_of_val(&addr) as _) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // Linux may clear an implicitly bound port on AF_UNSPEC. Restore the
+    // original tuple, in the socket's original netns, before sending again.
+    if socket.local_addr()?.port() != local.port() {
+        let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+        let len = match local {
+            SocketAddr::V4(local) => {
+                let addr = libc::sockaddr_in {
+                    sin_family: libc::AF_INET as _,
+                    sin_port: local.port().to_be(),
+                    sin_addr: libc::in_addr {
+                        s_addr: u32::from_ne_bytes(local.ip().octets()),
+                    },
+                    sin_zero: [0; 8],
+                };
+                unsafe {
+                    std::ptr::write(
+                        (&mut storage as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in>(),
+                        addr,
+                    )
+                };
+                std::mem::size_of::<libc::sockaddr_in>()
+            }
+            SocketAddr::V6(local) => {
+                let addr = libc::sockaddr_in6 {
+                    sin6_family: libc::AF_INET6 as _,
+                    sin6_port: local.port().to_be(),
+                    sin6_flowinfo: local.flowinfo().to_be(),
+                    sin6_addr: libc::in6_addr {
+                        s6_addr: local.ip().octets(),
+                    },
+                    sin6_scope_id: local.scope_id(),
+                };
+                unsafe {
+                    std::ptr::write(
+                        (&mut storage as *mut libc::sockaddr_storage).cast::<libc::sockaddr_in6>(),
+                        addr,
+                    )
+                };
+                std::mem::size_of::<libc::sockaddr_in6>()
+            }
+        };
+        if unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                (&storage as *const libc::sockaddr_storage).cast(),
+                len as _,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    if socket.local_addr()?.port() != local.port() {
+        return Err(io::Error::other("disconnect changed local port"));
+    }
+    Ok(peer)
 }

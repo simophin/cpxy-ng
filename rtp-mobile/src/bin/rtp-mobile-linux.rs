@@ -49,6 +49,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         ["run", profile, tun, device, control] => {
+            rtp_l3::worker::require_http_integration()?;
             let profile =
                 rtp_mobile::profile::Profile::from_json(&std::fs::read_to_string(profile)?)?;
             let password = std::env::var("CPXY_RTP_PASSWORD").context("CPXY_RTP_PASSWORD")?;

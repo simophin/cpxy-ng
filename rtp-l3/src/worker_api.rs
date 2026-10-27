@@ -8,7 +8,7 @@ pub trait SocketProvider: std::marker::Send + Sync {
 
     /// Bind and admit a socket. Failure must not disturb any committed path.
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket>;
-    /// Complete admission before the worker changes epochs or sends STATE.
+    /// Complete admission before exposing an allocation to a client.
     fn commit_port(&self, port: u16) -> io::Result<()>;
     /// Remove only this generation's lease. The worker still holds the socket.
     fn retire_port(&self, port: u16) -> io::Result<()>;
@@ -26,6 +26,7 @@ pub trait SocketProvider: std::marker::Send + Sync {
     }
 }
 
+/// Unsupported legacy adapter shape, retained only for source compatibility.
 #[derive(Clone)]
 pub struct WorkerConfig {
     pub client: bool,

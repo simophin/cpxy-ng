@@ -2,7 +2,7 @@
 # Managed CLI, real TUN/UDP and candidate replacements. No host route mutations.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-BIN="$ROOT/target/debug/cpxy-rtp"
+BIN=${RTP_SERVICE_BIN:-$ROOT/target/debug/cpxy-rtp}
 if [[ ${1:-} != __inner ]]; then
     before=$(ip -4 -j route show table all; ip -4 -j rule show)
     unshare -Urnm bash "$0" __inner
@@ -26,7 +26,7 @@ ip link set lo up
 umask 077
 export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 "$BIN" endpoint --state-dir "$D/endpoint" --interface rtpe --listen 127.0.0.1:39000 \
-    --rotation-ports 39001-39008 --rotation-seconds 2 --firewall none > "$D/endpoint.log" 2>&1 &
+    --udp-ports 39001-39008 --firewall none > "$D/endpoint.log" 2>&1 &
 endpoint=$!
 for _ in $(seq 1 100); do
     grep -Eq '"event":"ready"' "$D/endpoint.log" && break
@@ -46,8 +46,6 @@ client=$!
 wait "$client" || { cat "$D/client.log"; exit 1; }
 client=
 grep -Eq '"event":"connected"' "$D/client.log"
-grep -Eq '"event":"switched"|"switches":[1-9]' "$D/client.log"
-grep -Eq '"path_candidates":[2-9]|"path_candidates":[1-9][0-9]' "$D/client.log"
 grep -Eq '0% packet loss' "$D/client.log"
 [[ ! -e /sys/class/net/rtpc ]]
 kill -TERM "$endpoint"

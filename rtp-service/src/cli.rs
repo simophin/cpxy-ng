@@ -125,17 +125,12 @@ pub struct EndpointArgs {
     pub reserved_addresses: Vec<Ipv4Addr>,
     #[command(flatten)]
     pub common: Common,
-    /// Public IPv4 or IPv6 listen address and base port.
+    /// Plain HTTP control listen address and TCP port.
     #[arg(long, env = "CPXY_RTP_LISTEN")]
     pub listen: SocketAddr,
-    /// Rotation port pool LOW-HIGH; defaults to the 8 ports after the base port.
-    #[arg(long, env = "CPXY_RTP_ROTATION_PORTS", value_parser = port_range)]
-    pub rotation_ports: Option<(u16, u16)>,
-    /// Seconds between port rotations; 0 disables scheduled rotation.
-    #[arg(long, env = "CPXY_RTP_ROTATION_SECONDS", default_value_t = 300)]
-    pub rotation_seconds: u64,
-    #[arg(long, env = "CPXY_RTP_INITIAL_ROTATION_PORT")]
-    pub initial_rotation_port: Option<u16>,
+    /// Dedicated UDP allocation pool LOW-HIGH; defaults to the next 8 ports.
+    #[arg(long, env = "CPXY_RTP_UDP_PORTS", value_parser = port_range)]
+    pub udp_ports: Option<(u16, u16)>,
     /// Tunnel address and prefix of this endpoint.
     #[arg(long, env = "CPXY_RTP_ADDRESS", default_value = "10.88.0.1/24")]
     pub address: String,
@@ -179,7 +174,7 @@ pub struct ClientArgs {
     pub dynamic_address: bool,
     #[command(flatten)]
     pub common: Common,
-    /// Endpoint public IPv4 or IPv6 address and base port.
+    /// Endpoint HTTP control IP address and TCP port.
     #[arg(long, env = "CPXY_RTP_ENTRY")]
     pub entry: SocketAddr,
     /// Local UDP bind address; defaults to the entry's address family.
@@ -254,7 +249,7 @@ fn journal(common: &Common) -> PathBuf {
 impl EndpointArgs {
     pub fn settings(&self) -> io::Result<Settings> {
         let c = &self.common;
-        let (rotation_low, rotation_high) = self.rotation_ports.unwrap_or_else(|| {
+        let (udp_low, udp_high) = self.udp_ports.unwrap_or_else(|| {
             let base = self.listen.port();
             (base.saturating_add(1), base.saturating_add(8))
         });
@@ -273,11 +268,9 @@ impl EndpointArgs {
             address: self.address.clone(),
             transport: Role::Endpoint {
                 listen: self.listen,
-                rotation_low,
-                rotation_high,
-                rotation_seconds: self.rotation_seconds,
+                udp_low,
+                udp_high,
             },
-            initial_rotation_port: self.initial_rotation_port,
             network: network(c, &self.address, self.client_addresses.clone())?,
             keepalive_seconds: c.keepalive_seconds,
             firewall: match self.firewall {
@@ -345,7 +338,6 @@ impl ClientArgs {
                     )
                 }),
             },
-            initial_rotation_port: None,
             network: network(c, &self.address, vec![own])?,
             keepalive_seconds: c.keepalive_seconds,
             firewall: FirewallMode::None,
@@ -468,9 +460,8 @@ mod tests {
         assert!(matches!(
             s.transport,
             Role::Endpoint {
-                rotation_low: 30001,
-                rotation_high: 30008,
-                rotation_seconds: 300,
+                udp_low: 30001,
+                udp_high: 30008,
                 ..
             }
         ));

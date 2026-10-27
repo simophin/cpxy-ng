@@ -17,7 +17,8 @@ in [rtp-l3-protocol.md](rtp-l3-protocol.md) until implementation lands.
 - [x] Connect Linux transport, rotation, repair and buffering; acceptance below
   remains in progress.
 - [ ] Run local acceptance fixtures and record cleanup/environment limits.
-- [ ] Remove superseded core paths, adapt mobile boundary, finish docs and PR.
+- [x] Remove superseded core paths and adapt mobile to explicit unsupported status.
+- [ ] Finish validation report/documentation, push branch and open PR.
 
 ## Objective and agreed constraints
 
@@ -499,8 +500,9 @@ separate follow-up with precise shared-API implications.
 ## Required validation report and completion criteria
 
 The implementing agent must report commands/results, defaults, wire overhead,
-remaining limitations and cleanup evidence. This plan's PR is documentation
-only; do not claim any new protocol behavior has been validated yet.
+remaining limitations and cleanup evidence. Record the implementation PR's actual results in
+[rtp-http-validation.md](rtp-http-validation.md); earlier plan-only commits and
+historical v1 measurements do not establish v2 acceptance.
 
 Completion requires demonstrated dynamic/static addressing, idempotent create
 and release, restart-safe control replay protection, authenticated/replay-checked

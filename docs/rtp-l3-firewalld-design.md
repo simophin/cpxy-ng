@@ -1,8 +1,9 @@
 # RTP service: firewalld port lifecycle
 
-Status: A2 implemented with the limits recorded below; see the [application plan](rtp-l3-application-plan.md).
+Status: port-admission reused by [HTTP-controlled v2](rtp-http-protocol.md).
+See [current validation](rtp-http-validation.md); the A2 scope below is historical.
 Dynamic UDP rules belong to the service supervisor, coupled to socket and
-rotation ownership. Packet workers do not execute firewall commands.
+allocation ownership. Packet workers do not execute firewall commands.
 
 ## Adapter and authority
 
@@ -57,24 +58,23 @@ Keeping live rules untimed separates service liveness/ownership from rule TTLs.
 ## Prepare, advertise and retire
 
 1. Reserve a free port in the configured pool and bind its socket. Keep the
-   current path serving; do not increment epoch or announce the candidate.
+   current path serving; do not change the active route.
 2. Journal intent and inspect the exact admission rules. Refuse ambiguous
    ownership. A preexisting identical rule is not automatically ours to delete;
    require an explicit administrator-managed policy or report the conflict.
 3. Add only missing owned runtime rules and query them. Readiness means the
    socket and required rules are present.
-4. Commit the endpoint state/secret and only then advertise STATE. A bounded
-   staged socket may temporarily exist in addition to base/current/previous.
+4. Commit the allocation and only then return its port/secret over encrypted
+   HTTP. One UUID normally holds at most two live allocations.
 5. On any preparation failure, release only this attempt's resources and keep
-   the existing epoch/path. An ambiguous D-Bus timeout triggers reconciliation,
+   the existing route/path. An ambiguous D-Bus timeout triggers reconciliation,
    not an unconditional second mutation or a success assumption.
-6. Retain previous ports under the protocol's grace/session rules, including
-   its explicit oldest-port eviction bound. Retire the exact lease generation;
+6. Retain previous allocations for the acknowledged handover drain. Retire the exact lease generation;
    remove its owned rule before releasing the bound port for another service.
 
-Base is prepared before registration becomes available. It can carry fallback
-data as well as control. A configured rotation pool is an allocation boundary,
-not permission to expose the entire range permanently.
+The plain HTTP TCP control port is administrator provisioned. There is no base
+UDP allocation or fallback listener. A configured UDP pool is an allocation
+boundary, not permission to expose the entire range permanently.
 
 ## Reloads, crashes and errors
 
@@ -86,7 +86,7 @@ This application does not issue a host-wide reload to add or remove a port.
 - Subscribe, enumerate and reconcile at startup; do not rely on signals alone.
   Recheck before reporting readiness and periodically while running.
 - A reload marks admission readiness degraded until owned live leases are
-  restored and verified. Freeze new rotations while restoration is uncertain.
+  restored and verified. New preparation must still verify admission before commit.
   Existing sockets remain open; a reload need not guarantee uninterrupted data.
 - If firewalld is unavailable at managed-mode startup, fail readiness. An
   explicit administrator-managed mode may verify externally managed admission;

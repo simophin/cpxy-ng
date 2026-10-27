@@ -207,7 +207,7 @@ fn endpoint(entry: SocketAddr, low: u16, root: &std::path::Path) -> Settings {
         "endpoint",
         "--listen",
         &entry.to_string(),
-        "--rotation-ports",
+        "--udp-ports",
         &format!("{low}-{}", low + 8),
         "--firewall",
         "none",

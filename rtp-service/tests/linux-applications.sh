@@ -28,7 +28,7 @@ work=$(mktemp -d /tmp/rtp-a3-XXXX)
 export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
 server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtpe CPXY_RTP_LISTEN=192.0.2.2:30000
-  CPXY_RTP_ROTATION_PORTS=30001-30008 CPXY_RTP_ROTATION_SECONDS=0 CPXY_RTP_FIREWALL=none)
+  CPXY_RTP_UDP_PORTS=30001-30008 CPXY_RTP_FIREWALL=none)
 client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
   CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
 cat > "$work/backend.py" <<'PY'
@@ -51,12 +51,22 @@ PY
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
 server=''; client=''; backend=''
 cleanup(){ for pid in "$server" "$client" "$backend";do if [ -n "$pid" ];then kill "$pid" 2>/dev/null || true;wait "$pid" 2>/dev/null || true;fi;done; }
-trap cleanup EXIT
+trap 'status=$?; if [ "$status" -ne 0 ]; then cat "$work"/*.log; fi; cleanup; rm -rf "$work"; exit "$status"' EXIT
 ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & backend=$!
 ip netns exec e "${server_env[@]}" "$bin" endpoint > "$work/e.out" 2> "$work/e.log" & server=$!
 rtpc(){ ip netns exec c "${client_env[@]}" "$bin" client "$@"; }
 # Backgrounding a function would fork a subshell; signal the service itself.
-start_client(){ ip netns exec c "${client_env[@]}" "$bin" client >> "$work/c.out" 2>> "$work/c.log" & client=$!; sleep 2; }
+start_client(){
+  local previous=0
+  if [ -f "$work/c.log" ]; then previous=$(grep -c '"event":"connected"' "$work/c.log" || true); fi
+  ip netns exec c "${client_env[@]}" "$bin" client >> "$work/c.out" 2>> "$work/c.log" & client=$!
+  for _ in $(seq 1 900); do
+    if [ "$(grep -c '"event":"connected"' "$work/c.log" || true)" -gt "$previous" ]; then return; fi
+    kill -0 "$client"
+    sleep .1
+  done
+  return 1
+}
 start_client
 ip netns exec c python3 "$work/app.py"
 ip netns exec c ip route get 10.90.0.2 | grep -Eq 'dev rtpc.*table 18800'
@@ -103,4 +113,4 @@ if rtpc --dns-resolver 10.90.0.53 > "$work/dns.out" 2> "$work/dns.log";then exit
 if rtpc --dns-resolver 10.91.0.53 --dns-suffix corp.example > "$work/dns.out" 2>> "$work/dns.log";then exit 1;fi
 kill -TERM "$server";wait "$server";server=''
 [ "$(ip -n e -j route show table 18800)" = '[]' ]
-echo "A3_APPLICATIONS_OK artifacts=$work"
+echo "HTTP_APPLICATIONS_OK cleanup=verified"

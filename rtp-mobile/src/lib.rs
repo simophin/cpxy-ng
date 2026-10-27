@@ -125,6 +125,8 @@ pub fn start(
     key: [u8; 32],
     platform: Arc<dyn Platform>,
 ) -> anyhow::Result<Engine> {
+    // Fail before DNS/runtime/socket/TUN work. There is no insecure v1 fallback.
+    worker::require_http_integration()?;
     let settings = profile.settings()?;
     let endpoint = settings.resolve_endpoint()?;
     tracing::info!("Connecting to {endpoint}");

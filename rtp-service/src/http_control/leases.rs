@@ -164,11 +164,15 @@ impl State {
                     activation: None,
                 };
                 let mut table = self.table.lock().unwrap();
+                let activation_floor = table
+                    .routes
+                    .next_activation(p.client_id)
+                    .unwrap_or(u64::MAX);
                 table.queues.register(p.inner);
                 table.allocations.insert(id, allocation);
                 (
                     Ok(
-                        json!({"allocation_id":id,"generation":generation,"port":port,"secret":hex(&secret),"mtu":1200,"startup_ms":30000,"inactivity_ms":120000,"rotation_ms":300000,"lead_ms":10000,"drain_ms":10000}),
+                        json!({"allocation_id":id,"generation":generation,"activation_floor":activation_floor,"port":port,"secret":hex(&secret),"mtu":1200,"startup_ms":30000,"inactivity_ms":120000,"rotation_ms":300000,"lead_ms":10000,"drain_ms":10000}),
                     ),
                     Some(id),
                 )
@@ -211,8 +215,9 @@ impl State {
             let expired: Vec<_> = table
                 .allocations
                 .iter()
-                .filter(|(_, a)| {
+                .filter(|(id, a)| {
                     a.retired
+                        || table.routes.drained(**id, now)
                         || match a.last_seen {
                             None => now.saturating_sub(a.created) >= 30000,
                             Some(t) => now.saturating_sub(t) >= 120000,
@@ -301,5 +306,120 @@ impl Controller {
         for id in self.state.terminal.drain(..) {
             self.operations.terminal(id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::operations::{Create, Release};
+    use super::*;
+    use std::{
+        io,
+        sync::atomic::{AtomicBool, Ordering},
+    };
+    struct Host {
+        commit_fails: AtomicBool,
+        retire_fails: AtomicBool,
+    }
+    impl SocketProvider for Host {
+        fn prepare_port(&self, a: SocketAddr) -> io::Result<UdpSocket> {
+            UdpSocket::bind(a)
+        }
+        fn commit_port(&self, _: u16) -> io::Result<()> {
+            if self.commit_fails.load(Ordering::Relaxed) {
+                Err(io::Error::other("injected"))
+            } else {
+                Ok(())
+            }
+        }
+        fn retire_port(&self, _: u16) -> io::Result<()> {
+            if self.retire_fails.load(Ordering::Relaxed) {
+                Err(io::Error::other("injected"))
+            } else {
+                Ok(())
+            }
+        }
+        fn reconcile_ports(&self) -> io::Result<()> {
+            Ok(())
+        }
+        fn client_socket(&self, _: SocketAddr) -> io::Result<UdpSocket> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn failed_commit_holds_socket_until_retirement_and_stale_release_cannot_retire_reuse() {
+        let root = std::env::temp_dir().join(format!("rtp-lease-test-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let own = "10.0.0.1".parse().unwrap();
+        let inner = "10.0.0.2".parse().unwrap();
+        let addresses = Addresses::open(
+            root.join("addresses"),
+            own,
+            24,
+            inner,
+            "10.0.0.254".parse().unwrap(),
+            vec![],
+        )
+        .unwrap();
+        let probe = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let bind = probe.local_addr().unwrap();
+        drop(probe);
+        let host = Arc::new(Host {
+            commit_fails: AtomicBool::new(true),
+            retire_fails: AtomicBool::new(true),
+        });
+        let table = Arc::new(Mutex::new(Table::default()));
+        let mut state = State::new(
+            addresses,
+            table.clone(),
+            host.clone(),
+            bind,
+            bind.port(),
+            bind.port(),
+            24,
+            own,
+        );
+        let client = Uuid::new_v4();
+        let create = Operation::Create(Create {
+            client_id: client,
+            operation_id: Uuid::new_v4(),
+            generation: "boot".into(),
+            issued_ms: 0,
+            inner,
+        });
+        assert_eq!(
+            state.apply(&create, "boot", 0).0,
+            Err("firewall_unavailable")
+        );
+        assert!(table.lock().unwrap().allocations.is_empty());
+        assert!(UdpSocket::bind(bind).is_err());
+        assert_eq!(
+            state.apply(&create, "boot", 1).0,
+            Err("port_pool_exhausted")
+        );
+        host.retire_fails.store(false, Ordering::Relaxed);
+        host.commit_fails.store(false, Ordering::Relaxed);
+        state.tick(1);
+        let first = state.apply(&create, "boot", 2).1.unwrap();
+        let release = Operation::Release(Release {
+            client_id: client,
+            operation_id: Uuid::new_v4(),
+            generation: "boot".into(),
+            issued_ms: 2,
+            allocation_id: first,
+        });
+        assert!(state.apply(&release, "boot", 3).0.is_ok());
+        let second = state.apply(&create, "boot", 4).1.unwrap();
+        assert_ne!(first, second);
+        assert!(state.apply(&release, "boot", 5).0.is_ok());
+        assert!(table.lock().unwrap().allocations.contains_key(&second));
+        state.tick(30003);
+        assert!(table.lock().unwrap().allocations.contains_key(&second));
+        state.tick(30004);
+        assert!(table.lock().unwrap().allocations.is_empty());
+        state.shutdown().unwrap();
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(UdpSocket::bind(bind).is_ok());
     }
 }

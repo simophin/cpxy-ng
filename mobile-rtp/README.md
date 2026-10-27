@@ -1,3 +1,8 @@
+> HTTP-controlled RTP v2 migration: mobile transport integration is deferred.
+> The shared engine now fails explicitly before runtime/socket setup. See
+> [Linux v2 transport](../rtp-service/README.md). The implementation notes below
+> describe the former mobile-v1 engine and are historical until adapted.
+
 # CPXY RTP app
 
 The Android VPN app for an RTP internet-exit endpoint (`cpxy-rtp endpoint --internet-exit`). It

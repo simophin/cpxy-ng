@@ -82,7 +82,7 @@ old operations when generation changes, bootstrap again, and recreate leases.
 
 - `allocate_ip`: no other fields. Result `inner`, `prefix`, `server`.
 - `create_udp`: additionally `inner` (IPv4). Result `allocation_id`, `generation`,
-  `port`, `secret`, `mtu:1200`, `startup_ms:30000`, `inactivity_ms:120000`,
+  `activation_floor`, `port`, `secret`, `mtu:1200`, `startup_ms:30000`, `inactivity_ms:120000`,
   `rotation_ms:300000`, `lead_ms:10000`, `drain_ms:10000`.
 - `release_udp`: additionally `allocation_id`. Result `released:true`.
 
@@ -109,8 +109,12 @@ never overwrite another UUID or allow one UUID two addresses. Exclude subnet
 network, broadcast, server, reservations and existing mappings from dynamic pool.
 Never recycle persisted dynamic addresses. Persist client UUID independently of
 runtime journals. A copied UUID shares identity; conflicting use reports a quota
-or address conflict. A restarted client must retire/recover old leases or wait
-for expiry; it never resumes old packet counters.
+or address conflict. A restarted client never resumes old packet counters. Each create returns
+`activation_floor`, one greater than the live per-UUID activation high watermark.
+The client state owner assigns at least that number, preserving monotonicity
+across process restarts without persisting packet counters. Superseded leases
+expire at their drain deadline even if the old client died before release.
+Quota pressure from other abandoned candidates still requires expiry/recovery.
 
 ## UDP encoding
 
