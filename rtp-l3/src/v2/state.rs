@@ -174,7 +174,7 @@ impl Routes {
     pub fn retire(&mut self, allocation: Uuid) {
         // Keep high watermarks until all a client's leases are gone; retiring
         // the active route must not let a draining lease reclaim it.
-        self.superseded.insert(allocation, 0);
+        self.superseded.remove(&allocation);
     }
     pub fn remove_client(&mut self, client: Uuid, allocations: &[Uuid]) {
         self.owners.remove(&client);

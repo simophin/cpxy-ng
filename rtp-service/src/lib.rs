@@ -2,10 +2,12 @@
 //! the packet worker receives descriptors and a restricted socket-provider API.
 //! Workers use threads, not an OS privilege sandbox. Endpoints manage firewalld
 //! in-process when it is present; otherwise port policy is the administrator's.
+pub mod addresses;
 pub mod broker;
 pub mod cli;
 pub mod config;
 pub mod forwarding;
+pub mod http_control;
 pub mod network;
 pub mod ports;
 
@@ -117,7 +119,7 @@ fn admission(settings: &Settings, events: &Events) -> io::Result<(Box<dyn Admiss
     Ok((local, managed))
 }
 
-use rtp_l3::linux::{self, Events, Resources, SocketProvider, WorkerConfig};
+use rtp_l3::linux::{self, Events, SocketProvider};
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -253,6 +255,7 @@ struct Host {
     broker: Option<Arc<Mutex<File>>>,
     /// Firewalld forwarding for managed endpoints with service CIDRs.
     forwarding: Option<forwarding::Forwarding>,
+    quarantine: Mutex<Vec<UdpSocket>>,
 }
 impl Host {
     fn release_tunnel(&self) -> io::Result<()> {
@@ -280,6 +283,29 @@ impl Host {
     }
 }
 impl SocketProvider for Host {
+    fn control_socket(&self, peer: SocketAddr) -> io::Result<std::net::TcpStream> {
+        let Role::Client { entry, bind } = self.settings.transport else {
+            return Err(io::Error::other("not a client"));
+        };
+        if peer != entry {
+            return Err(io::Error::other("control peer outside configured endpoint"));
+        }
+        match &self.broker {
+            Some(channel) => {
+                let socket = broker::tcp_from_broker(&channel.lock().unwrap(), peer.port())?;
+                if socket.peer_addr()? != peer {
+                    return Err(io::Error::other("wrong control socket peer"));
+                }
+                Ok(socket)
+            }
+            None => broker::tcp_socket(
+                peer,
+                bind,
+                self.settings.outbound_interface.as_deref().unwrap(),
+            ),
+        }
+    }
+
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket> {
         let Role::Endpoint {
             listen,
@@ -298,7 +324,9 @@ impl SocketProvider for Host {
         }
         let socket = endpoint_socket(address)?;
         if let Err(e) = self.leases.prepare_port(address) {
-            let _ = self.leases.retire_port(address.port());
+            if self.leases.retire_port(address.port()).is_err() {
+                self.quarantine.lock().unwrap().push(socket);
+            }
             return Err(e);
         }
         Ok(socket)
@@ -404,16 +432,46 @@ impl Service {
                 admission,
             )?,
             forwarding,
+            quarantine: Mutex::new(Vec::new()),
         });
+        let mut control_client = if let Role::Client { entry, .. } = self.settings.transport {
+            Some(http_control::client::Client::new(
+                &psk,
+                &self.settings.control.server_identity,
+                entry,
+                host.clone(),
+                addresses::client_id(&self.settings.journal.with_extension("client-id"))?,
+            )?)
+        } else {
+            None
+        };
+        if self.settings.control.dynamic_address {
+            let value = control_client
+                .as_mut()
+                .ok_or_else(|| io::Error::other("dynamic address is client-only"))?
+                .call("allocate_ip", Default::default())?;
+            let inner: std::net::Ipv4Addr = serde_json::from_value(value["inner"].clone())?;
+            let prefix = value["prefix"]
+                .as_u64()
+                .filter(|p| *p <= 30)
+                .ok_or_else(|| io::Error::other("invalid allocated subnet"))?
+                as u8;
+            self.settings.address = format!("{inner}/{prefix}");
+            if let Some(network) = &mut self.settings.network {
+                network.client_addresses = vec![inner];
+                let mask = if prefix == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - prefix)
+                };
+                network.tunnel_pool = format!(
+                    "{}/{prefix}",
+                    std::net::Ipv4Addr::from(u32::from(inner) & mask)
+                );
+            }
+            self.settings.validate()?;
+        }
         let setup = (|| {
-            let socket = match self.settings.transport {
-                Role::Client { entry, .. } => host.open_client(entry.into())?,
-                Role::Endpoint { listen, .. } => {
-                    let s = host.prepare_port(listen.into())?;
-                    host.commit_port(listen.port())?;
-                    s
-                }
-            };
             network::prepare(&self.settings)?;
             let packet = tun(&self.settings)?;
             if let Some(forwarding) = &host.forwarding {
@@ -423,9 +481,9 @@ impl Service {
                 ip(&["link", "set", "dev", &self.settings.interface, "up"])?;
             }
             network::activate(&self.settings)?;
-            Ok::<_, io::Error>((socket, packet))
+            Ok::<_, io::Error>(packet)
         })();
-        let (socket, packet) = match setup {
+        let packet = match setup {
             Ok(v) => v,
             Err(e) => {
                 host.release_tunnel()?;
@@ -433,16 +491,8 @@ impl Service {
                 return Err(e);
             }
         };
-        let (inner, prefix) = self.settings.inner()?;
-        let (client, low, high, rotation) = match self.settings.transport {
-            Role::Client { .. } => (true, 0, 0, 0),
-            Role::Endpoint {
-                rotation_low,
-                rotation_high,
-                rotation_seconds,
-                ..
-            } => (false, rotation_low, rotation_high, rotation_seconds),
-        };
+        let client = matches!(self.settings.transport, Role::Client { .. });
+        let settings = self.settings.clone();
         let running = Arc::new(AtomicBool::new(true));
         let run = running.clone();
         let worker_host = host.clone();
@@ -478,7 +528,12 @@ impl Service {
         let final_health = self.health.clone();
         let final_events = self.events.clone();
         let thread = thread::Builder::new().name(format!("rtp-{}", self.settings.profile)).spawn(move || {
-            let result = linux::run(WorkerConfig { client, psk, inner, prefix, rotation_low: low, rotation_high: high, initial_rotation_port: worker_host.settings.initial_rotation_port, rotation_seconds: rotation, keepalive_seconds: worker_host.settings.keepalive_seconds }, Resources { packet: Box::new(network::PolicyPacket { file: packet, settings: worker_host.settings.clone() }), clock: Arc::new(linux::MonotonicClock::default()), socket, provider: worker_host.clone(), events: worker_events }, run);
+            let device: Box<dyn linux::PacketIo>=Box::new(network::PolicyPacket{file:packet,settings:settings.clone()});
+            let result=if client {
+                http_control::transport::run(settings,control_client.unwrap(),device,worker_host.clone(),worker_events,run)
+            } else {
+                http_control::server::run(settings,psk,device,worker_host.clone(),worker_events,run)
+            };
             let cleanup = worker_host.leases.cleanup();
             let result = result.and(cleanup).and(worker_host.release_tunnel());
             final_health.lock().unwrap().state = if result.is_ok() { "stopped" } else { "failed" }.into();

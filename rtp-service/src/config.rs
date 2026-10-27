@@ -100,8 +100,30 @@ impl Default for Firewalld {
     }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ControlSettings {
+    pub server_identity: String,
+    pub pool_low: Option<Ipv4Addr>,
+    pub pool_high: Option<Ipv4Addr>,
+    pub reserved: Vec<Ipv4Addr>,
+    pub dynamic_address: bool,
+}
+impl Default for ControlSettings {
+    fn default() -> Self {
+        Self {
+            server_identity: "cpxy-rtp".into(),
+            pool_low: None,
+            pool_high: None,
+            reserved: Vec::new(),
+            dynamic_address: false,
+        }
+    }
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default)]
+    pub control: ControlSettings,
     pub profile: String,
     pub journal: PathBuf,
     pub interface: String,
@@ -141,6 +163,10 @@ impl Settings {
     }
     pub fn validate(&self) -> io::Result<()> {
         self.inner()?;
+        if self.control.server_identity.is_empty() || self.control.server_identity.len() > 255 {
+            return Err(io::Error::other("server identity must be 1..255 bytes"));
+        }
+
         if let Some(network) = &self.network {
             network.validate(self)?;
         }

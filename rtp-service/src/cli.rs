@@ -71,6 +71,9 @@ pub enum ClientAction {
 
 #[derive(Args, Debug, Clone)]
 pub struct Common {
+    /// Provision the same identity on both peers; bound into AEAD context.
+    #[arg(long, env = "CPXY_RTP_SERVER_IDENTITY", default_value = "cpxy-rtp")]
+    pub server_identity: String,
     /// TUN interface name created and owned by the service.
     #[arg(long, env = "CPXY_RTP_INTERFACE", default_value = "rtp0")]
     pub interface: String,
@@ -114,6 +117,12 @@ pub struct NetworkArgs {
 }
 #[derive(Args, Debug, Clone)]
 pub struct EndpointArgs {
+    #[arg(long, env = "CPXY_RTP_POOL_LOW")]
+    pub pool_low: Option<Ipv4Addr>,
+    #[arg(long, env = "CPXY_RTP_POOL_HIGH")]
+    pub pool_high: Option<Ipv4Addr>,
+    #[arg(long = "reserved-address", value_delimiter = ',')]
+    pub reserved_addresses: Vec<Ipv4Addr>,
     #[command(flatten)]
     pub common: Common,
     /// Public IPv4 or IPv6 listen address and base port.
@@ -165,6 +174,9 @@ pub struct EndpointArgs {
 }
 #[derive(Args, Debug, Clone)]
 pub struct ClientArgs {
+    /// Obtain a persistent UUID/address assignment before configuring the TUN.
+    #[arg(long, env = "CPXY_RTP_DYNAMIC_ADDRESS")]
+    pub dynamic_address: bool,
     #[command(flatten)]
     pub common: Common,
     /// Endpoint public IPv4 or IPv6 address and base port.
@@ -247,6 +259,13 @@ impl EndpointArgs {
             (base.saturating_add(1), base.saturating_add(8))
         });
         let settings = Settings {
+            control: crate::config::ControlSettings {
+                server_identity: c.server_identity.clone(),
+                pool_low: self.pool_low,
+                pool_high: self.pool_high,
+                reserved: self.reserved_addresses.clone(),
+                dynamic_address: false,
+            },
             profile: NAME.into(),
             journal: journal(c),
             interface: c.interface.clone(),
@@ -303,6 +322,11 @@ impl ClientArgs {
             .parse()
             .map_err(|_| io::Error::other("invalid IPv4 address"))?;
         let settings = Settings {
+            control: crate::config::ControlSettings {
+                server_identity: c.server_identity.clone(),
+                dynamic_address: self.dynamic_address,
+                ..Default::default()
+            },
             profile: NAME.into(),
             journal: journal(c),
             interface: c.interface.clone(),

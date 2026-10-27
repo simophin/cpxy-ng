@@ -12,9 +12,10 @@ in [rtp-l3-protocol.md](rtp-l3-protocol.md) until implementation lands.
   [rtp-http-protocol.md](rtp-http-protocol.md).
 - [x] Implement authenticated UDP/control-envelope codecs, path/activation and
   liveness state machines, bounded queues and independent libsodium UDP vectors.
-- [ ] Complete address/operation state, persistence and integration acceptance.
-- [ ] Integrate bounded HTTP, persistence and supervised allocation lifecycle.
-- [ ] Integrate Linux transport, rotation, repair and buffering.
+- [x] Add persistent UUID/address ownership and bounded operation deduplication.
+- [x] Integrate bounded HTTP, persistence and supervised allocation lifecycle.
+- [x] Connect Linux transport, rotation, repair and buffering; acceptance below
+  remains in progress.
 - [ ] Run local acceptance fixtures and record cleanup/environment limits.
 - [ ] Remove superseded core paths, adapt mobile boundary, finish docs and PR.
 

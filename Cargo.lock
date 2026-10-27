@@ -3667,11 +3667,15 @@ name = "rtp-service"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "httparse",
  "libc",
  "port-admission",
+ "rand 0.8.8",
  "rtp-l3",
  "serde",
  "serde_json",
+ "socket2",
+ "uuid",
 ]
 
 [[package]]

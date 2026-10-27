@@ -3,7 +3,7 @@
 use crate::config::{Role, Settings};
 use std::{
     io,
-    net::{SocketAddr, UdpSocket},
+    net::{SocketAddr, TcpStream, UdpSocket},
     os::{fd::AsRawFd, unix::net::UnixDatagram},
     time::Duration,
 };
@@ -52,7 +52,7 @@ impl Policy {
     /// always be observed by the supervisor. Malformed requests fail closed.
     pub fn serve_once(&self, channel: &UnixDatagram) -> io::Result<bool> {
         channel.set_read_timeout(Some(Duration::from_millis(100)))?;
-        let mut request = [0u8; 3];
+        let mut request = [0u8; 4];
         let length = match channel.recv(&mut request) {
             Ok(length) => length,
             Err(e)
@@ -67,21 +67,38 @@ impl Policy {
             }
             Err(e) => return Err(e),
         };
-        if length != 2 {
+        if length != 2 && !(length == 3 && request[0] == 1) {
             return Err(io::Error::other("invalid socket broker request"));
         }
-        let port = u16::from_be_bytes([request[0], request[1]]);
+        let offset = length - 2;
+        let port = u16::from_be_bytes([request[offset], request[offset + 1]]);
         if port == 0 {
             return Err(io::Error::other("zero broker port"));
         }
         // Allocation failure is local to this candidate. A labeled no-FD reply
         // makes the worker reject it while retaining its existing working path.
-        let socket = self.socket(port).ok();
-        send_socket(channel, &request[..2], socket.as_ref())?;
+        if length == 2 {
+            let socket = self.socket(port).ok();
+            send_socket(channel, &request[..2], socket.as_ref())?;
+        } else {
+            let mut peer = self.entry;
+            peer.set_port(port);
+            // TCP is restricted to the configured control port and host device.
+            let socket = if port == self.entry.port() {
+                tcp_socket(peer, self.bind, &self.device).ok()
+            } else {
+                None
+            };
+            send_socket(channel, &request[1..3], socket.as_ref())?;
+        }
         Ok(true)
     }
 }
-fn send_socket(channel: &UnixDatagram, label: &[u8], socket: Option<&UdpSocket>) -> io::Result<()> {
+fn send_socket<T: AsRawFd>(
+    channel: &UnixDatagram,
+    label: &[u8],
+    socket: Option<&T>,
+) -> io::Result<()> {
     unsafe {
         let mut ancillary = [0usize; 8];
         let mut iov = libc::iovec {
@@ -110,6 +127,94 @@ fn send_socket(channel: &UnixDatagram, label: &[u8], socket: Option<&UdpSocket>)
         }
     }
     Ok(())
+}
+
+/// Bind the physical device before connect, including the HTTP recovery path.
+pub fn tcp_socket(peer: SocketAddr, bind: SocketAddr, device: &str) -> io::Result<TcpStream> {
+    let socket = socket2::Socket::new(
+        socket2::Domain::for_address(peer),
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )?;
+    let device = std::ffi::CString::new(device).map_err(io::Error::other)?;
+    if unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            device.as_ptr().cast(),
+            device.as_bytes_with_nul().len() as _,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let mut bind = bind;
+    bind.set_port(0);
+    socket.bind(&bind.into())?;
+    socket.connect_timeout(&peer.into(), Duration::from_secs(3))?;
+    Ok(socket.into())
+}
+/// Receive one labeled TCP descriptor from the existing private host broker.
+pub fn tcp_from_broker(channel: &std::fs::File, port: u16) -> io::Result<TcpStream> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let request = [1, (port >> 8) as u8, port as u8];
+    unsafe {
+        if libc::send(
+            channel.as_raw_fd(),
+            request.as_ptr().cast(),
+            3,
+            libc::MSG_NOSIGNAL,
+        ) != 3
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut poll = libc::pollfd {
+            fd: channel.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        if libc::poll(&mut poll, 1, 4000) != 1 {
+            return Err(io::Error::other("HTTP socket broker unavailable"));
+        }
+        let mut label = [0; 2];
+        let mut ancillary = [0usize; 8];
+        let mut iov = libc::iovec {
+            iov_base: label.as_mut_ptr().cast(),
+            iov_len: 2,
+        };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = ancillary.as_mut_ptr().cast();
+        msg.msg_controllen = std::mem::size_of_val(&ancillary) as _;
+        let n = libc::recvmsg(channel.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
+        if n < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut fds = Vec::new();
+        let mut c = libc::CMSG_FIRSTHDR(&msg);
+        while !c.is_null() {
+            if (*c).cmsg_level == libc::SOL_SOCKET && (*c).cmsg_type == libc::SCM_RIGHTS {
+                let count = ((*c).cmsg_len as usize).saturating_sub(libc::CMSG_LEN(0) as usize)
+                    / std::mem::size_of::<i32>();
+                for i in 0..count {
+                    fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(
+                        libc::CMSG_DATA(c).cast::<i32>().add(i),
+                    )));
+                }
+            }
+            c = libc::CMSG_NXTHDR(&msg, c);
+        }
+        if n != 2
+            || label != request[1..]
+            || msg.msg_flags & (libc::MSG_CTRUNC | libc::MSG_TRUNC) != 0
+            || fds.len() != 1
+        {
+            return Err(io::Error::other("invalid HTTP socket broker response"));
+        }
+        Ok(TcpStream::from(fds.pop().unwrap()))
+    }
 }
 
 #[cfg(test)]
@@ -201,7 +306,7 @@ mod tests {
     }
     #[test]
     fn rejects_malformed_and_zero_port_requests() {
-        for request in [&[0, 0][..], &[1][..], &[1, 2, 3][..], &[1, 2, 3, 4][..]] {
+        for request in [&[0, 0][..], &[1][..], &[2, 2, 3][..], &[1, 2, 3, 4][..]] {
             let (client, parent) = UnixDatagram::pair().unwrap();
             client.send(request).unwrap();
             assert!(policy().serve_once(&parent).is_err());

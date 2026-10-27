@@ -163,7 +163,7 @@ impl Network {
         if client {
             dest == inner && self.service_cidrs.iter().any(|c| contains(c, source))
         } else {
-            self.client_addresses.contains(&source)
+            contains(&self.tunnel_pool, source)
                 && self.service_cidrs.iter().any(|c| contains(c, dest))
         }
     }
@@ -175,10 +175,7 @@ impl Network {
                 self.service_cidrs.clone()
             }
         } else {
-            self.client_addresses
-                .iter()
-                .map(|a| format!("{a}/32"))
-                .collect()
+            vec![self.tunnel_pool.clone()]
         }
     }
 }
@@ -525,8 +522,12 @@ mod tests {
         b[12..16].copy_from_slice(&[10, 88, 0, 2]);
         b[16..20].copy_from_slice(&[10, 90, 0, 2]);
         assert!(n.permits(false, inner, &b));
+        // Allocation-level address checks precede this subnet/service policy.
         b[15] = 3;
+        assert!(n.permits(false, inner, &b));
+        b[14] = 99;
         assert!(!n.permits(false, inner, &b));
+        b[14] = 0;
         b[15] = 2;
         b[16..20].copy_from_slice(&[1, 1, 1, 1]);
         assert!(!n.permits(false, inner, &b));

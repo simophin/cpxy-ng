@@ -1,6 +1,11 @@
 /// Host operations supplied by the supervisor. A packet worker never chooses
 /// firewall rules, routes or commands. Implementations must enforce a port pool.
 pub trait SocketProvider: std::marker::Send + Sync {
+    /// Open a TCP control connection outside the protected tunnel.
+    fn control_socket(&self, _peer: SocketAddr) -> io::Result<std::net::TcpStream> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "HTTP control socket protection is required"))
+    }
+
     /// Bind and admit a socket. Failure must not disturb any committed path.
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket>;
     /// Complete admission before the worker changes epochs or sends STATE.
