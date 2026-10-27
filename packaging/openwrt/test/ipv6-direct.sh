@@ -29,6 +29,9 @@ ip -n b -6 addr add 2606:4700:4700::1111/128 dev lo nodad
 ip -6 route add default via 2001:db8:1::2
 ip -n b -6 route add 2001:db8:30::/64 via 2001:db8:1::1
 sysctl -qw net.ipv6.conf.all.forwarding=1
+# Measure reject behavior without coupling repeated probes to the kernel ICMP limiter.
+# This changes only the disposable test namespace, never the production router.
+sysctl -qw net.ipv6.icmp.ratelimit=0
 mkdir "$work/state"
 echo br-hybrid >"$work/state/devices"
 echo 223.5.5.5/32 >"$work/state/routes"
