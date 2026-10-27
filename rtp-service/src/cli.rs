@@ -71,6 +71,9 @@ pub enum ClientAction {
 
 #[derive(Args, Debug, Clone)]
 pub struct Common {
+    /// Provision the same identity on both peers; bound into AEAD context.
+    #[arg(long, env = "CPXY_RTP_SERVER_IDENTITY", default_value = "cpxy-rtp")]
+    pub server_identity: String,
     /// TUN interface name created and owned by the service.
     #[arg(long, env = "CPXY_RTP_INTERFACE", default_value = "rtp0")]
     pub interface: String,
@@ -114,30 +117,23 @@ pub struct NetworkArgs {
 }
 #[derive(Args, Debug, Clone)]
 pub struct EndpointArgs {
+    #[arg(long, env = "CPXY_RTP_POOL_LOW")]
+    pub pool_low: Option<Ipv4Addr>,
+    #[arg(long, env = "CPXY_RTP_POOL_HIGH")]
+    pub pool_high: Option<Ipv4Addr>,
+    #[arg(long = "reserved-address", value_delimiter = ',')]
+    pub reserved_addresses: Vec<Ipv4Addr>,
     #[command(flatten)]
     pub common: Common,
-    /// Public IPv4 or IPv6 listen address and base port.
+    /// Plain HTTP control listen address and TCP port.
     #[arg(long, env = "CPXY_RTP_LISTEN")]
     pub listen: SocketAddr,
-    /// Rotation port pool LOW-HIGH; defaults to the 8 ports after the base port.
-    #[arg(long, env = "CPXY_RTP_ROTATION_PORTS", value_parser = port_range)]
-    pub rotation_ports: Option<(u16, u16)>,
-    /// Seconds between port rotations; 0 disables scheduled rotation.
-    #[arg(long, env = "CPXY_RTP_ROTATION_SECONDS", default_value_t = 300)]
-    pub rotation_seconds: u64,
-    #[arg(long, env = "CPXY_RTP_INITIAL_ROTATION_PORT")]
-    pub initial_rotation_port: Option<u16>,
+    /// Optional UDP allocation pool LOW-HIGH; otherwise the OS assigns ports.
+    #[arg(long, env = "CPXY_RTP_UDP_PORTS", value_parser = port_range)]
+    pub udp_ports: Option<(u16, u16)>,
     /// Tunnel address and prefix of this endpoint.
     #[arg(long, env = "CPXY_RTP_ADDRESS", default_value = "10.88.0.1/24")]
     pub address: String,
-    /// Client tunnel addresses allowed to reach the service CIDRs.
-    #[arg(
-        long = "client-address",
-        env = "CPXY_RTP_CLIENT_ADDRESSES",
-        value_delimiter = ',',
-        default_value = "10.88.0.2"
-    )]
-    pub client_addresses: Vec<Ipv4Addr>,
     /// `auto` manages firewalld when it answers on the system bus.
     #[arg(long, env = "CPXY_RTP_FIREWALL", value_enum, default_value_t = FirewallArg::Auto)]
     pub firewall: FirewallArg,
@@ -165,17 +161,20 @@ pub struct EndpointArgs {
 }
 #[derive(Args, Debug, Clone)]
 pub struct ClientArgs {
+    /// Obtain a persistent UUID/address assignment before configuring the TUN.
+    #[arg(long, env = "CPXY_RTP_DYNAMIC_ADDRESS")]
+    pub dynamic_address: bool,
     #[command(flatten)]
     pub common: Common,
-    /// Endpoint public IPv4 or IPv6 address and base port.
+    /// Endpoint HTTP control IP address and TCP port.
     #[arg(long, env = "CPXY_RTP_ENTRY")]
     pub entry: SocketAddr,
     /// Local UDP bind address; defaults to the entry's address family.
     #[arg(long, env = "CPXY_RTP_BIND")]
     pub bind: Option<SocketAddr>,
-    /// Physical interface every outer socket is bound to (bypasses the TUN).
+    /// Optional interface for HTTP/UDP sockets; defaults to normal OS routing.
     #[arg(long, env = "CPXY_RTP_OUTBOUND_INTERFACE")]
-    pub outbound_interface: String,
+    pub outbound_interface: Option<String>,
     /// Tunnel address and prefix of this client.
     #[arg(long, env = "CPXY_RTP_ADDRESS", default_value = "10.88.0.2/24")]
     pub address: String,
@@ -189,8 +188,11 @@ pub enum FirewallArg {
 
 fn port_range(s: &str) -> Result<(u16, u16), String> {
     let (low, high) = s.split_once('-').ok_or("expected LOW-HIGH")?;
-    let low = low.parse().map_err(|_| "invalid low port")?;
-    let high = high.parse().map_err(|_| "invalid high port")?;
+    let low: u16 = low.parse().map_err(|_| "invalid low port")?;
+    let high: u16 = high.parse().map_err(|_| "invalid high port")?;
+    if low == 0 || high < low {
+        return Err("expected nonzero LOW-HIGH with LOW <= HIGH".into());
+    }
     Ok((low, high))
 }
 /// Canonical network containing an `IPv4/prefix` address.
@@ -242,11 +244,15 @@ fn journal(common: &Common) -> PathBuf {
 impl EndpointArgs {
     pub fn settings(&self) -> io::Result<Settings> {
         let c = &self.common;
-        let (rotation_low, rotation_high) = self.rotation_ports.unwrap_or_else(|| {
-            let base = self.listen.port();
-            (base.saturating_add(1), base.saturating_add(8))
-        });
+        let (udp_low, udp_high) = self.udp_ports.unwrap_or((0, 0));
         let settings = Settings {
+            control: crate::config::ControlSettings {
+                server_identity: c.server_identity.clone(),
+                pool_low: self.pool_low,
+                pool_high: self.pool_high,
+                reserved: self.reserved_addresses.clone(),
+                dynamic_address: false,
+            },
             profile: NAME.into(),
             journal: journal(c),
             interface: c.interface.clone(),
@@ -254,12 +260,10 @@ impl EndpointArgs {
             address: self.address.clone(),
             transport: Role::Endpoint {
                 listen: self.listen,
-                rotation_low,
-                rotation_high,
-                rotation_seconds: self.rotation_seconds,
+                udp_low,
+                udp_high,
             },
-            initial_rotation_port: self.initial_rotation_port,
-            network: network(c, &self.address, self.client_addresses.clone())?,
+            network: network(c, &self.address, Vec::new())?,
             keepalive_seconds: c.keepalive_seconds,
             firewall: match self.firewall {
                 FirewallArg::Auto => FirewallMode::Auto,
@@ -303,10 +307,15 @@ impl ClientArgs {
             .parse()
             .map_err(|_| io::Error::other("invalid IPv4 address"))?;
         let settings = Settings {
+            control: crate::config::ControlSettings {
+                server_identity: c.server_identity.clone(),
+                dynamic_address: self.dynamic_address,
+                ..Default::default()
+            },
             profile: NAME.into(),
             journal: journal(c),
             interface: c.interface.clone(),
-            outbound_interface: Some(self.outbound_interface.clone()),
+            outbound_interface: self.outbound_interface.clone(),
             address: self.address.clone(),
             transport: Role::Client {
                 entry: self.entry,
@@ -321,7 +330,6 @@ impl ClientArgs {
                     )
                 }),
             },
-            initial_rotation_port: None,
             network: network(c, &self.address, vec![own])?,
             keepalive_seconds: c.keepalive_seconds,
             firewall: FirewallMode::None,
@@ -423,7 +431,7 @@ mod tests {
         Cli::try_parse_from(std::iter::once("cpxy-rtp").chain(args.iter().copied())).unwrap()
     }
     #[test]
-    fn endpoint_defaults_derive_rotation_pool_journal_and_network() {
+    fn endpoint_defaults_to_os_assigned_udp_ports_and_preserves_network_settings() {
         let Cli {
             role: RoleCommand::Endpoint { args, action },
         } = parse(&[
@@ -444,9 +452,8 @@ mod tests {
         assert!(matches!(
             s.transport,
             Role::Endpoint {
-                rotation_low: 30001,
-                rotation_high: 30008,
-                rotation_seconds: 300,
+                udp_low: 0,
+                udp_high: 0,
                 ..
             }
         ));
@@ -455,12 +462,66 @@ mod tests {
         assert_eq!(s.firewall, FirewallMode::Auto);
         let n = s.network.unwrap();
         assert_eq!(n.tunnel_pool, "10.88.0.0/24");
-        assert_eq!(n.client_addresses, vec![Ipv4Addr::new(10, 88, 0, 2)]);
+        assert!(n.client_addresses.is_empty());
         assert_eq!(n.service_cidrs.len(), 2);
     }
     #[test]
-    fn client_requires_entry_and_outbound_interface_and_owns_its_address() {
-        assert!(Cli::try_parse_from(["cpxy-rtp", "client", "--entry", "192.0.2.2:30000"]).is_err());
+    fn explicit_udp_range_is_preserved_and_zero_is_not_a_range() {
+        let Cli {
+            role: RoleCommand::Endpoint { args, .. },
+        } = parse(&[
+            "endpoint",
+            "--listen",
+            "127.0.0.1:30000",
+            "--udp-ports",
+            "40000-40010",
+        ])
+        else {
+            panic!()
+        };
+        let mut settings = args.settings().unwrap();
+        assert!(matches!(
+            settings.transport,
+            Role::Endpoint {
+                udp_low: 40000,
+                udp_high: 40010,
+                ..
+            }
+        ));
+        for range in ["0-0", "0-40000", "40000-0", "40010-40000"] {
+            assert!(Cli::try_parse_from([
+                "rtp",
+                "endpoint",
+                "--listen",
+                "127.0.0.1:30000",
+                "--udp-ports",
+                range
+            ])
+            .is_err());
+        }
+        settings.transport = Role::Endpoint {
+            listen: "127.0.0.1:30000".parse().unwrap(),
+            udp_low: 0,
+            udp_high: 40000,
+        };
+        assert!(settings.validate().is_err());
+    }
+    #[test]
+    fn client_requires_entry_and_defaults_to_os_routing() {
+        assert!(Cli::try_parse_from(["cpxy-rtp", "client"]).is_err());
+        let Cli {
+            role: RoleCommand::Client { args, .. },
+        } = parse(&["client", "--entry", "192.0.2.2:30000"])
+        else {
+            panic!()
+        };
+        let settings = args.settings().unwrap();
+        assert!(settings.outbound_interface.is_none());
+        for interface in ["", "rtp0", "invalid/interface", "abcdefghijklmnop"] {
+            let mut invalid = settings.clone();
+            invalid.outbound_interface = Some(interface.into());
+            assert!(invalid.validate().is_err());
+        }
         let Cli {
             role: RoleCommand::Client { args, action },
         } = parse(&[
@@ -483,6 +544,7 @@ mod tests {
             matches!(action, Some(ClientAction::Namespace { ref command }) if command == &["curl", "http://10.90.0.2/"])
         );
         let s = args.settings().unwrap();
+        assert_eq!(s.outbound_interface.as_deref(), Some("eth0"));
         assert_eq!(s.firewall, FirewallMode::None);
         assert_eq!(
             s.network.unwrap().client_addresses,

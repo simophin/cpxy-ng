@@ -1,8 +1,8 @@
 //! The UniFFI surface the app calls (see `src/bin/uniffi-bindgen.rs`). A thin wrapper over
-//! [`crate::start`].
+//! the shared Linux packet engine. Android transport integration remains deferred.
 
 use crate::profile::Profile;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -21,18 +21,6 @@ fn failed(reason: impl Into<String>) -> RtpError {
 pub trait RtpPlatform: Send + Sync {
     /// Makes the socket bypass the VPN (`VpnService.protect`); the descriptor is borrowed.
     fn protect_socket(&self, fd: i32) -> bool;
-}
-
-struct PlatformAdapter(Box<dyn RtpPlatform>);
-
-impl crate::Platform for PlatformAdapter {
-    fn protect_socket(&self, socket: &std::net::UdpSocket) -> std::io::Result<()> {
-        if self.0.protect_socket(socket.as_raw_fd()) {
-            Ok(())
-        } else {
-            Err(std::io::Error::other("Cannot protect the socket"))
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -100,20 +88,16 @@ pub fn start_rtp_engine(
     key: Vec<u8>,
     platform: Box<dyn RtpPlatform>,
 ) -> Result<Arc<RtpEngine>, RtpError> {
-    init_logging();
+    // Android migration is outside the Linux/OpenWrt scope. Preserve the public
+    // binding and FD ownership, but never start a legacy RTP worker.
+    let _ = (profile_json, key, platform);
     if tun_fd < 0 {
         return Err(failed(format!("Invalid TUN descriptor {tun_fd}")));
     }
-    // SAFETY: the caller hands over a TUN descriptor it no longer uses.
-    let tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
-    let key: [u8; 32] = key
-        .try_into()
-        .map_err(|_| failed("The key must be 32 bytes"))?;
-    let profile = Profile::from_json(&profile_json).map_err(|e| failed(format!("{e:#}")))?;
-    // Errors never carry the key: it is only handed to the worker.
-    crate::start(tun, &profile, key, Arc::new(PlatformAdapter(platform)))
-        .map(|engine| Arc::new(RtpEngine { engine }))
-        .map_err(|e| failed(format!("{e:#}")))
+    let _tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
+    Err(failed(
+        "HTTP-controlled RTP is available on Linux/OpenWrt; Android integration is deferred",
+    ))
 }
 
 #[uniffi::export]
@@ -164,23 +148,19 @@ pub fn derive_key(password: String) -> Result<Vec<u8>, RtpError> {
 /// Why a profile cannot be used, or `None` when it can.
 #[uniffi::export]
 pub fn validate_profile(profile_json: String) -> Option<String> {
+    // The deferred app still emits its former manual-address field.
+    let profile_json = serde_json::from_str::<serde_json::Value>(&profile_json)
+        .map(|mut value| {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("address");
+            }
+            value.to_string()
+        })
+        .unwrap_or(profile_json);
     Profile::from_json(&profile_json)
         .and_then(|p| p.settings())
         .err()
         .map(|e| format!("{e:#}"))
-}
-
-/// Sends the engine's logs to logcat on Android.
-fn init_logging() {
-    #[cfg(target_os = "android")]
-    {
-        use tracing_subscriber::layer::SubscriberExt;
-        let subscriber = tracing_subscriber::registry()
-            .with(tracing_subscriber::filter::LevelFilter::INFO)
-            .with(paranoid_android::layer("cpxy-rtp").with_ansi(false));
-        // Fails when already set by an earlier start, which is fine.
-        let _ = tracing::subscriber::set_global_default(subscriber);
-    }
 }
 
 #[cfg(test)]

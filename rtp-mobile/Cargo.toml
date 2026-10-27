@@ -15,6 +15,9 @@ name = "uniffi-bindgen"
 required-features = ["bindgen"]
 
 [dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+uuid = { version = "1", features = ["v4"] }
+socket2 = "0.6"
 rtp-l3 = { path = "../rtp-l3" }
 client = { path = "../client", features = ["dns-split"] }
 geoip-data = { path = "../geoip-data" }

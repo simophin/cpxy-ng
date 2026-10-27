@@ -12,18 +12,17 @@
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
     use anyhow::{Context, ensure};
-    use std::os::fd::AsRawFd;
     use std::path::Path;
     use std::sync::Arc;
 
     struct BindToDevice(std::ffi::CString);
     impl rtp_mobile::Platform for BindToDevice {
-        fn protect_socket(&self, socket: &std::net::UdpSocket) -> std::io::Result<()> {
+        fn protect_socket(&self, fd: std::os::fd::RawFd) -> std::io::Result<()> {
             let name = self.0.as_bytes_with_nul();
             // SAFETY: SO_BINDTODEVICE reads a NUL-terminated interface name.
             let r = unsafe {
                 libc::setsockopt(
-                    socket.as_raw_fd(),
+                    fd,
                     libc::SOL_SOCKET,
                     libc::SO_BINDTODEVICE,
                     name.as_ptr().cast(),
@@ -53,12 +52,24 @@ fn main() -> anyhow::Result<()> {
                 rtp_mobile::profile::Profile::from_json(&std::fs::read_to_string(profile)?)?;
             let password = std::env::var("CPXY_RTP_PASSWORD").context("CPXY_RTP_PASSWORD")?;
             let key = rtp_l3::derive_psk(&password).map_err(anyhow::Error::msg)?;
-            let engine = rtp_mobile::start(
-                create_tun(tun)?,
+            std::fs::create_dir_all(control)?;
+            let id = rtp_l3::v2::identity::client_id(&Path::new(control).join("client-id"))?;
+            let prepared = rtp_mobile::prepare(
                 &profile,
                 key,
+                id,
                 Arc::new(BindToDevice(std::ffi::CString::new(device)?)),
             )?;
+            let inner = prepared.address();
+            let tun_fd = create_tun(tun)?;
+            anyhow::ensure!(
+                std::process::Command::new("ip")
+                    .args(["addr", "replace", &format!("{inner}/32"), "dev", tun])
+                    .status()?
+                    .success(),
+                "Cannot configure assigned address"
+            );
+            let engine = prepared.start(tun_fd)?;
             let control = Path::new(control);
             while !control.join("stop").exists() {
                 if std::fs::remove_file(control.join("repair")).is_ok() {

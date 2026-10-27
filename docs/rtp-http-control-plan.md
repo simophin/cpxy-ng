@@ -1,9 +1,37 @@
+> Scope update: the user subsequently requested replacing the undeployed RTP VPN
+> and adding a separate OpenWrt router in this PR, then clarified Linux/OpenWrt
+> only. Android integration remains excluded; [the integration checklist](rtp-vpn-integration-plan.md)
+> tracks the authorized extension.
+
 # HTTP-controlled RTP transport implementation plan
 
-Status: proposed implementation plan. This document does not change the running
-protocol. Implement the core server and Linux client first; mobile integration
-and operational deployment are deferred. The existing protocol remains described
-in [rtp-l3-protocol.md](rtp-l3-protocol.md) until implementation lands.
+Status: Linux v2 core implemented on `feat/http-controlled-rtp`; validation and
+remaining coverage/configuration limits are recorded in
+[rtp-http-validation.md](rtp-http-validation.md). Mobile integration and
+operational deployment remain separate. The implemented wire contract is
+[rtp-http-protocol.md](rtp-http-protocol.md); v1 is archived.
+
+## Progress
+
+- [x] Inspect shared worker/mobile and generation-scoped admission APIs.
+- [x] Freeze v2 encodings, replay/retry rules and state transitions in
+  [rtp-http-protocol.md](rtp-http-protocol.md).
+- [x] Implement authenticated UDP/control-envelope codecs, path/activation and
+  liveness state machines, bounded queues and independent libsodium UDP vectors.
+- [x] Add persistent UUID/address ownership and bounded operation deduplication.
+- [x] Integrate bounded HTTP, persistence and supervised allocation lifecycle.
+- [x] Connect Linux transport, rotation, repair and buffering; acceptance below
+  remains in progress.
+- [x] Run local acceptance fixtures and record cleanup/environment limits.
+- [x] Remove superseded core paths and adapt mobile to explicit unsupported status.
+- [x] Finish validation report/documentation and push reviewable implementation commits.
+- [x] Open [implementation PR #153](https://github.com/simophin/cpxy-ng/pull/153)
+  as a draft for the Linux core; remaining configuration/coverage work is explicit.
+- [x] Default to OS-assigned UDP ports when no range is configured; retain
+  optional explicit ranges and admit/journal only each actual bound port.
+- [x] Make the outbound interface optional: default to OS routing, retain an
+  explicit device override, and keep namespace sockets in host networking.
+- [ ] Follow up full timing-policy configuration and remaining exhaustive fault matrices.
 
 ## Objective and agreed constraints
 
@@ -290,8 +318,10 @@ Failure/expiry can retire any live state. Allocation ID and firewall generation
 remain distinct from the numeric port.
 
 1. Validate UUID/address consistency and limits; reserve an allocation slot.
-2. Randomly select/bind an available port from the configured pool. Generate
-   keys and prepare its owned runtime firewall admission through the supervisor.
+2. By default bind UDP port zero and let the OS select an available port.
+   An explicitly configured pool instead limits random selection to that range.
+   Generate keys and prepare owned runtime firewall admission for the actual
+   bound port through the supervisor.
 3. Verify admission and commit the allocation before returning success. A
    partially completed or cancelled create must be rolled back/reconciled.
 4. Require first authenticated client UDP traffic within 30 seconds of creation.
@@ -485,8 +515,9 @@ separate follow-up with precise shared-API implications.
 ## Required validation report and completion criteria
 
 The implementing agent must report commands/results, defaults, wire overhead,
-remaining limitations and cleanup evidence. This plan's PR is documentation
-only; do not claim any new protocol behavior has been validated yet.
+remaining limitations and cleanup evidence. Record the implementation PR's actual results in
+[rtp-http-validation.md](rtp-http-validation.md); earlier plan-only commits and
+historical v1 measurements do not establish v2 acceptance.
 
 Completion requires demonstrated dynamic/static addressing, idempotent create
 and release, restart-safe control replay protection, authenticated/replay-checked

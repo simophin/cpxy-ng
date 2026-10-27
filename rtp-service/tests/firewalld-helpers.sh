@@ -10,10 +10,12 @@ firewall_setup() {
   cat > "$work/bus.conf" <<BUS
 <busconfig><type>system</type><listen>unix:path=/run/dbus-test</listen><auth>EXTERNAL</auth><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/><allow user="*"/></policy></busconfig>
 BUS
-  dbus-daemon --config-file="$work/bus.conf" --fork
+  bus=$(dbus-daemon --config-file="$work/bus.conf" --fork --print-pid=1)
   export DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus-test
   firewall_start
   fw --zone=public --add-interface=vs
+  fw --zone=public --add-port=30000/tcp
+  fw --permanent --zone=public --add-port=30000/tcp
   fw --zone=public --add-port=39999/udp
   fw --permanent --zone=public --add-port=39998/udp
   # Real D-Bus failure replies must not masquerade as readiness.
@@ -37,12 +39,12 @@ forwarding_present() {
   fw --zone=public --query-rich-rule="$masq"
 }
 firewall_exercise() {
-  # Occupied socket is skipped before any firewall mutation.
+  # Occupied sockets must not be disturbed by allocation.
   kill -0 "$occupied"
   forwarding_present
   backend_app
-  # Block every unused candidate with administrator-owned identical rules. Failed
-  # prepare must preserve those rules, the epoch, and traffic on the live path.
+  # Add administrator-owned rules on other fixture-range ports. These remain
+  # unrelated rules in OS-assigned mode; active traffic and ownership survive.
   python3 - "$work" <<'PYTEST'
 import json,sys
 w=sys.argv[1]; live={x['address'].split(':')[-1] for x in json.load(open(w+'/server/state.json'))['leases']}
@@ -50,8 +52,7 @@ open(w+'/conflicts','w').write('\n'.join(str(p) for p in range(30001,30009) if s
 PYTEST
   while read -r port; do fw --zone=public --add-rich-rule="rule family=\"ipv4\" source address=\"192.0.2.0/24\" destination address=\"192.0.2.2\" port port=\"$port\" protocol=\"udp\" accept"; done < <(cat "$work/conflicts"; echo)
   ip netns exec c ping -c 8 -i .5 -W 1 10.90.0.2
-  # Only scheduled rotation exercises the conflicting candidates.
-  if [ "$rotation" != 0 ]; then grep -Eq '"event":"rotation_failed"' "$work/s.log"; fi
+  # Five-minute rotation/failure semantics are checked by the Rust transport tests.
   kill "$occupied"; wait "$occupied" 2>/dev/null || true
   occupied=""
   fw --zone=public --query-port=39999/udp

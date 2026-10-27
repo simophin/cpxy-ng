@@ -335,8 +335,9 @@ jobs:
       - name: Build router executables
         run: >
           cross build --release --locked --target ${{ matrix.target.rust }}
-          -p mobile-engine -p client -p server -p cpxy-tsgw
+          -p mobile-engine -p client -p server -p cpxy-tsgw -p rtp-service -p rtp-mobile
           --bin cpxy-router --bin standalone --bin server --bin cpxy-tsgw
+          --bin cpxy-rtp --bin cpxy-rtp-router
 
       - name: Build package
         env:
@@ -345,13 +346,18 @@ jobs:
           RELEASE: target/${{ matrix.target.rust }}/release
         run: |
           mkdir -p bins
+          cp "$RELEASE/cpxy-rtp" "$RELEASE/cpxy-rtp-router" bins/
           cp "$RELEASE/cpxy-tsgw" bins/cpxy-tsgw
           cp "$RELEASE/cpxy-router" bins/cpxy-router
           cp "$RELEASE/standalone" bins/cpxy-client
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
+          packaging/openwrt/build-rtp-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package/rtp
           docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
             apk add --no-cache openssl
             packaging/openwrt/build-apk-variants.sh "$1" "$2" bins openwrt-package/apk
+            for arch in $(packaging/openwrt/apk-architectures.sh "$1"); do
+              packaging/openwrt/build-rtp-apk.sh "$arch" "$2" bins "openwrt-package/rtp/apk/$arch"
+            done
           ' sh '${{ matrix.target.rust }}' '${{ needs.version.outputs.ipk_version }}'
           ls -l openwrt-package bins
 
@@ -368,6 +374,21 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           cp target/${{ matrix.target.rust }}/release/server bins/cpxy-server
           packaging/openwrt/test/lab.sh bins
+
+      - name: Test RTP router in disposable OpenWrt QEMU
+        if: matrix.target.opkg_arch == 'x86_64'
+        env:
+          RTP_QEMU_ASSETS: ${{ runner.temp }}/rtp-qemu
+        run: |
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 iproute2 curl dnsutils
+          python3 packaging/openwrt/test/fetch-rtp-qemu-assets.py "$RTP_QEMU_ASSETS"
+          cp openwrt-package/rtp/*.ipk "$RTP_QEMU_ASSETS/cpxy-rtp.ipk"
+          sudo env RTP_QEMU_ASSETS="$RTP_QEMU_ASSETS" RTP_SERVICE_BIN="$PWD/bins/cpxy-rtp" \
+            unshare -nm bash rtp-service/tests/private-linux-lab.sh -c '
+              python3 packaging/openwrt/test/qemu-rtp.py \
+                "$RTP_QEMU_ASSETS/openwrt.img" "$RTP_QEMU_ASSETS/cpxy-rtp.ipk" \
+                "$RTP_QEMU_ASSETS/deps" "$RTP_SERVICE_BIN" "$RTP_QEMU_ASSETS/results"
+            '
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -534,8 +555,11 @@ jobs:
         run: |
           unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
           RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
-      - name: Test the RTP app engine against an internet-exit endpoint
+          RTP_TEST_OS_PORTS=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
+      - name: Exercise HTTP-controlled mobile transport in Linux namespaces
         run: unshare -Urnm bash rtp-mobile/tests/linux-lab.sh
+      - name: Exercise OpenWrt regional IPv6 guard and fast rejection
+        run: unshare -Urnm bash packaging/openwrt/test/ipv6-direct.sh
 
   # Self-contained static binaries: copy to any Linux host, no libc or packaging needed.
   build_rtp:
@@ -642,11 +666,17 @@ jobs:
             arch="${dir#artifacts/openwrt-}"
             mkdir -p "$out/openwrt/$arch"
             cp "$dir"/*.ipk "$out/openwrt/$arch/cpxy.ipk"
+            cp "$dir"/rtp/*.ipk "$out/openwrt/$arch/cpxy-rtp.ipk"
             packaging/openwrt/make-feed.sh "$out/openwrt/$arch" "$key"
             for apk_dir in "$dir"/apk/*; do
               apk_arch="${apk_dir##*/}"
               mkdir -p "$out/openwrt-apk/$apk_arch"
               cp "$apk_dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy.apk"
+            done
+            for apk_dir in "$dir"/rtp/apk/*; do
+              apk_arch="${apk_dir##*/}"
+              mkdir -p "$out/openwrt-apk/$apk_arch"
+              cp "$apk_dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy-rtp.apk"
             done
           done
           rm "$key"

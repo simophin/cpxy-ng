@@ -152,3 +152,6 @@ or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and
 `cpxy-tsgw` to apply. Matching TCP destination IPs always use the main proxy,
 overriding automatic direct/CN routing. An empty list preserves automatic
 routing. The HTTP/SOCKS client already proxies every destination.
+
+The separate opt-in [HTTP-controlled RTP router](rtp-router.md) preserves regional
+direct routing and split DNS while keeping this original router available.

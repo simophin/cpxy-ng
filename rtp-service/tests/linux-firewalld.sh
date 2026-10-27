@@ -51,46 +51,59 @@ PY
 ip netns exec b python3 "$work/backend.py" > "$work/backend.log" 2>&1 & backend=$!
 export CPXY_RTP_PASSWORD="fixture-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 export CPXY_RTP_KEEPALIVE_SECONDS=5 CPXY_RTP_SERVICE_CIDRS=10.90.0.0/24
-rotation=2
-if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then rotation=0; fi
 # `auto` must discover firewalld on the (private) system bus.
 server_env=(env CPXY_RTP_STATE_DIR="$work/server" CPXY_RTP_INTERFACE=rtps CPXY_RTP_LISTEN=192.0.2.2:30000
-  CPXY_RTP_ROTATION_PORTS=30001-30008 CPXY_RTP_ROTATION_SECONDS=$rotation
   CPXY_RTP_FIREWALL=auto CPXY_RTP_FIREWALLD_SOURCES=192.0.2.0/24 CPXY_RTP_ROUTE_TABLE=18801)
+if [ "${RTP_TEST_OS_PORTS:-0}" != 1 ]; then
+  server_env+=(CPXY_RTP_UDP_PORTS=30001-30008)
+fi
 client_env=(env CPXY_RTP_STATE_DIR="$work/client" CPXY_RTP_INTERFACE=rtpc CPXY_RTP_OUTBOUND_INTERFACE=vc
   CPXY_RTP_ENTRY=192.0.2.2:30000 CPXY_RTP_BIND=192.0.2.1:0)
 bin=$(realpath "${RTP_SERVICE_BIN:-target/debug/cpxy-rtp}")
 source rtp-service/tests/firewalld-helpers.sh
 firewall_setup
-ip netns exec s "${server_env[@]}" POC_TRACE_PATHS=1 POC_TEST_DROP_ACTIVE_PATH_FILE="$work/drop" "$bin" endpoint >"$work/s.out" 2>"$work/s.log" & server=$!
+ip netns exec s "${server_env[@]}" "$bin" endpoint >"$work/s.out" 2>"$work/s.log" & server=$!
 ip netns exec c "${client_env[@]}" "$bin" client >"$work/c.out" 2>"$work/c.log" & client=$!
 ping_pid=""
 cleanup() {
-  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}"; do
+  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}" "${bus:-}"; do
     if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
   done
-  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}"; do
+  for pid in "$server" "$client" "$ping_pid" "${backend:-}" "${firewall:-}" "${occupied:-}" "${bus:-}"; do
     if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || true; fi
   done
 }
-trap cleanup EXIT
+trap 'status=$?; cleanup; rm -rf "$work"; exit "$status"' EXIT
 for i in $(seq 1 300); do
   if grep -Eq '"event":"connected"' "$work/c.log"; then break; fi
   sleep .1
 done
+python3 - "$work/server/state.json" <<'PYPORTS'
+import json,sys
+leases=json.load(open(sys.argv[1]))['leases']
+assert leases and all(int(row['address'].rsplit(':',1)[1])>0 for row in leases)
+PYPORTS
 ip netns exec c ping -c 4 -W 2 10.90.0.2
 grep -Eq '"event":"admission","interface":"vs","mode":"firewalld","zone":"public"' "$work/s.log"
 if [ "${RTP_TEST_REPAIR:-0}" = 1 ]; then
   # The same ping process stays alive while the active tuple is blackholed.
-  ip netns exec c ping -c 25 -i .5 -W 1 10.90.0.2 > "$work/repair-ping.log" & ping_pid=$!
+  ip netns exec c ping -c 100 -i .5 -W 1 10.90.0.2 > "$work/repair-ping.log" & ping_pid=$!
   sleep 1.2
-  touch "$work/drop"
-  for i in $(seq 1 200); do
-    if grep -Eq '"event":"repaired"' "$work/c.log"; then break; fi
+  # Blackhole only the current UDP allocation; HTTP remains available.
+  port=$(python3 - "$work/server/state.json" <<'PYPORT'
+import json,sys
+print(json.load(open(sys.argv[1]))['leases'][0]['address'].rsplit(':',1)[1])
+PYPORT
+  )
+  ip netns exec c nft add table inet rtp_repair
+  ip netns exec c nft 'add chain inet rtp_repair output { type filter hook output priority -10; policy accept; }'
+  ip netns exec c nft add rule inet rtp_repair output udp dport "$port" drop
+  for i in $(seq 1 700); do
+    if test "$(grep -Ec '"event":"connected"' "$work/c.log")" -ge 2; then break; fi
     sleep .1
   done
   grep -Eq '"event":"repairing"' "$work/c.log"
-  grep -Eq '"event":"repaired"' "$work/c.log"
+  test "$(grep -Ec '"event":"connected"' "$work/c.log")" -ge 2
   wait "$ping_pid" || true
   ping_pid=""
   python3 - "$work/repair-ping.log" <<'PYTEST'
@@ -98,10 +111,10 @@ import re, sys
 seqs = [int(x) for x in re.findall(r'icmp_seq=(\d+)', open(sys.argv[1]).read())]
 assert seqs and seqs[0] <= 3, seqs
 assert any(b > a + 1 for a, b in zip(seqs, seqs[1:])), seqs
-assert seqs[-1] >= 23, seqs
+assert seqs[-1] >= 90, seqs
 PYTEST
   ip netns exec c ping -c 4 -W 2 10.90.0.2
-  rm "$work/drop"
+  ip netns exec c nft delete table inet rtp_repair
 fi
 firewall_exercise
 kill -TERM "$client"
@@ -137,7 +150,7 @@ for path in sys.argv[1:]:
     journal = json.load(open(path))
     assert journal == {"version": 1, "leases": []}, journal
 PYTEST
-# Bound listener descriptors must also be released, including rotation ports.
+# Bound listener descriptors must also be released, including allocation ports.
 ip netns exec s python3 - <<'PYTEST'
 import socket
 sockets = []
@@ -147,4 +160,4 @@ for port in range(30000, 30009):
     sockets.append(sock)
 PYTEST
 cat "$work/c.log"
-echo "A2_FIREWALL_NAMESPACE_OK artifacts=$work"
+echo "HTTP_FIREWALL_NAMESPACE_OK cleanup=verified"

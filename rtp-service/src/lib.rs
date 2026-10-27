@@ -2,10 +2,12 @@
 //! the packet worker receives descriptors and a restricted socket-provider API.
 //! Workers use threads, not an OS privilege sandbox. Endpoints manage firewalld
 //! in-process when it is present; otherwise port policy is the administrator's.
+pub mod addresses;
 pub mod broker;
 pub mod cli;
 pub mod config;
 pub mod forwarding;
+pub mod http_control;
 pub mod network;
 pub mod ports;
 
@@ -51,8 +53,8 @@ fn listen_interface(ip: std::net::IpAddr) -> io::Result<String> {
 fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
     let Role::Endpoint {
         listen,
-        rotation_low,
-        rotation_high,
+        udp_low,
+        udp_high,
         ..
     } = settings.transport
     else {
@@ -77,12 +79,19 @@ fn firewalld_policy(settings: &Settings) -> io::Result<Option<Policy>> {
         Some(zone) => zone.clone(),
         None => DbusFirewall.zone(&interface)?,
     };
+    // Automatic sockets are admitted only after bind(:0) reveals their actual
+    // port. This is delegation of individual leases, never a range-wide rule.
+    let (low, high) = if udp_low == 0 {
+        (1, u16::MAX)
+    } else {
+        (udp_low, udp_high)
+    };
     Ok(Some(Policy {
         profile: settings.profile.clone(),
         bind: listen.ip(),
-        base: listen.port(),
-        low: rotation_low,
-        high: rotation_high,
+        base: low,
+        low,
+        high,
         zone,
         interface,
         sources: options.sources.clone(),
@@ -102,7 +111,7 @@ fn admission(settings: &Settings, events: &Events) -> io::Result<(Box<dyn Admiss
                 serde_json::json!({"event":"admission", "mode":"firewalld", "zone":p.zone, "interface":p.interface})
             }
             None => {
-                serde_json::json!({"event":"admission", "mode":"administrator", "detail":"firewalld not managed; open the listen and rotation UDP ports externally"})
+                serde_json::json!({"event":"admission", "mode":"administrator", "detail":"firewalld not managed; admit the TCP control port and allocated UDP ports externally"})
             }
         });
     }
@@ -117,7 +126,7 @@ fn admission(settings: &Settings, events: &Events) -> io::Result<(Box<dyn Admiss
     Ok((local, managed))
 }
 
-use rtp_l3::linux::{self, Events, Resources, SocketProvider, WorkerConfig};
+use rtp_l3::linux::{self, Events, SocketProvider};
 use std::{
     fs::{File, OpenOptions},
     io,
@@ -175,25 +184,7 @@ fn client_socket(settings: &Settings, peer: SocketAddr) -> io::Result<UdpSocket>
         return Err(io::Error::other("peer outside configured entry"));
     }
     let socket = UdpSocket::bind(bind)?;
-    let device = std::ffi::CString::new(
-        settings
-            .outbound_interface
-            .as_deref()
-            .ok_or_else(|| io::Error::other("missing outbound_interface"))?,
-    )
-    .map_err(io::Error::other)?;
-    if unsafe {
-        libc::setsockopt(
-            socket.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_BINDTODEVICE,
-            device.as_ptr().cast(),
-            device.as_bytes_with_nul().len() as _,
-        )
-    } < 0
-    {
-        return Err(io::Error::last_os_error());
-    }
+    broker::bind_device(&socket, settings.outbound_interface.as_deref())?;
     socket.connect(peer)?;
     Ok(socket)
 }
@@ -253,6 +244,7 @@ struct Host {
     broker: Option<Arc<Mutex<File>>>,
     /// Firewalld forwarding for managed endpoints with service CIDRs.
     forwarding: Option<forwarding::Forwarding>,
+    quarantine: Mutex<Vec<UdpSocket>>,
 }
 impl Host {
     fn release_tunnel(&self) -> io::Result<()> {
@@ -280,25 +272,45 @@ impl Host {
     }
 }
 impl SocketProvider for Host {
+    fn control_socket(&self, peer: SocketAddr) -> io::Result<std::net::TcpStream> {
+        let Role::Client { entry, bind } = self.settings.transport else {
+            return Err(io::Error::other("not a client"));
+        };
+        if peer != entry {
+            return Err(io::Error::other("control peer outside configured endpoint"));
+        }
+        match &self.broker {
+            Some(channel) => {
+                let socket = broker::tcp_from_broker(&channel.lock().unwrap(), peer.port())?;
+                if socket.peer_addr()? != peer {
+                    return Err(io::Error::other("wrong control socket peer"));
+                }
+                Ok(socket)
+            }
+            None => broker::tcp_socket(peer, bind, self.settings.outbound_interface.as_deref()),
+        }
+    }
+
     fn prepare_port(&self, address: SocketAddr) -> io::Result<UdpSocket> {
         let Role::Endpoint {
             listen,
-            rotation_low,
-            rotation_high,
+            udp_low,
+            udp_high,
             ..
         } = self.settings.transport
         else {
             return Err(io::Error::other("client cannot lease listeners"));
         };
-        if address.ip() != listen.ip()
-            || address.port() != listen.port()
-                && !(rotation_low..=rotation_high).contains(&address.port())
-        {
+        if address.ip() != listen.ip() || !(udp_low..=udp_high).contains(&address.port()) {
             return Err(io::Error::other("port outside profile namespace"));
         }
         let socket = endpoint_socket(address)?;
-        if let Err(e) = self.leases.prepare_port(address) {
-            let _ = self.leases.retire_port(address.port());
+        // Port zero is a bind request, never a firewall/journal port.
+        let allocated_address = socket.local_addr()?;
+        if let Err(e) = self.leases.prepare_port(allocated_address) {
+            if self.leases.retire_port(allocated_address.port()).is_err() {
+                self.quarantine.lock().unwrap().push(socket);
+            }
             return Err(e);
         }
         Ok(socket)
@@ -404,16 +416,68 @@ impl Service {
                 admission,
             )?,
             forwarding,
+            quarantine: Mutex::new(Vec::new()),
         });
-        let setup = (|| {
-            let socket = match self.settings.transport {
-                Role::Client { entry, .. } => host.open_client(entry.into())?,
-                Role::Endpoint { listen, .. } => {
-                    let s = host.prepare_port(listen.into())?;
-                    host.commit_port(listen.port())?;
-                    s
+        let mut control_client = if let Role::Client { entry, .. } = self.settings.transport {
+            Some(http_control::client::Client::new(
+                &psk,
+                &self.settings.control.server_identity,
+                entry,
+                host.clone(),
+                addresses::client_id(&self.settings.journal.with_extension("client-id"))?,
+            )?)
+        } else {
+            None
+        };
+        if self.settings.control.dynamic_address {
+            let client = control_client
+                .as_mut()
+                .ok_or_else(|| io::Error::other("dynamic address is client-only"))?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let value = loop {
+                match client.call("allocate_ip", Default::default()) {
+                    Ok(value) => break value,
+                    Err(e)
+                        if std::time::Instant::now() < deadline
+                            && matches!(
+                                e.kind(),
+                                io::ErrorKind::ConnectionRefused
+                                    | io::ErrorKind::TimedOut
+                                    | io::ErrorKind::NotConnected
+                                    | io::ErrorKind::BrokenPipe
+                                    | io::ErrorKind::WouldBlock
+                                    | io::ErrorKind::ConnectionReset
+                                    | io::ErrorKind::ConnectionAborted
+                                    | io::ErrorKind::UnexpectedEof
+                            ) =>
+                    {
+                        thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => return Err(e),
                 }
             };
+            let inner: std::net::Ipv4Addr = serde_json::from_value(value["inner"].clone())?;
+            let prefix = value["prefix"]
+                .as_u64()
+                .filter(|p| *p <= 30)
+                .ok_or_else(|| io::Error::other("invalid allocated subnet"))?
+                as u8;
+            self.settings.address = format!("{inner}/{prefix}");
+            if let Some(network) = &mut self.settings.network {
+                network.client_addresses = vec![inner];
+                let mask = if prefix == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - prefix)
+                };
+                network.tunnel_pool = format!(
+                    "{}/{prefix}",
+                    std::net::Ipv4Addr::from(u32::from(inner) & mask)
+                );
+            }
+            self.settings.validate()?;
+        }
+        let setup = (|| {
             network::prepare(&self.settings)?;
             let packet = tun(&self.settings)?;
             if let Some(forwarding) = &host.forwarding {
@@ -423,9 +487,9 @@ impl Service {
                 ip(&["link", "set", "dev", &self.settings.interface, "up"])?;
             }
             network::activate(&self.settings)?;
-            Ok::<_, io::Error>((socket, packet))
+            Ok::<_, io::Error>(packet)
         })();
-        let (socket, packet) = match setup {
+        let packet = match setup {
             Ok(v) => v,
             Err(e) => {
                 host.release_tunnel()?;
@@ -433,16 +497,8 @@ impl Service {
                 return Err(e);
             }
         };
-        let (inner, prefix) = self.settings.inner()?;
-        let (client, low, high, rotation) = match self.settings.transport {
-            Role::Client { .. } => (true, 0, 0, 0),
-            Role::Endpoint {
-                rotation_low,
-                rotation_high,
-                rotation_seconds,
-                ..
-            } => (false, rotation_low, rotation_high, rotation_seconds),
-        };
+        let client = matches!(self.settings.transport, Role::Client { .. });
+        let settings = self.settings.clone();
         let running = Arc::new(AtomicBool::new(true));
         let run = running.clone();
         let worker_host = host.clone();
@@ -478,7 +534,12 @@ impl Service {
         let final_health = self.health.clone();
         let final_events = self.events.clone();
         let thread = thread::Builder::new().name(format!("rtp-{}", self.settings.profile)).spawn(move || {
-            let result = linux::run(WorkerConfig { client, psk, inner, prefix, rotation_low: low, rotation_high: high, initial_rotation_port: worker_host.settings.initial_rotation_port, rotation_seconds: rotation, keepalive_seconds: worker_host.settings.keepalive_seconds }, Resources { packet: Box::new(network::PolicyPacket { file: packet, settings: worker_host.settings.clone() }), clock: Arc::new(linux::MonotonicClock::default()), socket, provider: worker_host.clone(), events: worker_events }, run);
+            let device: Box<dyn linux::PacketIo>=Box::new(network::PolicyPacket{file:packet,settings:settings.clone()});
+            let result=if client {
+                http_control::transport::run(settings,control_client.unwrap(),device,worker_host.clone(),worker_events,run)
+            } else {
+                http_control::server::run(settings,psk,device,worker_host.clone(),worker_events,run)
+            };
             let cleanup = worker_host.leases.cleanup();
             let result = result.and(cleanup).and(worker_host.release_tunnel());
             final_health.lock().unwrap().state = if result.is_ok() { "stopped" } else { "failed" }.into();
@@ -578,7 +639,13 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
     };
     let socket = match settings.transport {
         Role::Client { entry, .. } => client_socket(settings, entry.into()),
-        Role::Endpoint { listen, .. } => endpoint_socket(listen),
+        Role::Endpoint {
+            listen, udp_low, ..
+        } => {
+            let mut address = listen;
+            address.set_port(udp_low);
+            endpoint_socket(address)
+        }
     };
     serde_json::json!({"configuration":settings.validate().err().map(|e|e.to_string()), "password_env":std::env::var_os(PASSWORD_ENV).is_some(), "tun_device":std::path::Path::new("/dev/net/tun").exists(), "routing":route, "socket_bind":socket.err().map(|e|e.to_string()), "firewall":{"mode":settings.firewall,"firewalld_available":DbusFirewall::available(),"policy":firewalld_policy(settings).map(|p| p.map(|p| serde_json::json!({"zone":p.zone,"interface":p.interface,"sources":p.sources}))).map_err(|e| e.to_string()),"tunnel_zone":settings.firewalld.tunnel_zone,"masquerade":settings.firewalld.masquerade,"verified":false,"detail":"read-only diagnostics do not assert admission; the running service verifies rules before readiness and periodically"}, "network":settings.network,"dns_policy":{"mode":"externally_managed_only","verified":false,"detail":"service never mutates DNS; administrator must provision persistent fail-closed private suffix routing"},"fail_closed":"configured CIDRs use reserved policy rules and unreachable guard; explicit stop/cleanup releases policy", "mtu":1200,"ipv4_only":true,"outer_transport":"ipv4_or_ipv6"})
 }
@@ -586,6 +653,57 @@ pub fn doctor(settings: &Settings) -> serde_json::Value {
 #[cfg(test)]
 mod transport_tests {
     use super::*;
+    #[test]
+    fn automatic_port_is_bound_before_journaling_and_retired_by_actual_port() {
+        use clap::Parser;
+        let root =
+            std::env::temp_dir().join(format!("rtp-automatic-admission-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let cli::Cli {
+            role: cli::RoleCommand::Endpoint { args, .. },
+        } = cli::Cli::parse_from([
+            "rtp",
+            "endpoint",
+            "--listen",
+            "127.0.0.1:30000",
+            "--firewall",
+            "none",
+            "--state-dir",
+            root.to_str().unwrap(),
+        ])
+        else {
+            panic!()
+        };
+        let settings = args.settings().unwrap();
+        let journal = settings.journal.clone();
+        let host = Host {
+            settings,
+            leases: LeaseManager::open(
+                journal.clone(),
+                cli::NAME.into(),
+                Box::new(AdministratorManaged),
+            )
+            .unwrap(),
+            broker: None,
+            forwarding: None,
+            quarantine: Mutex::new(Vec::new()),
+        };
+        let socket = host.prepare_port("127.0.0.1:0".parse().unwrap()).unwrap();
+        let actual = socket.local_addr().unwrap();
+        assert_ne!(actual.port(), 0);
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+        assert_eq!(saved["leases"][0]["address"], actual.to_string());
+        host.commit_port(actual.port()).unwrap();
+        host.retire_port(actual.port()).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+        assert_eq!(saved["leases"], serde_json::json!([]));
+        drop(socket);
+        assert!(UdpSocket::bind(actual).is_ok());
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn wildcard_endpoint_accepts_both_families_on_one_port() {
         let endpoint = endpoint_socket("[::]:0".parse().unwrap()).unwrap();

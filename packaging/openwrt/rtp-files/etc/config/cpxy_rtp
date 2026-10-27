@@ -1,0 +1,14 @@
+# Opt-in; independent of /etc/config/cpxy and cpxy-router.
+config vpn 'main'
+	option enabled '0'
+	# Kernel-direct China IPv6; other IPv6 is rejected. RTP carries IPv4 only.
+	option ipv6_direct '0'
+	option entry ''
+	option password ''
+	list network 'lan'
+	list dns_upstream '223.5.5.5'
+	list dns_alternative '8.8.8.8'
+	list dns_alternative '1.1.1.1'
+	option dns_local_server '127.0.0.1:53'
+	list dns_local_domain 'lan'
+	# list proxy_route '203.0.113.0/24'
