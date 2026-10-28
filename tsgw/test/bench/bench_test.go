@@ -77,7 +77,15 @@ func TestThroughput(t *testing.T) {
 
 	// The tailnet: control and DERP in this process. Peers on one host connect directly.
 	derpMap := runDERP(t)
-	control := &testcontrol.Server{DERPMap: derpMap, Logf: logger.Discard}
+	controlLogs := &syncBuffer{}
+	control := &testcontrol.Server{DERPMap: derpMap, Logf: func(format string, args ...any) {
+		fmt.Fprintf(controlLogs, format+"\n", args...)
+	}}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("control output:\n%s", controlLogs.String())
+		}
+	})
 	control.HTTPTestServer = httptest.NewUnstartedServer(control)
 	control.HTTPTestServer.Start()
 	t.Cleanup(control.HTTPTestServer.Close)

@@ -426,6 +426,7 @@ jobs:
           CPXY_TSGW_BENCH: 1
           CPXY_TSGW_BENCH_MB: 20
           CPXY_TSGW_BENCH_RUNS: 1
+          CPXY_TSGW_BENCH_GW_RUST_LOG: warn,cpxy_tsgw=debug,ts_control=debug
         run: go test -count=1 -timeout 10m -v ./bench
 
   test_openwrt_packaging:

@@ -272,6 +272,7 @@ mod linux {
                     match tokio::time::timeout(STATUS_INTERVAL, device.status()).await {
                         Ok(Ok(status)) => match status.self_node {
                             Some(me) => {
+                                tracing::debug!(routes = ?me.allowed_routes, "Reading exit-node approval");
                                 let approved = me
                                     .allowed_routes
                                     .iter()
@@ -293,7 +294,10 @@ mod linux {
                             None => "Tailscale is Running".to_owned(),
                         },
                         Ok(Err(e)) => format!("Reading Tailscale status: {e}"),
-                        Err(_) => return,
+                        Err(_) => {
+                            tracing::warn!("Timed out reading Tailscale status");
+                            return;
+                        }
                     }
                 }
                 other => format!("Tailscale is {other:?}"),
