@@ -269,33 +269,34 @@ mod linux {
                         .to_owned()
                 }
                 DeviceState::Running => {
-                    match tokio::time::timeout(STATUS_INTERVAL, device.status()).await {
-                        Ok(Ok(status)) => match status.self_node {
-                            Some(me) => {
-                                tracing::debug!(routes = ?me.allowed_routes, "Reading exit-node approval");
-                                let approved = me
-                                    .allowed_routes
-                                    .iter()
-                                    .any(|r| r.prefix_len() == 0 && r.addr().is_ipv4());
-                                let ips: Vec<_> =
-                                    me.tailscale_ips.iter().map(|ip| ip.to_string()).collect();
-                                let mut line = format!(
-                                    "Tailscale is Running as {} ({})",
-                                    me.display_name,
-                                    ips.join(", ")
-                                );
-                                line += if approved {
-                                    "; the exit node is approved"
-                                } else {
-                                    "; the exit node is NOT approved yet: approve it in the admin console (Edit route settings, Use as exit node)"
-                                };
-                                line
-                            }
-                            None => "Tailscale is Running".to_owned(),
-                        },
+                    // Approval belongs to the control runner's self node. A full status
+                    // query also waits on peer/path actors and can hide a fresh approval
+                    // behind unrelated peer discovery until this deadline expires.
+                    match tokio::time::timeout(STATUS_INTERVAL, device.self_node()).await {
+                        Ok(Ok(node)) => {
+                            let me = tailscale::StatusNode::from_node(&node);
+                            tracing::debug!(routes = ?me.allowed_routes, "Reading exit-node approval");
+                            let approved = me
+                                .allowed_routes
+                                .iter()
+                                .any(|r| r.prefix_len() == 0 && r.addr().is_ipv4());
+                            let ips: Vec<_> =
+                                me.tailscale_ips.iter().map(|ip| ip.to_string()).collect();
+                            let mut line = format!(
+                                "Tailscale is Running as {} ({})",
+                                me.display_name,
+                                ips.join(", ")
+                            );
+                            line += if approved {
+                                "; the exit node is approved"
+                            } else {
+                                "; the exit node is NOT approved yet: approve it in the admin console (Edit route settings, Use as exit node)"
+                            };
+                            line
+                        }
                         Ok(Err(e)) => format!("Reading Tailscale status: {e}"),
                         Err(_) => {
-                            tracing::warn!("Timed out reading Tailscale status");
+                            tracing::warn!("Timed out reading Tailscale self node");
                             return;
                         }
                     }

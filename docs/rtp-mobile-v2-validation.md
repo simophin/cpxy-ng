@@ -188,3 +188,24 @@ outside the implementation commits.
 Pushed implementation/validation checkpoints `f40938e` and `3fdceaf` on
 `docs/android-rtp-v2-plan`, then updated draft PR #154 with the final scope,
 checks and acceptance limits. The PR remains a draft targeting `main`.
+
+## CI follow-up: gateway approval reporting
+
+The initial PR CI failure was `Test cpxy-tsgw`: `TestThroughput` timed out waiting
+for the gateway to report exit-node approval. The same failure also occurred on
+main, while the RTP/Android checks passed. A fresh fetch confirmed `6e4ce52` was
+still latest main and already merged; `git merge origin/main` was up to date.
+
+Approval reporting now reads `Device::self_node()` directly instead of building a
+full status snapshot through the peer/path actors. This removes unrelated peer
+queries from the approval log's five-second deadline. The harness retains its
+approval assertion and now also checks approval before a peer joins, withdrawal
+and restoration with an active peer, and traffic after restoration. Failed tests
+include control-server diagnostics; CI enables targeted gateway/control logging.
+
+The release binary built, Go formatting/vet and targeted Rust formatting passed.
+With CI's Go 1.27.1, the expanded packet-path and Go-state tests passed three
+consecutive runs (six test executions). Both tests also passed with 10 ms network
+latency in a disposable namespace. The original intermittent failure was not
+reproduced locally, including repeated runs with constrained scheduling; the
+change removes the unnecessary status-query dependency without weakening checks.
