@@ -328,16 +328,16 @@ of rewriting history as though Android was validated there.
 
 - [x] Inspect final diff and confirm scope, clean task-owned working state and
   completed available checks. Document material limitations and unfinished gates.
-- [ ] Push the implementation branch without force-pushing another person's work.
-- [ ] Open a draft PR using the configured repository tooling (`gh` if available).
+- [x] Push the implementation branch without force-pushing another person's work.
+- [x] Update the existing draft PR using `gh` (#154).
   Suggested title: **Enable HTTP-controlled RTP v2 in the Android VPN app**.
   Describe the old deferred startup, resulting allocation-before-TUN behavior,
   identity/profile migration, cancellation/fail-closed ownership changes and
   concrete verification. Link #153 and this plan; do not claim checks not run.
-- [ ] For CLI PR creation, write the body to a temporary file and pass
+- [x] For CLI PR creation/update, write the body to a temporary file and pass
   `--body-file`; preserve real newlines. Verify the returned PR is a draft and
   targets the intended base. Do not request review or merge automatically.
-- [ ] Report branch, commit hashes, draft PR URL, checks/results and outstanding
+- [x] Report branch, commit hashes, draft PR URL, checks/results and outstanding
   device/environment limitations to the user. If push/PR creation is blocked,
   report exactly what succeeded and the remaining access requirement.
 
@@ -346,3 +346,9 @@ server-assigned address and connect through the shared v2 runtime, cancellation
 cannot resurrect a stopped connection, recovery preserves captured routes,
 existing shared/Linux behavior remains intact, and Android build/test evidence
 and any unverified acceptance cases are explicit in the draft PR.
+
+Delivery: pushed `docs/android-rtp-v2-plan`; implementation/validation checkpoints
+`f40938e` and `3fdceaf` follow merge `cb918e8`. Updated existing
+[draft PR #154](https://github.com/simophin/cpxy-ng/pull/154), confirmed draft
+status and `main` base. Remaining acceptance limits are recorded in the validation
+report and PR description.

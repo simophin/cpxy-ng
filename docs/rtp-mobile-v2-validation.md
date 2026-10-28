@@ -4,8 +4,9 @@ Implementation started at `77e80db` on the user-requested
 `docs/android-rtp-v2-plan` branch, building on #153 (`60d4d9a`). Latest main
 `6e4ce52` was merged as `cb918e8`; its Tokio client/endpoint and bounded packet
 channels are retained. The Android recovery errors propagate through the async
-worker, and the regression fixtures use its device pump. Intended PR base is
-`main`, confirmed through GitHub repository metadata.
+worker, and the regression fixtures use its device pump.
+[Draft PR #154](https://github.com/simophin/cpxy-ng/pull/154) targets `main`,
+confirmed through GitHub repository metadata.
 
 ## Profile and ownership contracts
 
@@ -183,3 +184,7 @@ instrumentation, which uninstalls its APKs. Captures and fixture state are local
 validation artifacts and are not committed. No public endpoint or live router was
 changed, and no release was published. The unrelated untracked directories remain
 outside the implementation commits.
+
+Pushed implementation/validation checkpoints `f40938e` and `3fdceaf` on
+`docs/android-rtp-v2-plan`, then updated draft PR #154 with the final scope,
+checks and acceptance limits. The PR remains a draft targeting `main`.
