@@ -29,6 +29,8 @@ pub fn derive_psk(password: &str) -> Result<[u8; 32], &'static str> {
     Ok(psk)
 }
 
+#[cfg(unix)]
+pub mod device;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(unix)]

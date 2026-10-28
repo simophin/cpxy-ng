@@ -4,7 +4,7 @@
 //! ([`tunnel_routes`]) into the TUN, so direct traffic never reaches the engine.
 //!
 //! ```text
-//! TUN ⇄ shim ⇄ socketpair ⇄ rtp-l3 client worker ⇄ UDP to the endpoint
+//! TUN ⇄ shim ⇄ packet channels ⇄ rtp-l3 client worker ⇄ UDP to the endpoint
 //! ```
 
 uniffi::setup_scaffolding!();
@@ -20,19 +20,20 @@ use ipnet::Ipv4Net;
 use profile::Profile;
 use rtp_l3::{
     v2::{
-        client_runtime::{self, ClientConfig},
+        client_runtime::{self, ClientConfig, PathCounters},
         http_client::Client,
     },
     worker::SocketProvider,
 };
-use shim::{Counters, Datagrams, Shim};
-use std::io::{self, Read, Write};
+use shim::{Counters, Datagrams, IoCounts, Shim};
+use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::Duration;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 /// The virtual DNS server the TUN advertises. In the benchmarking range, which is not direct, so
 /// it is inside [`tunnel_routes`]; the engine answers it and never sends it to the endpoint.
@@ -85,6 +86,10 @@ pub struct Status {
     pub refused: u64,
     pub repairs: u64,
     pub fallbacks: u64,
+    /// The worker's packet-path counts as of its latest report, about every 10 seconds.
+    pub worker: Option<PathCounters>,
+    /// Shim calls on the TUN.
+    pub shim_tun: IoCounts,
 }
 
 #[derive(Default)]
@@ -93,6 +98,7 @@ struct WorkerStatus {
     error: Option<String>,
     repairs: u64,
     fallbacks: u64,
+    path: Option<PathCounters>,
 }
 
 impl WorkerStatus {
@@ -105,6 +111,9 @@ impl WorkerStatus {
                 let count = |name: &str| event[name].as_u64().unwrap_or(0);
                 self.repairs = count("active_repairs");
                 self.fallbacks = count("fallbacks");
+                if let Ok(path) = serde_json::from_value(event["path"].clone()) {
+                    self.path = Some(path);
+                }
                 return;
             }
             _ => return,
@@ -114,7 +123,7 @@ impl WorkerStatus {
 }
 
 pub struct Engine {
-    running: Arc<AtomicBool>,
+    stop: CancellationToken,
     repair: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
     runtime: Mutex<Option<tokio::runtime::Runtime>>,
@@ -198,11 +207,11 @@ impl Prepared {
             .thread_name("rtp-engine")
             .enable_all()
             .build()?;
-        let (worker_end, shim_end) = socketpair()?;
+        let (device, port) = rtp_l3::device::channel();
         let counters = Arc::new(Counters::default());
         let shim = runtime.block_on(async {
-            let tun = Datagrams::new(tun, FAMILY_HEADER)?;
-            let tunnel = Datagrams::new(shim_end, false)?;
+            let tun = Datagrams::new(tun, FAMILY_HEADER, counters.tun.clone())?;
+            let tunnel = port.reads;
             let queries = Arc::new(dns::TunnelQueries::new(inner, tunnel.clone()));
             let handler = dns::handler(&settings, queries.clone(), direct_ipv6).await?;
             anyhow::Ok(Arc::new(Shim {
@@ -219,7 +228,7 @@ impl Prepared {
 
         let repair = provider.repair.clone();
         let status = Arc::new(Mutex::new(WorkerStatus::default()));
-        let running = Arc::new(AtomicBool::new(true));
+        let stop = CancellationToken::new();
         let config = ClientConfig {
             entry: endpoint,
             inner,
@@ -231,35 +240,35 @@ impl Prepared {
             events_status.lock().unwrap().observe(&event);
         });
         let worker_provider = provider.clone();
-        let worker_running = running.clone();
         let worker_status = status.clone();
-        let worker = std::thread::Builder::new()
-            .name("rtp-worker".into())
-            .spawn(move || {
-                let result = client_runtime::run_prepared(
-                    config,
-                    path,
-                    Box::new(PairDevice(worker_end)),
-                    worker_provider,
-                    events,
-                    worker_running,
-                );
-                let mut status = worker_status.lock().unwrap();
-                match result {
-                    Ok(()) => status.state = Some(State::Stopped),
-                    Err(e) => {
-                        tracing::warn!("The tunnel worker failed: {e}");
-                        status.error = Some(format!("{:?}", e.kind()));
-                        status.state = Some(State::Failed);
-                    }
+        let worker = runtime.spawn(client_runtime::run_prepared(
+            config,
+            path,
+            device,
+            worker_provider,
+            events,
+            stop.clone(),
+        ));
+        let worker = runtime.spawn(async move {
+            let result = worker
+                .await
+                .unwrap_or_else(|_| Err(io::Error::other("tunnel worker panicked")));
+            let mut status = worker_status.lock().unwrap();
+            match result {
+                Ok(()) => status.state = Some(State::Stopped),
+                Err(e) => {
+                    tracing::warn!("The tunnel worker failed: {e}");
+                    status.error = Some(format!("{:?}", e.kind()));
+                    status.state = Some(State::Failed);
                 }
-            })?;
+            }
+        });
 
         let dns = shim.handler.clone();
         runtime.spawn(shim.clone().outbound());
-        runtime.spawn(shim.inbound());
+        runtime.spawn(shim.inbound(port.writes));
         Ok(Engine {
-            running,
+            stop,
             repair,
             worker: Mutex::new(Some(worker)),
             runtime: Mutex::new(Some(runtime)),
@@ -302,6 +311,8 @@ impl Engine {
             refused: count(&self.counters.refused),
             repairs: worker.repairs,
             fallbacks: worker.fallbacks,
+            worker: worker.path,
+            shim_tun: self.counters.tun.counts(),
         }
     }
 
@@ -314,16 +325,23 @@ impl Engine {
     /// Stops the worker and closes the TUN; blocks for up to a second or two. Calling it again
     /// does nothing.
     pub fn stop(&self) {
-        self.running.store(false, Ordering::Release);
-        if let Some(worker) = self.worker.lock().unwrap().take() {
-            let deadline = std::time::Instant::now() + Duration::from_millis(500);
-            while !worker.is_finished() && std::time::Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            self.provider.cancel_control();
-            let _ = worker.join();
+        self.stop.cancel();
+        let mut runtime = self.runtime.lock().unwrap();
+        if let (Some(mut worker), Some(runtime)) =
+            (self.worker.lock().unwrap().take(), runtime.as_ref())
+        {
+            runtime.block_on(async {
+                // The worker releases its leases over HTTP; past this, abandon a stalled call.
+                if tokio::time::timeout(Duration::from_millis(500), &mut worker)
+                    .await
+                    .is_err()
+                {
+                    self.provider.cancel_control();
+                    let _ = worker.await;
+                }
+            });
         }
-        if let Some(runtime) = self.runtime.lock().unwrap().take() {
+        if let Some(runtime) = runtime.take() {
             // Dropping the shim's tasks closes the TUN.
             runtime.shutdown_timeout(Duration::from_secs(1));
         }
@@ -403,78 +421,13 @@ impl SocketProvider for Provider {
     }
 }
 
-/// The worker's end of the socketpair: one packet per read or write.
-struct PairDevice(OwnedFd);
-
-impl AsRawFd for PairDevice {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-}
-
-impl Read for PairDevice {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        // SAFETY: reads into a buffer of the given length.
-        let n = unsafe { libc::read(self.0.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
-        match n {
-            n if n < 0 => Err(io::Error::last_os_error()),
-            // The shim's end closed: end the worker.
-            0 => Err(io::ErrorKind::UnexpectedEof.into()),
-            n => Ok(n as usize),
-        }
-    }
-}
-
-impl Write for PairDevice {
-    fn write(&mut self, packet: &[u8]) -> io::Result<usize> {
-        // SAFETY: writes from a buffer of the given length.
-        let n = unsafe { libc::write(self.0.as_raw_fd(), packet.as_ptr().cast(), packet.len()) };
-        if n < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(n as usize)
-        }
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// A connected datagram socketpair with room for bursts: (worker end, shim end).
-fn socketpair() -> io::Result<(OwnedFd, OwnedFd)> {
-    let mut fds = [0; 2];
-    // SAFETY: socketpair fills both descriptors on success, which we then own.
-    let pair = unsafe {
-        if libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, fds.as_mut_ptr()) < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1]))
-    };
-    for fd in [&pair.0, &pair.1] {
-        shim::set_nonblocking(fd)?;
-        for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
-            let size: libc::c_int = 1 << 20;
-            // SAFETY: setsockopt with an int option value. Failure only leaves smaller buffers.
-            unsafe {
-                libc::setsockopt(
-                    fd.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    option,
-                    (&size as *const libc::c_int).cast(),
-                    size_of::<libc::c_int>() as _,
-                );
-            }
-        }
-    }
-    Ok(pair)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn tcp_and_udp_are_protected_before_connect_and_stop_closes_control() {
+        use std::io::Read;
         use std::os::fd::BorrowedFd;
         use std::sync::atomic::AtomicUsize;
         struct Protection(AtomicUsize);
@@ -546,5 +499,13 @@ mod tests {
         status.observe(&serde_json::json!({"event":"stats","active_repairs":2,"fallbacks":1}));
         assert_eq!((status.repairs, status.fallbacks), (2, 1));
         assert_eq!(status.state, Some(State::Connected));
+        assert_eq!(status.path, None);
+        let path = PathCounters {
+            wakes: 7,
+            device_queue_high: 3,
+            ..Default::default()
+        };
+        status.observe(&serde_json::json!({"event":"stats","path":path}));
+        assert_eq!(status.path, Some(path));
     }
 }

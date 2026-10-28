@@ -1,4 +1,4 @@
-//! Single TUN dispatcher and independent serialized HTTP/firewall owner.
+//! Single packet dispatcher task and independent serialized HTTP/firewall owner.
 use super::{
     leases::{Controller, State, Table},
     wire,
@@ -6,33 +6,39 @@ use super::{
 use crate::{
     addresses::Addresses,
     config::{Role, Settings},
+    network::WritePolicy,
 };
 use rtp_l3::{
+    device::{self, Device},
     v2::{
         codec::{Control, Packet, MAX_FRAME},
         http::{random, Server},
     },
-    worker::{Events, PacketIo, SocketProvider},
+    worker::{Events, SocketProvider},
 };
 use std::{
-    collections::VecDeque,
+    collections::BTreeMap,
+    future::poll_fn,
     io,
-    net::{Ipv4Addr, TcpListener},
-    os::fd::AsRawFd,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
-    },
-    thread,
+    net::{Ipv4Addr, UdpSocket},
+    os::fd::OwnedFd,
+    sync::{mpsc, Arc, Mutex},
+    task::Poll,
     time::{Duration, Instant},
 };
-fn nonblocking(fd: std::os::fd::RawFd) -> io::Result<()> {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
+use tokio::{
+    io::{unix::AsyncFd, Interest},
+    sync::{mpsc::error::TryRecvError, mpsc::error::TrySendError, Notify},
+    task, time,
+};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+/// Wake at least this often for lease expiry, queue ageing and admission reconciliation.
+const TICK: Duration = Duration::from_millis(250);
+/// Device packets, and datagrams per socket in each direction, handled in one pass.
+const BUDGET: usize = 32;
+
 fn transient(e: &io::Error) -> bool {
     matches!(
         e.kind(),
@@ -42,13 +48,18 @@ fn transient(e: &io::Error) -> bool {
 fn ms(start: Instant) -> u64 {
     start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }
+
+/// Serve the endpoint until `stop` is cancelled or a component fails: the packet dispatcher
+/// and TUN pump on the runtime, HTTP connections on blocking tasks, and leases/firewall on one
+/// serialized blocking owner.
 pub fn run(
     settings: Settings,
     psk: [u8; 32],
-    mut packet: Box<dyn PacketIo>,
+    packet: OwnedFd,
+    accept: WritePolicy,
     provider: Arc<dyn SocketProvider>,
     events: Events,
-    running: Arc<AtomicBool>,
+    stop: CancellationToken,
 ) -> io::Result<()> {
     let Role::Endpoint {
         listen,
@@ -93,9 +104,9 @@ pub fn run(
         settings.control.reserved.clone(),
     )?;
     let table = Arc::new(Mutex::new(Table::default()));
-    let mut envelope = Server::new(&psk, &settings.control.server_identity, 4096)
+    let envelope = Server::new(&psk, &settings.control.server_identity, 4096)
         .ok_or_else(|| io::Error::other("invalid control identity"))?;
-    let mut controller = Controller::new(
+    let controller = Controller::new(
         State::new(
             addresses,
             table.clone(),
@@ -108,96 +119,256 @@ pub fn run(
         ),
         envelope.generation.clone(),
     );
-    let listener = TcpListener::bind(listen)?;
-    let start = Instant::now();
-    let (commands, rx) = mpsc::sync_channel::<wire::Request>(64);
-    nonblocking(packet.as_raw_fd())?;
-    provider.packet_ready()?;
-    let listen_run = running.clone();
-    let listener_thread = thread::spawn(move || wire::listen(listener, commands, listen_run));
-    let control_run = running.clone();
-    let control_provider = provider.clone();
-    let control_events = events.clone();
-    let control_thread = thread::spawn(move || {
-        let mut reconcile_at = 0;
-        let mut degraded = false;
-        while control_run.load(Ordering::Relaxed) {
-            let now = ms(start);
-            controller.tick(now);
-            if now >= reconcile_at {
-                let ready = control_provider.reconcile_ports().is_ok();
-                if !ready && !degraded {
-                    control_events(serde_json::json!({"event":"degraded","component":"admission"}));
-                }
-                if ready && degraded {
-                    control_events(serde_json::json!({"event":"admission_restored"}));
-                }
-                degraded = !ready;
-                reconcile_at = now + 1000;
+    let listener = std::net::TcpListener::bind(listen)?;
+    listener.set_nonblocking(true)?;
+    super::runtime()?.block_on(async move {
+        let listener = tokio::net::TcpListener::from_std(listener)?;
+        let start = Instant::now();
+        // Any component ending stops the others; only the caller's token is a clean stop.
+        let parts = stop.child_token();
+        let (commands, requests) = mpsc::sync_channel::<wire::Request>(64);
+        provider.packet_ready()?;
+        let changed = Arc::new(Notify::new());
+        let control = task::spawn_blocking({
+            let (provider, events, changed, parts) = (
+                provider.clone(),
+                events.clone(),
+                changed.clone(),
+                parts.clone(),
+            );
+            move || {
+                control(
+                    controller, envelope, requests, provider, events, start, changed, parts,
+                )
             }
-            match rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(request) if Instant::now() < request.deadline => {
-                    let reply =
-                        envelope.handle(&request.body, now, |rpc| controller.rpc(rpc, ms(start)));
-                    let _ = request.response.try_send(reply);
-                }
-                Ok(_) => {}
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => break,
+        });
+        let http = tokio::spawn({
+            let parts = parts.clone();
+            async move {
+                let result = wire::listen(listener, commands, parts.clone()).await;
+                parts.cancel();
+                result
             }
-        }
-        controller.state.shutdown()
-    });
-    events(serde_json::json!({"event":"ready","protocol":"rtp-http-v2","mtu":1200}));
-    let result = packets(
-        &mut *packet,
-        &table,
-        &running,
-        start,
-        &[&listener_thread, &control_thread],
-        &events,
-    );
-    running.store(false, Ordering::Relaxed);
-    let control_result = control_thread
-        .join()
-        .map_err(|_| io::Error::other("control owner panicked"))
-        .and_then(|r| r);
-    let listener_result = listener_thread
-        .join()
-        .map_err(|_| io::Error::other("control listener panicked"))
-        .and_then(|r| r);
-    result.and(control_result).and(listener_result)
+        });
+        events(serde_json::json!({"event":"ready","protocol":"rtp-http-v2","mtu":1200}));
+        let (device, port) = device::channel();
+        let pump = tokio::spawn(device::pump(packet, port, accept));
+        let result = Dispatcher::new(table, start, events, device, changed)
+            .run(&parts)
+            .await;
+        parts.cancel();
+        let control = control
+            .await
+            .map_err(|_| io::Error::other("control owner panicked"))
+            .and_then(|r| r);
+        let http = http
+            .await
+            .map_err(|_| io::Error::other("control listener panicked"))
+            .and_then(|r| r);
+        let pumped = pump
+            .await
+            .map_err(|_| io::Error::other("packet pump panicked"))
+            .and_then(|r| r);
+        let unexpected = if stop.is_cancelled() {
+            Ok(())
+        } else {
+            Err(io::Error::other("HTTP control worker stopped"))
+        };
+        result.and(pumped).and(control).and(http).and(unexpected)
+    })
 }
-fn packets(
-    packet: &mut dyn PacketIo,
-    table: &Arc<Mutex<Table>>,
-    running: &AtomicBool,
+
+/// The serialized lease and firewall owner. Blocking by design: admission and journal calls
+/// must not run on the packet runtime or hold the packet table lock.
+#[allow(clippy::too_many_arguments)]
+fn control(
+    mut controller: Controller,
+    mut envelope: Server,
+    requests: mpsc::Receiver<wire::Request>,
+    provider: Arc<dyn SocketProvider>,
+    events: Events,
     start: Instant,
-    workers: &[&thread::JoinHandle<io::Result<()>>],
-    events: &Events,
+    changed: Arc<Notify>,
+    stop: CancellationToken,
 ) -> io::Result<()> {
-    let mut tun = [0; 1201];
-    let mut wire = [0; MAX_FRAME + 1];
-    let mut writes: VecDeque<(uuid::Uuid, u64, Vec<u8>)> = VecDeque::new();
-    let (mut rejected, mut ipv6_drops, mut stats_at) = (0u64, 0u64, 10000u64);
-    while running.load(Ordering::Relaxed) {
-        if workers.iter().any(|w| w.is_finished()) {
-            return Err(io::Error::other("HTTP control worker stopped"));
-        }
+    let mut reconcile_at = 0;
+    let mut degraded = false;
+    while !stop.is_cancelled() {
         let now = ms(start);
+        controller.tick(now);
+        if now >= reconcile_at {
+            let ready = provider.reconcile_ports().is_ok();
+            if !ready && !degraded {
+                events(serde_json::json!({"event":"degraded","component":"admission"}));
+            }
+            if ready && degraded {
+                events(serde_json::json!({"event":"admission_restored"}));
+            }
+            degraded = !ready;
+            reconcile_at = now + 1000;
+        }
+        match requests.recv_timeout(TICK) {
+            Ok(request) if Instant::now() < request.deadline => {
+                let reply =
+                    envelope.handle(&request.body, now, |rpc| controller.rpc(rpc, ms(start)));
+                let _ = request.response.try_send(reply);
+                // New allocations need their sockets watched now, not at the next tick.
+                changed.notify_one();
+            }
+            Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    stop.cancel();
+    controller.state.shutdown()
+}
+
+enum Wake {
+    Stop,
+    Packet(Option<Vec<u8>>),
+    Ready,
+}
+
+/// Resolves once any watched socket is readable, or a send-blocked one is writable.
+async fn ready(sockets: &BTreeMap<Uuid, AsyncFd<UdpSocket>>, blocked: &[Uuid]) {
+    poll_fn(|cx| {
+        let readable = sockets.values().any(|s| s.poll_read_ready(cx).is_ready());
+        if readable
+            || blocked
+                .iter()
+                .filter_map(|id| sockets.get(id))
+                .any(|s| s.poll_write_ready(cx).is_ready())
+        {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    })
+    .await
+}
+
+/// The one owner of packet I/O: TUN packets from the pump, and every allocation's UDP.
+struct Dispatcher {
+    table: Arc<Mutex<Table>>,
+    start: Instant,
+    events: Events,
+    device: Device,
+    /// The control owner changed the table.
+    changed: Arc<Notify>,
+    /// A registered duplicate of each live allocation socket. The control owner keeps and
+    /// closes the original; this copy keeps the descriptor valid while it is watched.
+    sockets: BTreeMap<Uuid, AsyncFd<UdpSocket>>,
+    /// Owners whose downstream sends would block.
+    blocked: Vec<Uuid>,
+    /// A downstream queue still had packets when its budget ran out.
+    more: bool,
+    rejected: u64,
+    ipv6_drops: u64,
+    device_queue_full: u64,
+    stats_at: u64,
+    wire: Box<[u8; MAX_FRAME + 1]>,
+}
+
+impl Dispatcher {
+    fn new(
+        table: Arc<Mutex<Table>>,
+        start: Instant,
+        events: Events,
+        device: Device,
+        changed: Arc<Notify>,
+    ) -> Self {
+        Self {
+            table,
+            start,
+            events,
+            device,
+            changed,
+            sockets: BTreeMap::new(),
+            blocked: Vec::new(),
+            more: false,
+            rejected: 0,
+            ipv6_drops: 0,
+            device_queue_full: 0,
+            stats_at: 10_000,
+            wire: Box::new([0; MAX_FRAME + 1]),
+        }
+    }
+
+    async fn run(mut self, stop: &CancellationToken) -> io::Result<()> {
+        let mut first = None;
+        loop {
+            self.service(ms(self.start), first.take())?;
+            let wake = if self.more {
+                task::yield_now().await;
+                if stop.is_cancelled() {
+                    Wake::Stop
+                } else {
+                    Wake::Ready
+                }
+            } else {
+                tokio::select! {
+                    () = stop.cancelled() => Wake::Stop,
+                    packet = self.device.reads.recv() => Wake::Packet(packet),
+                    () = ready(&self.sockets, &self.blocked) => Wake::Ready,
+                    () = self.changed.notified() => Wake::Ready,
+                    () = time::sleep(TICK) => Wake::Ready,
+                }
+            };
+            match wake {
+                Wake::Stop => return Ok(()),
+                Wake::Packet(None) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "packet device closed",
+                    ))
+                }
+                Wake::Packet(packet) => first = packet,
+                Wake::Ready => {}
+            }
+        }
+    }
+
+    fn service(&mut self, now: u64, first: Option<Vec<u8>>) -> io::Result<()> {
         let ticks = (now as u32).wrapping_mul(90);
-        let mut guard = table.lock().unwrap();
+        let mut guard = self.table.lock().unwrap();
         let Table {
             allocations,
             routes,
             queues,
         } = &mut *guard;
+        self.sockets
+            .retain(|id, _| allocations.get(id).is_some_and(|a| !a.retired));
+        for (id, a) in allocations.iter() {
+            if a.retired || self.sockets.contains_key(id) {
+                continue;
+            }
+            // Without a watch the socket is still served, on the next tick.
+            if let Ok(copy) = a.socket.try_clone() {
+                // SAFETY: the AsyncFd owns this duplicate, so it stays open while registered.
+                if let Ok(watch) = unsafe { AsyncFd::register(copy) } {
+                    self.sockets.insert(*id, watch);
+                }
+            }
+        }
+        let Self {
+            sockets,
+            device,
+            wire,
+            rejected,
+            device_queue_full,
+            ..
+        } = self;
         for (id, a) in allocations.iter_mut() {
             if a.retired {
                 continue;
             }
-            for _ in 0..32 {
-                let (n, peer) = match a.socket.recv_from(&mut wire) {
+            let watch = sockets.get(id);
+            for _ in 0..BUDGET {
+                let received = match watch {
+                    Some(watch) => watch.try_io(Interest::READABLE, |s| s.recv_from(&mut wire[..])),
+                    None => a.socket.recv_from(&mut wire[..]),
+                };
+                let (n, peer) = match received {
                     Ok(v) => v,
                     Err(e) if transient(&e) => break,
                     Err(_) => {
@@ -206,7 +377,7 @@ fn packets(
                     }
                 };
                 let Some(body) = a.rx.open(&wire[..n]) else {
-                    rejected += 1;
+                    *rejected += 1;
                     continue;
                 };
                 // Decoder authentication/replay checks precede every state effect.
@@ -216,8 +387,15 @@ fn packets(
                             continue;
                         }
                         a.last_seen = Some(now);
-                        if writes.len() < 218 {
-                            writes.push_back((*id, now, ip));
+                        match device.writes.try_send(ip) {
+                            Ok(()) => {}
+                            Err(TrySendError::Full(_)) => *device_queue_full += 1,
+                            Err(TrySendError::Closed(_)) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::UnexpectedEof,
+                                    "packet device closed",
+                                ))
+                            }
                         }
                     }
                     Packet::Control(control) => {
@@ -270,30 +448,35 @@ fn packets(
                 }
             }
         }
-        for _ in 0..32 {
-            match packet.read(&mut tun) {
-                Ok(n) if n >= 20 && n <= 1200 && tun[0] >> 4 == 4 => {
-                    let ip = Ipv4Addr::new(tun[16], tun[17], tun[18], tun[19]);
-                    queues.push(ip, tun[..n].to_vec(), now);
-                }
-                Ok(0) => {
+        let mut take = first
+            .into_iter()
+            .map(Ok)
+            .chain(std::iter::repeat_with(|| device.reads.try_recv()));
+        for _ in 0..BUDGET {
+            let tun = match take.next().unwrap() {
+                Ok(packet) => packet,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "packet device closed",
                     ))
                 }
-                Ok(n) if n > 0 && tun[0] >> 4 == 6 => {
-                    ipv6_drops += 1;
-                }
-                Ok(_) => {
-                    rejected += 1;
-                }
-                Err(e) if transient(&e) => break,
-                Err(e) => return Err(e),
+            };
+            let n = tun.len();
+            if (20..=1200).contains(&n) && tun[0] >> 4 == 4 {
+                let ip = Ipv4Addr::new(tun[16], tun[17], tun[18], tun[19]);
+                queues.push(ip, tun, now);
+            } else if n > 0 && tun[0] >> 4 == 6 {
+                self.ipv6_drops += 1;
+            } else {
+                *rejected += 1;
             }
         }
         // One route/queue owner, no duplicate downstream sends. FIFO is consumed
-        // only after successful send; backpressure yields to the next turn.
+        // only after successful send; backpressure waits for the socket to drain.
+        self.blocked.clear();
+        self.more = false;
         for (id, a) in allocations.iter_mut() {
             if a.retired || routes.owner(a.client) != Some(*id) {
                 continue;
@@ -301,17 +484,31 @@ fn packets(
             let Some(path) = a.path.committed else {
                 continue;
             };
-            for _ in 0..32 {
+            let watch = sockets.get(id);
+            for sent in 0..=BUDGET {
                 let Some(body) = queues.front(a.inner, now) else {
                     break;
                 };
+                if sent == BUDGET {
+                    self.more = true;
+                    break;
+                }
                 let Some(frame) = a.tx.data(body, ticks) else {
                     queues.pop(a.inner);
                     continue;
                 };
-                match a.socket.send_to(&frame, path.peer) {
+                let result = match watch {
+                    Some(watch) => {
+                        watch.try_io(Interest::WRITABLE, |s| s.send_to(&frame, path.peer))
+                    }
+                    None => a.socket.send_to(&frame, path.peer),
+                };
+                match result {
                     Ok(_) => queues.pop(a.inner),
-                    Err(e) if transient(&e) => break,
+                    Err(e) if transient(&e) => {
+                        self.blocked.push(*id);
+                        break;
+                    }
                     Err(_) => {
                         a.retired = true;
                         break;
@@ -319,37 +516,19 @@ fn packets(
                 }
             }
         }
-        if now >= stats_at {
-            events(
-                serde_json::json!({"event":"stats","protocol":"rtp-http-v2","inner_ipv6_drops":ipv6_drops,"rejected":rejected,"queue_expired":queues.expired,"queue_pressure":queues.pressure,"unknown_destination":queues.unknown}),
-            );
-            stats_at = now.saturating_add(10000);
+        if now >= self.stats_at {
+            (self.events)(serde_json::json!({
+                "event": "stats",
+                "protocol": "rtp-http-v2",
+                "inner_ipv6_drops": self.ipv6_drops,
+                "rejected": self.rejected,
+                "queue_expired": queues.expired,
+                "queue_pressure": queues.pressure,
+                "unknown_destination": queues.unknown,
+                "device_queue_full": self.device_queue_full,
+            }));
+            self.stats_at = now.saturating_add(10000);
         }
-        let sockets: Vec<_> = allocations
-            .values()
-            .filter(|a| !a.retired)
-            .map(|a| a.socket.as_raw_fd())
-            .collect();
-        drop(guard);
-        for _ in 0..32 {
-            let Some((id, at, ip)) = writes.front() else {
-                break;
-            };
-            let ownership = table.lock().unwrap();
-            if now.saturating_sub(*at) >= 1000 || !ownership.allocations.contains_key(id) {
-                writes.pop_front();
-                continue;
-            }
-            match packet.write(ip) {
-                Ok(n) if n == ip.len() => {
-                    writes.pop_front();
-                }
-                Ok(_) => return Err(io::Error::other("partial packet write")),
-                Err(e) if transient(&e) => break,
-                Err(e) => return Err(e),
-            }
-        }
-        rtp_l3::worker::wait_readable(packet, sockets.into_iter())?;
+        Ok(())
     }
-    Ok(())
 }

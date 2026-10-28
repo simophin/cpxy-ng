@@ -6,7 +6,6 @@ use std::{
     fs,
     io::{self, Read, Write},
     net::Ipv4Addr,
-    os::fd::{AsRawFd, RawFd},
     path::PathBuf,
     process::Command,
 };
@@ -441,37 +440,16 @@ pub fn cleanup(s: &Settings) -> io::Result<()> {
     fs::remove_file(journal(s))?;
     fs::File::open(journal(s).parent().unwrap())?.sync_all()
 }
-pub struct PolicyPacket {
-    pub file: fs::File,
-    pub settings: Settings,
-}
-impl AsRawFd for PolicyPacket {
-    fn as_raw_fd(&self) -> RawFd {
-        self.file.as_raw_fd()
-    }
-}
-impl Read for PolicyPacket {
-    fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
-        self.file.read(b)
-    }
-}
-impl Write for PolicyPacket {
-    fn write(&mut self, b: &[u8]) -> io::Result<usize> {
-        if let Some(n) = &self.settings.network {
-            let accepted = n.permits(
-                matches!(self.settings.transport, Role::Client { .. }),
-                self.settings.inner()?.0,
-                b,
-            );
-            if !accepted {
-                return Ok(b.len());
-            }
-        }
-        self.file.write(b)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
-    }
+/// Which packets may be written to this host's TUN: with a configured network, only
+/// traffic between the tunnel and its service CIDRs. Others are silently discarded.
+pub type WritePolicy = Box<dyn Fn(&[u8]) -> bool + Send>;
+pub fn write_policy(settings: &Settings) -> io::Result<WritePolicy> {
+    let client = matches!(settings.transport, Role::Client { .. });
+    let inner = settings.inner()?.0;
+    let network = settings.network.clone();
+    Ok(Box::new(move |b| {
+        network.as_ref().is_none_or(|n| n.permits(client, inner, b))
+    }))
 }
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,3189 @@
+{
+  "case": "router baseline without task-generated load; shared live router",
+  "reference": "f2fa6f5 (deployed reference; no deployment in this run)",
+  "limitations": [
+    "No loaded performance claim",
+    "No syscall profiler installed on router",
+    "No TUN or socketpair kernel queue attribution"
+  ],
+  "samples": [
+    {
+      "event": "profile_metadata",
+      "pid": 18808,
+      "interval_seconds": 1,
+      "requested_samples": 11,
+      "scope": "remote",
+      "cpu_units": "USER_HZ ticks (Linux /proc: 100 per second)",
+      "syscall_rates": "unavailable: collect separately with perf/strace if supported",
+      "socketpair_queues": "unavailable in proc UDP tables; use worker queue metrics"
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560572,
+          0,
+          1691294,
+          86755535,
+          109,
+          293354,
+          480586,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372852,
+          0,
+          618604,
+          43453952,
+          42,
+          181412,
+          246916,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187720,
+          0,
+          1072689,
+          43301582,
+          66,
+          111941,
+          233670,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13570790,
+          11045309
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675299,
+          23365792
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239917673,
+          218492310
+        ],
+        "SCHED": [
+          45845839,
+          46241648
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24083478,
+          25785448
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5768,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 226,
+          "system_ticks": 733,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 106642,
+          "nonvoluntary_ctxt_switches": 44609
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 269,
+          "system_ticks": 826,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125547,
+          "nonvoluntary_ctxt_switches": 51486
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 814,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1117,
+          "system_ticks": 2280,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 595619,
+          "nonvoluntary_ctxt_switches": 88476
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38852128,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27624372,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722401,
+          "OutRequests": 5178014,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8630,
+          "ReasmOKs": 4296,
+          "ReasmFails": 38,
+          "FragOKs": 3429,
+          "FragFails": 2607,
+          "FragCreates": 6858,
+          "OutTransmits": 32722525
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913271,
+          "OutSegs": 26473883,
+          "RetransSegs": 182575,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144249,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731749,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86515968,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32204492,
+        "Ip6OutForwDatagrams": 54187363,
+        "Ip6OutRequests": 26357584,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103323,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374094592,
+        "Ip6OutOctets": 54180777958,
+        "Ip6InMcastOctets": 19496048,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107213681,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411041,
+        "Udp6InDatagrams": 4703099,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2606618,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461164.55,
+      "intr": 1041207595,
+      "ctxt": 1537000355,
+      "processes": 1398386,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232598367258531
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560590,
+          0,
+          1691310,
+          86755711,
+          109,
+          293355,
+          480588,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372861,
+          0,
+          618611,
+          43454040,
+          42,
+          181413,
+          246917,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187728,
+          0,
+          1072699,
+          43301671,
+          66,
+          111942,
+          233671,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13570825,
+          11045350
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675407,
+          23365874
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239918315,
+          218492866
+        ],
+        "SCHED": [
+          45845952,
+          46241758
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24083625,
+          25785598
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5773,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 226,
+          "system_ticks": 734,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 106773,
+          "nonvoluntary_ctxt_switches": 44635
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 269,
+          "system_ticks": 826,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125547,
+          "nonvoluntary_ctxt_switches": 51486
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 814,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1117,
+          "system_ticks": 2282,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 596187,
+          "nonvoluntary_ctxt_switches": 88482
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38852281,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27624479,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722429,
+          "OutRequests": 5178063,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8644,
+          "ReasmOKs": 4303,
+          "ReasmFails": 38,
+          "FragOKs": 3436,
+          "FragFails": 2607,
+          "FragCreates": 6872,
+          "OutTransmits": 32722688
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913299,
+          "OutSegs": 26473939,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144249,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731749,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516050,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32204574,
+        "Ip6OutForwDatagrams": 54187363,
+        "Ip6OutRequests": 26357682,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103323,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374139613,
+        "Ip6OutOctets": 54180817612,
+        "Ip6InMcastOctets": 19496048,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107213771,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411139,
+        "Udp6InDatagrams": 4703189,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2606716,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461165.65,
+      "intr": 1041211418,
+      "ctxt": 1537006759,
+      "processes": 1398441,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232599468326914
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560615,
+          0,
+          1691328,
+          86755889,
+          109,
+          293357,
+          480590,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372876,
+          0,
+          618618,
+          43454129,
+          42,
+          181414,
+          246918,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187738,
+          0,
+          1072709,
+          43301760,
+          66,
+          111942,
+          233672,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13570866,
+          11045387
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675503,
+          23365971
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239918981,
+          218493475
+        ],
+        "SCHED": [
+          45846063,
+          46241869
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24083736,
+          25785749
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5779,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 227,
+          "system_ticks": 735,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 106908,
+          "nonvoluntary_ctxt_switches": 44674
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 269,
+          "system_ticks": 826,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125547,
+          "nonvoluntary_ctxt_switches": 51486
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 814,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1119,
+          "system_ticks": 2282,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 596754,
+          "nonvoluntary_ctxt_switches": 88493
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38852455,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27624592,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722474,
+          "OutRequests": 5178108,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8658,
+          "ReasmOKs": 4310,
+          "ReasmFails": 38,
+          "FragOKs": 3443,
+          "FragFails": 2607,
+          "FragCreates": 6886,
+          "OutTransmits": 32722853
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913344,
+          "OutSegs": 26473992,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144249,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731749,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516151,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32204673,
+        "Ip6OutForwDatagrams": 54187363,
+        "Ip6OutRequests": 26357783,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103325,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374190557,
+        "Ip6OutOctets": 54180857130,
+        "Ip6InMcastOctets": 19496196,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107213883,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411240,
+        "Udp6InDatagrams": 4703297,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2606817,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461166.75,
+      "intr": 1041215243,
+      "ctxt": 1537013185,
+      "processes": 1398496,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232600568372041
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560632,
+          0,
+          1691346,
+          86756066,
+          109,
+          293358,
+          480592,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372881,
+          0,
+          618628,
+          43454217,
+          42,
+          181415,
+          246919,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187750,
+          0,
+          1072718,
+          43301848,
+          66,
+          111943,
+          233673,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13570910,
+          11045420
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675591,
+          23366076
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239919583,
+          218494049
+        ],
+        "SCHED": [
+          45846175,
+          46241978
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24083891,
+          25785914
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5784,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 227,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107033,
+          "nonvoluntary_ctxt_switches": 44704
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 269,
+          "system_ticks": 826,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125547,
+          "nonvoluntary_ctxt_switches": 51486
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 814,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1119,
+          "system_ticks": 2284,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 597326,
+          "nonvoluntary_ctxt_switches": 88504
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38852646,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27624715,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722519,
+          "OutRequests": 5178154,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8674,
+          "ReasmOKs": 4318,
+          "ReasmFails": 38,
+          "FragOKs": 3451,
+          "FragFails": 2607,
+          "FragCreates": 6902,
+          "OutTransmits": 32723030
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913389,
+          "OutSegs": 26474046,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144249,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731749,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516252,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32204768,
+        "Ip6OutForwDatagrams": 54187367,
+        "Ip6OutRequests": 26357885,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374240155,
+        "Ip6OutOctets": 54180896611,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107213997,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411342,
+        "Udp6InDatagrams": 4703400,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2606915,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461167.85,
+      "intr": 1041219256,
+      "ctxt": 1537020002,
+      "processes": 1398551,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232601680536784
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560654,
+          0,
+          1691367,
+          86756243,
+          109,
+          293360,
+          480595,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372892,
+          0,
+          618637,
+          43454305,
+          42,
+          181416,
+          246920,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187762,
+          0,
+          1072730,
+          43301937,
+          66,
+          111943,
+          233674,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13570942,
+          11045466
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675698,
+          23366182
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239920182,
+          218494618
+        ],
+        "SCHED": [
+          45846287,
+          46242089
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084084,
+          25786039
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5790,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 271,
+          "system_ticks": 826,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125705,
+          "nonvoluntary_ctxt_switches": 51535
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1120,
+          "system_ticks": 2285,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 597922,
+          "nonvoluntary_ctxt_switches": 88512
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38852860,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27624851,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722579,
+          "OutRequests": 5178216,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8686,
+          "ReasmOKs": 4324,
+          "ReasmFails": 38,
+          "FragOKs": 3457,
+          "FragFails": 2607,
+          "FragCreates": 6914,
+          "OutTransmits": 32723234
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913435,
+          "OutSegs": 26474102,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516359,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32204873,
+        "Ip6OutForwDatagrams": 54187369,
+        "Ip6OutRequests": 26358002,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374292122,
+        "Ip6OutOctets": 54180943505,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214118,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411461,
+        "Udp6InDatagrams": 4703512,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607030,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461168.96,
+      "intr": 1041223318,
+      "ctxt": 1537026953,
+      "processes": 1398606,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232602811331404
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560671,
+          0,
+          1691394,
+          86756420,
+          109,
+          293362,
+          480597,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372899,
+          0,
+          618650,
+          43454394,
+          42,
+          181417,
+          246921,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187771,
+          0,
+          1072744,
+          43302025,
+          66,
+          111944,
+          233675,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13570981,
+          11045509
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675782,
+          23366289
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239920773,
+          218495177
+        ],
+        "SCHED": [
+          45846400,
+          46242200
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084257,
+          25786200
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5795,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 271,
+          "system_ticks": 827,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125845,
+          "nonvoluntary_ctxt_switches": 51577
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1120,
+          "system_ticks": 2287,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 598503,
+          "nonvoluntary_ctxt_switches": 88528
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38853043,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27624971,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722629,
+          "OutRequests": 5178264,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8700,
+          "ReasmOKs": 4331,
+          "ReasmFails": 38,
+          "FragOKs": 3464,
+          "FragFails": 2607,
+          "FragCreates": 6928,
+          "OutTransmits": 32723409
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913485,
+          "OutSegs": 26474158,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516469,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32204983,
+        "Ip6OutForwDatagrams": 54187369,
+        "Ip6OutRequests": 26358111,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374342331,
+        "Ip6OutOctets": 54180983147,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214240,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411570,
+        "Udp6InDatagrams": 4703626,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607135,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461170.09,
+      "intr": 1041227418,
+      "ctxt": 1537034157,
+      "processes": 1398678,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232603912838525
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560695,
+          0,
+          1691414,
+          86756597,
+          109,
+          293363,
+          480599,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372912,
+          0,
+          618656,
+          43454483,
+          42,
+          181418,
+          246922,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187782,
+          0,
+          1072757,
+          43302113,
+          66,
+          111945,
+          233676,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13571021,
+          11045537
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675881,
+          23366376
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239921424,
+          218495766
+        ],
+        "SCHED": [
+          45846511,
+          46242310
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084383,
+          25786414
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5801,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 271,
+          "system_ticks": 827,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 125973,
+          "nonvoluntary_ctxt_switches": 51611
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1121,
+          "system_ticks": 2289,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 599066,
+          "nonvoluntary_ctxt_switches": 88536
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38853202,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27625081,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722658,
+          "OutRequests": 5178311,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8714,
+          "ReasmOKs": 4338,
+          "ReasmFails": 38,
+          "FragOKs": 3471,
+          "FragFails": 2607,
+          "FragCreates": 6942,
+          "OutTransmits": 32723573
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913514,
+          "OutSegs": 26474213,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516556,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32205070,
+        "Ip6OutForwDatagrams": 54187369,
+        "Ip6OutRequests": 26358211,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374388175,
+        "Ip6OutOctets": 54181025342,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214336,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411670,
+        "Udp6InDatagrams": 4703720,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607235,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461171.19,
+      "intr": 1041231186,
+      "ctxt": 1537040477,
+      "processes": 1398733,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232605003510432
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560714,
+          0,
+          1691436,
+          86756773,
+          109,
+          293365,
+          480601,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372920,
+          0,
+          618670,
+          43454572,
+          42,
+          181419,
+          246923,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187793,
+          0,
+          1072766,
+          43302201,
+          66,
+          111945,
+          233677,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13571057,
+          11045579
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34675991,
+          23366467
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239922083,
+          218496332
+        ],
+        "SCHED": [
+          45846620,
+          46242420
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084541,
+          25786515
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5806,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 273,
+          "system_ticks": 828,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 126111,
+          "nonvoluntary_ctxt_switches": 51645
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1121,
+          "system_ticks": 2291,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 599632,
+          "nonvoluntary_ctxt_switches": 88547
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38853373,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27625190,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722701,
+          "OutRequests": 5178358,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8730,
+          "ReasmOKs": 4346,
+          "ReasmFails": 38,
+          "FragOKs": 3479,
+          "FragFails": 2607,
+          "FragCreates": 6958,
+          "OutTransmits": 32723737
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913557,
+          "OutSegs": 26474268,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516649,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32205163,
+        "Ip6OutForwDatagrams": 54187369,
+        "Ip6OutRequests": 26358312,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374437542,
+        "Ip6OutOctets": 54181064334,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214445,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411771,
+        "Udp6InDatagrams": 4703821,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607335,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461172.29,
+      "intr": 1041234870,
+      "ctxt": 1537046722,
+      "processes": 1398788,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232606098038307
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560737,
+          0,
+          1691454,
+          86756949,
+          109,
+          293366,
+          480603,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372934,
+          0,
+          618675,
+          43454660,
+          42,
+          181420,
+          246924,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187803,
+          0,
+          1072779,
+          43302288,
+          66,
+          111946,
+          233678,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13571096,
+          11045618
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34676082,
+          23366568
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239922642,
+          218496859
+        ],
+        "SCHED": [
+          45846732,
+          46242529
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084678,
+          25786666
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5812,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 273,
+          "system_ticks": 829,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 126260,
+          "nonvoluntary_ctxt_switches": 51678
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1123,
+          "system_ticks": 2291,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 600197,
+          "nonvoluntary_ctxt_switches": 88551
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38853569,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27625322,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722752,
+          "OutRequests": 5178406,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8744,
+          "ReasmOKs": 4353,
+          "ReasmFails": 38,
+          "FragOKs": 3486,
+          "FragFails": 2607,
+          "FragCreates": 6972,
+          "OutTransmits": 32723924
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913608,
+          "OutSegs": 26474324,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516753,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32205263,
+        "Ip6OutForwDatagrams": 54187373,
+        "Ip6OutRequests": 26358421,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374488610,
+        "Ip6OutOctets": 54181105200,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214564,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411880,
+        "Udp6InDatagrams": 4703928,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607440,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461173.38,
+      "intr": 1041238510,
+      "ctxt": 1537052905,
+      "processes": 1398843,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232607198076622
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560756,
+          0,
+          1691471,
+          86757125,
+          109,
+          293368,
+          480605,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372945,
+          0,
+          618681,
+          43454750,
+          42,
+          181421,
+          246925,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187810,
+          0,
+          1072789,
+          43302375,
+          66,
+          111946,
+          233679,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13571142,
+          11045646
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34676173,
+          23366668
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239923267,
+          218497435
+        ],
+        "SCHED": [
+          45846844,
+          46242640
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084771,
+          25786848
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5817,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 274,
+          "system_ticks": 829,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 126395,
+          "nonvoluntary_ctxt_switches": 51715
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1123,
+          "system_ticks": 2292,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 600774,
+          "nonvoluntary_ctxt_switches": 88559
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38853749,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27625444,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722792,
+          "OutRequests": 5178450,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8756,
+          "ReasmOKs": 4359,
+          "ReasmFails": 38,
+          "FragOKs": 3492,
+          "FragFails": 2607,
+          "FragCreates": 6984,
+          "OutTransmits": 32724096
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913648,
+          "OutSegs": 26474376,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516854,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32205362,
+        "Ip6OutForwDatagrams": 54187375,
+        "Ip6OutRequests": 26358522,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374535005,
+        "Ip6OutOctets": 54181148024,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214673,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80411983,
+        "Udp6InDatagrams": 4704033,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607541,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461174.48,
+      "intr": 1041242320,
+      "ctxt": 1537059440,
+      "processes": 1398898,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232608295823207
+    },
+    {
+      "cpu_ticks": {
+        "cpu": [
+          2560780,
+          0,
+          1691491,
+          86757302,
+          109,
+          293369,
+          480607,
+          0,
+          0,
+          0
+        ],
+        "cpu0": [
+          1372957,
+          0,
+          618690,
+          43454838,
+          42,
+          181422,
+          246926,
+          0,
+          0,
+          0
+        ],
+        "cpu1": [
+          1187823,
+          0,
+          1072800,
+          43302463,
+          66,
+          111947,
+          233680,
+          0,
+          0,
+          0
+        ]
+      },
+      "softirq": {
+        "HI": [
+          2,
+          2
+        ],
+        "TIMER": [
+          13571185,
+          11045682
+        ],
+        "NET_TX": [
+          480,
+          116
+        ],
+        "NET_RX": [
+          34676255,
+          23366764
+        ],
+        "BLOCK": [
+          0,
+          0
+        ],
+        "IRQ_POLL": [
+          0,
+          0
+        ],
+        "TASKLET": [
+          239923836,
+          218497970
+        ],
+        "SCHED": [
+          45846956,
+          46242751
+        ],
+        "HRTIMER": [
+          39554,
+          183084
+        ],
+        "RCU": [
+          24084900,
+          25787006
+        ]
+      },
+      "threads": [
+        {
+          "tid": 18808,
+          "name": "cpxy-rtp-router",
+          "user_ticks": 16,
+          "system_ticks": 7,
+          "start_ticks": 46001736,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 5823,
+          "nonvoluntary_ctxt_switches": 120
+        },
+        {
+          "tid": 18851,
+          "name": "rtp-engine",
+          "user_ticks": 228,
+          "system_ticks": 736,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 107062,
+          "nonvoluntary_ctxt_switches": 44713
+        },
+        {
+          "tid": 18853,
+          "name": "rtp-engine",
+          "user_ticks": 275,
+          "system_ticks": 829,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 126523,
+          "nonvoluntary_ctxt_switches": 51744
+        },
+        {
+          "tid": 18856,
+          "name": "sqlx-sqlite-wor",
+          "user_ticks": 3,
+          "system_ticks": 2,
+          "start_ticks": 46001938,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 820,
+          "nonvoluntary_ctxt_switches": 95
+        },
+        {
+          "tid": 18863,
+          "name": "rtp-worker",
+          "user_ticks": 1123,
+          "system_ticks": 2294,
+          "start_ticks": 46001940,
+          "rss_pages": 1532,
+          "VmRSS": 6348,
+          "voluntary_ctxt_switches": 601342,
+          "nonvoluntary_ctxt_switches": 88565
+        }
+      ],
+      "sockets": [
+        {
+          "fd": 14,
+          "inode": 5829222,
+          "family": "udp",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        },
+        {
+          "fd": 3,
+          "inode": 5853222,
+          "family": "udp6",
+          "tx_queue_bytes": 0,
+          "rx_queue_bytes": 0,
+          "drops": 0
+        }
+      ],
+      "network_counters": {
+        "Ip": {
+          "Forwarding": 1,
+          "DefaultTTL": 64,
+          "InReceives": 38853918,
+          "InHdrErrors": 229,
+          "InAddrErrors": 4,
+          "ForwDatagrams": 27625549,
+          "InUnknownProtos": 0,
+          "InDiscards": 0,
+          "InDelivers": 6722837,
+          "OutRequests": 5178495,
+          "OutDiscards": 236,
+          "OutNoRoutes": 15695,
+          "ReasmTimeout": 38,
+          "ReasmReqds": 8770,
+          "ReasmOKs": 4366,
+          "ReasmFails": 38,
+          "FragOKs": 3499,
+          "FragFails": 2607,
+          "FragCreates": 6998,
+          "OutTransmits": 32724253
+        },
+        "Icmp": {
+          "InMsgs": 192254,
+          "InErrors": 300,
+          "InCsumErrors": 0,
+          "InDestUnreachs": 190854,
+          "InTimeExcds": 0,
+          "InParmProbs": 0,
+          "InSrcQuenchs": 0,
+          "InRedirects": 0,
+          "InEchos": 467,
+          "InEchoReps": 933,
+          "InTimestamps": 0,
+          "InTimestampReps": 0,
+          "InAddrMasks": 0,
+          "InAddrMaskReps": 0,
+          "OutMsgs": 387381,
+          "OutErrors": 0,
+          "OutRateLimitGlobal": 949,
+          "OutRateLimitHost": 56819,
+          "OutDestUnreachs": 335809,
+          "OutTimeExcds": 15,
+          "OutParmProbs": 0,
+          "OutSrcQuenchs": 0,
+          "OutRedirects": 70,
+          "OutEchos": 51020,
+          "OutEchoReps": 467,
+          "OutTimestamps": 0,
+          "OutTimestampReps": 0,
+          "OutAddrMasks": 0,
+          "OutAddrMaskReps": 0
+        },
+        "Tcp": {
+          "RtoAlgorithm": 1,
+          "RtoMin": 200,
+          "RtoMax": 120000,
+          "MaxConn": -1,
+          "ActiveOpens": 350028,
+          "PassiveOpens": 7363,
+          "AttemptFails": 7255,
+          "EstabResets": 5124,
+          "CurrEstab": 585,
+          "InSegs": 33913693,
+          "OutSegs": 26474429,
+          "RetransSegs": 182576,
+          "InErrs": 98,
+          "OutRsts": 26190,
+          "InCsumErrors": 0
+        },
+        "Udp": {
+          "InDatagrams": 2144263,
+          "NoPorts": 288752,
+          "InErrors": 302,
+          "OutDatagrams": 2731763,
+          "RcvbufErrors": 302,
+          "SndbufErrors": 218,
+          "InCsumErrors": 0,
+          "IgnoredMulti": 28072,
+          "MemErrors": 0
+        },
+        "Ip6InReceives": 86516951,
+        "Ip6InHdrErrors": 177,
+        "Ip6InTooBigErrors": 5957,
+        "Ip6InNoRoutes": 22331,
+        "Ip6InAddrErrors": 1331,
+        "Ip6InUnknownProtos": 0,
+        "Ip6InTruncatedPkts": 0,
+        "Ip6InDiscards": 0,
+        "Ip6InDelivers": 32205459,
+        "Ip6OutForwDatagrams": 54187375,
+        "Ip6OutRequests": 26358619,
+        "Ip6OutDiscards": 451,
+        "Ip6OutNoRoutes": 443452,
+        "Ip6ReasmTimeout": 0,
+        "Ip6ReasmReqds": 0,
+        "Ip6ReasmOKs": 0,
+        "Ip6ReasmFails": 0,
+        "Ip6FragOKs": 10,
+        "Ip6FragFails": 5957,
+        "Ip6FragCreates": 20,
+        "Ip6InMcastPkts": 103327,
+        "Ip6OutMcastPkts": 21452,
+        "Ip6InOctets": 111374582747,
+        "Ip6OutOctets": 54181186009,
+        "Ip6InMcastOctets": 19496344,
+        "Ip6OutMcastOctets": 2727622,
+        "Ip6InBcastOctets": 0,
+        "Ip6OutBcastOctets": 0,
+        "Ip6InNoECTPkts": 107214777,
+        "Ip6InECT1Pkts": 227,
+        "Ip6InECT0Pkts": 61614,
+        "Ip6InCEPkts": 0,
+        "Ip6OutTransmits": 80412080,
+        "Udp6InDatagrams": 4704135,
+        "Udp6NoPorts": 20706,
+        "Udp6InErrors": 184216,
+        "Udp6OutDatagrams": 2607637,
+        "Udp6RcvbufErrors": 184204,
+        "Udp6SndbufErrors": 445,
+        "Udp6InCsumErrors": 12,
+        "Udp6IgnoredMulti": 0,
+        "Udp6MemErrors": 0
+      },
+      "uptime_seconds": 461175.58,
+      "intr": 1041246186,
+      "ctxt": 1537066061,
+      "processes": 1398953,
+      "event": "profile_sample",
+      "received_monotonic_ns": 232609388972523
+    }
+  ]
+}

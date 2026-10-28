@@ -1,7 +1,6 @@
 //! The DNS split: upstream resolvers are asked directly, alternative ones through the tunnel.
 
 use crate::packet::{INJECT_PORTS, udp_v4};
-use crate::shim::Datagrams;
 use anyhow::{Context, ensure};
 use client::dns_split::cache::{CacheOptions, DnsCache, purge_expired_every};
 use client::dns_split::is_local_region_ip;
@@ -76,7 +75,8 @@ pub async fn handler(
 /// DNS queries the engine itself sends through the tunnel, as UDP from the tunnel address.
 pub struct TunnelQueries {
     own: Ipv4Addr,
-    tunnel: Datagrams,
+    /// Packets for the worker to carry through the tunnel.
+    tunnel: tokio::sync::mpsc::Sender<Vec<u8>>,
     pending: Mutex<Pending>,
 }
 
@@ -87,7 +87,7 @@ struct Pending {
 }
 
 impl TunnelQueries {
-    pub fn new(own: Ipv4Addr, tunnel: Datagrams) -> Self {
+    pub fn new(own: Ipv4Addr, tunnel: tokio::sync::mpsc::Sender<Vec<u8>>) -> Self {
         Self {
             own,
             tunnel,
@@ -114,7 +114,10 @@ impl TunnelQueries {
         let port = self.reserve(tx)?;
         let _release = Release(self, port);
         let packet = udp_v4(self.own, port, server, 53, &request.to_vec()?);
-        self.tunnel.send(&packet).await?;
+        self.tunnel
+            .send(packet)
+            .await
+            .map_err(|_| anyhow::anyhow!("Tunnel stopped"))?;
         let reply = tokio::time::timeout(QUERY_TIMEOUT, rx)
             .await
             .context("Timed out")??;
