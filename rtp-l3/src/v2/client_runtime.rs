@@ -62,6 +62,8 @@ pub struct PathCounters {
     pub device_writes: u64,
     pub device_queue_full: u64,
     pub device_queue_high: u64,
+    /// Passes that stopped receiving because the device queue was full.
+    pub device_backpressure: u64,
     /// Datagrams received, those from another source, and those failing authentication/replay.
     pub udp_recvs: u64,
     pub udp_foreign: u64,
@@ -579,6 +581,9 @@ struct Worker {
     stats_at: u64,
     ipv6_drops: u64,
     counters: PathCounters,
+    /// The device queue is full: leave datagrams in the socket buffers until it drains,
+    /// rather than decrypting packets only to drop them.
+    backpressure: bool,
     wire: Box<[u8; MAX_FRAME + 1]>,
 }
 
@@ -616,6 +621,7 @@ impl Worker {
             stats_at: 10_000,
             ipv6_drops: 0,
             counters: PathCounters::default(),
+            backpressure: false,
             wire: Box::new([0; MAX_FRAME + 1]),
         })
     }
@@ -656,14 +662,19 @@ impl Worker {
             job,
             device,
             allocations,
+            backpressure,
             ..
         } = self;
-        let has_job = job.is_some();
+        let (has_job, backpressure) = (job.is_some(), *backpressure);
         tokio::select! {
             () = stop.cancelled() => Wake::Stop,
             result = async { job.as_mut().unwrap().await }, if has_job => Wake::Job(Box::new(result)),
             packet = device.reads.recv() => Wake::Packet(packet),
-            () = readable(allocations) => Wake::Socket,
+            () = readable(allocations), if !backpressure => Wake::Socket,
+            permit = device.writes.reserve(), if backpressure => match permit {
+                Ok(_) => Wake::Socket,
+                Err(_) => Wake::Packet(None),
+            },
             () = time::sleep(TICK) => Wake::Tick,
         }
     }
@@ -804,6 +815,7 @@ impl Worker {
             .map_or(0, |at| at + 300_000);
         let mut acknowledged = None;
         let keepalive = self.keepalive;
+        self.backpressure = false;
         for a in &mut self.allocations {
             if a.retire.is_some_and(|at| now >= at) {
                 continue;
@@ -819,6 +831,11 @@ impl Worker {
                 .chain(a.old_socket.iter().map(|(_, s)| s))
             {
                 for _ in 0..BUDGET {
+                    // Each datagram may need a device slot, including those not yet delivered.
+                    if self.device.writes.capacity() <= inbound.len() {
+                        self.backpressure = true;
+                        break;
+                    }
                     let Ok((n, peer)) = socket.try_recv_from(&mut self.wire[..]) else {
                         break;
                     };
@@ -957,6 +974,9 @@ impl Worker {
                     self.next_prepare = now + 1000;
                 }
             }
+        }
+        if self.backpressure {
+            self.counters.device_backpressure += 1;
         }
         if let Some(id) = acknowledged {
             for a in &mut self.allocations {

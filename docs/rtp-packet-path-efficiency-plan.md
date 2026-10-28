@@ -388,3 +388,14 @@ contains no socket addresses or process arguments. No service was restarted.
 - Step 1 remains partly open: upload/bidirectional and stream-count matrices,
   endpoint multi-client runs, and kernel-stage attribution (the router kernel
   has no perf events). The router runs the unchanged reference binary.
+
+### 2026-10-28: async client and endpoint, deployed
+
+- The client worker and endpoint now run on Tokio. Packet devices are bounded channels
+  (`rtp_l3::device`), the router socketpair is gone, and the worker applies backpressure
+  when the device queue is full. Both are deployed on hh-hk and tr3600.
+- Router CPU per delivered MB fell by about 20%, and saturation throughput is unchanged.
+  Inbound loss did not improve: the shim's TUN writes are now the bottleneck.
+  [Results and rollback](rtp-async-results.md).
+- Next: TUN write batching or a dedicated writer for the router shim. The io_uring
+  decision is unchanged.
