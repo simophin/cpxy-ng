@@ -1,5 +1,10 @@
 # RTP mobile VPN app (Android): plan
 
+> Historical mobile-v1 plan. The HTTP-controlled v2 integration is tracked in
+> [rtp-mobile-v2-plan.md](rtp-mobile-v2-plan.md), with current evidence and limits in
+> [rtp-mobile-v2-validation.md](rtp-mobile-v2-validation.md). Manual inner-address
+> configuration and the former single-step Android startup below no longer apply.
+
 Status: phases 0–2 done (2026-10-26). Android only; iOS is left possible but not built. See
 [Validation](#validation) for what was checked.
 

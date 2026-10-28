@@ -21,6 +21,9 @@ only after authenticated UDP readiness, and transfers the same path into the
 worker exactly once. Every valid transferred TUN descriptor is closed on failure,
 including repeated start. `Connected` still requires ACTIVATED. Protection refusal
 aborts TCP/UDP use. Cleanup and allocation release run off the Android UI thread.
+Endpoint and DoT/DoH hostname lookups use the same cancellation boundary. DNS
+addresses are pinned in the prepared settings while retaining the original TLS
+server name, so TUN handoff cannot begin a second system lookup.
 System getaddrinfo cannot be interrupted portably: at most two detached resolver
 workers exist, the caller waits at most five seconds, checks cancellation every
 20 ms, and late results contain addresses only. Candidate races also check caller
@@ -49,7 +52,7 @@ persisted.
 - Rust unit/loopback suite passed (the existing production five-minute test is
   ignored by default). Added native cancellation, invalid-input, false protection,
   descriptor ownership, and caller-cancel race coverage.
-- Kotlin shared JVM tests: 17 passed, covering legacy JSON, ID/selection/DNS,
+- Kotlin shared JVM tests: 19 passed, covering legacy JSON, ID/selection/DNS,
   durable UUID transactions under concurrent access, edits/copies and corruption.
 - A real loopback HTTP/UDP regression passed: after restarting the server with a
   different address pool, the existing worker returns `AddrNotAvailable`, allowing
@@ -91,3 +94,16 @@ consent with shell appops on the disposable emulator. Production rotation is opt
 Hardware-only Wi-Fi/cellular handover, screen-off/battery behavior, and protection
 after process death without Android always-on lockdown are not claimed here.
 Initial preparation before a VPN exists does not block all system traffic.
+
+
+## Checkpoint before latest-main merge
+
+At the user's requested merge checkpoint, 77 Rust tests and 19 Kotlin JVM tests
+passed. The API 36 / Android 16 x86_64 emulator suite passed 10 tests, with the
+settings-driven revocation check and production rotation reserved for separate
+runs. The separate production rotation passed with continuous TCP traffic; the
+endpoint prepared UDP port 33007 while 33005 remained active, then retired 33005
+after handover. Both final APK variants built successfully with all four ABIs.
+The final Linux matrix also passed for 4, 6, block4 and block6. Packet-capture
+analysis, the settings-driven revocation check and final delivery remain in progress.
+These results precede merging the latest main and will be rechecked where affected.

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -45,6 +46,19 @@ class ProfileRepositoryTest {
         assertEquals(identity, repository.connectionProfile("a").clientId)
         repository.save(attempts.first().copy(id = "copy"))
         assertNotEquals(identity, repository.connectionProfile("copy").clientId)
+    }
+
+    @Test
+    fun identitySurvivesClosingAndReopeningDurableStorage() = runTest {
+        repository.save(profile("a"))
+        val original = repository.connectionProfile("a")
+        scope.coroutineContext[Job]!!.cancelAndJoin()
+        val restartedScope = CoroutineScope(Dispatchers.Default + Job())
+        try {
+            val reopened = ProfileRepository.create(directory / "profiles.preferences_pb", restartedScope)
+            assertEquals(original, reopened.connectionProfile("a"))
+            assertEquals("a", reopened.profiles.first().selectedId)
+        } finally { restartedScope.coroutineContext[Job]!!.cancelAndJoin() }
     }
 
     @Test

@@ -175,6 +175,7 @@ android {
         applicationId = "dev.fanchao.cpxy.rtp"
         minSdk = 26
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
         // CI passes `git describe`: the tag, or `<tag>-<commits>-g<hash>` after it.
         versionName = providers.environmentVariable("CPXY_RTP_VERSION")
@@ -283,6 +284,8 @@ kotlin {
 }
 
 dependencies {
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

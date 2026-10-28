@@ -230,3 +230,10 @@ persist the client UUID, and obtain the assigned address before creating TUN.
 The former v1 worker/bootstrap interface has been removed. Android migration
 remains deferred by scope: its existing binding rejects transport startup. Privileged namespace/firewalld fixtures
 are separate acceptance gates; deterministic tests alone do not prove them.
+
+
+Android follow-up (2026-10-28): the Android exclusion above records #153's
+original scope. The existing app now uses the same v2 runtime through owned
+preparation and server-assigned addressing. See [the Android v2 plan](rtp-mobile-v2-plan.md)
+and [validation results](rtp-mobile-v2-validation.md) for the follow-up's evidence
+and remaining acceptance limits.
