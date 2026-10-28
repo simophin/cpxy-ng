@@ -49,6 +49,9 @@ class RtpLifecycleTest {
     @Before
     fun foregroundAndGrantPermission() {
         shell("appops set dev.fanchao.cpxy.rtp ACTIVATE_VPN allow")
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            shell("pm grant dev.fanchao.cpxy.rtp android.permission.POST_NOTIFICATIONS")
+        }
         instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         assertNull("VPN permission must be preauthorized on the disposable emulator", VpnService.prepare(context))
     }
@@ -323,6 +326,24 @@ class RtpLifecycleTest {
     }
 
     @Test
+    fun permanentReconnectFailureKeepsRoutesUntilExplicitDisconnect() = runBlocking {
+        val profile = profile()
+        connect(profile)
+        val address = vpnAddress()
+        app.repository.save(profile.copy(serverIdentity = "wrong-server-identity"))
+        app.controller.connect(profile)
+        val failure = awaitState { it is VpnState.Failed } as VpnState.Failed
+        assertTrue(failure.message.contains("server identity"))
+        assertTrue(failure.message.contains("remains blocked"))
+        assertEquals(address, vpnAddress())
+        assertFalse(tcp("203.0.113.2", 8080).contains("200 OK"))
+        assertTrue(tcp("10.0.2.2", 33080).contains("200 OK"))
+        app.controller.disconnect()
+        awaitState { it == VpnState.Disconnected }
+        assertNull(vpnAddress())
+    }
+
+    @Test
     fun emulatorNetworkLossAndReturnKeepTunInstalled() = runBlocking {
         val profile = profile()
         connect(profile)
@@ -348,7 +369,7 @@ class RtpLifecycleTest {
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("manualRevoke") == "true")
         connect(profile())
         android.util.Log.i("RtpLifecycleTest", "Ready for VPN settings permission revocation")
-        awaitState { it == VpnState.Disconnected }
+        withTimeout(180_000) { app.controller.state.first { it == VpnState.Disconnected } }
         assertNull(vpnAddress())
         delay(2_000)
         assertEquals(VpnState.Disconnected, app.controller.state.value)

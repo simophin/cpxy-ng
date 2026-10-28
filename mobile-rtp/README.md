@@ -53,7 +53,8 @@ private app data to another active device: copied UUIDs represent the same clien
 
 Preparation and Disconnect cancellation run independently. During a recoverable
 outage, the service keeps its TUN reference while the runtime repairs/recreates
-allocations or a failed worker is replaced. Explicit Disconnect removes the VPN.
+allocations or a failed worker is replaced. Permanent reconnect errors keep tunnel
+traffic blocked until you reconnect or disconnect. Explicit Disconnect removes the VPN.
 Initial preparation does not install a system-wide traffic block, and protection
 after process death requires Android always-on lockdown (outside this app's scope).
 

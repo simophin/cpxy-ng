@@ -62,7 +62,7 @@ class RtpVpnService : VpnService() {
     private val engineDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val transitions = Mutex()
     private val generation = ConnectionGeneration()
-    private var runJob: Job? = null
+    @Volatile private var runJob: Job? = null
     private var latestStartId = 0
     private var engine: RtpEngine? = null
     @Volatile private var preparation: RtpPreparation? = null
@@ -137,7 +137,7 @@ class RtpVpnService : VpnService() {
                     val stored = app.repository.profiles.first()
                     val selected = stored.profiles.firstOrNull { it.id == requestedId } ?: stored.selected
                     if (selected == null) {
-                        stop(VpnState.Failed("Add a profile to connect"), ticket)
+                        fail("Add a profile to connect", ticket)
                         return@withLock
                     }
                     // The transaction finishes its durable UUID write before any allocation.
@@ -148,11 +148,9 @@ class RtpVpnService : VpnService() {
                     Log.d(TAG, "Launching generation $ticket")
                     runJob = scope.launch(engineDispatcher) { run(profile, settings, ticket) }
                 } catch (_: IllegalArgumentException) {
-                    if (generation.isCurrent(ticket)) stop(VpnState.Failed(
-                        "Saved client identity is invalid. Restore it or delete and recreate the profile.",
-                    ), ticket)
+                    if (generation.isCurrent(ticket)) fail("Saved client identity is invalid. Restore it or delete and recreate the profile.", ticket)
                 } catch (_: Exception) {
-                    if (generation.isCurrent(ticket)) stop(VpnState.Failed("Could not load the profile. Open it and save again."), ticket)
+                    if (generation.isCurrent(ticket)) fail("Could not load the profile. Open it and save again.", ticket)
                 }
             }
         }
@@ -208,7 +206,7 @@ class RtpVpnService : VpnService() {
                         else -> null
                     }
                     if (permanent != null) {
-                        finish(VpnState.Failed(permanent), ticket)
+                        fail(permanent, ticket)
                         return
                     }
                     Log.i(TAG, "Transient RTP startup failure; retrying")
@@ -360,6 +358,24 @@ class RtpVpnService : VpnService() {
         runJob?.cancelAndJoin()
         runJob = null
         finish(state, ticket)
+    }
+
+    private suspend fun fail(message: String, ticket: Long) {
+        if (!generation.isCurrent(ticket)) return
+        if (tun == null) {
+            finish(VpnState.Failed(message), ticket)
+            return
+        }
+        // A permanent reconnect error must not remove an existing capture. Keep it installed
+        // without a retry loop until the user fixes the profile or explicitly disconnects.
+        stopEngine()
+        withContext(Dispatchers.Main) {
+            if (!generation.isCurrent(ticket)) return@withContext
+            controller.reportState(VpnState.Failed(
+                "$message Tunnel traffic remains blocked until you reconnect or disconnect.",
+            ))
+            showNotification("VPN blocked. $message")
+        }
     }
 
     private suspend fun finish(state: VpnState, ticket: Long) {
