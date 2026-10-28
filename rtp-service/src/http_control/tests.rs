@@ -5,17 +5,13 @@ use crate::{
     config::Settings,
 };
 use clap::Parser;
-use rtp_l3::worker::{PacketIo, SocketProvider};
+use rtp_l3::worker::SocketProvider;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
-    fs,
-    io::{self, Read, Write},
+    fs, io,
     net::{SocketAddr, TcpListener, TcpStream, UdpSocket},
-    os::{
-        fd::{AsRawFd, RawFd},
-        unix::net::UnixDatagram,
-    },
+    os::unix::net::UnixDatagram,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
@@ -23,26 +19,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-struct Device(UnixDatagram);
-impl AsRawFd for Device {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-}
-impl Read for Device {
-    fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
-        self.0.recv(b)
-    }
-}
-impl Write for Device {
-    fn write(&mut self, b: &[u8]) -> io::Result<usize> {
-        self.0.send(b)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 #[derive(Default)]
 struct Host {
     ports: Mutex<BTreeSet<u16>>,
@@ -80,12 +58,12 @@ impl SocketProvider for Host {
     }
 }
 struct Task {
-    run: Arc<AtomicBool>,
+    stop: CancellationToken,
     thread: Option<thread::JoinHandle<io::Result<()>>>,
 }
 impl Drop for Task {
     fn drop(&mut self) {
-        self.run.store(false, Ordering::Relaxed);
+        self.stop.cancel();
         if let Some(t) = self.thread.take() {
             assert!(t.join().unwrap().is_ok());
         }
@@ -121,19 +99,20 @@ impl Lab {
             settings.validate().unwrap();
         }
         let host = Arc::new(Host::default());
-        let run = Arc::new(AtomicBool::new(true));
+        let stop = CancellationToken::new();
         let (packet, device) = UnixDatagram::pair().unwrap();
         packet
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         let (tx, rx) = mpsc::channel();
         let h = host.clone();
-        let r = run.clone();
+        let r = stop.clone();
         let t = thread::spawn(move || {
             server::run(
                 settings,
                 [7; 32],
-                Box::new(Device(device)),
+                device.into(),
+                Box::new(|_: &[u8]| true),
                 h,
                 Arc::new(move |e| {
                     let _ = tx.send(e);
@@ -148,7 +127,7 @@ impl Lab {
         Self {
             root,
             server: Some(Task {
-                run,
+                stop,
                 thread: Some(t),
             }),
             entry,
@@ -167,18 +146,19 @@ impl Lab {
         settings.journal = self.root.join("replacement.json");
         settings.control.pool_low = Some("10.88.0.9".parse().unwrap());
         let provider = self.host.clone();
-        let running = Arc::new(AtomicBool::new(true));
+        let running = CancellationToken::new();
         let r = running.clone();
         let (ready, wait) = mpsc::channel();
         let (packet, device) = UnixDatagram::pair().unwrap();
         self.packet = packet;
         self.server = Some(Task {
-            run: running,
+            stop: running,
             thread: Some(thread::spawn(move || {
                 server::run(
                     settings,
                     [7; 32],
-                    Box::new(Device(device)),
+                    device.into(),
+                    Box::new(|_: &[u8]| true),
                     provider,
                     Arc::new(move |event| {
                         let _ = ready.send(event);
@@ -213,15 +193,16 @@ impl Lab {
         packet
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
-        let run = Arc::new(AtomicBool::new(true));
-        let r = run.clone();
+        let stop = CancellationToken::new();
+        let r = stop.clone();
         let host = self.host.clone();
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             transport::run(
                 settings,
                 control,
-                Box::new(Device(device)) as Box<dyn PacketIo>,
+                device.into(),
+                Box::new(|_: &[u8]| true),
                 host,
                 Arc::new(move |e| {
                     let _ = tx.send(e);
@@ -235,7 +216,7 @@ impl Lab {
         );
         (
             Task {
-                run,
+                stop,
                 thread: Some(thread),
             },
             packet,
@@ -262,6 +243,21 @@ fn endpoint(entry: SocketAddr, low: u16, root: &std::path::Path) -> Settings {
         "none",
         "--state-dir",
         root.to_str().unwrap(),
+    ])
+    .role
+    else {
+        panic!()
+    };
+    args.settings().unwrap()
+}
+fn client_settings(entry: SocketAddr, address: &str) -> Settings {
+    let RoleCommand::Client { args, .. } = Cli::parse_from([
+        "rtp",
+        "client",
+        "--entry",
+        &entry.to_string(),
+        "--address",
+        address,
     ])
     .role
     else {
@@ -531,20 +527,17 @@ fn changed_assignment_after_server_restart_requests_platform_tun_replacement() {
     let mut lab = Lab::new();
     let control = lab.control(Uuid::new_v4());
     let (packet, device) = UnixDatagram::pair().unwrap();
-    let run = Arc::new(AtomicBool::new(true));
+    let run = CancellationToken::new();
     let running = run.clone();
     let provider = lab.host.clone();
     let entry = lab.entry;
     let (events, rx) = mpsc::channel();
     let worker = thread::spawn(move || {
-        rtp_l3::v2::client_runtime::run(
-            rtp_l3::v2::client_runtime::ClientConfig {
-                entry,
-                inner: "10.88.0.2".parse().unwrap(),
-                keepalive_seconds: 15,
-            },
+        transport::run(
+            client_settings(entry, "10.88.0.2/24"),
             control,
-            Box::new(Device(device)),
+            device.into(),
+            Box::new(|_: &[u8]| true),
             provider,
             Arc::new(move |event| {
                 let _ = events.send(event);
@@ -562,7 +555,7 @@ fn changed_assignment_after_server_restart_requests_platform_tun_replacement() {
     while !worker.is_finished() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(20));
     }
-    run.store(false, Ordering::Release);
+    run.cancel();
     let error = worker.join().unwrap().unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
     drop(packet);
@@ -586,19 +579,16 @@ fn changed_mapping_is_detected_when_another_call_already_observed_generation() {
         io::ErrorKind::ConnectionReset
     );
     let (_packet, device) = UnixDatagram::pair().unwrap();
-    let running = Arc::new(AtomicBool::new(true));
+    let running = CancellationToken::new();
     let r = running.clone();
     let entry = lab.entry;
     let provider = lab.host.clone();
     let worker = thread::spawn(move || {
-        rtp_l3::v2::client_runtime::run(
-            rtp_l3::v2::client_runtime::ClientConfig {
-                entry,
-                inner: "10.88.0.2".parse().unwrap(),
-                keepalive_seconds: 15,
-            },
+        transport::run(
+            client_settings(entry, "10.88.0.2/24"),
             control,
-            Box::new(Device(device)),
+            device.into(),
+            Box::new(|_: &[u8]| true),
             provider,
             Arc::new(|_| {}),
             r,
@@ -608,7 +598,7 @@ fn changed_mapping_is_detected_when_another_call_already_observed_generation() {
     while !worker.is_finished() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(10));
     }
-    running.store(false, Ordering::Release);
+    running.cancel();
     assert_eq!(
         worker.join().unwrap().unwrap_err().kind(),
         io::ErrorKind::AddrNotAvailable

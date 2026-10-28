@@ -2,7 +2,7 @@
 #[cfg(target_os = "linux")]
 use std::{fs, os::fd::FromRawFd};
 use std::{
-    io::{self, Read, Write},
+    io,
     net::{SocketAddr, UdpSocket},
     os::fd::AsRawFd,
     sync::Arc,

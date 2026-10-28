@@ -3635,6 +3635,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
  "uuid",
 ]
 
@@ -3658,6 +3660,7 @@ dependencies = [
  "socket2",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uniffi",
@@ -3677,6 +3680,8 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+ "tokio",
+ "tokio-util",
  "uuid",
 ]
 

@@ -13,3 +13,6 @@ pub mod http_io;
 
 #[cfg(unix)]
 pub mod identity;
+
+#[cfg(unix)]
+pub mod udp_io;

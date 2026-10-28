@@ -1,6 +1,6 @@
-//! Sits between the TUN and the `rtp-l3` worker, which reads and writes the other end of a
-//! datagram socketpair: answers DNS, refuses what the tunnel cannot carry, and injects the
-//! engine's own DNS queries into the tunnel.
+//! Sits between the TUN and the `rtp-l3` worker, holding the device end of its packet
+//! channels: answers DNS, refuses what the tunnel cannot carry, and injects the engine's own
+//! DNS queries into the tunnel.
 
 use crate::dns::TunnelQueries;
 use crate::packet::{self, Incoming, Outgoing};
@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
+use tokio::sync::mpsc;
 
 /// Packets through the shim, in both directions.
 #[derive(Default)]
@@ -23,20 +24,58 @@ pub struct Counters {
     pub received_bytes: AtomicU64,
     pub dns_queries: AtomicU64,
     pub refused: AtomicU64,
+    pub tun: Arc<IoCounters>,
 }
 
-/// One packet per read or write on a nonblocking descriptor: a TUN or a datagram socket.
+/// Calls on one descriptor: each `read`/`write`, those that would block, and failed sends.
+#[derive(Default)]
+pub struct IoCounters {
+    recv_calls: AtomicU64,
+    recv_blocked: AtomicU64,
+    send_calls: AtomicU64,
+    send_blocked: AtomicU64,
+    send_failed: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct IoCounts {
+    pub recv_calls: u64,
+    pub recv_blocked: u64,
+    pub send_calls: u64,
+    pub send_blocked: u64,
+    pub send_failed: u64,
+}
+
+impl IoCounters {
+    pub fn counts(&self) -> IoCounts {
+        let count = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        IoCounts {
+            recv_calls: count(&self.recv_calls),
+            recv_blocked: count(&self.recv_blocked),
+            send_calls: count(&self.send_calls),
+            send_blocked: count(&self.send_blocked),
+            send_failed: count(&self.send_failed),
+        }
+    }
+}
+
+fn bump(counter: &AtomicU64) {
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One packet per read or write on a nonblocking TUN descriptor.
 #[derive(Clone)]
 pub struct Datagrams {
     fd: Arc<AsyncFd<OwnedFd>>,
     /// The utun packet-information header (iOS, macOS): a 4-byte address family.
     family_header: bool,
+    counters: Arc<IoCounters>,
 }
 
 impl Datagrams {
     /// Must be called on the runtime.
-    pub fn new(fd: OwnedFd, family_header: bool) -> io::Result<Self> {
-        set_nonblocking(&fd)?;
+    pub fn new(fd: OwnedFd, family_header: bool, counters: Arc<IoCounters>) -> io::Result<Self> {
+        rtp_l3::device::set_nonblocking(&fd)?;
         // SAFETY: the AsyncFd owns the descriptor, so it stays open while registered.
         let fd = unsafe {
             AsyncFd::register_with_interest(fd, Interest::READABLE | Interest::WRITABLE)?
@@ -44,12 +83,14 @@ impl Datagrams {
         Ok(Self {
             fd: Arc::new(fd),
             family_header,
+            counters,
         })
     }
 
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
             let mut guard = self.fd.readable().await?;
+            bump(&self.counters.recv_calls);
             let n = match guard.try_io(|fd| {
                 // SAFETY: reads into a buffer of the given length.
                 let n = unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
@@ -60,7 +101,10 @@ impl Datagrams {
                 }
             }) {
                 Ok(result) => result?,
-                Err(_would_block) => continue,
+                Err(_would_block) => {
+                    bump(&self.counters.recv_blocked);
+                    continue;
+                }
             };
             if n == 0 {
                 return Err(io::ErrorKind::UnexpectedEof.into());
@@ -91,7 +135,8 @@ impl Datagrams {
         };
         loop {
             let mut guard = self.fd.writable().await?;
-            match guard.try_io(|fd| {
+            bump(&self.counters.send_calls);
+            let result = guard.try_io(|fd| {
                 // SAFETY: writes from a buffer of the given length.
                 let n =
                     unsafe { libc::write(fd.as_raw_fd(), packet.as_ptr().cast(), packet.len()) };
@@ -100,30 +145,26 @@ impl Datagrams {
                 } else {
                     Ok(n as usize)
                 }
-            }) {
+            });
+            let failed = match result {
                 Ok(Ok(n)) if n == packet.len() => return Ok(()),
-                Ok(Ok(_)) => return Err(io::ErrorKind::WriteZero.into()),
-                Ok(Err(e)) => return Err(e),
-                Err(_would_block) => continue,
-            }
+                Ok(Ok(_)) => io::ErrorKind::WriteZero.into(),
+                Ok(Err(e)) => e,
+                Err(_would_block) => {
+                    bump(&self.counters.send_blocked);
+                    continue;
+                }
+            };
+            bump(&self.counters.send_failed);
+            return Err(failed);
         }
     }
-}
-
-pub fn set_nonblocking(fd: &impl AsRawFd) -> io::Result<()> {
-    // SAFETY: plain fcntl on a descriptor we own.
-    unsafe {
-        let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
-        if flags < 0 || libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
-            return Err(io::Error::last_os_error());
-        }
-    }
-    Ok(())
 }
 
 pub struct Shim {
     pub tun: Datagrams,
-    pub tunnel: Datagrams,
+    /// Packets for the worker to carry through the tunnel.
+    pub tunnel: mpsc::Sender<Vec<u8>>,
     pub own: Ipv4Addr,
     pub dns: Ipv4Addr,
     pub resolvers: Vec<Ipv4Addr>,
@@ -133,7 +174,7 @@ pub struct Shim {
 }
 
 impl Shim {
-    /// From the device into the tunnel. Ends when the TUN fails or closes.
+    /// From the device into the tunnel. Ends when the TUN fails or the worker stops.
     pub async fn outbound(self: Arc<Self>) {
         let mut buf = vec![0u8; 65536];
         loop {
@@ -147,12 +188,13 @@ impl Shim {
             let packet = &buf[..n];
             match packet::outgoing(packet, self.own, self.dns) {
                 Outgoing::Tunnel => {
-                    if self.tunnel.send(packet).await.is_ok() {
-                        self.counters.sent_packets.fetch_add(1, Ordering::Relaxed);
-                        self.counters
-                            .sent_bytes
-                            .fetch_add(n as u64, Ordering::Relaxed);
+                    if self.tunnel.send(packet.to_vec()).await.is_err() {
+                        return;
                     }
+                    self.counters.sent_packets.fetch_add(1, Ordering::Relaxed);
+                    self.counters
+                        .sent_bytes
+                        .fetch_add(n as u64, Ordering::Relaxed);
                 }
                 Outgoing::Dns { src, port, payload } => {
                     self.counters.dns_queries.fetch_add(1, Ordering::Relaxed);
@@ -172,18 +214,11 @@ impl Shim {
         }
     }
 
-    /// From the tunnel to the device. Ends when the worker's end of the socketpair closes.
-    pub async fn inbound(self: Arc<Self>) {
-        let mut buf = vec![0u8; 65536];
-        loop {
-            let n = match self.tunnel.recv(&mut buf).await {
-                Ok(n) => n,
-                Err(e) => {
-                    tracing::warn!("Reading from the tunnel failed: {e}");
-                    return;
-                }
-            };
-            let packet = &buf[..n];
+    /// From the tunnel to the device. Ends when the worker stops.
+    pub async fn inbound(self: Arc<Self>, mut from_worker: mpsc::Receiver<Vec<u8>>) {
+        while let Some(packet) = from_worker.recv().await {
+            let n = packet.len();
+            let packet = &packet[..];
             match packet::incoming(packet, self.own, &self.resolvers) {
                 Incoming::Tun => {
                     if self.tun.send(packet).await.is_ok() {

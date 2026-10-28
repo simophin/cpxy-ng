@@ -2,14 +2,11 @@
 use crate::v2::http::{random_path, MAX_BODY};
 use std::{
     io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc, Arc,
-    },
-    thread,
+    net::TcpStream,
+    sync::mpsc,
     time::{Duration, Instant},
 };
+use tokio_util::sync::CancellationToken;
 const MAX_HEADERS: usize = 8192;
 const TIMEOUT: Duration = Duration::from_secs(5);
 const NOT_FOUND: &[u8] =
@@ -201,78 +198,58 @@ pub struct Request {
     pub response: mpsc::SyncSender<Option<Vec<u8>>>,
     pub deadline: Instant,
 }
-/// All connection threads are bounded and joined before returning. A full queue
-/// rejects new work without evicting an accepted command/replay cache record.
-pub fn listen(
-    listener: TcpListener,
+/// Most connections served at once; more are closed unanswered.
+const MAX_CONNECTIONS: usize = 64;
+/// Accept control connections until `stop`, each served on a blocking thread. All of them are
+/// bounded by [`TIMEOUT`] and joined before returning. A full command queue rejects new work
+/// without evicting an accepted command/replay cache record.
+pub async fn listen(
+    listener: tokio::net::TcpListener,
     commands: mpsc::SyncSender<Request>,
-    running: Arc<AtomicBool>,
+    stop: CancellationToken,
 ) -> io::Result<()> {
-    listener.set_nonblocking(true)?;
-    let count = Arc::new(AtomicUsize::new(0));
-    let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
-    while running.load(Ordering::Relaxed) {
-        let mut index = 0;
-        while index < threads.len() {
-            if threads[index].is_finished() {
-                let _ = threads.swap_remove(index).join();
-            } else {
-                index += 1;
-            }
+    let mut connections = tokio::task::JoinSet::new();
+    let result = loop {
+        while connections.try_join_next().is_some() {}
+        let stream = tokio::select! {
+            () = stop.cancelled() => break Ok(()),
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => stream,
+                Err(e) => break Err(e),
+            },
+        };
+        if connections.len() >= MAX_CONNECTIONS {
+            continue;
         }
-        match listener.accept() {
-            Ok((stream, _)) => {
-                if count
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                        (n < 64).then_some(n + 1)
-                    })
-                    .is_err()
-                {
-                    continue;
-                }
-                let count = count.clone();
-                let tx = commands.clone();
-                let task = thread::Builder::new()
-                    .name("rtp-http-connection".into())
-                    .spawn(move || {
-                        let _ = serve_one(stream, |body| {
-                            let (response, rx) = mpsc::sync_channel(1);
-                            tx.try_send(Request {
-                                body,
-                                response,
-                                deadline: Instant::now() + TIMEOUT,
-                            })
-                            .ok()?;
-                            rx.recv_timeout(TIMEOUT).ok().flatten()
-                        });
-                        count.fetch_sub(1, Ordering::AcqRel);
-                    });
-                match task {
-                    Ok(t) => threads.push(t),
-                    Err(e) => {
-                        for t in threads {
-                            let _ = t.join();
-                        }
-                        return Err(e);
-                    }
-                }
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(10))
-            }
-            Err(e) => return Err(e),
+        let Ok(stream) = stream.into_std() else {
+            continue;
+        };
+        if stream.set_nonblocking(false).is_err() {
+            continue;
         }
-    }
+        let tx = commands.clone();
+        connections.spawn_blocking(move || {
+            let _ = serve_one(stream, |body| {
+                let (response, rx) = mpsc::sync_channel(1);
+                tx.try_send(Request {
+                    body,
+                    response,
+                    deadline: Instant::now() + TIMEOUT,
+                })
+                .ok()?;
+                rx.recv_timeout(TIMEOUT).ok().flatten()
+            });
+        });
+    };
     drop(commands);
-    for task in threads {
-        let _ = task.join();
-    }
-    Ok(())
+    while connections.join_next().await.is_some() {}
+    result
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::v2::http::{Bootstrap, Codec, Kind, Server};
+    use std::{net::TcpListener, sync::Arc, thread};
     fn roundtrip(raw: Vec<u8>, server: Arc<std::sync::Mutex<Server>>) -> Vec<u8> {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

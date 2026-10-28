@@ -169,3 +169,6 @@ random test password. Delete the asset/results directory when finished. Firmware
 emulation validates OpenWrt integration, not the physical router's acceleration,
 radio, hardware MTU or throughput. See the repository validation report for actual
 results and remaining limitations.
+
+Physical router throughput, MTU checks, receive-buffer behavior and deployment
+rollback details are recorded in the [2026-10-28 throughput investigation](../../docs/rtp-router-throughput-results.md).
