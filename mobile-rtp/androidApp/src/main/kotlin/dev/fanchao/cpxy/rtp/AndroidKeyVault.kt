@@ -28,10 +28,11 @@ class AndroidKeyVault(context: Context) : KeyVault {
         } catch (e: RtpException) {
             throw IllegalArgumentException((e as? RtpException.Failed)?.reason ?: "Invalid password", e)
         }
-        val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, wrappingKey()) }
-        val sealed = cipher.iv + cipher.doFinal(key)
-        key.fill(0)
-        preferences.edit { putString(profileId, Base64.encodeToString(sealed, Base64.NO_WRAP)) }
+        try {
+            val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, wrappingKey()) }
+            val sealed = cipher.iv + cipher.doFinal(key)
+            preferences.edit { putString(profileId, Base64.encodeToString(sealed, Base64.NO_WRAP)) }
+        } finally { key.fill(0) }
     }
 
     override suspend fun contains(profileId: String): Boolean = preferences.contains(profileId)
@@ -41,15 +42,15 @@ class AndroidKeyVault(context: Context) : KeyVault {
     }
 
     /** The profile's key, or null when it has none or it cannot be decrypted. */
-    fun load(profileId: String): ByteArray? {
+    fun load(profileId: String): ByteArray? = runCatching {
         val sealed = preferences.getString(profileId, null)?.let { Base64.decode(it, Base64.NO_WRAP) }
             ?: return null
-        return runCatching {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(128, sealed, 0, IV_LENGTH))
-            cipher.doFinal(sealed, IV_LENGTH, sealed.size - IV_LENGTH)
-        }.getOrNull()
-    }
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(128, sealed, 0, IV_LENGTH))
+        cipher.doFinal(sealed, IV_LENGTH, sealed.size - IV_LENGTH).also {
+            require(it.size == 32) { it.fill(0); "Invalid saved key" }
+        }
+    }.getOrNull()
 
     private fun wrappingKey(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }

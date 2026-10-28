@@ -41,7 +41,11 @@ fn candidates(addresses: Vec<SocketAddr>) -> Vec<SocketAddr> {
     result
 }
 
-pub(crate) fn race<T, F>(addresses: Vec<SocketAddr>, attempt: F) -> anyhow::Result<T>
+pub(crate) fn race<T, F>(
+    addresses: Vec<SocketAddr>,
+    cancelled: Arc<AtomicBool>,
+    attempt: F,
+) -> anyhow::Result<T>
 where
     T: Send + 'static,
     F: Fn(SocketAddr, Arc<AtomicBool>) -> anyhow::Result<T> + Send + Sync + 'static,
@@ -49,6 +53,7 @@ where
     race_with_timing(
         candidates(addresses),
         attempt,
+        cancelled,
         Duration::from_millis(250),
         Duration::from_secs(30),
     )
@@ -57,6 +62,7 @@ where
 fn race_with_timing<T, F>(
     addresses: Vec<SocketAddr>,
     attempt: F,
+    caller_cancelled: Arc<AtomicBool>,
     stagger: Duration,
     timeout: Duration,
 ) -> anyhow::Result<T>
@@ -74,11 +80,19 @@ where
     let mut active = 0;
     let mut errors = Vec::new();
     loop {
+        anyhow::ensure!(
+            !caller_cancelled.load(Ordering::Acquire),
+            "Preparation cancelled"
+        );
         let now = Instant::now();
         if now >= deadline {
             anyhow::bail!(
                 "Endpoint connection deadline exceeded: {}",
-                errors.join("; ")
+                errors
+                    .iter()
+                    .map(|e: &anyhow::Error| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
             );
         }
         if active < 2 && pending.peek().is_some() && (active == 0 || now >= next_launch) {
@@ -102,13 +116,23 @@ where
         } else {
             deadline
         };
-        match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
-            Ok((_, Ok(winner))) => return Ok(winner),
-            Ok((peer, Err(error))) => {
+        match rx.recv_timeout(
+            until
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(20)),
+        ) {
+            Ok((_, Ok(winner))) => {
+                anyhow::ensure!(
+                    !caller_cancelled.load(Ordering::Acquire),
+                    "Preparation cancelled"
+                );
+                return Ok(winner);
+            }
+            Ok((_peer, Err(error))) => {
                 active -= 1;
-                errors.push(format!("{peer}: {error}"));
+                errors.push(error);
                 if active == 0 && pending.peek().is_none() {
-                    anyhow::bail!("No usable endpoint: {}", errors.join("; "));
+                    return Err(errors.pop().unwrap().context("No usable endpoint"));
                 }
                 // A known failure need not consume the remainder of the stagger.
                 next_launch = Instant::now();
@@ -145,7 +169,10 @@ mod tests {
     fn preserves_order_for_either_family() {
         for peers in [vec![v6(), v4()], vec![v4(), v6()]] {
             let first = peers[0];
-            assert_eq!(race(peers, |peer, _| Ok(peer)).unwrap(), first);
+            assert_eq!(
+                race(peers, Arc::new(AtomicBool::new(false)), |peer, _| Ok(peer)).unwrap(),
+                first
+            );
         }
     }
 
@@ -164,6 +191,7 @@ mod tests {
                 }
                 Ok(peer)
             },
+            Arc::new(AtomicBool::new(false)),
             Duration::from_millis(10),
             Duration::from_secs(1),
         )
@@ -177,13 +205,17 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let record = seen.clone();
         let third: SocketAddr = "127.0.0.2:4000".parse().unwrap();
-        let result = race(vec![v4(), v6(), third], move |peer, _| {
-            record.lock().unwrap().push(peer);
-            if peer != third {
-                anyhow::bail!("unreachable");
-            }
-            Ok(peer)
-        })
+        let result = race(
+            vec![v4(), v6(), third],
+            Arc::new(AtomicBool::new(false)),
+            move |peer, _| {
+                record.lock().unwrap().push(peer);
+                if peer != third {
+                    anyhow::bail!("unreachable");
+                }
+                Ok(peer)
+            },
+        )
         .unwrap();
         assert_eq!(result, third);
         assert_eq!(*seen.lock().unwrap(), vec![v4(), v6(), third]);
@@ -206,6 +238,7 @@ mod tests {
                 }
                 Ok(Lease(tx.clone()))
             },
+            Arc::new(AtomicBool::new(false)),
             Duration::from_millis(5),
             Duration::from_secs(1),
         )
@@ -215,6 +248,25 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         drop(winner);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn caller_can_cancel_during_a_blocked_attempt() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let caller = cancel.clone();
+        let (started, rx) = mpsc::channel();
+        let task = std::thread::spawn(move || {
+            race(vec![v4()], caller, move |_, flag| -> anyhow::Result<()> {
+                started.send(()).unwrap();
+                while !flag.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                anyhow::bail!("cancelled")
+            })
+        });
+        rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        cancel.store(true, Ordering::Release);
+        assert!(task.join().unwrap().is_err());
     }
 
     #[test]
@@ -229,6 +281,7 @@ mod tests {
                 tx.send(()).unwrap();
                 anyhow::bail!("cancelled")
             },
+            Arc::new(AtomicBool::new(false)),
             Duration::from_millis(1),
             Duration::from_millis(20),
         );

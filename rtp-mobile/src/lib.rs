@@ -30,7 +30,7 @@ use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -142,36 +142,95 @@ pub struct Prepared {
     path: client_runtime::PreparedPath,
     provider: Arc<Provider>,
 }
+/// Cancellation is callable from a different thread while preparation blocks in HTTP or DNS.
+#[derive(Default)]
+pub struct PreparationCancellation {
+    cancelled: Arc<AtomicBool>,
+    providers: Mutex<Vec<Weak<Provider>>>,
+}
+impl PreparationCancellation {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        for provider in self
+            .providers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(Weak::upgrade)
+        {
+            provider.cancel_control();
+        }
+    }
+    fn check(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.cancelled.load(Ordering::Acquire),
+            "Preparation cancelled"
+        );
+        Ok(())
+    }
+}
+
 pub fn prepare(
     profile: &Profile,
     key: [u8; 32],
     client_id: uuid::Uuid,
     platform: Arc<dyn Platform>,
 ) -> anyhow::Result<Prepared> {
+    prepare_cancellable(profile, key, client_id, platform, Arc::default())
+}
+
+pub fn prepare_cancellable(
+    profile: &Profile,
+    key: [u8; 32],
+    client_id: uuid::Uuid,
+    platform: Arc<dyn Platform>,
+    cancellation: Arc<PreparationCancellation>,
+) -> anyhow::Result<Prepared> {
+    let key = zeroize::Zeroizing::new(key);
+    cancellation.check()?;
     anyhow::ensure!(!client_id.is_nil(), "Invalid persisted client UUID");
-    let settings = profile.settings()?;
-    let endpoints = settings.resolve_endpoints()?;
+    let mut settings = profile.settings()?;
+    let endpoints = resolve_cancellable(&settings.host, settings.port, &cancellation)?;
+    resolve_dns_servers(&mut settings, &cancellation)?;
+    cancellation.check()?;
     let alternative = settings.dns_alternative.clone();
-    let (path, provider) = connect::race(endpoints, move |endpoint, cancelled| {
-        let provider = Arc::new(Provider {
-            platform: platform.clone(),
-            repair: Arc::new(AtomicBool::new(false)),
-            stopping: AtomicBool::new(false),
-            control: Mutex::new(None),
-        });
-        let control = Client::new(&key, "cpxy-rtp", endpoint, provider.clone(), client_id)?;
-        let path = client_runtime::prepare_path(
-            control,
-            provider.as_ref(),
-            &cancelled,
-            KEEPALIVE_SECONDS,
-        )?;
-        anyhow::ensure!(
-            !alternative.contains(&path.inner()) && path.inner() != DNS_ADDRESS,
-            "Allocated address conflicts with configured DNS"
-        );
-        Ok((path, provider))
-    })?;
+    let server_identity = settings.server_identity.clone();
+    let (path, provider) = connect::race(
+        endpoints,
+        cancellation.cancelled.clone(),
+        move |endpoint, cancelled| {
+            cancellation.check()?;
+            let provider = Arc::new(Provider {
+                platform: platform.clone(),
+                repair: Arc::new(AtomicBool::new(false)),
+                stopping: AtomicBool::new(false),
+                control: Mutex::new(None),
+            });
+            {
+                let mut providers = cancellation.providers.lock().unwrap();
+                cancellation.check()?;
+                providers.push(Arc::downgrade(&provider));
+            }
+            let control = Client::new(
+                &key,
+                &server_identity,
+                endpoint,
+                provider.clone(),
+                client_id,
+            )?;
+            let path = client_runtime::prepare_path(
+                control,
+                provider.as_ref(),
+                &cancelled,
+                KEEPALIVE_SECONDS,
+            )?;
+            anyhow::ensure!(
+                !alternative.contains(&path.inner()) && path.inner() != DNS_ADDRESS,
+                "Allocated address conflicts with configured DNS"
+            );
+            Ok((path, provider))
+        },
+    )?;
     let endpoint = path.entry();
     let inner = path.inner();
     tracing::info!(%endpoint, "Selected authenticated RTP UDP path");
@@ -183,6 +242,96 @@ pub fn prepare(
         provider,
     })
 }
+// libc getaddrinfo cannot be interrupted portably. Bound it to two detached workers and a
+// five-second caller deadline; a late result contains addresses only and can never open sockets.
+fn resolve_cancellable(
+    host: &str,
+    port: u16,
+    cancellation: &PreparationCancellation,
+) -> anyhow::Result<Vec<SocketAddr>> {
+    use std::net::ToSocketAddrs;
+    use std::sync::{atomic::AtomicUsize, mpsc};
+    static RESOLVING: AtomicUsize = AtomicUsize::new(0);
+    if let Ok(address) = host.parse::<std::net::IpAddr>() {
+        cancellation.check()?;
+        return Ok(vec![SocketAddr::new(address, port)]);
+    }
+    anyhow::ensure!(
+        RESOLVING
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < 2)
+                .then_some(n + 1))
+            .is_ok(),
+        "Resolver busy"
+    );
+    struct Slot;
+    impl Drop for Slot {
+        fn drop(&mut self) {
+            RESOLVING.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+    let slot = Slot;
+    let host = host.to_owned();
+    let (tx, rx) = mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("rtp-resolve".into())
+        .spawn(move || {
+            let _slot = slot;
+            let result = (host.as_str(), port).to_socket_addrs().map(|addrs| {
+                let mut result = Vec::new();
+                for addr in addrs {
+                    if !result.contains(&addr) {
+                        result.push(addr);
+                    }
+                }
+                result
+            });
+            let _ = tx.send(result);
+        })?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        cancellation.check()?;
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "Resolution deadline exceeded"
+        );
+        match rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(result) => return Ok(result?),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+// Resolve DoT/DoH names before handoff too. Retain the original host for TLS SNI, but pin
+// the already-resolved address so start() cannot block in an uncancellable Tokio getaddrinfo.
+fn resolve_dns_servers(
+    settings: &mut profile::Settings,
+    cancellation: &PreparationCancellation,
+) -> anyhow::Result<()> {
+    use client::dns_split::spec::Endpoint;
+    for spec in settings
+        .dns_upstream
+        .iter_mut()
+        .chain(settings.dns_local_server.iter_mut())
+    {
+        cancellation.check()?;
+        if let Endpoint::Tls { host, port, ip } | Endpoint::Https { host, port, ip, .. } =
+            &mut spec.endpoint
+        {
+            if ip.is_none() {
+                let addresses = resolve_cancellable(host, *port, cancellation)?;
+                *ip = Some(
+                    addresses
+                        .first()
+                        .ok_or_else(|| anyhow::anyhow!("No DNS server address"))?
+                        .ip(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 impl Prepared {
     pub fn address(&self) -> Ipv4Addr {
         self.inner
@@ -482,6 +631,24 @@ mod tests {
             "a local-region resolver"
         );
         assert!(routes.len() < 2500, "{} routes", routes.len());
+    }
+
+    #[test]
+    fn dns_hostnames_are_resolved_cancellably_before_tun_handoff_and_keep_sni() {
+        use client::dns_split::spec::Endpoint;
+        let profile = Profile::from_json(r#"{"endpoint":"127.0.0.1:1","dns_upstream":["tls://localhost"],"dns_alternative":["8.8.8.8"]}"#).unwrap();
+        let mut settings = profile.settings().unwrap();
+        resolve_dns_servers(&mut settings, &PreparationCancellation::default()).unwrap();
+        match &settings.dns_upstream[0].endpoint {
+            Endpoint::Tls { host, ip, .. } => {
+                assert_eq!(host, "localhost");
+                assert!(ip.unwrap().is_loopback());
+            }
+            _ => panic!("TLS must be preserved"),
+        }
+        let cancelled = PreparationCancellation::default();
+        cancelled.cancel();
+        assert!(resolve_dns_servers(&mut settings, &cancelled).is_err());
     }
 
     #[test]

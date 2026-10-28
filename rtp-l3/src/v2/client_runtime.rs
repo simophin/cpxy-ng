@@ -272,6 +272,10 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, stop: CancellationT
     task::spawn_blocking(move || {
         let mut pending: Option<Pending> = None;
         let mut delay = 1000;
+        // A release or another HTTP job may already have consumed a generation transition.
+        // Check every existing session before recreation/rotation, while allowing a fresh
+        // manually-addressed Linux caller to claim its configured address first.
+        let mut verify_mapping = client.has_session();
         loop {
             if stop.is_cancelled() {
                 return (
@@ -283,6 +287,18 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, stop: CancellationT
                 );
             }
             let result = (|| {
+                if verify_mapping {
+                    let assigned = client.call("allocate_ip", Default::default())?;
+                    let assigned: std::net::Ipv4Addr =
+                        serde_json::from_value(assigned["inner"].clone()).map_err(|_| invalid())?;
+                    if assigned != inner {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AddrNotAvailable,
+                            "assigned tunnel address changed",
+                        ));
+                    }
+                    verify_mapping = false;
+                }
                 if pending.is_none() {
                     pending = Some(client.operation(
                         "create_udp",
@@ -294,6 +310,12 @@ fn create_job(mut client: Client, inner: std::net::Ipv4Addr, stop: CancellationT
             match result {
                 Ok(value) => return (client, Ok(JobResult::Create(value))),
                 Err(e) => {
+                    if e.kind() == io::ErrorKind::AddrNotAvailable {
+                        return (client, Err(e));
+                    }
+                    if e.kind() == io::ErrorKind::ConnectionReset {
+                        verify_mapping = true;
+                    }
                     // These responses are authenticated known outcomes with no
                     // recoverable live create. A new operation may be attempted.
                     if e.kind() == io::ErrorKind::ConnectionReset
@@ -645,7 +667,7 @@ impl Worker {
                     let (client, result) =
                         (*result).map_err(|_| io::Error::other("HTTP preparation panicked"))?;
                     self.http = Some(client);
-                    self.finish_job(result, now);
+                    self.finish_job(result, now)?;
                 }
                 Wake::Packet(Some(packet)) => self.outbound(&packet, now),
                 Wake::Packet(None) => return Err(device_closed()),
@@ -710,9 +732,16 @@ impl Worker {
         .map_err(|_| io::Error::other("HTTP owner panicked"))
     }
 
-    fn finish_job(&mut self, result: io::Result<JobResult>, now: u64) {
+    fn finish_job(&mut self, result: io::Result<JobResult>, now: u64) -> io::Result<()> {
+        // The platform must prepare a replacement TUN using the newly assigned address.
+        if result
+            .as_ref()
+            .is_err_and(|e| e.kind() == io::ErrorKind::AddrNotAvailable)
+        {
+            return Err(result.err().unwrap());
+        }
         let Ok(JobResult::Create(value)) = result else {
-            return;
+            return Ok(());
         };
         let allocation = Lease::parse(&value, self.entry).and_then(|lease| {
             let socket = client_socket(self.provider.as_ref(), lease.peer)?;
@@ -741,6 +770,7 @@ impl Worker {
                 self.next_prepare = now + 1000;
             }
         }
+        Ok(())
     }
 
     /// One device packet toward the endpoint, sealed for the active allocation.

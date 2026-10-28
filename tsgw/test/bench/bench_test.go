@@ -77,7 +77,15 @@ func TestThroughput(t *testing.T) {
 
 	// The tailnet: control and DERP in this process. Peers on one host connect directly.
 	derpMap := runDERP(t)
-	control := &testcontrol.Server{DERPMap: derpMap, Logf: logger.Discard}
+	controlLogs := &syncBuffer{}
+	control := &testcontrol.Server{DERPMap: derpMap, Logf: func(format string, args ...any) {
+		fmt.Fprintf(controlLogs, format+"\n", args...)
+	}}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("control output:\n%s", controlLogs.String())
+		}
+	})
 	control.HTTPTestServer = httptest.NewUnstartedServer(control)
 	control.HTTPTestServer.Start()
 	t.Cleanup(control.HTTPTestServer.Close)
@@ -135,8 +143,13 @@ func TestThroughput(t *testing.T) {
 	if gwNode == nil {
 		t.Fatal("the gateway did not register")
 	}
-	control.SetSubnetRoutes(gwNode.Key, []netip.Prefix{
+	approvedRoutes := []netip.Prefix{
 		netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0"), netip.MustParsePrefix(host + "/32"),
+	}
+	control.SetSubnetRoutes(gwNode.Key, approvedRoutes)
+	// Local approval must be observable before any peer joins or establishes a path.
+	waitFor(t, time.Minute, "the gateway to report it is approved without peers", func() bool {
+		return strings.Contains(gwLogs.String(), "the exit node is approved")
 	})
 
 	client := &tsnet.Server{
@@ -174,9 +187,6 @@ func TestThroughput(t *testing.T) {
 	if _, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{Prefs: ipn.Prefs{ExitNodeID: exitNode}, ExitNodeIDSet: true}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, time.Minute, "the gateway to report it is approved", func() bool {
-		return strings.Contains(gwLogs.String(), "the exit node is approved")
-	})
 	// Warm up, and wait for a direct path rather than DERP.
 	waitFor(t, time.Minute, "a direct path to the gateway", func() bool {
 		took := transferWithin(ctx, t, client, addr, 'D', mb, 30*time.Second)
@@ -213,6 +223,19 @@ func TestThroughput(t *testing.T) {
 			t.Logf("%s %d: %s", name, i+1, r.line(size))
 		}
 	}
+	// A later approval change must also update the log with an active peer. Match
+	// only output since each mutation so the initial approval cannot satisfy it.
+	checkpoint := len(gwLogs.String())
+	control.SetSubnetRoutes(gwNode.Key, []netip.Prefix{netip.MustParsePrefix(host + "/32")})
+	waitFor(t, time.Minute, "the gateway to report approval withdrawn", func() bool {
+		return strings.Contains(gwLogs.String()[checkpoint:], "the exit node is NOT approved")
+	})
+	checkpoint = len(gwLogs.String())
+	control.SetSubnetRoutes(gwNode.Key, approvedRoutes)
+	waitFor(t, time.Minute, "the gateway to report approval restored", func() bool {
+		return strings.Contains(gwLogs.String()[checkpoint:], "the exit node is approved")
+	})
+	transferWithin(ctx, t, client, addr, 'D', mb, 30*time.Second)
 	if hold := envInt(t, "CPXY_TSGW_BENCH_HOLD", 0); hold > 0 {
 		t.Logf("holding for %ds: the client dials %s", hold, addr)
 		end := time.Now().Add(time.Duration(hold) * time.Second)

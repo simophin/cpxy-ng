@@ -12,7 +12,7 @@ on:
   # The full build (packages included) of any branch, on demand
   workflow_dispatch:
 
-# PRs run tests, including the mobile TUN lab; the APK and OpenWrt packages build on main and tags,
+# PRs run tests, including the mobile TUN lab, and build the RTP APK. Other APK and OpenWrt packages build on main and tags,
 # and the publish job puts them on the download server (download-worker/). Main also publishes the
 # Docker images to ghcr.io and deploys the download server.
 # PR runs are cancelled when superseded. Everything else shares a single
@@ -225,7 +225,6 @@ jobs:
   # The RTP app is not published to the download server yet: its APK is a CI artifact only.
   build_mobile_rtp:
     name: Build RTP app APK
-    if: github.event_name != 'pull_request'
     needs: [version, test_rtp, test_mobile_rtp_shared]
     runs-on: ubuntu-latest
     steps:
@@ -272,8 +271,8 @@ jobs:
           "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           "ndk;28.2.13676358"
 
-      - name: Build APK and Gradle-owned Rust libraries
-        run: ./gradlew :androidApp:assembleRelease
+      - name: Build APKs, native libraries and Android lifecycle tests
+        run: ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:compileDebugAndroidTestKotlin
         working-directory: mobile-rtp
         env:
           CPXY_RTP_VERSION: ${{ needs.version.outputs.version }}
@@ -427,6 +426,7 @@ jobs:
           CPXY_TSGW_BENCH: 1
           CPXY_TSGW_BENCH_MB: 20
           CPXY_TSGW_BENCH_RUNS: 1
+          CPXY_TSGW_BENCH_GW_RUST_LOG: warn,cpxy_tsgw=debug,ts_control=debug
         run: go test -count=1 -timeout 10m -v ./bench
 
   test_openwrt_packaging:

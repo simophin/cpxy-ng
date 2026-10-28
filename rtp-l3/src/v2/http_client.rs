@@ -34,6 +34,9 @@ impl Client {
             bootstrap: None,
         })
     }
+    pub(super) fn has_session(&self) -> bool {
+        self.bootstrap.is_some()
+    }
     fn post(&self, body: &[u8]) -> io::Result<Vec<u8>> {
         wire::post(
             self.provider.control_socket(self.peer)?,
@@ -66,7 +69,17 @@ impl Client {
         {
             return Err(invalid());
         }
+        let generation_changed = self
+            .bootstrap
+            .as_ref()
+            .is_some_and(|(previous, _)| previous.generation != reply.generation);
         self.bootstrap = Some((reply, started));
+        if generation_changed {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "server generation changed",
+            ));
+        }
         Ok(())
     }
     /// A caller retries with the same Operation value after an unknown outcome.

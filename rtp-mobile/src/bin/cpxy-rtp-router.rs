@@ -147,6 +147,7 @@ fn main() -> anyhow::Result<()> {
     let key = rtp_l3::derive_psk(&password).map_err(anyhow::Error::msg)?;
     let profile = rtp_mobile::profile::Profile {
         endpoint: args.entry.unwrap(),
+        server_identity: "cpxy-rtp".into(),
         dns_upstream: args.dns_upstream,
         dns_alternative: args.dns_alternative,
         dns_local_server: Some(args.dns_local_server),

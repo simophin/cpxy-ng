@@ -235,7 +235,8 @@ from `main`, and ships the binaries in the OpenWrt packages on the [download ser
 - `bench` runs a Tailscale control server and DERP in the test process, with no internet. CI runs
   it with a short transfer. `TestStateFromGo` checks that a node registered by Go's tsnet keeps its
   identity; `TestThroughput` moves data through the exit node both ways and reports MB/s and the
-  gateway's CPU and memory. `bench/delayed.sh <delay>` runs the benchmark with a round trip
+  gateway's CPU and memory. It also checks approval before peers join and approval
+  withdrawal/restoration with an active peer. `bench/delayed.sh <delay>` runs the benchmark with a round trip
   between client and gateway.
 
   ```sh

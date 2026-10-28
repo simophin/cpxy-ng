@@ -12,7 +12,10 @@ use std::{
     fs, io,
     net::{SocketAddr, TcpListener, TcpStream, UdpSocket},
     os::unix::net::UnixDatagram,
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -21,8 +24,12 @@ use uuid::Uuid;
 #[derive(Default)]
 struct Host {
     ports: Mutex<BTreeSet<u16>>,
+    repair: AtomicBool,
 }
 impl SocketProvider for Host {
+    fn repair_requested(&self) -> bool {
+        self.repair.swap(false, Ordering::AcqRel)
+    }
     fn prepare_port(&self, a: SocketAddr) -> io::Result<UdpSocket> {
         let s = UdpSocket::bind(a)?;
         assert!(self.ports.lock().unwrap().insert(s.local_addr()?.port()));
@@ -128,6 +135,43 @@ impl Lab {
             packet,
         }
     }
+    fn replace_address_pool(&mut self) {
+        drop(self.server.take());
+        let mut settings = endpoint(self.entry, 40000, &self.root);
+        settings.transport = crate::config::Role::Endpoint {
+            listen: self.entry,
+            udp_low: 0,
+            udp_high: 0,
+        };
+        settings.journal = self.root.join("replacement.json");
+        settings.control.pool_low = Some("10.88.0.9".parse().unwrap());
+        let provider = self.host.clone();
+        let running = CancellationToken::new();
+        let r = running.clone();
+        let (ready, wait) = mpsc::channel();
+        let (packet, device) = UnixDatagram::pair().unwrap();
+        self.packet = packet;
+        self.server = Some(Task {
+            stop: running,
+            thread: Some(thread::spawn(move || {
+                server::run(
+                    settings,
+                    [7; 32],
+                    device.into(),
+                    Box::new(|_: &[u8]| true),
+                    provider,
+                    Arc::new(move |event| {
+                        let _ = ready.send(event);
+                    }),
+                    r,
+                )
+            })),
+        });
+        assert_eq!(
+            wait.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+            "ready"
+        );
+    }
     fn control(&self, id: Uuid) -> Client {
         Client::new(&[7; 32], "cpxy-rtp", self.entry, self.host.clone(), id).unwrap()
     }
@@ -199,6 +243,21 @@ fn endpoint(entry: SocketAddr, low: u16, root: &std::path::Path) -> Settings {
         "none",
         "--state-dir",
         root.to_str().unwrap(),
+    ])
+    .role
+    else {
+        panic!()
+    };
+    args.settings().unwrap()
+}
+fn client_settings(entry: SocketAddr, address: &str) -> Settings {
+    let RoleCommand::Client { args, .. } = Cli::parse_from([
+        "rtp",
+        "client",
+        "--entry",
+        &entry.to_string(),
+        "--address",
+        address,
     ])
     .role
     else {
@@ -461,4 +520,87 @@ fn concurrent_duplicate_creates_share_one_prepared_lease() {
     let second = thread::spawn(move || b.execute(&duplicate).unwrap());
     assert_eq!(first.join().unwrap(), second.join().unwrap());
     assert_eq!(lab.host.ports.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn changed_assignment_after_server_restart_requests_platform_tun_replacement() {
+    let mut lab = Lab::new();
+    let control = lab.control(Uuid::new_v4());
+    let (packet, device) = UnixDatagram::pair().unwrap();
+    let run = CancellationToken::new();
+    let running = run.clone();
+    let provider = lab.host.clone();
+    let entry = lab.entry;
+    let (events, rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        transport::run(
+            client_settings(entry, "10.88.0.2/24"),
+            control,
+            device.into(),
+            Box::new(|_: &[u8]| true),
+            provider,
+            Arc::new(move |event| {
+                let _ = events.send(event);
+            }),
+            running,
+        )
+    });
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+        "connected"
+    );
+    lab.replace_address_pool();
+    lab.host.repair.store(true, Ordering::Release);
+    let deadline = Instant::now() + Duration::from_secs(25);
+    while !worker.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    run.cancel();
+    let error = worker.join().unwrap().unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
+    drop(packet);
+}
+
+#[test]
+fn changed_mapping_is_detected_when_another_call_already_observed_generation() {
+    let mut lab = Lab::new();
+    let mut control = lab.control(Uuid::new_v4());
+    assert_eq!(
+        control.call("allocate_ip", Default::default()).unwrap()["inner"],
+        "10.88.0.2"
+    );
+    lab.replace_address_pool();
+    // A release job can consume the generation transition before recreation runs.
+    assert_eq!(
+        control
+            .call("allocate_ip", Default::default())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::ConnectionReset
+    );
+    let (_packet, device) = UnixDatagram::pair().unwrap();
+    let running = CancellationToken::new();
+    let r = running.clone();
+    let entry = lab.entry;
+    let provider = lab.host.clone();
+    let worker = thread::spawn(move || {
+        transport::run(
+            client_settings(entry, "10.88.0.2/24"),
+            control,
+            device.into(),
+            Box::new(|_: &[u8]| true),
+            provider,
+            Arc::new(|_| {}),
+            r,
+        )
+    });
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !worker.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    running.cancel();
+    assert_eq!(
+        worker.join().unwrap().unwrap_err().kind(),
+        io::ErrorKind::AddrNotAvailable
+    );
 }

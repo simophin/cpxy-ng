@@ -166,7 +166,16 @@ pub fn post(mut stream: TcpStream, authority: &str, body: &[u8]) -> io::Result<V
         let mut res = httparse::Response::new(&mut headers);
         match res.parse(&buffer).map_err(|_| bad())? {
             httparse::Status::Complete(n) => {
-                if n > MAX_HEADERS || res.code != Some(200) || res.version != Some(1) {
+                if n > MAX_HEADERS || res.version != Some(1) {
+                    return Err(bad());
+                }
+                if res.code == Some(404) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "control request rejected",
+                    ));
+                }
+                if res.code != Some(200) {
                     return Err(bad());
                 }
                 break (n, length(res.headers)?);
