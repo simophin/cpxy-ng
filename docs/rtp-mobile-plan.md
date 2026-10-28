@@ -51,7 +51,7 @@ tile, always-on VPN, the self-updater, a traffic log, iOS.
        │
        ▼
  Rust `rtp-mobile`
-   TUN ⇄ packet shim ⇄ socketpair ⇄ rtp-l3 client worker ⇄ UDP to the endpoint
+   TUN ⇄ packet shim ⇄ packet channels ⇄ rtp-l3 client worker ⇄ UDP to the endpoint
           ├─ UDP 53 to the virtual DNS address → DnsSplitHandler
           │     upstream: direct sockets
           │     alternative: UDP packets injected into the tunnel
@@ -88,16 +88,17 @@ addresses into the tunnel, never the reverse. The same list is used on every And
 
 ### Packet shim
 
-The `rtp-l3` worker polls one packet descriptor. The engine gives it one end of a
-`SOCK_DGRAM` socketpair, and a shim on the engine's tokio runtime sits between the TUN and the
-other end, so `rtp-l3` needs no change for it:
+The `rtp-l3` worker is a task on the engine's tokio runtime. Its packet device is a pair of
+bounded channels (`rtp_l3::device`); the shim holds the device end and sits between them and
+the TUN. (Before 2026-10-28 this was a `SOCK_DGRAM` socketpair; see
+[the packet-path plan](rtp-packet-path-efficiency-plan.md).)
 
 - From the TUN: answer UDP DNS to the virtual address; reply with ICMP errors as in the diagram;
   drop anything not from the tunnel address, multicast and broadcast; pass the rest on.
 - From the worker: replies to injected DNS queries go to the tunnel DNS upstream; everything
   else addressed to the tunnel address is written to the TUN.
 - Injection: the tunnel DNS upstream writes crafted IPv4/UDP queries (from the tunnel address,
-  source ports 61000–65535, above Linux's ephemeral range) to the socketpair.
+  source ports 61000–65535, above Linux's ephemeral range) into the worker's channel.
 
 The platform's 4-byte packet-information header (iOS utun) is handled in one place, so an iOS
 port only flips a flag.

@@ -133,12 +133,10 @@ use std::{
     net::{SocketAddr, UdpSocket},
     os::fd::AsRawFd,
     process::Command,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     thread::{self, JoinHandle},
 };
+use tokio_util::sync::CancellationToken;
 
 fn ip(args: &[&str]) -> io::Result<()> {
     let result = Command::new("ip").args(args).output()?;
@@ -342,7 +340,7 @@ pub struct Health {
     pub last_event: serde_json::Value,
 }
 struct Active {
-    running: Arc<AtomicBool>,
+    stop: CancellationToken,
     thread: JoinHandle<io::Result<()>>,
     host: Arc<Host>,
 }
@@ -499,8 +497,8 @@ impl Service {
         };
         let client = matches!(self.settings.transport, Role::Client { .. });
         let settings = self.settings.clone();
-        let running = Arc::new(AtomicBool::new(true));
-        let run = running.clone();
+        let stop = CancellationToken::new();
+        let run = stop.clone();
         let worker_host = host.clone();
         let health = self.health.clone();
         let events = self.events.clone();
@@ -537,8 +535,7 @@ impl Service {
             let result = network::write_policy(&settings).and_then(|accept| if client {
                 http_control::transport::run(settings,control_client.unwrap(),packet.into(),accept,worker_host.clone(),worker_events,run)
             } else {
-                let device: Box<dyn linux::PacketIo> = Box::new(network::PolicyPacket{file:packet,accept});
-                http_control::server::run(settings,psk,device,worker_host.clone(),worker_events,run)
+                http_control::server::run(settings,psk,packet.into(),accept,worker_host.clone(),worker_events,run)
             });
             let cleanup = worker_host.leases.cleanup();
             let result = result.and(cleanup).and(worker_host.release_tunnel());
@@ -555,11 +552,7 @@ impl Service {
                 return Err(error);
             }
         };
-        self.active = Some(Active {
-            running,
-            thread,
-            host,
-        });
+        self.active = Some(Active { stop, thread, host });
         Ok(())
     }
     pub fn stop(&mut self) -> io::Result<()> {
@@ -569,7 +562,7 @@ impl Service {
         let Some(active) = self.active.take() else {
             return Ok(());
         };
-        active.running.store(false, Ordering::Relaxed);
+        active.stop.cancel();
         let result = active
             .thread
             .join()
