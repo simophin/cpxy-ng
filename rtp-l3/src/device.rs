@@ -7,9 +7,10 @@ use std::{
 };
 use tokio::{io::unix::AsyncFd, sync::mpsc};
 
-/// Packets queued toward the device. Deep enough to absorb a burst while the device side is
-/// briefly descheduled; beyond it the worker drops and counts.
-pub const WRITE_QUEUE: usize = 1024;
+/// Packets queued toward the device: absorbs a burst while the device side is briefly
+/// descheduled, and beyond it the worker drops and counts. Every queued packet is latency
+/// (256 is about 20 ms at 128 Mbit/s); a 1024-packet queue measurably raised loaded RTT.
+pub const WRITE_QUEUE: usize = 256;
 /// Packets read from the device and not yet taken by the worker.
 pub const READ_QUEUE: usize = 256;
 

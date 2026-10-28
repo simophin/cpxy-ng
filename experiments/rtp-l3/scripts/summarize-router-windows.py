@@ -40,8 +40,22 @@ def busy(ticks):
     return sum(ticks) - ticks[3] - ticks[4]
 
 
-def profile_window(path, start, end):
-    samples = [json.loads(l) for l in path.read_text().splitlines() if '"profile_sample"' in l]
+def samples_of(path):
+    return [json.loads(l) for l in path.read_text().splitlines() if '"profile_sample"' in l]
+
+
+def local_offset(samples):
+    """Seconds from a host's uptime clock to this machine's receive clock (median)."""
+    return statistics.median(s['received_monotonic_ns'] / 1e9 - s['uptime_seconds'] for s in samples)
+
+
+def profile_window(path, start, end, offset=None):
+    """Samples within [start, end] of the router's uptime clock; another host's profile is
+    aligned through the receive clock, given the router's offset."""
+    samples = samples_of(path)
+    if offset is not None:
+        own = local_offset(samples)
+        start, end = start + offset - own, end + offset - own
     inside = [s for s in samples if start - 0.6 <= s['uptime_seconds'] <= end + 0.6]
     a, b = inside[0], inside[-1]
     wall = b['uptime_seconds'] - a['uptime_seconds']
@@ -96,14 +110,24 @@ for run in sorted(OUT.glob('w*.run.txt')):
     tag = run.name[:-len('.run.txt')]
     window, binary, phase = tag.split('-')
     info = run_info(run)
-    prof = profile_window(OUT / f'{tag}.profile.jsonl', info['start'], info['end'])
+    router_profile = OUT / f'{tag}.profile.jsonl'
+    prof = profile_window(router_profile, info['start'], info['end'])
     duration = info['end'] - info['start']
     row = dict(window=int(window[1:]), binary=binary, phase=phase, duration=duration, **prof)
+    endpoint_profile = OUT / f'{tag}.endpoint.jsonl'
+    if endpoint_profile.exists():
+        endpoint = profile_window(endpoint_profile, info['start'], info['end'],
+                                  local_offset(samples_of(router_profile)))
+        row.update({'endpoint_' + k: v for k, v in endpoint.items()
+                    if k in ('process_cores', 'sys_busy_cores', 'ctxt_per_s', 'socket_drops')})
     row.update({k: info[k] for k in info if k.startswith(('ping', 'streams'))})
     if phase != 'idle':
         row['mbit'] = info['bytes'] * 8 / 1e6 / duration
         row['busy_core_ms_per_MB'] = row['sys_busy_cores'] * 1000 / (info['bytes'] / 1e6 / duration)
         row['process_core_ms_per_MB'] = row['process_cores'] * 1000 / (info['bytes'] / 1e6 / duration)
+        if 'endpoint_process_cores' in row:
+            row['endpoint_process_core_ms_per_MB'] = (
+                row['endpoint_process_cores'] * 1000 / (info['bytes'] / 1e6 / duration))
     row['status'] = status_delta(info)
     rows.append(row)
 
@@ -116,16 +140,19 @@ def fmt(values):
     m = statistics.median(values)
     return f'{m:.3g} ({min(values):.3g}–{max(values):.3g})' if len(values) > 1 else f'{m:.3g}'
 
+labels = list(dict.fromkeys(r['binary'] for r in rows))
 metrics = ['mbit', 'sys_busy_cores', 'process_cores', 'rtp-worker_cores', 'rtp-engine_cores',
            'busy_core_ms_per_MB', 'process_core_ms_per_MB', 'system_cores', 'irq_softirq_cores',
            'worker_vcsw', 'ctxt_per_s', 'udp6_rcvbuf_errors', 'socket_drops', 'tun_tx_drop',
-           'ping_avg', 'ping_max', 'ping_recv', 'streams_ok']
+           'ping_avg', 'ping_max', 'ping_recv', 'streams_ok', 'endpoint_process_cores',
+           'endpoint_process_core_ms_per_MB', 'endpoint_sys_busy_cores', 'endpoint_ctxt_per_s',
+           'endpoint_socket_drops']
 for phase in ('idle', 'fixed', 'sat'):
     print(f'\n## {phase}')
-    print('| metric | ' + ' | '.join(['ref', 'A', 'B']) + ' |')
-    print('|---|---|---|---|')
+    print('| metric | ' + ' | '.join(labels) + ' |')
+    print('|---' * (len(labels) + 1) + '|')
     for m in metrics:
-        cells = [fmt([r.get(m) for r in rows if r['phase'] == phase and r['binary'] == b]) for b in ('ref', 'A', 'B')]
+        cells = [fmt([r.get(m) for r in rows if r['phase'] == phase and r['binary'] == b]) for b in labels]
         if any(c != '-' for c in cells):
             print(f'| {m} | ' + ' | '.join(cells) + ' |')
 
