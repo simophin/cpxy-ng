@@ -1,9 +1,10 @@
 # Android RTP v2 integration: agent implementation plan
 
-Status: implementation in progress. Profile migration, owned native preparation and Android
-service integration are implemented; validation gates are tracked below and in
+Status: implementation and available automated/emulator checks complete. Remaining
+acceptance limits and delivery are tracked below and in
 [rtp-mobile-v2-validation.md](rtp-mobile-v2-validation.md).
-Actual starting commit: `77e80db` (plan on top of `60d4d9a`). The user explicitly
+Latest main `6e4ce52` was merged as `cb918e8`; the Tokio worker and packet channels
+are retained. Actual starting commit: `77e80db` (plan on top of `60d4d9a`). The user explicitly
 requested continuing on `docs/android-rtp-v2-plan`, overriding the suggested new
 branch name below. Intended PR base: `main`, confirmed by `origin/HEAD`.
 Baseline reviewed: `60d4d9a` (PR #153, HTTP-controlled RTP v2 and OpenWrt router).
@@ -166,7 +167,7 @@ Foreground notification and Starting state
   a synchronous native function.
 - [x] Preserve VPN permission handling, foreground-service timing, notification
   disconnect action, sticky restart and per-app routing semantics.
-- [ ] Track best non-VPN network availability, loss and return. Account for a
+- [x] Track best non-VPN network availability, loss and return. Account for a
   network change during preparation, the preparation-to-engine handoff, and
   temporary loss followed by the same network returning. Serialize callback
   state with service operations; avoid callbacks into a closed engine.
@@ -178,7 +179,7 @@ Foreground notification and Starting state
 - [x] Retry transient initial network failures with bounded backoff; the current
   service incorrectly treats every first-start failure as a profile problem.
   Surface permanent configuration/credential problems without a tight retry loop.
-- [ ] Preserve the TUN and captured routes during recoverable outages and
+- [x] Preserve the TUN and captured routes during recoverable outages and
   fatal-worker restart. The current engine owns/closes its TUN and the service
   calls `stopEngine()` before retry, despite a comment claiming routes remain.
   Resolve this ownership gap explicitly.
@@ -218,16 +219,16 @@ existing codec and Linux coverage rather than duplicating the protocol suite.
 
 ### Automated checks
 
-- [ ] Rust: validate key/UUID/profile/server identity; preparation cancellation,
+- [x] Rust: validate key/UUID/profile/server identity; preparation cancellation,
   failed protection, exactly-once consumption and descriptor cleanup; late race
   results release leases and never activate; existing Linux callers still work.
-- [ ] Kotlin shared: legacy JSON migration, old key/profile ID association,
+- [x] Kotlin shared: legacy JSON migration, old key/profile ID association,
   selection/DNS preservation, stable persisted UUID, fresh UUID for a new copy,
   malformed identity handling, automatic address and server-identity validation.
 - [ ] Android service tests at the appropriate available test layer: stop during
   blocked preparation, rapid connect/stop/connect, profile replacement, network
   loss/return, failed establishment, worker failure and retained-TUN restart.
-- [ ] Run repository formatting and diff checks for modified files.
+- [x] Run repository formatting and diff checks for modified files.
 
 Commands, from the repository root unless noted:
 
@@ -254,20 +255,20 @@ missing toolchains or unrelated baseline failures accurately.
 
 ### Integration acceptance
 
-- [ ] Run `rtp-mobile/tests/linux-lab.sh` in an isolated network/mount namespace
+- [x] Run `rtp-mobile/tests/linux-lab.sh` in an isolated network/mount namespace
   using its existing fixture procedure. Include outer IPv4/IPv6 and blocked-family
   endpoint-racing variants when changing shared connection code.
-- [ ] Use a disposable local v2 endpoint and Android emulator/device where
+- [x] Use a disposable local v2 endpoint and Android emulator/device where
   available. Do not mutate a public endpoint to obtain a green result.
 - [ ] Verify server-assigned address matches the VPN address; two independent
   profiles/devices get distinct identities and process restart preserves identity.
-- [ ] Confirm tunnelled TCP/UDP egress, direct regional/private traffic, both DNS
+- [x] Confirm tunnelled TCP/UDP egress, direct regional/private traffic, both DNS
   paths, no AAAA leak, IPv6/QUIC refusal and all per-app selection modes.
-- [ ] Make HTTP reachable while one family's UDP is blackholed; verify the
+- [x] Make HTTP reachable while one family's UDP is blackholed; verify the
   working candidate wins without reporting the unusable path connected.
 - [ ] Exercise Wi-Fi loss/return and Wi-Fi/cellular handover when hardware allows;
   test changes during preparation as well as an established session.
-- [ ] Observe at least one real five-minute rotation with sustained traffic,
+- [x] Observe at least one real five-minute rotation with sustained traffic,
   acknowledged handover and old-allocation cleanup. Do not shorten production
   timers merely to make this check pass.
 - [ ] Freeze/stop/restart the endpoint and force a worker restart. Observe
@@ -284,6 +285,23 @@ in `docs/rtp-mobile-v2-validation.md`. Distinguish Linux, emulator and physical
 device results. Hardware-only cellular, battery/screen-off and long-duration
 checks may remain explicit follow-ups if unavailable; a draft PR can disclose
 them. Build success alone is not Android transport validation.
+
+### Completion notes
+
+The final native suite passed 84 tests and shared JVM coverage passed 19 tests.
+The Android default suite passed 11 tests; Settings-driven revocation and a real
+five-minute rotation passed separately. Both APK variants contain all four ABIs,
+and all four Linux family/racing variants passed after merging main. Clippy and
+scoped formatting/diff checks completed; workspace formatting has unrelated
+baseline differences documented in the validation report.
+
+Unchecked acceptance items retain their full original scope: physical handover,
+actual old-APK/process-restart upgrade validation, all cancellation/handoff timing
+injections, forced TUN establishment failure, and conclusive absence of a routing
+gap remain unverified. The available tests cover substantial portions of these
+items without claiming their remaining portions. Permanent reconnect failures now
+retain an existing TUN until explicit Disconnect, rather than silently removing
+capture. See the validation report for the direct-control limitation and cleanup.
 
 ## Commit and documentation sequence
 
@@ -308,7 +326,7 @@ of rewriting history as though Android was validated there.
 
 ## Draft PR delivery and completion criteria
 
-- [ ] Inspect final diff and confirm scope, clean task-owned working state and
+- [x] Inspect final diff and confirm scope, clean task-owned working state and
   completed available checks. Document material limitations and unfinished gates.
 - [ ] Push the implementation branch without force-pushing another person's work.
 - [ ] Open a draft PR using the configured repository tooling (`gh` if available).

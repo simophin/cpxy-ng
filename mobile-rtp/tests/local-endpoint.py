@@ -6,6 +6,7 @@ The emulator connects to 10.0.2.2:33000. Fixture password: android-rtp-test-pass
 Stop with SIGINT; no public listener, host route, NAT or firewall changes are made.
 """
 import http.server
+import json
 import os
 from pathlib import Path
 import selectors
@@ -194,6 +195,9 @@ def host(work):
         http_echo("127.0.0.1", 33080)
         class Control(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
+                if self.path in ("/pause", "/resume", "/restart", "/reassign"):
+                    with (work / "events.jsonl").open("a") as events:
+                        events.write(json.dumps({"time": time.time(), "action": self.path}) + "\n")
                 if self.path in ("/pause", "/resume"):
                     pid = int((work / "endpoint.pid").read_text())
                     os.kill(pid, signal.SIGSTOP if self.path == "/pause" else signal.SIGCONT)
