@@ -234,11 +234,12 @@ never taken from `defaults`.
 
 A DNS server entry (`dns_upstream`, `dns_alternative`) is a plain IP, or a `udp://`, `tcp://`,
 `tls://` or `https://` URL; `tls://` and `https://` accept `?ip=<addr>`. `tcp://`, `tls://` and
-`https://` accept `?via=cpxy` to ask through the instance's server, which then looks up a host
-name without `?ip=` itself, e.g. `https://dns.google/dns-query?via=cpxy`.
+`https://` accept the legacy `?via=cpxy` explicit proxy override: SOCKS5 in the router,
+cpxy in Tailscale. The proxy resolves a hostname without `?ip=` itself, e.g.
+`https://dns.google/dns-query?via=cpxy`. Ordinary router specs select their path by IP.
 
 **Upgrading from a package with smartdns:** the `smartdns` and `smartdns_*` options are ignored
-now. An instance without `dns_alternative` asks the same servers through its server; one that set
+now. An instance without `dns_alternative` uses `tcp://1.1.1.1?via=cpxy`; one that set
 `dns_alternative` to its smartdns (`127.0.0.1:5336`) must change it.
 
 ### DNS
@@ -318,7 +319,7 @@ and what traffic the worker records.
 |---|---|
 | Nothing starts | `cpxy-show` names what is missing or clashing. |
 | A network's devices are not proxied | `logread -e cpxy` for "has no device yet"; check `network` against `uci show network`. |
-| A network has no internet | The server URL or key is wrong, or the server is unreachable: `logread -e cpxy-router`. |
-| Names do not resolve | `logread -e cpxy-router`: it shows each DNS server it uses, and the errors reaching them or the instance's server. |
+| A network has no internet | Check the SOCKS5 endpoint with `logread -e cpxy-router`; for the sibling proxy, also check `logread -e cpxy-client`. |
+| Names do not resolve | `logread -e cpxy-router`: it shows each DNS server it uses, and the errors reaching them or the SOCKS5 endpoint. |
 | Local names (`printer.lan`) do not resolve | `dns_local_domain`, and that dnsmasq answers on `dns_local_server`. |
 | The exit node does not appear | It is not logged in or not approved: `logread -e cpxy-tsgw`. |

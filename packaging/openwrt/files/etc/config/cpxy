@@ -35,8 +35,8 @@ config defaults 'defaults'
 	# A dns_upstream answer with regional addresses wins (nonregional addresses removed),
 	# otherwise prefer dns_alternative. Each entry is an IP, or a udp://, tcp://, tls:// or
 	# https:// URL (tls:// and https:// accept ?ip=<addr>). tcp://, tls:// and https:// accept
-	# ?via=cpxy to ask through the instance's cpxy server, so the answer is neither poisoned nor
-	# blocked.
+	# ?via=cpxy as an explicit proxy override (router: SOCKS5; tsgw: cpxy).
+	# Router specs otherwise follow destination routing; proxied UDP specs use TCP.
 	list dns_upstream '223.5.5.5'
 	# Unset: tcp://1.1.1.1?via=cpxy
 	# list dns_alternative 'https://dns.google/dns-query?ip=8.8.8.8&via=cpxy'

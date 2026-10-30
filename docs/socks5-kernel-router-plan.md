@@ -1,6 +1,6 @@
 # SOCKS5 kernel router implementation
 
-Status: in progress. Branch: `feat/socks5-kernel-router`.
+Status: implementation and validation complete; publication pending. Branch: `feat/socks5-kernel-router`.
 
 ## Agreed behavior
 
@@ -27,7 +27,7 @@ Status: in progress. Branch: `feat/socks5-kernel-router`.
 - [x] Extend exact route export with IPv6 private/CN coverage and forced-proxy cuts.
   Extend kernel routing/lifecycle and OpenWrt settings for both address families,
   local cpxy-client or external SOCKS5, direct UDP and UDP/443 rejection.
-- [ ] Update integration fixtures and operator docs; run Rust, shell and available
+- [x] Update integration fixtures and operator docs; run Rust, shell and available
   namespace/package checks. Record unavailable checks and remaining hardware limits.
 - [ ] Review final diff, commit completed stages, push branch and open a PR.
 
@@ -76,7 +76,7 @@ hardware validation; software/hardware flow offload remains disabled for this mo
 | OpenWrt 25.12 APK lifecycle | Install/upgrade/enablement/config preservation/remove passed |
 | APK metadata/offline installation | Architecture variants, hooks, signing and reproducibility passed |
 | ShellCheck / Rust formatting / diff whitespace | Passed |
-| Booted OpenWrt 24.10 / fw4 | Running; native/proxy paths, DNS, IPv6 interception and firewall reload passed so far |
+| Booted OpenWrt 24.10 / fw4 | Passed: native/proxy paths, DNS, IPv6 interception, procd/netifd/firewall reloads, failures, binary replacement, reboot, no-bypass capture and uninstall |
 
 The namespace fixtures additionally cover forced IPv4/IPv6 proxy routes, malformed
 route batches, closed stdin under procd-style events, WAN loss/recovery, missing
@@ -87,3 +87,12 @@ connections rather than closing after every answer.
 Physical hardware/vendor firmware, route memory/throughput and booted fw3 firmware
 are not validated for this revision. Firmware must support IPv6 DNS NAT redirection.
 No live router or public cpxy server has been modified.
+
+- Booted OpenWrt 24.10/fw4 validation completed successfully with the static
+  router and real sibling cpxy-client. Continuous probes and WAN packet capture
+  observed no overseas TCP fallback during reloads, gateway changes or reboot.
+  Local QEMU artifacts are under `/tmp/cpxy-socks-qemu-results`; firmware assets
+  under `/tmp/cpxy-socks-qemu-assets` were verified by the pinned fetcher.
+- Final review preserved client-only instances without routed networks and clarified
+  migration, proxy/DNS configuration and traffic API scope. All implementation
+  stages are committed; push and PR publication are the remaining steps.
