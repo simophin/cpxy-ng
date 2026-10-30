@@ -49,8 +49,7 @@ cpxy_firewall_clear() {
 }
 
 # cpxy_firewall_add <section> <tun> <table> <dns port, or -> <source zones...>
-# With a DNS port, all IPv4 DNS from the source zones goes to the instance's dns_split on the
-# router, and IPv6 DNS, to the router or beyond, is refused so that clients use IPv4 for it.
+# With a DNS port, IPv4 and IPv6 DNS goes to the instance split resolver.
 cpxy_firewall_add() {
 	local section="$1" tun="$2" dns="$4" src base="cpxy_inst_$1" zone="cx$3" n=0
 	shift 4
@@ -85,25 +84,15 @@ set firewall.${base}_dns$n.proto='tcp udp'
 set firewall.${base}_dns$n.src_dport='53'
 set firewall.${base}_dns$n.dest_port='$dns'
 set firewall.${base}_dns$n.target='DNAT'
-set firewall.${base}_dns6_$n=rule
-set firewall.${base}_dns6_$n.name='cpxy $section IPv6 DNS refusal'
+set firewall.${base}_dns6_$n=redirect
+set firewall.${base}_dns6_$n.name='cpxy $section IPv6 DNS'
 set firewall.${base}_dns6_$n.src='$src'
 set firewall.${base}_dns6_$n.family='ipv6'
 set firewall.${base}_dns6_$n.proto='tcp udp'
-set firewall.${base}_dns6_$n.dest_port='53'
-set firewall.${base}_dns6_$n.target='REJECT'
-set firewall.${base}_dns6f_$n=rule
-set firewall.${base}_dns6f_$n.name='cpxy $section forwarded IPv6 DNS refusal'
-set firewall.${base}_dns6f_$n.src='$src'
-set firewall.${base}_dns6f_$n.dest='*'
-set firewall.${base}_dns6f_$n.family='ipv6'
-set firewall.${base}_dns6f_$n.proto='tcp udp'
-set firewall.${base}_dns6f_$n.dest_port='53'
-set firewall.${base}_dns6f_$n.target='REJECT'
+set firewall.${base}_dns6_$n.src_dport='53'
+set firewall.${base}_dns6_$n.dest_port='$dns'
+set firewall.${base}_dns6_$n.target='DNAT'
 UCI
-		# Ahead of every other rule: zones often accept DNS explicitly (Allow-DNS-guest)
-		uci reorder "firewall.${base}_dns6_$n=$(_cpxy_firewall_first_rule)"
-		uci reorder "firewall.${base}_dns6f_$n=$(_cpxy_firewall_first_rule)"
 	done
 }
 

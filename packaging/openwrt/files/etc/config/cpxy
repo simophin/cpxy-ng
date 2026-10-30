@@ -23,6 +23,9 @@ config defaults 'defaults'
 
 	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index.
 	option client_socks5 '0'
+	# Router automatically enables the sibling SOCKS5 listener unless an external
+	# plaintext no-auth endpoint is supplied. External-only: set client=0 and tsgw=0.
+	# option router_socks5_proxy '127.0.0.1:1080'
 
 	# Optional ordered suffixes for short DNS names, for router and Tailscale clients.
 	# list dns_search_domain 'home.arpa'
@@ -45,11 +48,11 @@ config defaults 'defaults'
 
 	# cpxy-router: 1 answers all IPv4 DNS from the instance's networks with its dns_split
 	option router_dns '1'
-	# Opt in to kernel IPv4 regional forwarding (no extra GeoIP/PBR package).
+	# Kernel IPv4/IPv6 regional TCP forwarding (required).
 	# Disable firewall software/hardware flow offloading before enabling.
-	# Router IPv6 is independently off in this mode; the shared ipv6 option still serves tsgw.
-	option router_geoip '0'
-	option router_ipv6 'off'
+	# IPv6 uses the same policy as IPv4. The shared ipv6 option still serves tsgw.
+	option router_geoip '1'
+	option router_ipv6 'full'
 
 	# Optional offline traffic page and read-only API. No authentication; defaults to loopback.
 	# Reach it with an SSH tunnel, or set router_api_listen in an instance to a management IP.

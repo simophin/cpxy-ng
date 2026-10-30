@@ -24,7 +24,7 @@ Status: in progress. Branch: `feat/socks5-kernel-router`.
   meaningful errors and destination preservation; validate against a local fixture.
 - [x] Wire SOCKS5-only router CLI, proxy-only TUN TCP and split DNS routing without
   changing mobile/Tailscale defaults. Validate CLI, DNS transport and relay behavior.
-- [ ] Extend exact route export with IPv6 private/CN coverage and forced-proxy cuts.
+- [x] Extend exact route export with IPv6 private/CN coverage and forced-proxy cuts.
   Extend kernel routing/lifecycle and OpenWrt settings for both address families,
   local cpxy-client or external SOCKS5, direct UDP and UDP/443 rejection.
 - [ ] Update integration fixtures and operator docs; run Rust, shell and available
@@ -54,3 +54,9 @@ hardware validation; software/hardware flow offload remains disabled for this mo
   50,000 IPv6 samples, forced exclusions, SOCKS5 DNS wire fixtures for both
   address families, proxy-only TUN behavior and required CLI endpoint. Existing
   mobile-engine tests continue to pass. Kernel/package validation is next.
+
+- Dual-family routing, OpenWrt endpoint selection, auto-enabled sibling SOCKS5,
+  external-only credential-free instances, dual-stack DNS redirects and boot guards
+  implemented. Small real-kernel smoke checks pass for staging, reload and recovery
+  from an interrupted IPv6 selector switch. OpenWrt 24.10 init/UCI and opkg
+  install/remove fixtures pass. ShellCheck and APK metadata/install tests pass.
