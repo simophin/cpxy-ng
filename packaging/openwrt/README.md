@@ -6,8 +6,8 @@ what it changes on the router and how it is built and tested.
 
 | Installed as | Built from | Role, per instance |
 |---|---|---|
-| `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP (and SOCKS5) proxy through the instance's server |
-| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | The networks' TCP from `cpxy<i>` to the server (local region: direct), and their DNS with dns_split (overseas servers asked through the server) |
+| `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP and SOCKS5 proxy through the instance's cpxy server |
+| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | Overseas TCP from `cpxy<i>` through SOCKS5, native CN IPv4/IPv6 routing, and split DNS |
 | `/usr/bin/cpxy-tsgw` | `tsgw/` (tailscale-rs, with the shared packet engine) | Tailscale exit node |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
@@ -20,11 +20,11 @@ fails, leaving what runs untouched. Each subscribes to changes of `cpxy`, and pr
 the instances whose command or environment changed.
 
 ```text
-device ── DNS (IPv4, any server) ─► firewall redirect ─► dns_split ─┬─ dns_upstream
-       │                                                            ├─ dns_alternative ─► server
-       │                                                            └─ local names ─► dnsmasq
-       └─ TCP ─► policy routing ─► cpxy<i> ─► packet engine ─► server (local region: direct)
-       └─ UDP 443 (QUIC) ─► cpxy<i> ─► rejected; other UDP ─► WAN
+LAN TCP (IPv4/IPv6) -> kernel CN/private routes -> WAN
+                   -> otherwise TUN -> cpxy-router -> SOCKS5 -> cpxy-client or external proxy
+LAN UDP (IPv4/IPv6) -> WAN, except UDP/443 rejected
+LAN DNS (UDP/TCP 53, both families) -> redirect -> split DNS
+    -> CN/private resolver direct; overseas resolver through SOCKS5 over TCP/DoT/DoH
 ```
 
 The router binary also embeds an optional offline traffic page and read-only HTTP API.
@@ -36,8 +36,9 @@ See the [traffic guide](../../docs/router-traffic.md) for access and the API con
 ## No loops through the router's own DNS
 
 dnsmasq is not changed, so the router's own lookups (the cpxy servers' names, opkg, NTP) never
-reach cpxy, and nothing waits on itself at boot. dns_split looks up the cpxy server's name with
-dnsmasq, and the names of its `?via=cpxy` servers not at all: the cpxy server does. It sends
+reach split DNS, and nothing waits on itself at boot. cpxy-client resolves its server
+with dnsmasq. dns_split bootstraps resolver names with the system resolver unless
+explicitly proxied, in which case the SOCKS5 endpoint resolves them. It sends
 single-label names, `dns_local_domain` and private reverse lookups to dnsmasq, which answers them
 itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 
@@ -46,8 +47,8 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 | Where | Change | Removed by |
 |---|---|---|
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
-| `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` a DNS redirect and IPv6 DNS refusals (to the router and forwarded) per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
-| Kernel | per routed instance: a persistent TUN, four rule priorities and a routing table | reload, `stop`, `opkg remove` |
+| `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` IPv4/IPv6 DNS redirects per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
+| Kernel | per routed instance: a persistent TUN, five rule priorities and two routing tables in both families | reload, `stop`, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
 | `/etc/cpxy/tsgw/<name>` | each exit node's Tailscale identity, kept across sysupgrade | deleted by hand |
 
@@ -65,7 +66,7 @@ packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container
 packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
-# The four init scripts with three instances (stubbed procd and routing), and real UCI firewall
+# The three init scripts with three instances (stubbed procd and routing), and real UCI firewall
 packaging/openwrt/test/init-dryrun.sh out/*.ipk
 # Routing and fail-closed behaviour with real binaries in network namespaces (no root needed)
 packaging/openwrt/test/lab.sh bins
@@ -78,7 +79,7 @@ with stand-in binaries. Builds of `main` and tags are published as signed opkg f
 
 ### Native apk v3 (OpenWrt 25.12+)
 
-`build-apk.sh` takes the same four binaries as the ipk builder. With apk-tools 3 and
+`build-apk.sh` takes the same three binaries as the ipk builder. With apk-tools 3 and
 OpenSSL on PATH (and `fakeroot` when not running as root):
 
 ```sh
@@ -129,23 +130,18 @@ dnsmasq, so the redirect, the services and local names are verified on a router.
 
 ## Fixed proxy routes
 
-The opt-in `router_geoip` mode moves regional/private IPv4 TCP into kernel forwarding and forces
-all TCP still entering TUN through cpxy. It reserves two table generations and a fifth terminal
-rule priority; its router DNS runs with IPv6 off. See the
-[operator guide](../../docs/openwrt.md#optional-kernel-ipv4-geoip-routing) for activation and limits.
-No separate country-list/PBR dependency is added.
-The early guard and persistent firewall include prevent startup forwarding before policy setup;
-the include does not classify destinations. Non-secret next-boot assignments live under
-`/etc/cpxy/router-guards/`; stop retains them for the next enabled boot and uninstall removes them.
+Kernel routing is the normal router path: `router_geoip=1`, `router_ipv6=full`.
+Both families reserve two table generations and five priorities. The router requires
+SOCKS5; by default the sibling cpxy-client listener is enabled automatically. An
+external-only instance can disable client/tsgw and omit cpxy server credentials.
+See the [operator guide](../../docs/openwrt.md#socks5-kernel-router) for migration.
 
-`test/lab.sh` includes `test/geo-lab.sh` for full-dataset kernel routes, native direct forwarding,
-forced-proxy subtraction and failure guards. `test/qemu-geo.py` boots a real OpenWrt image with
-isolated LAN/guest/WAN links, two real server processes, DNS fixtures and WAN packet capture.
-Its header documents prerequisites and invocation. The router binary must be static; unused
-client/tsgw binaries can be stand-ins for this focused router package test. Matching image kernel
-dependencies must be supplied offline. The suite has run on fw3 and fw4 stock images; vendor
-firmware and hardware offload still require physical validation. Results are recorded in the
-[validation report](../../docs/openwrt-geoip-routing-validation.md).
+`test/lab.sh` requires `cpxy-router`, `cpxy-client` (standalone), and `cpxy-server`.
+It runs both-family forwarding, proxy chains, overrides and failure guards with real
+binaries. `test/init-dryrun.sh` uses stand-ins for procd and the binaries with real
+OpenWrt UCI; package install/removal has separate fixtures. Historical validation
+reports describe their original revisions; current results live in the
+[SOCKS5 plan](../../docs/socks5-kernel-router-plan.md).
 
 Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 or IPv6 CIDR) to an instance
 or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and

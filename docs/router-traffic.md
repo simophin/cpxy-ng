@@ -14,7 +14,7 @@ and vanilla JavaScript. The API works independently of the page.
 For a standalone Linux worker, add `--api-listen` to its existing arguments:
 
 ```sh
-SERVER='https://:<key>@proxy.example:443' cpxy-router --tun cpxy0 --api-listen 127.0.0.1:3010
+cpxy-router --socks5-proxy 127.0.0.1:1080 --tun cpxy0 --api-listen 127.0.0.1:3010
 ```
 
 `API_LISTEN=127.0.0.1:3010` is the equivalent environment setting. The listener is disabled

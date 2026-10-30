@@ -46,26 +46,34 @@ def serve(ip, delay_ms, *specs):
         records.setdefault(name.lower(), []).append(addr)
     delay = int(delay_ms) / 1000
 
-    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+    udp = socket.socket(family, socket.SOCK_DGRAM)
     udp.bind((ip, 53))
 
     def reply_udp(data, peer):
         time.sleep(delay)
         udp.sendto(answer(data, records), peer)
 
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp = socket.socket(family, socket.SOCK_STREAM)
     tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     tcp.bind((ip, 53))
     tcp.listen()
 
+    def serve_connection(conn):
+        with conn:
+            try:
+                while True:
+                    length = struct.unpack("!H", recv_exact(conn, 2))[0]
+                    reply = answer(recv_exact(conn, length), records)
+                    time.sleep(delay)
+                    conn.sendall(struct.pack("!H", len(reply)) + reply)
+            except (EOFError, OSError):
+                pass
+
     def serve_tcp():
         while True:
             conn, _ = tcp.accept()
-            with conn:
-                length = struct.unpack("!H", recv_exact(conn, 2))[0]
-                reply = answer(recv_exact(conn, length), records)
-                time.sleep(delay)
-                conn.sendall(struct.pack("!H", len(reply)) + reply)
+            threading.Thread(target=serve_connection, args=(conn,), daemon=True).start()
 
     threading.Thread(target=serve_tcp, daemon=True).start()
     while True:
@@ -87,7 +95,7 @@ def query(server, name, transport="udp", qtype="A"):
     qname = b"".join(bytes([len(label)]) + label.encode() for label in name.split(".")) + b"\0"
     msg = struct.pack("!HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0) + qname + struct.pack("!HH", TYPES[qtype], 1)
     if transport == "udp":
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s = socket.socket(socket.AF_INET6 if ":" in server else socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(3)
         s.sendto(msg, (server, 53))
         reply = s.recv(4096)

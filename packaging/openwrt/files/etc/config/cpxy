@@ -1,12 +1,12 @@
 # cpxy: one instance per set of networks. Each instance runs, for its own cpxy server:
 #   cpxy-client    an HTTP proxy, which tsgw also uses
-#   cpxy-router    the networks' TCP through the server, and their DNS through dns_split
+#   cpxy-router    kernel CN TCP, overseas TCP through SOCKS5, and split DNS
 #   cpxy-tsgw      a Tailscale exit node with the same routing and DNS
 # Every option in 'defaults' can also be set in an instance, which then wins.
 # After editing: uci commit cpxy, then each service reloads by itself.
 
 config defaults 'defaults'
-	# REQUIRED, here or in each instance: https://:<key>@<host>:<port> (or http://)
+	# Required for client/tsgw (external-only routers need no server): https://:<key>@<host>:<port> (or http://)
 	option server ''
 	# Force matching TCP destinations through the proxy (repeatable, IPv4 or IPv6).
 	# list proxy_route '223.5.5.5/32'
@@ -32,8 +32,8 @@ config defaults 'defaults'
 	# list dns_search_domain 'corp.example'
 
 	# Split DNS, for the networks (dns_split, in cpxy-router) and for cpxy-tsgw's clients.
-	# The dns_upstream answer is used when all its addresses are in the local region, the
-	# dns_alternative answer otherwise. Each entry is an IP, or a udp://, tcp://, tls:// or
+	# A dns_upstream answer with regional addresses wins (nonregional addresses removed),
+	# otherwise prefer dns_alternative. Each entry is an IP, or a udp://, tcp://, tls:// or
 	# https:// URL (tls:// and https:// accept ?ip=<addr>). tcp://, tls:// and https:// accept
 	# ?via=cpxy to ask through the instance's cpxy server, so the answer is neither poisoned nor
 	# blocked.
@@ -46,7 +46,7 @@ config defaults 'defaults'
 	# list dns_local_domain 'lan'
 	option dns_local_server '127.0.0.1:53'
 
-	# cpxy-router: 1 answers all IPv4 DNS from the instance's networks with its dns_split
+	# cpxy-router: 1 answers IPv4/IPv6 DNS from the instance's networks with its dns_split
 	option router_dns '1'
 	# Kernel IPv4/IPv6 regional TCP forwarding (required).
 	# Disable firewall software/hardware flow offloading before enabling.
@@ -76,8 +76,8 @@ config instance 'main'
 	list network 'lan'
 	# Derived from index (i):
 	#   tun 'cpxy<i>'                          routing_table '100+i'
-	#   rule_priority '9100+10i' (uses 4)      client_http_listen '[::]:5000+i'
-	#   client_socks5_listen '[::]:1080+i'     dns_listen '0.0.0.0:5335+10i'
+	#   rule_priority '9100+10i' (uses 5)      client_http_listen '[::]:5000+i'
+	#   client_socks5_listen '[::]:1080+i'     dns_listen '[::]:5335+10i'
 	#   router_api_listen '127.0.0.1:3010+i'
 	#   tsgw_port '41700+i'                    tsgw_hostname 'cpxy-<name>'
 	#   tsgw_state_dir '/etc/cpxy/tsgw/<name>'

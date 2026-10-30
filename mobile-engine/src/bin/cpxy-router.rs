@@ -22,7 +22,7 @@ mod cli {
         pub proxy_route: Vec<ipnet::IpNet>,
         #[arg(long, default_value = "cpxy0")]
         pub tun: String,
-        /// Which IPv6 to relay: `full` needs a cpxy server that can reach IPv6, `direct` relays
+        /// Which IPv6 to relay: `full` needs a SOCKS5 proxy that can reach IPv6, `direct` relays
         /// only what routes direct, and `off` refuses it.
         #[arg(long, env = "IPV6", value_enum, default_value_t = mobile_engine::Ipv6Mode::Full)]
         pub ipv6: mobile_engine::Ipv6Mode,
@@ -58,7 +58,6 @@ mod cli {
         /// Disabled unless set. No authentication: use loopback or a trusted management IP.
         #[arg(long, env = "API_LISTEN")]
         pub api_listen: Option<std::net::SocketAddr>,
-        // Keep the secret out of process arguments and parser diagnostics.
     }
 
     #[cfg(test)]

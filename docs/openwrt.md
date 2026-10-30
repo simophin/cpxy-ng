@@ -1,80 +1,74 @@
 # cpxy on OpenWrt: user guide
 
-## Optional kernel IPv4 GeoIP routing
+## SOCKS5 kernel router
 
-Set `option router_geoip '1'` in an instance or `defaults` to forward regional/private IPv4 TCP
-directly in the kernel. The package uses its bundled DB-IP data, shared with split DNS; it needs
-no additional GeoIP/PBR package or list downloads. Other captured TCP goes through the instance's
-cpxy server. `proxy_route` still overrides regional/private classification, after existing
-connected-network exceptions.
+`cpxy-router` requires a plaintext, unauthenticated SOCKS5 proxy. By default each
+instance uses its sibling `cpxy-client` on loopback; its SOCKS5 listener is enabled
+automatically. Set `router_socks5_proxy 'IP:port'` (or `'[IPv6]:port'`) to use an
+external proxy. For an external-only instance, set `client '0'` and `tsgw '0'`;
+no cpxy server or credentials are then required.
 
-This mode is IPv4-only. Leave `router_ipv6 'off'` (its default): forwarded IPv6 is refused to
-prevent bypass, and this router's split DNS returns no AAAA answers. Router-local and on-link
-IPv6 communication remains possible. The shared `ipv6` option continues to control Tailscale;
-it does not enable IPv6 in kernel GeoIP mode. IPv6 `proxy_route` entries are rejected in this mode.
+For both IPv4 and IPv6, CN/private TCP forwards directly in the kernel; overseas
+TCP enters TUN and uses SOCKS5. `proxy_route` overrides CN/private classification,
+except router-local and connected-network access. UDP forwards directly for all
+destinations except UDP/443, which is rejected (including QUIC/HTTP/3). TCP/853
+follows ordinary TCP splitting. Essential local ICMPv6/neighbor discovery remains
+available. The router's own outbound sockets use ordinary system routing.
 
-Before first enabling it, stop `cpxy-router`; disable `flow_offloading` and `flow_offloading_hw`
-in the firewall defaults and reload the firewall. Set `router_geoip '1'`, commit cpxy and start
-the router service. Changing between legacy and kernel GeoIP mode, or changing a running GeoIP
-instance's TUN/table/priorities, requires an explicit stop/start. Stop restores ordinary WAN
-access, so use a maintenance window if continuous protection is required.
+The router and split DNS use the same bundled CN datasets. No extra GeoIP/PBR
+package is needed. DNS on UDP/TCP 53 is redirected for both address families to a
+dual-stack `[::]:port` listener. Split DNS races Chinese and overseas resolvers,
+prefers a regional answer from Chinese resolvers, then uses an overseas answer.
+Resolver destinations are classified in userspace: direct where eligible,
+otherwise SOCKS5. Proxied UDP DNS specifications are upgraded to TCP. DoT and DoH
+work through SOCKS5 too. Existing `?via=cpxy` DNS specifications remain an explicit
+proxy override and use the selected SOCKS5 endpoint in the router. Local names
+and private reverse lookups still go to dnsmasq directly.
 
-After the first successful start, the package saves resource assignments (no server keys) under
-`/etc/cpxy/router-guards/`. The firewall boot guard restores protection before OpenWrt starts
-network forwarding on subsequent boots. Shutdown retains protection;
-an explicit router-service stop removes runtime protection while retaining assignments for the
-next enabled boot. Uninstall removes the saved assignments. Unchanged reloads do not rewrite
-these files. Apply and verify a new configuration before rebooting it into service.
+### Migration and routing lifecycle
 
-A package-owned `cpxy_boot_guard` firewall include temporarily refuses forwarding until the
-capture and terminal rules are installed. It bridges netifd's startup rule flush; it performs no
-GeoIP classification. The include remains after stop for the next enabled boot, while a runtime
-marker disables its barrier during an explicit stop. Uninstall removes the include and snapshots.
+Stop the old router service before upgrading its routing configuration. Set
+`router_geoip '1'`, `router_ipv6 'full'` and `dns_listen '[::]:5335'` (port is
+5335 + 10 × instance index). Disable firewall `flow_offloading` and
+`flow_offloading_hw`, reload the firewall, commit cpxy configuration, then start
+`cpxy-client` and `cpxy-router`. Explicit stop restores ordinary WAN access.
+Existing legacy `router_geoip '0'`, IPv4-only DNS listeners and `router_ipv6 'off'`
+are rejected with migration errors. The shared `ipv6` setting continues to control
+Tailscale; the router uses the same policy for both families.
 
-The initial implementation supports one simple IPv4 default in `main`, including gateway-based
-and point-to-point uplinks. ECMP and third-party policy-routing configurations need separate
-integration. Each GeoIP instance reserves its configured routing table and that table plus
-10,000, and five priorities beginning at `rule_priority`. A changed WAN gateway triggers route
-reconciliation. Missing policy tables/TUNs refuse proxy traffic; failed batches retain the old
-generation or protection. Reloads can reconnect flows whose policy changes.
+Each instance reserves two routing tables (configured table and table + 10000)
+in both families, plus five rule priorities. It supports one simple default route
+per family, including gateway and point-to-point uplinks. A missing default keeps
+regional destinations unreachable until that family recovers; overseas TCP can
+still use a proxy reachable through the other family. ECMP/custom PBR requires
+separate integration. Normal WAN forwarding and IPv4 masquerading must already
+be configured; the package preserves administrator firewall denies.
 
-Existing source-zone forwarding rules must permit direct WAN traffic, with normal WAN IPv4
-masquerading. The package preserves administrator firewall denies. Kernel-direct flows no longer
-appear in the packet engine's traffic log/API. `cpxy-show` reports the active table, route count
-and dataset identity. GeoIP mode remains opt-in pending physical-router validation.
+Route generations and independent terminal guards prevent overseas TCP falling
+back to WAN if tables, TUN, worker or proxy fail. Direct regional traffic remains
+independent of worker/proxy health. The firewall boot include blocks forwarding
+until both families have capture and terminal rules. Non-secret resource snapshots
+under `/etc/cpxy/router-guards/` survive stop for the next enabled boot; uninstall
+removes them. Changing TUN/table/priorities requires stop/start. Policy changes may
+reconnect affected flows.
 
-The [implementation and test plan](openwrt-geoip-routing-plan.md) covers failure handling and
-the distinction between this TCP router and the future full IP VPN.
+Kernel-direct traffic does not appear in the engine traffic API. Physical-router
+throughput, route memory costs and vendor firmware still need hardware validation.
+The namespace and packaging checks are documented in the
+[implementation plan](socks5-kernel-router-plan.md).
 
-The `cpxy` package puts your networks behind cpxy servers, with nothing to set up on the devices.
-For each set of networks (for example `lan`, `guest` and `iot`) it runs one **instance**, with its
-own cpxy server and three services:
-
-| Service | What it does |
-|---|---|
-| `cpxy-client` | An HTTP proxy (`[::]:5000` for the first instance), through the instance's server. Devices may use it directly; tsgw uses it too. |
-| `cpxy-router` | Sends the networks' TCP through the server (local-region destinations go direct) and answers their DNS with **dns_split**, which picks the local-region answer when there is one, and otherwise the answer of an overseas DNS server (1.1.1.1 over TCP by default) asked through the server, so it is not tampered with. |
-| `cpxy-tsgw` | A [Tailscale exit node](cpxy-tsgw.md) with the same routing and split DNS, for phones and laptops away from home. |
-
-```text
-device on 'guest' ── DNS ─► dns_split (guest) ─┬─ local-region DNS servers
-                                               └─ overseas DNS servers, through guest's server
-                  └─ TCP ─► cpxy1 ─► packet engine ─► guest's server (local region: direct)
-phone (Tailscale) ───────► cpxy-tsgw (guest) ─► the same, through guest's server
-```
-
-The router's own DNS (dnsmasq) is not changed: it keeps serving DHCP and the router itself, and
-answers local names (`.lan`, DHCP host names) for dns_split.
+The package also provides an HTTP proxy and a Tailscale exit node. Those components
+retain their existing cpxy configuration and can be disabled independently.
 
 ## Before you start
 
 - A router on **OpenWrt 25.12 or newer** (native apk v3, fw4, procd), **OpenWrt 24.10** (opkg), or GL.iNet's stock 4.x firmware (OpenWrt
-  21.02-based, fw3). Tested on a GL-MT3000 with the stock firmware. For apk, `/etc/apk/arch`
+  21.02-based, fw3). This revision still needs physical-router validation. For apk, `/etc/apk/arch`
   must list `aarch64`, `aarch64_generic`, `aarch64_cortex-a53`, `aarch64_cortex-a72`,
   `aarch64_cortex-a76` or `x86_64`. On older firmware, `opkg print-architecture` must list
   `aarch64_cortex-a53` or `x86_64`.
 - SSH access as `root`.
-- A running cpxy server per instance (one can serve several), and its URL with the key:
+- For cpxy-client/tsgw, a running cpxy server per instance (one can serve several), and its URL with the key:
   `https://:<key>@<host>:<port>` (or `http://`).
 - For more than one instance, the networks (and their SSIDs and firewall zones) already set up in
   OpenWrt, each network in a firewall zone of its own.
@@ -199,11 +193,11 @@ The `index` gives each instance its own ports, devices and routing numbers:
 |---|---|---|---|---|
 | `client_http_listen` | `[::]:5000+i` | 5000 | 5001 | 5002 |
 | `client_socks5_listen` (with `client_socks5 1`) | `[::]:1080+i` | 1080 | 1081 | 1082 |
-| `dns_listen` (dns_split) | `0.0.0.0:5335+10i` | 5335 | 5345 | 5355 |
+| `dns_listen` (dns_split) | `[::]:5335+10i` | 5335 | 5345 | 5355 |
 | `router_api_listen` (with `router_api 1`) | `127.0.0.1:3010+i` | 3010 | 3011 | 3012 |
 | `tun` | `cpxy<i>` | cpxy0 | cpxy1 | cpxy2 |
 | `routing_table` | `100+i` | 100 | 101 | 102 |
-| `rule_priority` (and the next 3) | `9100+10i` | 9100 | 9110 | 9120 |
+| `rule_priority` (and the next 4) | `9100+10i` | 9100 | 9110 | 9120 |
 | `tsgw_port` (UDP; not 41641, which `tailscaled` uses) | `41700+i` | 41700 | 41701 | 41702 |
 | `tsgw_hostname` | `cpxy-<name>` | cpxy-main | cpxy-guest | cpxy-iot |
 | `tsgw_state_dir` | `/etc/cpxy/tsgw/<name>` | | | |
@@ -215,20 +209,22 @@ never taken from `defaults`.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `server` | none, **required** | The cpxy server URL with its key. Kept out of the process list. |
+| `server` | none; required for client/tsgw | The cpxy server URL with its key. Kept out of the process list. |
 | `enabled` (instance) | `1` | `0` stops the whole instance. |
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy and exit node. |
 | `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
-| `client_socks5` | `0` | `1` adds a SOCKS5 proxy. |
-| `ipv6` | `full` | IPv6 from the networks and Tailscale clients. `full` routes it like IPv4, which needs a server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` refuses it, so devices use IPv4. The router's WAN needs IPv6, and its networks IPv6 addresses (OpenWrt hands them out by default). |
+| `client_socks5` | `0` | `1` adds a SOCKS5 proxy; automatically enabled when the router uses the sibling client. |
+| `router_socks5_proxy` | sibling client loopback | External plaintext no-auth SOCKS5 endpoint (`IP:port` or `[IPv6]:port`). |
+| `router_geoip` / `router_ipv6` | `1` / `full` | Required kernel split for both families. |
+| `ipv6` | `full` | IPv6 for mobile/Tailscale clients; router always splits both families. `full` routes it like IPv4, which needs a server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` refuses it, so devices use IPv4. The router's WAN needs IPv6, and its networks IPv6 addresses (OpenWrt hands them out by default). |
 | `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |
 | `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. |
-| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, here asked through the instance's server. |
+| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, through the router SOCKS5 endpoint (cpxy for tsgw). |
 | `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |
 | `dns_local_server` | `127.0.0.1:53` | The router's own resolver, dnsmasq. |
-| `router_dns` | `1` | Answer all IPv4 DNS from the instance's networks with its dns_split. |
+| `router_dns` | `1` | Answer IPv4/IPv6 DNS from the instance's networks with its dns_split. |
 | `router_api` | `0` | Enable the offline traffic page and read-only API, on `router_api_listen`. No authentication; loopback by default. See [traffic monitoring](router-traffic.md). |
 | `tsgw_authkey` | none | A Tailscale auth key, to log in without the link. |
 | `tsgw_control_url` | Tailscale's | A different coordination server, e.g. Headscale. Its certificate must be from a public CA, such as Let's Encrypt: cpxy-tsgw trusts the roots built into it, not the router's. |
@@ -247,15 +243,17 @@ now. An instance without `dns_alternative` asks the same servers through its ser
 
 ### DNS
 
-With `router_dns` on, the firewall sends every IPv4 DNS query from the instance's networks (to
-the router or to any other server) to the instance's dns_split, and refuses IPv6 DNS so devices
-ask over IPv4; dns_split answers AAAA queries there according to `ipv6`. dns_split asks `dns_upstream` and `dns_alternative` at once and uses the upstream
-answer only when it has addresses in the local region, keeping just those, so a tampered answer
-can never send a blocked site direct.
+With `router_dns` on, UDP/TCP DNS on port 53 from both address families is
+redirected to the instance's split resolver. Chinese and overseas resolvers are
+queried concurrently. A Chinese response containing regional addresses wins with
+nonregional address records removed; otherwise an overseas answer is preferred.
+GeoIP classification does not authenticate DNS answers.
 
-Each instance's DNS stays inside it: its dns_split asks its overseas servers through its own
-server. The router's own lookups never go through cpxy, so nothing here depends on itself to
-start.
+Resolver destinations follow regional/forced-proxy routing in userspace. Overseas
+queries use SOCKS5, converting plain UDP DNS to TCP. DNS over TLS/HTTPS retains
+certificate verification. Hostname resolver endpoints use the system resolver for
+bootstrap unless given `?ip=` or an explicit `?via=cpxy` proxy override. The
+router's system resolver remains dnsmasq and is never redirected into split DNS.
 
 Because DNS is redirected per firewall zone, a zone holding one instance's networks must not hold
 networks of another instance or of none (the service says so). Set `router_dns` to `0` for such an
@@ -266,7 +264,7 @@ Names dnsmasq answers specially outside those domains (an `address=/name/` entry
 `dns_local_domain` to keep dnsmasq's answer.
 
 dns_split runs inside the instance's `cpxy-router`, so while that is down or restarting, its
-networks have neither TCP nor DNS until procd starts it again.
+networks lose proxied TCP and split DNS until procd starts it again; native CN TCP and UDP continue.
 
 ### Tailscale
 
@@ -307,17 +305,12 @@ and what traffic the worker records.
 
 ## Things to know
 
-- **TCP fails closed.** If a packet engine stops, its networks' TCP stops rather than going out
-  directly, until procd restarts it.
-- **Only TCP goes through the server.** QUIC is refused so browsers fall back to TCP. Other UDP
-  (calls, games) goes out directly.
-- **IPv6 follows `ipv6`.** With `full`, a name whose IPv4 is in the local region gets no IPv6
-  addresses outside it, so it still goes direct. With `direct`, AAAA queries are answered only with
-  addresses that go direct, and IPv6 that would go through the server is refused, so devices use
-  IPv4 for it.
-- **Only the networks' devices are proxied**, not the router itself.
-- **Hardware flow offloading** (a GL.iNet option) may bypass the tunnel; cpxy-router warns when
-  it is on and an instance routes networks.
+- **Overseas TCP fails closed.** Worker/proxy failure does not cause WAN fallback.
+- **UDP is direct**, except UDP/443 is rejected for both families.
+- **IPv6 follows the same kernel split as IPv4.** Overseas IPv6 TCP needs a proxy
+  with IPv6 destination connectivity; CN IPv6 uses the router's native IPv6 uplink.
+- **Only selected networks are captured**, not router-originated connections.
+- **Software/hardware flow offloading must be disabled** for kernel routing mode.
 
 ## Troubleshooting
 

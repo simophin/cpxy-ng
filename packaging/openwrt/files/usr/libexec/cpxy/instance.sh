@@ -125,7 +125,7 @@ cpxy_instance() {
 	if [ -z "$CPXY_ROUTER_SOCKS5" ]; then
 		CPXY_ROUTER_SOCKS5="$(_cpxy_connect_addr "$CPXY_SOCKS5_LISTEN")"
 		# The router's default endpoint is the sibling cpxy-client listener.
-		[ "$CPXY_ROUTER" != 1 ] || CPXY_SOCKS5=1
+		[ "$CPXY_ROUTER" != 1 ] || [ -z "$CPXY_NETWORKS" ] || CPXY_SOCKS5=1
 	fi
 	CPXY_PROXY="http://$(_cpxy_connect_addr "$CPXY_HTTP_LISTEN")"
 
@@ -227,7 +227,7 @@ _cpxy_validate_instance() {
 	if [ "$CPXY_CLIENT$CPXY_TSGW" != 00 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"
 	fi
-	if [ "$CPXY_ROUTER" = 1 ]; then
+	if [ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ]; then
 		[ "$CPXY_GEOIP" = 1 ] || _cpxy_invalid "$1: router_geoip must be 1; stop the old router before migration"
 		[ "$CPXY_ROUTER_IPV6" = full ] || _cpxy_invalid "$1: router_ipv6 must be full"
 		_cpxy_api_address "$CPXY_ROUTER_SOCKS5" || _cpxy_invalid "$1: router_socks5_proxy must be IPv4:port or [IPv6]:port"
@@ -253,10 +253,12 @@ _cpxy_validate_instance() {
 		_cpxy_claim tcp "$(_cpxy_port "$CPXY_ROUTER_API_LISTEN")" "$1 router_api_listen"
 	fi
 	if [ "$CPXY_ROUTER" = 1 ] && [ "$CPXY_ROUTER_DNS" = 1 ]; then
-		case "$CPXY_DNS_LISTEN" in
-		'[::]:'*) ;;
-		*) _cpxy_invalid "$1: dns_listen must bind [::]:port for IPv4 and IPv6 DNS" ;;
-		esac
+		if [ -n "$CPXY_NETWORKS" ]; then
+			case "$CPXY_DNS_LISTEN" in
+			'[::]:'*) ;;
+			*) _cpxy_invalid "$1: dns_listen must bind [::]:port for IPv4 and IPv6 DNS" ;;
+			esac
+		fi
 		case "$(_cpxy_port "$CPXY_DNS_LISTEN")" in
 		53) _cpxy_invalid "$1: dns_listen must not use port 53, dnsmasq's" ;;
 		esac

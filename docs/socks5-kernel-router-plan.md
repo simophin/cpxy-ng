@@ -60,3 +60,30 @@ hardware validation; software/hardware flow offload remains disabled for this mo
   implemented. Small real-kernel smoke checks pass for staging, reload and recovery
   from an interrupted IPv6 selector switch. OpenWrt 24.10 init/UCI and opkg
   install/remove fixtures pass. ShellCheck and APK metadata/install tests pass.
+
+## Validation results (2026-10-30)
+
+| Check | Result |
+|---|---|
+| Rust client / mobile-engine / router CLI / GeoIP tests | 60 / 55 / 4 / 5 passed |
+| Release musl builds | x86-64 and ARM64 router/client built successfully |
+| Real-kernel router namespace suite | 128 assertions passed with debug binaries and release musl binaries |
+| External SOCKS5 | Separate Python proxy, IPv6 endpoint, IPv4/IPv6 targets; cpxy server stopped |
+| DNS integration | Both-family UDP/TCP interception, direct Chinese UDP, overseas DNS upgraded to SOCKS5 TCP, AAAA retained |
+| Shared mobile TUN regression | 41 assertions passed after fixture update |
+| OpenWrt 24.10 init/UCI | Passed, including external-only and client-only instances |
+| OpenWrt 24.10 opkg lifecycle | Install/remove and unrelated configuration preservation passed |
+| OpenWrt 25.12 APK lifecycle | Install/upgrade/enablement/config preservation/remove passed |
+| APK metadata/offline installation | Architecture variants, hooks, signing and reproducibility passed |
+| ShellCheck / Rust formatting / diff whitespace | Passed |
+| Booted OpenWrt 24.10 / fw4 | Running; native/proxy paths, DNS, IPv6 interception and firewall reload passed so far |
+
+The namespace fixtures additionally cover forced IPv4/IPv6 proxy routes, malformed
+route batches, closed stdin under procd-style events, WAN loss/recovery, missing
+IPv4/IPv6 tables and TUNs, independent instances, worker/proxy failures, and recovery
+from an interrupted family switch. The DNS fixture now supports persistent TCP
+connections rather than closing after every answer.
+
+Physical hardware/vendor firmware, route memory/throughput and booted fw3 firmware
+are not validated for this revision. Firmware must support IPv6 DNS NAT redirection.
+No live router or public cpxy server has been modified.
