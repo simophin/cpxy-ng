@@ -20,7 +20,7 @@ Status: in progress. Branch: `feat/socks5-kernel-router`.
 ## Commit stages
 
 - [x] Inspect implementation and record this plan before code changes.
-- [ ] Implement no-auth SOCKS5 CONNECT (IPv4/IPv6/domain), bounded handshake,
+- [x] Implement no-auth SOCKS5 CONNECT (IPv4/IPv6/domain), bounded handshake,
   meaningful errors and destination preservation; validate against a local fixture.
 - [ ] Wire SOCKS5-only router CLI, proxy-only TUN TCP and split DNS routing without
   changing mobile/Tailscale defaults. Validate CLI, DNS transport and relay behavior.
@@ -45,3 +45,7 @@ hardware validation; software/hardware flow offload remains disabled for this mo
 
 - Initial inspection: existing kernel GeoIP mode and DNS racer are reusable;
   external SOCKS5 outbound and dual-family kernel policy are the main gaps.
+
+- SOCKS5 fixture tests pass (2 tests): IPv4/IPv6/domain targets, initial payload,
+  variable reply addresses, authentication refusal and CONNECT failures. Local
+  socket tests require elevated execution because sandbox socket binds are denied.
