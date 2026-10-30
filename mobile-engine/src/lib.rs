@@ -176,7 +176,7 @@ fn start_with_dns(
     let settings = Config::from_json(config_json)?.settings()?;
     start_inner(
         tun,
-        settings.server,
+        Backend::Cpxy(settings.server),
         settings.proxy_routes,
         settings.ipv6,
         settings.mtu,
@@ -220,7 +220,7 @@ pub struct RouterDns {
 /// from the TUN. No SOCKS listener is needed.
 pub fn start_router(
     tun: OwnedFd,
-    server: client::protocol_config::Config,
+    socks5_proxy: SocketAddr,
     proxy_routes: client::outbound::ProxyRoutes,
     ipv6: Ipv6Mode,
     mtu: u16,
@@ -244,7 +244,7 @@ pub fn start_router(
     });
     start_inner(
         tun,
-        server,
+        Backend::Socks5(socks5_proxy),
         proxy_routes,
         ipv6,
         mtu,
@@ -297,9 +297,14 @@ impl DnsService {
     }
 }
 
+enum Backend {
+    Cpxy(client::protocol_config::Config),
+    Socks5(SocketAddr),
+}
+
 fn start_inner(
     tun: OwnedFd,
-    server: client::protocol_config::Config,
+    server: Backend,
     proxy_routes: client::outbound::ProxyRoutes,
     ipv6: Ipv6Mode,
     mtu: u16,
@@ -317,7 +322,14 @@ fn start_inner(
         .as_ref()
         .map(|specs| {
             runtime
-                .block_on(dns::handler(&specs.split, &server))
+                .block_on(async {
+                    match &server {
+                        Backend::Cpxy(server) => dns::handler(&specs.split, server).await,
+                        Backend::Socks5(address) => {
+                            dns::router_handler(&specs.split, *address, &proxy_routes).await
+                        }
+                    }
+                })
                 .map(|handler| DnsService {
                     handler: Arc::new(handler),
                     intercept: specs.intercept,
@@ -339,7 +351,8 @@ fn start_inner(
         TunDevice::new(
             tun,
             mtu,
-            filter::Filter::new(ipv6, proxy_routes.clone()),
+            filter::Filter::new(ipv6, proxy_routes.clone())
+                .with_router(matches!(&server, Backend::Socks5(_))),
             traffic.clone(),
             device_eof.clone(),
             device_closed_tx,
@@ -347,7 +360,10 @@ fn start_inner(
     };
 
     let (events_tx, events_rx) = broadcast::channel(256);
-    let router = Arc::new(Router::new(server, proxy_routes, events_tx));
+    let router = Arc::new(match server {
+        Backend::Cpxy(server) => Router::new(server, proxy_routes, events_tx),
+        Backend::Socks5(address) => Router::socks5(address, events_tx),
+    });
     let (shutdown, shutdown_rx) = oneshot::channel();
     let connections = Arc::new(ConnectionLog::new(connection_log::CAPACITY));
     runtime.spawn(forward_events(events_rx, listener, connections.clone()));
@@ -772,7 +788,7 @@ mod tests {
         let spec = |s: &str| s.parse::<ServerSpec>().unwrap();
         let engine = start_router(
             tun.into(),
-            "http://:k@127.0.0.1:1".parse().unwrap(),
+            "127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
             Ipv6Mode::Full,
             DEFAULT_MTU,

@@ -22,7 +22,7 @@ Status: in progress. Branch: `feat/socks5-kernel-router`.
 - [x] Inspect implementation and record this plan before code changes.
 - [x] Implement no-auth SOCKS5 CONNECT (IPv4/IPv6/domain), bounded handshake,
   meaningful errors and destination preservation; validate against a local fixture.
-- [ ] Wire SOCKS5-only router CLI, proxy-only TUN TCP and split DNS routing without
+- [x] Wire SOCKS5-only router CLI, proxy-only TUN TCP and split DNS routing without
   changing mobile/Tailscale defaults. Validate CLI, DNS transport and relay behavior.
 - [ ] Extend exact route export with IPv6 private/CN coverage and forced-proxy cuts.
   Extend kernel routing/lifecycle and OpenWrt settings for both address families,
@@ -49,3 +49,8 @@ hardware validation; software/hardware flow offload remains disabled for this mo
 - SOCKS5 fixture tests pass (2 tests): IPv4/IPv6/domain targets, initial payload,
   variable reply addresses, authentication refusal and CONNECT failures. Local
   socket tests require elevated execution because sandbox socket binds are denied.
+
+- Router/DNS integration and IPv6 export tests pass: exact dataset boundaries and
+  50,000 IPv6 samples, forced exclusions, SOCKS5 DNS wire fixtures for both
+  address families, proxy-only TUN behavior and required CLI endpoint. Existing
+  mobile-engine tests continue to pass. Kernel/package validation is next.
