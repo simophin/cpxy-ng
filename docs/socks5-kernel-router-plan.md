@@ -1,6 +1,6 @@
 # SOCKS5 kernel router implementation
 
-Status: implementation and validation complete; publication pending. Branch: `feat/socks5-kernel-router`.
+Status: complete. PR: https://github.com/simophin/cpxy-ng/pull/158. Branch: `feat/socks5-kernel-router`.
 
 ## Agreed behavior
 
@@ -29,7 +29,7 @@ Status: implementation and validation complete; publication pending. Branch: `fe
   local cpxy-client or external SOCKS5, direct UDP and UDP/443 rejection.
 - [x] Update integration fixtures and operator docs; run Rust, shell and available
   namespace/package checks. Record unavailable checks and remaining hardware limits.
-- [ ] Review final diff, commit completed stages, push branch and open a PR.
+- [x] Review final diff, commit completed stages, push branch and open a PR.
 
 ## Validation and decisions
 
@@ -95,4 +95,4 @@ No live router or public cpxy server has been modified.
   under `/tmp/cpxy-socks-qemu-assets` were verified by the pinned fetcher.
 - Final review preserved client-only instances without routed networks and clarified
   migration, proxy/DNS configuration and traffic API scope. All implementation
-  stages are committed; push and PR publication are the remaining steps.
+  stages are committed and pushed. PR #158 is open against `main`.
