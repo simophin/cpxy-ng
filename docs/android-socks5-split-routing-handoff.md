@@ -368,7 +368,7 @@ and historical validation entries above.
   tests. Keep packet-routing and fail-closed lab coverage.
 - [x] Remove country labels, the Android country asset and its generation pipeline.
 - [x] Preserve gateway-only byte diagnostics and update the Rust gateway caller.
-- [ ] Build/test the simplified app, verify it in the emulator, and update PR #159.
+- [x] Build/test the simplified app, verify it in the emulator, and update PR #159.
 
 Removal-stage validation: 151 Rust tests pass (60 client, 6 geo-data, 38 ipstack,
 44 engine, 3 router), with the gateway caller also passing `cargo check`.
@@ -376,3 +376,13 @@ OpenWrt's multi-instance init/firewall dry-run passes using stub executables;
 its removed UI options are no longer emitted. Shell syntax checks and a synthetic
 IPv4/IPv6 GeoIP conversion check pass. The Android/native rebuild and emulator
 validation are in progress.
+
+Final removal validation: all 39 remaining Kotlin JVM tests pass; the app,
+instrumentation and probe APKs build with native libraries for all four ABIs.
+The regenerated Kotlin bindings have no traffic/history API, and the APK has no
+country asset. On API 36, both Cpxy/external SOCKS network tests pass after the
+removal, including DNS, restart, native bypass, forced-proxy failure and direct
+empty/large UDP with a dead proxy. Four focused UI checks pass: two-tab D-pad
+navigation, external profile creation, duplication and IME Next/Done. Earlier
+API 30 measurements and broader navigation limitations above remain historical;
+this follow-up was revalidated on API 36. Commit: `729b1b3`.
