@@ -1,7 +1,8 @@
 # Android SOCKS5 split routing: implementation handoff
 
-Date: 2026-10-31. Branch: `feat/socks5-kernel-router`.
-Status: design/handoff only; Android changes are not implemented by this document.
+Date: 2026-10-31. Implementation branch: `feat/android-socks5-split-routing`.
+Status: implemented and emulator-validated on API 30 and API 36.
+Physical-network validation and known UI test limitations are recorded below.
 Baseline: the SOCKS5 OpenWrt router implementation on this branch, PR #158.
 
 ## Objective and conversation decisions
@@ -167,18 +168,18 @@ silently force those platforms into Android's route installation mechanism.
 
 ## Suggested work sequence
 
-- [ ] Inspect current branch changes and applicable instructions; record a short
+- [x] Inspect current branch changes and applicable instructions; record a short
   implementation plan before edits. Do not overwrite unrelated user work.
-- [ ] Add a shared, testable IPv4/IPv6 route-plan interface, virtual DNS reservation,
+- [x] Add a shared, testable IPv4/IPv6 route-plan interface, virtual DNS reservation,
   forced-route subtraction, and conservative capture fallback.
-- [ ] Add backend/profile migration and validation; preserve IDs, import/export,
+- [x] Add backend/profile migration and validation; preserve IDs, import/export,
   selected profile and optional user-facing proxy settings.
-- [ ] Implement lifecycle-owned embedded cpxy SOCKS listener and external SOCKS mode.
-- [ ] Wire Android API 33+ exclusion and API 26-32 inclusion paths through UniFFI;
+- [x] Implement lifecycle-owned embedded cpxy SOCKS listener and external SOCKS mode.
+- [x] Wire Android API 33+ exclusion and API 26-32 inclusion paths through UniFFI;
   retain direct handling for any CN traffic captured by a conservative plan.
-- [ ] Reuse direct UDP and split DNS with the new backend; align TCP/853 and
+- [x] Reuse direct UDP and split DNS with the new backend; align TCP/853 and
   captured UDP/443 filtering without changing unrelated legacy consumers.
-- [ ] Add focused tests, build the APK and validate on emulator/device. Update this
+- [x] Add focused tests, build the APK and validate on emulator/device. Update this
   handoff/checklist with completed work, evidence and remaining limitations.
 
 Commit coherent stages on this branch and update its PR when instructed by the
@@ -204,8 +205,8 @@ any remote proxy host, or distributing/installing an APK on a user's device.
    Wi-Fi/mobile handover, IPv6 loss, background operation and always-on/lockdown
    behavior. Test route refresh after policy changes without transient foreign
    direct bypass. Capture the underlying interface to prove proxy/direct paths.
-7. Observability: native-bypass flows are absent from engine counters/history;
-   explain that scope. Existing app traffic/updates APIs must continue working.
+7. Observability: use external probes, packet captures and diagnostic logs. The
+   user has removed the traffic UI/history/counter APIs; preserve the updates API.
 
 Useful baseline commands (check `mobile/README.md` and CI for toolchain setup):
 
@@ -227,3 +228,165 @@ that the Android changes described here have been implemented or tested.
 - [Android VPN guide](https://developer.android.com/develop/connectivity/vpn):
   VPN lifecycle, outbound socket handling, per-app behavior and the single active
   VPN service per user/profile restriction.
+
+## Implementation progress
+
+2026-10-31: inspected the handoff and baseline router PR #158. No repository
+AGENTS.md applies. Untracked `client/android-app/` and `blocklist-data/` are
+pre-existing and excluded from this work. Implementation is on
+`feat/android-socks5-split-routing`, stacked on the router branch.
+
+Plan: first compile shared dual-family route plans with a reserved virtual DNS
+host and bounded conservative fallback; next add compatible backend profiles and
+an engine-owned embedded SOCKS listener; then install Android routes, test the
+Rust/Kotlin policy and lifecycle, and exercise the APK in an emulator. Record
+measured route counts/setup timings and distinguish emulator evidence from
+physical-network scenarios that cannot be reproduced here. Test server credentials
+are session-only and must not enter commits or artifacts.
+
+Engine stage: shared UniFFI route plans reserve `10.233.0.2/32`, subtract forced
+routes in both families, compile the IPv6 complement, and bound each family's
+route count within a total 512-entry budget. The bounded plan only captures extra
+direct traffic; its reason is returned to Android. Example forced-route test:
+API 33 plan has 2 includes + 432 excludes; legacy plan has 408 includes.
+
+Android's explicit `android_socks` config starts an ephemeral, loopback-only pure
+ProtocolOutbound SOCKS backend before initializing split DNS. External host:port
+SOCKS endpoints are validated/resolved outside the VPN. Both use split SOCKS
+routing for captured CN/private traffic; OpenWrt remains unconditional SOCKS and
+legacy mobile/gateway filtering/DNS stay unchanged. The embedded listener is
+monitored and its runtime owns listener/connection cleanup, including startup
+failure. TCP/853 is allowed in the new mode; captured UDP/443 stays rejected.
+
+Validation: `cargo test --locked --offline -p client -p mobile-engine -p geoip-data`
+passed (60 client, 6 geo-data, 58 engine, 4 router tests). Tests require local socket
+access outside the execution sandbox. Android APK/Kotlin/emulator validation is
+in progress. Host disk space required moving this repository's disposable Rust
+incremental cache into `/tmp`; Android build outputs are also under `/tmp`.
+
+App stage: profile type/endpoint editing, compatible persistence/default decoding,
+and engine JSON are wired. Native destination bypass uses API 33 exclusions or
+API 26–32 positive complement routes. Both paths keep IPv6 Off fully captured.
+Installation failures retry full capture and log a reason; setup logs report
+route counts and elapsed time. Profile switches establish replacement capture
+before shutting down the previous engine. Traffic UI explains native bypass scope.
+
+UDP review found empty datagrams were treated as EOF and oversized replies could
+be emitted as multiple datagrams. The pinned ipstack copy is patched locally with
+a datagram API (source revision/license and exact changes recorded in
+`vendor/ipstack/CPXY-PATCH.md`). Empty datagrams now relay correctly; oversize
+replies are dropped whole because IP fragmentation is unsupported. Packet-stack
+unit tests cover empty payloads, closure, IPv4/IPv6 MTU limits and idle expiry.
+
+Validation so far: all 51 Kotlin JVM tests passed; debug APK and instrumentation
+APK built successfully for all four supported ABIs. Rust unit suites passed with
+the patch (60 client + 6 geo-data + 38 ipstack + 58 engine + 4 router). Upstream
+ipstack documentation examples require omitted unrelated dev dependencies, so
+its doctests are disabled; existing project doctests remain enabled. Emulator
+network tests are in progress on API 36; an isolated API 30 image is installed.
+
+Emulator stage: both API 30 (positive routes) and API 36 (excludeRoute) passed
+separate-application-UID network tests against the session-supplied cpxy host and
+a loopback external SOCKS fixture. The probe waits until its own UID sees the VPN.
+Coverage: overseas HTTP through cpxy and external SOCKS; virtual DNS; ordinary
+overseas UDP DNS; counters/history; repeated connect/disconnect; native private
+HTTP absent from engine history; captured UDP/443 ICMP rejection; forced private
+TCP failure through an unavailable SOCKS endpoint; empty and 1,400-byte direct UDP
+with that same endpoint unavailable. API 30 uplink capture confirms proxy-host
+TCP, external SOCKS TCP, direct DNS, and intact 0/1,400-byte UDP request/reply pairs.
+The API 36 console capture did not capture its active Wi-Fi datapath, so it is not
+used as packet-capture evidence.
+
+Measured bounded plans installed without full-capture fallback: API 30 had
+407–408 included routes, roughly 96–408 ms setup; API 36 had 2 included routes
+and 346–491 actual exclusions (settings dependent), roughly 74–254 ms setup.
+Android rejects loopback exclusions; these are omitted because its local routing
+table handles loopback before VPN policy. Loopback cannot be forced through VPN
+with Android destination routes. Full capture remains available if a platform
+rejects a plan; the reason and actual installed route counts are logged.
+
+Emulator tests exposed and fixed a service restart race: terminal state is now
+published after destruction, and stale stop commands cannot stop a newer start.
+The probe APK is a test fixture only; it is not bundled in the VPN application.
+Reproduction is documented in `mobile/README.md`, with loopback fixtures in
+`mobile/vpnProbe/fixture.py`. Empty UDP tests use an explicit destination because
+[Android IoBridge's connected-socket fast path](https://android.googlesource.com/platform/libcore/+/master/luni/src/main/java/libcore/io/IoBridge.java)
+suppresses a zero-byte connected send. A Rust packet-engine regression also
+verifies empty/large IPv4 and IPv6 UDP with an unavailable SOCKS endpoint.
+
+Remaining field validation: physical Wi-Fi/mobile handover, underlying IPv6 loss,
+background/always-on/lockdown behavior and vendor-specific Binder limits. DoT/DoH,
+DNS cache/search/AAAA and shared legacy consumers retain their existing regression
+coverage; the emulator smoke test uses plain split DNS. Native bypass does not
+appear in counters/history and permits excluded CN UDP/443. Large replies beyond
+TUN MTU are dropped whole rather than fragmented. No deployed router/proxy host
+or physical user device was modified.
+
+Final route-limit validation: exact-first startup was measured on both platforms.
+API 36 rejected 15,396 exclusions with a 1,462,664-byte Binder parcel; API 30
+rejected 45,128 inclusions with a 4,439,852-byte parcel. Both reported
+`TransactionTooLargeException` and successfully retried the bounded plan. The
+initial attempt added roughly 6–8 s on API 36 and 2 s on API 30. Binder rejections
+are cached per IPv6/forced-route policy for the current process; reconnects use
+the already measured bounded plan. A changed policy or new process can attempt
+exact coverage again. Networks with smaller datasets/plans can install exact
+native bypass when it fits. The full-capture fallback was not needed in the
+passing runs.
+
+Final validation: all 51 Kotlin JVM tests and the debug app/test/probe APK builds
+pass. Rust suites cover 60 client, 6 geo-data, 38 ipstack, 60 engine and 4 router
+tests, plus existing project doctests. Both API 30 and API 36 passed both complete
+network tests after exact-plan failure/fallback. The external-profile create/save,
+duplicate, long-DNS editing and keyboard Next/Done UI tests pass. The connection
+type selector now precedes Name, preserving Name -> Server -> DNS IME navigation.
+
+The broader existing navigation suite is not fully green: API 36 still times out
+in two system-Back checks (popup dismissal and app-picker return); API 30 had one
+D-pad initial-focus assertion failure. Keyboard/D-pad tests now explicitly leave
+Android touch mode. These remaining navigation failures are not claimed as
+passed and need follow-up on phone/TV input behavior; the new backend editor and
+VPN network checks pass.
+
+Publication: [PR #159](https://github.com/simophin/cpxy-ng/pull/159), stacked on
+router PR #158. Final cached-policy measurements were 113–169 ms; all four
+network tests passed after the rejection-cache change. Temporary test credentials
+are removed from both emulators and the host after validation. Temporary build
+cache links are removed so future builds do not depend on `/tmp` surviving a
+reboot; existing release executables retain their original paths.
+
+## Follow-up: remove traffic UI and collection
+
+User decision: remove the traffic UI because native kernel routing bypasses the
+engine's observation. This supersedes the earlier history/counter UI requirements
+and historical validation entries above.
+
+- [x] Remove Android Traffic navigation, byte display/polling, connection DTOs and
+  UniFFI traffic/history methods.
+- [x] Remove Rust connection-history storage, outbound event callbacks and SNI
+  collection. TCP forwarding keeps its routing policy and FIN retry behavior.
+- [x] Remove the router's embedded browser/API, its OpenWrt settings and its UI/API
+  tests. Keep packet-routing and fail-closed lab coverage.
+- [x] Remove country labels, the Android country asset and its generation pipeline.
+- [x] Preserve gateway-only byte diagnostics and update the Rust gateway caller.
+- [x] Build/test the simplified app, verify it in the emulator, and update PR #159.
+
+Removal-stage validation: 151 Rust tests pass (60 client, 6 geo-data, 38 ipstack,
+44 engine, 3 router), with the gateway caller also passing `cargo check`.
+OpenWrt's multi-instance init/firewall dry-run passes using stub executables;
+its removed UI options are no longer emitted. Shell syntax checks and a synthetic
+IPv4/IPv6 GeoIP conversion check pass. The Android/native rebuild and emulator
+validation are in progress.
+
+Final removal validation: all 39 remaining Kotlin JVM tests pass; the app,
+instrumentation and probe APKs build with native libraries for all four ABIs.
+The regenerated Kotlin bindings have no traffic/history API, and the APK has no
+country asset. On API 36, both Cpxy/external SOCKS network tests pass after the
+removal, including DNS, restart, native bypass, forced-proxy failure and direct
+empty/large UDP with a dead proxy. Four focused UI checks pass: two-tab D-pad
+navigation, external profile creation, duplication and IME Next/Done. Earlier
+API 30 measurements and broader navigation limitations above remain historical;
+this follow-up was revalidated on API 36. Commit: `729b1b3`.
+
+CI follow-up for PR #159: the mobile-engine workflow still invoked the deleted
+`mobile-engine/test/traffic-ui.mjs`. Remove that browser-test step and its now
+unused Node setup; retain engine unit tests and both real-TUN routing labs.

@@ -10,16 +10,6 @@
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
     use anyhow::Context;
-    use mobile_engine::{EventListener, OutboundEvent};
-    use std::sync::Arc;
-
-    struct LogListener;
-    impl EventListener for LogListener {
-        fn on_outbound_event(&self, event: OutboundEvent) {
-            println!("event: {}", serde_json::to_string(&event).unwrap());
-        }
-    }
-
     tracing_subscriber::fmt::init();
     let mut args = std::env::args().skip(1);
     let (Some(name), Some(config)) = (args.next(), args.next()) else {
@@ -28,7 +18,7 @@ fn main() -> anyhow::Result<()> {
     let config = std::fs::read_to_string(&config).with_context(|| format!("Reading {config}"))?;
     let tun = mobile_engine::linux::create_tun(&name)?;
 
-    let engine = mobile_engine::start(tun, &config, Arc::new(LogListener))?;
+    let engine = mobile_engine::start(tun, &config)?;
     println!("running on {name}");
 
     tokio::runtime::Builder::new_current_thread()

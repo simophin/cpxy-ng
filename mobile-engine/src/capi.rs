@@ -8,12 +8,11 @@
 //! concurrently with any other call on the same handle, and nothing may use a handle after
 //! [`cpxy_engine_free`].
 
-use crate::{EngineHandle, EventListener, OutboundEvent};
+use crate::EngineHandle;
 use std::ffi::{CStr, c_char, c_int};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::null_mut;
-use std::sync::Arc;
 
 /// The query is malformed, an argument is invalid, or resolving failed.
 pub const CPXY_ENGINE_ERR_FAILED: i64 = -1;
@@ -24,13 +23,6 @@ pub const CPXY_ENGINE_ERR_TOO_SMALL: i64 = -3;
 
 /// An engine started by [`cpxy_engine_start`].
 pub struct CpxyEngine(EngineHandle);
-
-/// Connections are logged by the outbounds themselves; the gateway has no other use for them.
-struct Ignore;
-
-impl EventListener for Ignore {
-    fn on_outbound_event(&self, _: OutboundEvent) {}
-}
 
 /// Starts the engine in gateway mode on `fd`, a descriptor that moves one IP packet per read and
 /// write (a `SOCK_SEQPACKET` or `SOCK_DGRAM` socket, or a TUN). `config_json` is the apps' engine
@@ -61,7 +53,7 @@ pub unsafe extern "C" fn cpxy_engine_start(
         anyhow::ensure!(!config_json.is_null(), "No config");
         // SAFETY: the caller passes a NUL-terminated string.
         let config = unsafe { CStr::from_ptr(config_json) }.to_str()?;
-        crate::start_gateway(tun, config, Arc::new(Ignore))
+        crate::start_gateway(tun, config)
     }));
     let error = match result {
         Ok(Ok(handle)) => return Box::into_raw(Box::new(CpxyEngine(handle))),

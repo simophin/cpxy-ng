@@ -94,6 +94,25 @@ impl Listeners {
     }
 }
 
+/// A separate ephemeral loopback backend; deliberately bypasses ProxyOutbound and the split
+/// router so it cannot recurse through itself or reclassify an explicitly proxied destination.
+pub(crate) async fn embedded(
+    server: client::protocol_config::Config,
+) -> anyhow::Result<(
+    std::net::SocketAddr,
+    tokio::task::JoinHandle<anyhow::Result<()>>,
+)> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .context("Cannot bind embedded cpxy SOCKS backend")?;
+    let address = listener.local_addr()?;
+    let task = tokio::spawn(serve_listener::<SocksProxyHandshaker<_>, _>(
+        listener,
+        Arc::new(client::outbound::ProtocolOutbound(server)),
+    ));
+    Ok((address, task))
+}
+
 // Reap completed connections as well as accepting new ones, and cancel active connections
 // when this listener is stopped. The shared client's listener does not reap its JoinSet.
 async fn serve_listener<HS, O>(listener: TcpListener, outbound: Arc<O>) -> anyhow::Result<()>

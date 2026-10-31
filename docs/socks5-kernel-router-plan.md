@@ -94,5 +94,5 @@ No live router or public cpxy server has been modified.
   Local QEMU artifacts are under `/tmp/cpxy-socks-qemu-results`; firmware assets
   under `/tmp/cpxy-socks-qemu-assets` were verified by the pinned fetcher.
 - Final review preserved client-only instances without routed networks and clarified
-  migration, proxy/DNS configuration and traffic API scope. All implementation
+  migration, proxy/DNS configuration and diagnostic scope. All implementation
   stages are committed and pushed. PR #158 is open against `main`.

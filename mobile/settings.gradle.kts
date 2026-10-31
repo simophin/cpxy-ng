@@ -23,3 +23,5 @@ dependencyResolutionManagement {
 rootProject.name = "CpxyVpn"
 include(":androidApp")
 include(":shared")
+
+include(":vpnProbe") // Separate-UID emulator integration fixture.

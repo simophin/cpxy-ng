@@ -37,7 +37,7 @@ pub enum Verdict {
 }
 
 pub struct Filter {
-    router: bool,
+    tcp_dot_allowed: bool,
     ipv6: Ipv6Mode,
     /// Where TCP goes.
     proxy_routes: ProxyRoutes,
@@ -48,21 +48,21 @@ pub struct Filter {
 impl Filter {
     pub fn new(ipv6: Ipv6Mode, proxy_routes: ProxyRoutes) -> Self {
         Self {
-            router: false,
+            tcp_dot_allowed: false,
             ipv6,
             proxy_routes,
             has_route,
         }
     }
 
-    pub fn with_router(mut self, router: bool) -> Self {
-        self.router = router;
+    pub fn with_tcp_dot_allowed(mut self, tcp_dot_allowed: bool) -> Self {
+        self.tcp_dot_allowed = tcp_dot_allowed;
         self
     }
 
     pub fn classify(&self, packet: &[u8]) -> Verdict {
         match packet.first().map(|b| b >> 4) {
-            Some(4) => classify_v4_with_policy(packet, self.router),
+            Some(4) => classify_v4_with_policy(packet, self.tcp_dot_allowed),
             Some(6) => self.classify_v6(packet),
             _ => Verdict::Drop,
         }
@@ -109,7 +109,7 @@ impl Filter {
         let dst_port = u16::from_be_bytes([packet[42], packet[43]]);
         match (next_header, dst_port) {
             (PROTO_UDP, QUIC_PORT) | (PROTO_TCP, DOT_PORT)
-                if dst_port == QUIC_PORT || !self.router =>
+                if dst_port == QUIC_PORT || !self.tcp_dot_allowed =>
             {
                 let quote = &packet[..packet.len().min(ICMPV6_MAX_QUOTE)];
                 Verdict::Reply(icmp_error_v6(
@@ -140,7 +140,7 @@ fn has_route(dst: Ipv6Addr) -> bool {
         .is_ok()
 }
 
-fn classify_v4_with_policy(packet: &[u8], router: bool) -> Verdict {
+fn classify_v4_with_policy(packet: &[u8], tcp_dot_allowed: bool) -> Verdict {
     let header_len = usize::from(packet[0] & 0x0f) * 4;
     if header_len < 20 || packet.len() < header_len {
         // Malformed: let the IP stack discard it.
@@ -163,7 +163,9 @@ fn classify_v4_with_policy(packet: &[u8], router: bool) -> Verdict {
 
     let dst_port = u16::from_be_bytes([packet[header_len + 2], packet[header_len + 3]]);
     match (protocol, dst_port) {
-        (PROTO_UDP, QUIC_PORT) | (PROTO_TCP, DOT_PORT) if dst_port == QUIC_PORT || !router => {
+        (PROTO_UDP, QUIC_PORT) | (PROTO_TCP, DOT_PORT)
+            if dst_port == QUIC_PORT || !tcp_dot_allowed =>
+        {
             // RFC 792: the error quotes the IP header and the first 8 bytes of its payload.
             let quote = &packet[..packet.len().min(header_len + 8)];
             Verdict::Reply(port_unreachable_v4(dst, src, quote))
@@ -283,7 +285,7 @@ mod tests {
 
     #[test]
     fn router_allows_dot_but_still_refuses_quic() {
-        let filter = Filter::new(Ipv6Mode::Full, ProxyRoutes::default()).with_router(true);
+        let filter = Filter::new(Ipv6Mode::Full, ProxyRoutes::default()).with_tcp_dot_allowed(true);
         assert_eq!(filter.classify(&tcp_syn_v6(REMOTE_V6, 853)), Verdict::Pass);
     }
 

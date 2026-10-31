@@ -102,12 +102,8 @@ mod linux {
         // The engine runs on its own runtime, and blocks while starting and stopping: both happen
         // here, outside ours.
         let engine = Arc::new(
-            mobile_engine::start_gateway(
-                engine_fd,
-                &serde_json::to_string(&s.engine)?,
-                Arc::new(()),
-            )
-            .context("starting the packet engine")?,
+            mobile_engine::start_gateway(engine_fd, &serde_json::to_string(&s.engine)?)
+                .context("starting the packet engine")?,
         );
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .thread_name("cpxy-tsgw")

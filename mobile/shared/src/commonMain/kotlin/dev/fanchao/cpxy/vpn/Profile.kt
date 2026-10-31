@@ -10,14 +10,20 @@ data class Profile(
     val id: String,
     val name: String,
     /** The cpxy server URL with its key, e.g. `https://:key@example.com`. */
-    val server: String,
+    val server: String = "",
     /** DNS servers whose answer is used when all its addresses are in CN. */
     val dnsUpstream: List<String>,
     /** DNS servers whose answer is used otherwise. */
     val dnsAlternative: List<String>,
     /** Which IPv6 to relay, depending on whether [server] reaches IPv6. */
     val ipv6: Ipv6Mode = Ipv6Mode.Full,
+    val backend: ProfileBackend = ProfileBackend.Cpxy,
+    /** External no-auth SOCKS endpoint, host:port; IPv6 hosts use brackets. */
+    val socks5: String = "",
 )
+
+@Serializable
+enum class ProfileBackend { Cpxy, Socks5 }
 
 /** Which IPv6 the engine relays, mirroring `client/src/ipv6.rs`. */
 @Serializable
@@ -50,6 +56,8 @@ data class EngineConfig(
     @SerialName("http_proxy_port") val httpProxyPort: Int? = null,
     @SerialName("socks_proxy_port") val socksProxyPort: Int? = null,
     val ipv6: Ipv6Mode,
+    val socks5: String? = null,
+    @SerialName("android_socks") val androidSocks: Boolean = false,
 )
 
 /** The TUN parameters the platform sets up, mirroring `mobile-engine/src/config.rs`. */
@@ -68,9 +76,11 @@ object TunParameters {
 
 private val engineJson = Json { explicitNulls = false }
 
-fun Profile.engineConfigJson(settings: AppSettings = AppSettings()): String = engineJson.encodeToString(
+fun Profile.engineConfigJson(settings: AppSettings = AppSettings(), androidSocks: Boolean = false): String = engineJson.encodeToString(
     EngineConfig(
-        server = server.trim(),
+        server = if (backend == ProfileBackend.Cpxy) server.trim() else "",
+        socks5 = socks5.trim().takeIf { backend == ProfileBackend.Socks5 },
+        androidSocks = androidSocks,
         proxyRoutes = settings.proxyRoutes,
         dnsSearchDomains = settings.dnsSearchDomains,
         dnsUpstream = dnsUpstream,
@@ -88,7 +98,10 @@ fun Profile.engineConfigJson(settings: AppSettings = AppSettings()): String = en
  */
 fun Profile.validationErrors(): Map<ProfileField, String> = buildMap {
     if (name.isBlank()) put(ProfileField.Name, "Name must not be blank")
-    if (server.isBlank()) put(ProfileField.Server, "Server must not be blank")
+    if (backend == ProfileBackend.Cpxy && server.isBlank()) put(ProfileField.Server, "Server must not be blank")
+    if (backend == ProfileBackend.Socks5 && !validSocksEndpoint(socks5)) {
+        put(ProfileField.Server, "Use host:port or [IPv6]:port, without authentication or TLS")
+    }
     if (dnsUpstream.isEmpty()) put(ProfileField.DnsUpstream, "At least one server is required")
     if (dnsAlternative.isEmpty()) put(ProfileField.DnsAlternative, "At least one server is required")
 }
@@ -98,3 +111,16 @@ enum class ProfileField { Name, Server, DnsUpstream, DnsAlternative }
 /** Splits a text field with one DNS server per line. */
 fun parseServerList(text: String): List<String> =
     text.lines().map(String::trim).filter(String::isNotEmpty)
+
+/** Syntax validation only. The engine resolves the host outside the VPN at startup. */
+fun validSocksEndpoint(value: String): Boolean {
+    if (value.isBlank() || value.any { it.isWhitespace() || it in "/@?#" }) return false
+    val host = value.substringBeforeLast(':', "")
+    val port = value.substringAfterLast(':', "").toIntOrNull() ?: return false
+    if (port !in 1..65535 || host.isBlank()) return false
+    return if (host.startsWith("[")) {
+        host.endsWith("]") && host.length > 3 && host.substring(1, host.length - 1).all { it.isDigit() || it.lowercaseChar() in 'a'..'f' || it == ':' || it == '.' } && ':' in host
+    } else {
+        host.all { it.isLetterOrDigit() || it == '.' || it == '-' } && host.any { it.isLetterOrDigit() }
+    }
+}

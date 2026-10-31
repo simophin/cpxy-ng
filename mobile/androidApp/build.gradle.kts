@@ -233,11 +233,6 @@ android {
         compose = true
     }
 
-    androidResources {
-        // The country data is memory-mapped, which needs it stored uncompressed.
-        noCompress += "dat"
-    }
-
     packaging {
         jniLibs {
             // JNA ships these; the engine is not built for them.

@@ -152,14 +152,9 @@ SOCKS_PID=$!
 kernel_up cpxy0 100 9100 lan0r
 check "policy routing installs" in_router ip rule show
 # ip netns exec execs, so $! is the native worker itself.
-bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun cpxy0 --api-listen 127.0.0.1:3010 >"$WORK/tun.log" 2>&1
+bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun cpxy0 >"$WORK/tun.log" 2>&1
 TUN_PID=$!
 sleep 2
-
-check "offline traffic page is served" in_router curl -fsS --max-time 3 --noproxy '*' http://127.0.0.1:3010/
-check_not "occupied API port prevents startup" in_router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun api-conflict --api-listen 127.0.0.1:3010
-check_not "API bind failure creates no TUN device" in_router ip link show api-conflict
-in_router curl -fsS --max-time 3 --noproxy '*' http://127.0.0.1:3010/api/traffic >"$WORK/api-start.json"
 
 echo "--- running"
 if [ -n "${CPXY_LAB_DEBUG:-}" ]; then
@@ -169,18 +164,6 @@ mark; check "LAN reaches the web server through the proxy" fetch
 got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "request came through cpxy, not the router WAN (web server saw: $got)"
 else fail "request did not go through the proxy (web server saw: '${got}')"; fi
-# The successful proxied TCP appears in the same engine history exposed to Android.
-sleep 1
-check "traffic API reports real engine connections and byte totals" in_router python3 -c '
-import json, urllib.request
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-def get(path):
-    return json.load(opener.open("http://127.0.0.1:3010/api/" + path, timeout=3))
-traffic, page = get("traffic"), get("connections")
-assert traffic["running"] and traffic["sent"] > 0 and traffic["received"] > 0, traffic
-assert traffic["session"] == page["session"]
-assert any(r["event"]["ip"] == "93.184.216.34" and r["event"]["outbound"] == "proxy" and r["event"]["error"] is None for r in page["records"]), page
-'
 # A reload runs cpxy_net_up again while native worker keeps running; it must stay attached to cpxy0
 kernel_up cpxy0 100 9100 lan0r
 mark; check "reload: LAN still reaches the web server through the proxy" fetch
@@ -264,18 +247,10 @@ mark; check_not "native worker down: LAN traffic is refused" fetch
 expect_not_direct "native worker down: nothing leaked via the WAN"
 
 # The persistent TUN survives worker exit and can be attached again without redoing routes.
-check_not "worker exit closes the traffic listener" in_router curl -fsS --max-time 2 --noproxy '*' http://127.0.0.1:3010/api/traffic
 check "worker exit preserves the TUN device" in_router ip link show cpxy0
-bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun cpxy0 --api-listen 127.0.0.1:3010 >>"$WORK/tun.log" 2>&1
+bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun cpxy0 >>"$WORK/tun.log" 2>&1
 TUN_PID=$!
 sleep 1
-check "worker restart changes traffic API session" in_router python3 -c '
-import json, sys, urllib.request
-old = json.load(open(sys.argv[1]))
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-new = json.load(opener.open("http://127.0.0.1:3010/api/traffic", timeout=3))
-assert old["session"] != new["session"]
-' "$WORK/api-start.json"
 mark; check "worker restart restores proxied TCP" fetch
 expect_not_direct "worker restart still uses cpxy"
 

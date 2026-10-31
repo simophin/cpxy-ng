@@ -21,7 +21,15 @@ pub const DEFAULT_MTU: u16 = 1500;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// The cpxy server URL with its key, e.g. `https://:key@example.com`.
+    #[serde(default)]
     pub server: String,
+    /// Plain no-auth SOCKS endpoint, as host:port (IPv6 bracketed).
+    #[serde(default)]
+    pub socks5: Option<String>,
+    /// Android split routing uses SOCKS for both cpxy and external profiles. Other consumers
+    /// keep their existing cpxy/DNS/filter behavior unless they opt in explicitly.
+    #[serde(default)]
+    pub android_socks: bool,
     /// CIDRs forced through the proxy before automatic direct routing.
     #[serde(default)]
     pub proxy_routes: Vec<String>,
@@ -49,7 +57,9 @@ pub struct Config {
 
 /// A config that has been checked and parsed.
 pub struct Settings {
-    pub server: ServerConfig,
+    pub server: Option<ServerConfig>,
+    pub socks5: Option<std::net::SocketAddr>,
+    pub android_socks: bool,
     pub proxy_routes: client::outbound::ProxyRoutes,
     pub dns_upstream: Vec<ServerSpec>,
     pub dns_alternative: Vec<ServerSpec>,
@@ -67,7 +77,37 @@ impl Config {
     }
 
     pub fn settings(&self) -> anyhow::Result<Settings> {
-        let server = self.server.parse().context("Invalid server URL")?;
+        let (server, socks5) = if let Some(endpoint) = &self.socks5 {
+            ensure!(
+                self.android_socks,
+                "External SOCKS requires Android SOCKS mode"
+            );
+            ensure!(
+                self.server.is_empty(),
+                "Choose cpxy or external SOCKS, not both"
+            );
+            ensure!(
+                !endpoint.contains(['/', '@', '?', '#'])
+                    && !endpoint.chars().any(char::is_whitespace),
+                "SOCKS endpoint must be host:port without authentication or TLS"
+            );
+            use std::net::ToSocketAddrs;
+            let address = endpoint
+                .to_socket_addrs()
+                .context("Invalid SOCKS endpoint; expected host:port")?
+                .next()
+                .context("SOCKS endpoint has no addresses")?;
+            ensure!(
+                address.port() != 0,
+                "SOCKS port must be between 1 and 65535"
+            );
+            (None, Some(address))
+        } else {
+            (
+                Some(self.server.parse().context("Invalid server URL")?),
+                None,
+            )
+        };
         let parse_specs = |name: &str, specs: &[String]| -> anyhow::Result<Vec<ServerSpec>> {
             ensure!(
                 !specs.is_empty(),
@@ -94,6 +134,8 @@ impl Config {
 
         Ok(Settings {
             server,
+            socks5,
+            android_socks: self.android_socks,
             proxy_routes: client::outbound::ProxyRoutes::parse(&self.proxy_routes)?,
             dns_upstream: parse_specs("upstream", &self.dns_upstream)?,
             dns_alternative: parse_specs("alternative", &self.dns_alternative)?,
@@ -115,6 +157,29 @@ impl Config {
 mod tests {
     use super::*;
     use client::dns_split::spec::{Endpoint, Via};
+
+    #[test]
+    fn external_socks_needs_no_cpxy_credentials_and_rejects_unsupported_forms() {
+        let base = r#"{"android_socks":true,"socks5":"127.0.0.1:1080","dns_upstream":["223.5.5.5"],"dns_alternative":["8.8.8.8"]}"#;
+        let mut config = Config::from_json(base).unwrap();
+        let settings = config.settings().unwrap();
+        assert!(settings.server.is_none());
+        assert_eq!(settings.socks5.unwrap().port(), 1080);
+        for endpoint in [
+            "https://127.0.0.1:1080",
+            "u:p@127.0.0.1:1080",
+            "127.0.0.1:0",
+            "127.0.0.1",
+            "127.0.0.1:65536",
+        ] {
+            config.socks5 = Some(endpoint.into());
+            assert!(config.settings().is_err(), "{endpoint}");
+        }
+        config.socks5 = Some("[::1]:1080".into());
+        assert!(config.settings().is_ok());
+        config.android_socks = false;
+        assert!(config.settings().is_err());
+    }
 
     #[test]
     fn validates_search_domains_and_defaults_to_empty() {
@@ -148,9 +213,9 @@ mod tests {
         )
         .unwrap();
         let settings = config.settings().unwrap();
-        assert_eq!(settings.server.host, "proxy.example.com");
-        assert_eq!(settings.server.port, 443);
-        assert!(settings.server.tls);
+        assert_eq!(settings.server.as_ref().unwrap().host, "proxy.example.com");
+        assert_eq!(settings.server.as_ref().unwrap().port, 443);
+        assert!(settings.server.as_ref().unwrap().tls);
         assert_eq!(settings.dns_upstream.len(), 2);
         assert!(matches!(
             settings.dns_alternative[0].endpoint,
