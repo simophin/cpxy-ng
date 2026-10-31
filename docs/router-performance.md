@@ -49,9 +49,9 @@ the change. This is a regression check, not a deployed-router benchmark.
 For a useful router benchmark, compare direct and proxied TCP, warm and cold DNS,
 and warm and cold proxy TLS. Record connection setup and application first-byte
 times separately, along with CPU usage and packet drops during concurrent bulk
-traffic. The traffic API's `delay_millis` measures outbound connection setup;
-it excludes DNS before the connection and does not measure application first-byte
-time. SNI reporting waits independently and does not delay forwarding.
+traffic. Measure connection setup and first-byte time with external probes and
+packet captures; the engine no longer retains connection history or collects SNI
+for a traffic API.
 
 Run `cargo test --locked -p server -p client` for the transport checks, and
 `cargo test --locked -p mobile-engine` plus the OpenWrt routing lab on Linux for

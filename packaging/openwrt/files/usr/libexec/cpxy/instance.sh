@@ -48,7 +48,7 @@ _cpxy_own() {
 _cpxy_port() { echo "${1##*:}"; }
 
 # API listeners accept numeric IPv4 or bracketed IPv6 addresses, just like Rust SocketAddr.
-_cpxy_api_address() {
+_cpxy_socket_address() {
 	local host="${1%:*}" port="${1##*:}"
 	_cpxy_uint "$port" 1 65535 || return 1
 	case "$host" in
@@ -146,8 +146,6 @@ cpxy_instance() {
 	fi
 	cpxy_get CPXY_DNS_LOCAL_SERVER "$name" dns_local_server 127.0.0.1:53
 
-	cpxy_get_bool CPXY_ROUTER_API "$name" router_api 0
-	_cpxy_own CPXY_ROUTER_API_LISTEN "$name" router_api_listen "127.0.0.1:$((3010 + i))"
 	cpxy_get_bool CPXY_ROUTER_DNS "$name" router_dns 1
 	_cpxy_own CPXY_TUN "$name" tun "cpxy$i"
 	_cpxy_own CPXY_TABLE "$name" routing_table "$((100 + i))"
@@ -230,7 +228,7 @@ _cpxy_validate_instance() {
 	if [ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ]; then
 		[ "$CPXY_GEOIP" = 1 ] || _cpxy_invalid "$1: router_geoip must be 1; stop the old router before migration"
 		[ "$CPXY_ROUTER_IPV6" = full ] || _cpxy_invalid "$1: router_ipv6 must be full"
-		_cpxy_api_address "$CPXY_ROUTER_SOCKS5" || _cpxy_invalid "$1: router_socks5_proxy must be IPv4:port or [IPv6]:port"
+		_cpxy_socket_address "$CPXY_ROUTER_SOCKS5" || _cpxy_invalid "$1: router_socks5_proxy must be IPv4:port or [IPv6]:port"
 		config_get entry "$1" router_socks5_proxy
 		[ -n "$entry" ] || config_get entry defaults router_socks5_proxy
 		[ -n "$entry" ] || [ "$CPXY_CLIENT" = 1 ] || _cpxy_invalid "$1: enable client or set router_socks5_proxy"
@@ -247,10 +245,6 @@ _cpxy_validate_instance() {
 				_cpxy_invalid "$1: DNS server '$entry' goes through the cpxy server, which carries tcp://, tls:// and https:// only" ;;
 			esac
 		done
-	fi
-	if [ "$CPXY_ROUTER" = 1 ] && [ "$CPXY_ROUTER_API" = 1 ]; then
-		_cpxy_api_address "$CPXY_ROUTER_API_LISTEN" || _cpxy_invalid "$1: router_api_listen must be an IPv4:port or [IPv6]:port address, port 1..65535"
-		_cpxy_claim tcp "$(_cpxy_port "$CPXY_ROUTER_API_LISTEN")" "$1 router_api_listen"
 	fi
 	if [ "$CPXY_ROUTER" = 1 ] && [ "$CPXY_ROUTER_DNS" = 1 ]; then
 		if [ -n "$CPXY_NETWORKS" ]; then

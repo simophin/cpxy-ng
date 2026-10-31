@@ -1,7 +1,7 @@
 //! The UniFFI surface the apps call, generating the Kotlin and Swift bindings (see
 //! `src/bin/uniffi-bindgen.rs`). A thin wrapper over [`crate::start`].
 
-use crate::{ConnectionPage, EngineHandle, TrafficStats};
+use crate::EngineHandle;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::sync::Arc;
 
@@ -28,7 +28,7 @@ pub fn start_engine(tun_fd: i32, config_json: String) -> Result<Arc<Engine>, Eng
     }
     // SAFETY: the caller hands over a TUN descriptor it no longer uses.
     let tun = unsafe { OwnedFd::from_raw_fd(tun_fd) };
-    crate::start(tun, &config_json, Arc::new(()))
+    crate::start(tun, &config_json)
         .map(|handle| Arc::new(Engine { handle }))
         .map_err(|e| EngineError::Failed {
             reason: format!("{e:#}"),
@@ -43,26 +43,10 @@ impl Engine {
         self.handle.stop();
     }
 
-    pub fn traffic(&self) -> TrafficStats {
-        self.handle.traffic()
-    }
-
     /// The loopback port of an HTTP proxy for the app's own requests, which bypass the VPN, to
     /// connect the way the VPN does.
     pub fn local_proxy_port(&self) -> Option<u16> {
         self.handle.local_proxy_port()
-    }
-
-    /// The oldest `limit` of the recent connections from `since` on. When `since` is before
-    /// [`ConnectionPage::oldest_seq`], connections in between were dropped.
-    pub fn connections_since(&self, since: u64, limit: u32) -> ConnectionPage {
-        self.handle.connections_since(since, limit)
-    }
-
-    /// The newest `limit` of the recent connections before `before`, or the newest of all when
-    /// it is `None`.
-    pub fn connections_before(&self, before: Option<u64>, limit: u32) -> ConnectionPage {
-        self.handle.connections_before(before, limit)
     }
 }
 

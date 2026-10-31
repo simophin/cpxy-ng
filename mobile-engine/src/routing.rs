@@ -3,28 +3,18 @@ use client::outbound::{
     DirectOutbound, EitherOutbound, ProtocolOutbound, ProxyRoutes, Socks5Outbound, is_private,
 };
 use client::protocol_config::Config as ServerConfig;
-use client::stats_server::OutboundEvent;
 use cpxy_ng::either_stream::EitherStream;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use std::borrow::Cow;
-use std::net::IpAddr;
-use std::time::{Instant, SystemTime};
+use std::net::{IpAddr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::broadcast;
 
-/// TCP to private, loopback, link-local and CN addresses goes direct; everything else goes
-/// through the cpxy server. Unlike `client::outbound::cn::cn_outbound`, there are no AI or
-/// Tailscale branches, and nothing is resolved.
-///
-/// Reports each connection as an [`OutboundEvent`]: as an [`Outbound`], once it is connected;
-/// through [`Router::connect`], when the caller passes the outcome to [`Router::report`], so it
-/// can name the host after connecting.
+/// Split routing is retained for legacy consumers and Android's conservative capture fallback.
+/// OpenWrt's exact kernel routes use unconditional SOCKS forwarding instead.
 pub struct Router {
     direct: DirectOutbound,
     proxy: EitherOutbound<ProtocolOutbound, Socks5Outbound>,
     always_proxy: bool,
     proxy_routes: ProxyRoutes,
-    events_tx: broadcast::Sender<OutboundEvent>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,140 +23,39 @@ pub enum Route {
     Proxy,
 }
 
-impl Route {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Direct => "direct",
-            Self::Proxy => "proxy",
-        }
-    }
-}
-
-/// How connecting went, for [`Router::report`].
-pub struct Outcome {
-    route: Route,
-    ip: Option<IpAddr>,
-    port: u16,
-    delay_mills: usize,
-    request_time_mills: u64,
-    error: Option<String>,
-}
-
 impl Router {
-    pub fn new(
-        server: ServerConfig,
-        proxy_routes: ProxyRoutes,
-        events_tx: broadcast::Sender<OutboundEvent>,
-    ) -> Self {
+    pub fn new(server: ServerConfig, proxy_routes: ProxyRoutes) -> Self {
         Self {
             direct: DirectOutbound::default(),
             proxy: EitherOutbound::Left(ProtocolOutbound(server)),
             always_proxy: false,
             proxy_routes,
-            events_tx,
         }
     }
 
-    pub fn socks5(
-        address: std::net::SocketAddr,
-        events_tx: broadcast::Sender<OutboundEvent>,
-    ) -> Self {
+    pub fn socks5(address: SocketAddr) -> Self {
         Self {
             direct: DirectOutbound::default(),
             proxy: EitherOutbound::Right(Socks5Outbound(address)),
             always_proxy: true,
-            proxy_routes: ProxyRoutes(Vec::new()),
-            events_tx,
+            proxy_routes: ProxyRoutes::default(),
         }
     }
 
-    /// Android also receives CN/private flows captured by a bounded route plan.
-    pub fn split_socks5(
-        address: std::net::SocketAddr,
-        proxy_routes: ProxyRoutes,
-        events_tx: broadcast::Sender<OutboundEvent>,
-    ) -> Self {
+    pub fn split_socks5(address: SocketAddr, proxy_routes: ProxyRoutes) -> Self {
         Self {
             proxy_routes,
             always_proxy: false,
-            ..Self::socks5(address, events_tx)
+            ..Self::socks5(address)
         }
     }
 
-    /// Connects without reporting it.
-    pub async fn connect(
-        &self,
-        req: OutboundRequest,
-    ) -> (
-        Outcome,
-        anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static>,
-    ) {
-        let ip = match &req.host {
-            OutboundHost::Domain(_) => None,
-            OutboundHost::Resolved { ip, .. } => *ip,
-        };
-        let route = if self.always_proxy {
+    fn route(&self, ip: Option<IpAddr>) -> Route {
+        if self.always_proxy {
             Route::Proxy
         } else {
             route(&self.proxy_routes, ip)
-        };
-        let port = req.port;
-        let request_time_mills = SystemTime::UNIX_EPOCH
-            .elapsed()
-            .map_or(0, |t| t.as_millis() as u64);
-        let start = Instant::now();
-        let result = match route {
-            Route::Direct => self.direct.send(req).await.map(EitherStream::Left),
-            Route::Proxy => self.proxy.send(req).await.map(EitherStream::Right),
-        };
-        let outcome = Outcome {
-            route,
-            ip,
-            port,
-            delay_mills: start.elapsed().as_millis() as usize,
-            request_time_mills,
-            error: result.as_ref().err().map(|e| format!("{e:#}")),
-        };
-        (outcome, result)
-    }
-
-    /// Reports a connection made to `host`: the name it was made for, or its address.
-    pub fn report(&self, outcome: Outcome, host: String) {
-        let Outcome {
-            route,
-            ip,
-            port,
-            delay_mills,
-            request_time_mills,
-            error,
-        } = outcome;
-        let outbound = Cow::Borrowed(route.name());
-        let event = match error {
-            None => {
-                tracing::debug!(%outbound, host, port, delay_mills, "Connected");
-                OutboundEvent::Connected {
-                    host,
-                    ip,
-                    port,
-                    outbound,
-                    delay_mills,
-                    request_time_mills,
-                }
-            }
-            Some(error) => {
-                tracing::warn!(%outbound, host, port, delay_mills, error, "Connection failed");
-                OutboundEvent::Error {
-                    host,
-                    ip,
-                    port,
-                    outbound,
-                    delay_mills,
-                    request_time_mills,
-                    error,
-                }
-            }
-        };
-        let _ = self.events_tx.send(event);
+        }
     }
 }
 
@@ -175,14 +64,18 @@ impl Outbound for Router {
         &self,
         req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
-        let host = req.host.host().to_owned();
-        let (outcome, result) = self.connect(req).await;
-        self.report(outcome, host);
-        result
+        let ip = match &req.host {
+            OutboundHost::Domain(_) => None,
+            OutboundHost::Resolved { ip, .. } => *ip,
+        };
+        match self.route(ip) {
+            Route::Direct => self.direct.send(req).await.map(EitherStream::Left),
+            Route::Proxy => self.proxy.send(req).await.map(EitherStream::Right),
+        }
     }
 }
 
-/// Where TCP to `ip` goes.
+/// Forced destinations always win over regional/private direct routing.
 pub fn route(proxy_routes: &ProxyRoutes, ip: Option<IpAddr>) -> Route {
     if !proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
         Route::Direct
@@ -199,56 +92,30 @@ pub fn should_route_direct(ip: IpAddr) -> bool {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn fixed_routes_override_direct_addresses() {
-        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let server = format!("http://:key@{}", closed.local_addr().unwrap())
-            .parse()
-            .unwrap();
-        drop(closed);
-        let (tx, mut rx) = broadcast::channel(4);
-        let outbound = Router::new(
-            server,
-            ProxyRoutes::parse(&["223.5.5.5/32".into(), "10.0.0.0/8".into()]).unwrap(),
-            tx,
-        );
-        for ip in ["223.5.5.5", "10.1.2.3"] {
-            let _ = outbound
-                .send(OutboundRequest {
-                    host: OutboundHost::Resolved {
-                        domain: ip.into(),
-                        ip: Some(ip.parse().unwrap()),
-                    },
-                    port: 80,
-                    tls: false,
-                    initial_plaintext: vec![],
-                })
-                .await;
-            assert!(
-                matches!(rx.recv().await.unwrap(), OutboundEvent::Error { outbound, ip: Some(addr), .. } if outbound == "proxy" && addr.to_string() == ip)
-            );
+    #[test]
+    fn fixed_routes_override_direct_addresses() {
+        let routes = ProxyRoutes::parse(&[
+            "223.5.5.5/32".into(),
+            "10.0.0.0/8".into(),
+            "2400:3200::/32".into(),
+        ])
+        .unwrap();
+        let router = Router::split_socks5("127.0.0.1:1080".parse().unwrap(), routes);
+        for ip in ["223.5.5.5", "10.1.2.3", "2400:3200::1"] {
+            assert_eq!(router.route(Some(ip.parse().unwrap())), Route::Proxy);
         }
+        assert_eq!(
+            router.route(Some("192.168.1.1".parse().unwrap())),
+            Route::Direct
+        );
     }
 
-    #[tokio::test]
-    async fn router_tun_never_reclassifies_a_private_destination_as_direct() {
-        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = proxy.local_addr().unwrap();
-        drop(proxy);
-        let (tx, mut rx) = broadcast::channel(4);
-        let router = Router::socks5(address, tx);
-        let result = router
-            .send(OutboundRequest {
-                host: OutboundHost::Domain("127.0.0.1".into()),
-                port: 80,
-                tls: false,
-                initial_plaintext: vec![],
-            })
-            .await;
-        assert!(result.is_err());
-        assert!(
-            matches!(rx.recv().await.unwrap(), OutboundEvent::Error { outbound, .. } if outbound == "proxy")
-        );
+    #[test]
+    fn router_tun_never_reclassifies_a_private_destination_as_direct() {
+        let router = Router::socks5("127.0.0.1:1080".parse().unwrap());
+        for ip in ["127.0.0.1", "10.1.2.3", "::1"] {
+            assert_eq!(router.route(Some(ip.parse().unwrap())), Route::Proxy);
+        }
     }
 
     #[test]

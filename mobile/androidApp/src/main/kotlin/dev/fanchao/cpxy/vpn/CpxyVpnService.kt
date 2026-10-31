@@ -25,12 +25,9 @@ import dev.fanchao.cpxy.vpn.engine.androidRoutePlan
 import dev.fanchao.cpxy.vpn.engine.AndroidRoutePlan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -44,15 +41,12 @@ class CpxyVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // The engine calls block, so they run one at a time off the main thread. Only touch
-    // `engine` and `monitorJob` from here.
+    // `engine` from here.
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val engineDispatcher = Dispatchers.IO.limitedParallelism(1)
     private var engine: Engine? = null
     @Volatile private var latestStartId = 0
     private var finalState: VpnState = VpnState.Disconnected
-    /** Reports the traffic. */
-    private var monitorJob: Job? = null
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
         if (intent?.action == ACTION_STOP) {
@@ -168,13 +162,6 @@ class CpxyVpnService : VpnService() {
             controller.engine = started
             controller.reportState(VpnState.Connected(profile.id))
             showNotification("Connected to ${profile.name}")
-            monitorJob = launch {
-                while (isActive) {
-                    val traffic = started.traffic()
-                    controller.reportTraffic(Traffic(traffic.sent.toLong(), traffic.received.toLong()))
-                    delay(1_000)
-                }
-            }
         }.onFailure { e ->
             Log.e(TAG, "Failed to start the engine", e)
             stop(VpnState.Failed((e as? EngineException.Failed)?.reason ?: e.message ?: e.toString()), startId)
@@ -212,8 +199,6 @@ class CpxyVpnService : VpnService() {
     }
 
     private fun stopEngine() {
-        monitorJob?.cancel()
-        monitorJob = null
         controller.engine = null
         engine?.let {
             it.stop()

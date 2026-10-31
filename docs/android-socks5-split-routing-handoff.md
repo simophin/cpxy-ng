@@ -205,8 +205,8 @@ any remote proxy host, or distributing/installing an APK on a user's device.
    Wi-Fi/mobile handover, IPv6 loss, background operation and always-on/lockdown
    behavior. Test route refresh after policy changes without transient foreign
    direct bypass. Capture the underlying interface to prove proxy/direct paths.
-7. Observability: native-bypass flows are absent from engine counters/history;
-   explain that scope. Existing app traffic/updates APIs must continue working.
+7. Observability: use external probes, packet captures and diagnostic logs. The
+   user has removed the traffic UI/history/counter APIs; preserve the updates API.
 
 Useful baseline commands (check `mobile/README.md` and CI for toolchain setup):
 
@@ -353,3 +353,26 @@ network tests passed after the rejection-cache change. Temporary test credential
 are removed from both emulators and the host after validation. Temporary build
 cache links are removed so future builds do not depend on `/tmp` surviving a
 reboot; existing release executables retain their original paths.
+
+## Follow-up: remove traffic UI and collection
+
+User decision: remove the traffic UI because native kernel routing bypasses the
+engine's observation. This supersedes the earlier history/counter UI requirements
+and historical validation entries above.
+
+- [x] Remove Android Traffic navigation, byte display/polling, connection DTOs and
+  UniFFI traffic/history methods.
+- [x] Remove Rust connection-history storage, outbound event callbacks and SNI
+  collection. TCP forwarding keeps its routing policy and FIN retry behavior.
+- [x] Remove the router's embedded browser/API, its OpenWrt settings and its UI/API
+  tests. Keep packet-routing and fail-closed lab coverage.
+- [x] Remove country labels, the Android country asset and its generation pipeline.
+- [x] Preserve gateway-only byte diagnostics and update the Rust gateway caller.
+- [ ] Build/test the simplified app, verify it in the emulator, and update PR #159.
+
+Removal-stage validation: 151 Rust tests pass (60 client, 6 geo-data, 38 ipstack,
+44 engine, 3 router), with the gateway caller also passing `cargo check`.
+OpenWrt's multi-instance init/firewall dry-run passes using stub executables;
+its removed UI options are no longer emitted. Shell syntax checks and a synthetic
+IPv4/IPv6 GeoIP conversion check pass. The Android/native rebuild and emulator
+validation are in progress.

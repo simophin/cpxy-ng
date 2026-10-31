@@ -55,8 +55,7 @@ has it as a secret), and with the debug key otherwise. The two cannot update eac
 
 1. Install the debug APK, add a profile (server URL with key, upstream and alternative DNS) and
    connect; accept the VPN and notification prompts.
-2. Browse a CN site and a non-CN site. The home screen lists each connection as `direct` or
-   `proxy`.
+2. Browse a CN site and a non-CN site to check native bypass and proxied connections.
 3. Check the public IP (e.g. `https://ifconfig.me`): it is the cpxy server's.
 4. Disconnect from the app or the notification.
 5. In Settings, add the quick settings tile; it connects and disconnects with the selected
@@ -67,10 +66,6 @@ has it as a secret), and with the debug key otherwise. The two cannot update eac
 7. Turn on always-on VPN from Settings; the VPN connects with the selected profile.
 
 The engine logs to logcat with the tag `cpxy-engine`.
-
-The recent TCP connection history lives in the Rust engine and is shared with
-[cpxy-router's optional offline traffic API and browser page](../docs/router-traffic.md).
-Android reads the same bounded history through UniFFI; it does not start an HTTP listener.
 
 ## Share the VPN connection over Wi-Fi
 
@@ -120,7 +115,7 @@ Each profile chooses its IPv6, since it depends on the server:
 
 Unless it is off, the interface gets the unique-local `fd00:a:e9::1`, so apps use IPv6 for names
 without IPv4 and prefer IPv4 otherwise. On a network without IPv6, IPv6 that would go direct is
-refused the same way. The traffic log has no flags for IPv6 addresses.
+refused the same way.
 
 ## Android TV and keyboard smoke check
 
@@ -207,7 +202,7 @@ Overseas/forced TCP uses SOCKS CONNECT and fails if the proxy is unavailable.
 Captured ordinary UDP uses direct sockets, including UDP matching a TCP proxy
 route. TCP/853 follows normal TCP routing. Captured UDP/443 is refused; native
 CN/private bypass also bypasses this filter, so CN QUIC is allowed natively.
-Native traffic is absent from VPN counters and connection history. Direct UDP
+There is no traffic UI, counter polling, or connection history. Direct UDP
 preserves empty datagrams; replies exceeding the TUN MTU are dropped as whole
 datagrams (the packet stack has no IP fragmentation support).
 
@@ -229,7 +224,7 @@ adb shell am instrument -w \
 ```
 
 `vpnProbe` runs outside the excluded VPN UID. The tests check virtual DNS,
-ordinary direct UDP DNS, overseas HTTP through SOCKS, counters, complete restart
+ordinary direct UDP DNS, overseas HTTP through SOCKS, complete restart
 cycles, native private bypass, captured UDP/443 rejection, forced TCP failure,
 and empty/large direct UDP while SOCKS is unavailable. External SOCKS checks
 require `python3 vpnProbe/fixture.py` running on the emulator host (loopback

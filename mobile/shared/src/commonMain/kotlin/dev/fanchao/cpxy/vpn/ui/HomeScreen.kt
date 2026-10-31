@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
@@ -62,14 +61,12 @@ import dev.fanchao.cpxy.vpn.Profile
 import dev.fanchao.cpxy.vpn.ProfileRepository
 import dev.fanchao.cpxy.vpn.SettingsRepository
 import dev.fanchao.cpxy.vpn.StoredProfiles
-import dev.fanchao.cpxy.vpn.Traffic
 import dev.fanchao.cpxy.vpn.VpnController
 import dev.fanchao.cpxy.vpn.VpnState
 import kotlinx.coroutines.launch
 
 private enum class Tab(val label: String, val title: String, val icon: ImageVector) {
     Vpn("VPN", "CPXY VPN", Icons.Default.VpnKey),
-    Traffic("Traffic", "Traffic", Icons.AutoMirrored.Default.List),
     Settings("Settings", "Settings", Icons.Default.Settings),
 }
 
@@ -90,7 +87,7 @@ fun HomeScreen(
     // content has nothing to focus, such as Home with no profiles, Up searches as usual instead:
     // a fixed `up` would go nowhere, and leave + unreachable.
     val upIntoContent = Modifier.onPreviewKeyEvent {
-        tab != Tab.Traffic && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp &&
+        it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp &&
             contentFocus.requestFocus(FocusDirection.Up)
     }
 
@@ -127,7 +124,6 @@ fun HomeScreen(
                 Tab.Vpn -> Box(Modifier.fillMaxSize().focusRequester(contentFocus).focusGroup()) {
                     VpnTab(repository, controller, onEditProfile, onDuplicateProfile, PaddingValues())
                 }
-                Tab.Traffic -> TrafficScreen(controller, PaddingValues())
                 Tab.Settings -> Box(Modifier.fillMaxSize().focusRequester(contentFocus).focusGroup()) {
                     SettingsScreen(settingsRepository, controller, platform, onChooseApps, PaddingValues())
                 }
@@ -146,7 +142,6 @@ private fun VpnTab(
 ) {
     val stored by repository.profiles.collectAsState(StoredProfiles())
     val state by controller.state.collectAsState()
-    val traffic by controller.traffic.collectAsState()
     val scope = rememberCoroutineScope()
 
     LazyColumn(
@@ -159,7 +154,6 @@ private fun VpnTab(
         item {
             StatusCard(
                 state = state,
-                traffic = traffic,
                 stored = stored,
                 onConnect = { profile -> scope.launch { controller.connect(profile) } },
                 onDisconnect = controller::disconnect,
@@ -215,7 +209,6 @@ private fun VpnTab(
 @Composable
 private fun StatusCard(
     state: VpnState,
-    traffic: Traffic,
     stored: StoredProfiles,
     onConnect: (Profile) -> Unit,
     onDisconnect: () -> Unit,
@@ -238,12 +231,6 @@ private fun StatusCard(
                 style = MaterialTheme.typography.titleMedium,
                 color = if (state is VpnState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )
-            if (state is VpnState.Connected) {
-                Text(
-                    "↑ ${formatBytes(traffic.sent)}   ↓ ${formatBytes(traffic.received)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 when (state) {
                     is VpnState.Connecting, is VpnState.Connected ->
@@ -269,17 +256,4 @@ internal fun SectionTitle(text: String) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
     )
-}
-
-internal fun formatBytes(bytes: Long): String {
-    val units = listOf("B", "KB", "MB", "GB", "TB")
-    var value = bytes.toDouble()
-    var unit = 0
-    while (value >= 1024 && unit < units.lastIndex) {
-        value /= 1024
-        unit++
-    }
-    if (unit == 0) return "$bytes B"
-    val tenths = (value * 10).toLong()
-    return "${tenths / 10}.${tenths % 10} ${units[unit]}"
 }

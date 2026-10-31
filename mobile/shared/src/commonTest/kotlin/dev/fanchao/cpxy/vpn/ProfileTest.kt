@@ -1,6 +1,5 @@
 package dev.fanchao.cpxy.vpn
 
-import dev.fanchao.cpxy.vpn.ui.formatBytes
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -121,10 +120,4 @@ class ProfileTest {
         )
     }
 
-    @Test
-    fun formatsBytes() {
-        assertEquals("512 B", formatBytes(512))
-        assertEquals("1.5 KB", formatBytes(1536))
-        assertEquals("3.0 MB", formatBytes(3L * 1024 * 1024))
-    }
 }

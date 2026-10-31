@@ -23,7 +23,6 @@ instance $1 (index $CPXY_INDEX)
   kernel GeoIP    $(_on "$CPXY_GEOIP")$([ "$CPXY_GEOIP" = 1 ] && echo ': IPv4 and IPv6 TCP')
   router SOCKS5   $CPXY_ROUTER_SOCKS5
   router DNS      $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
-  router traffic  $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_API" || echo off): $CPXY_ROUTER_API_LISTEN
   tsgw            $(_on "$CPXY_TSGW"): $CPXY_TSGW_HOSTNAME, UDP $CPXY_TSGW_PORT, state $CPXY_TSGW_STATE_DIR$([ "$CPXY_TSGW_PROXY" = 1 ] && echo ", via $CPXY_PROXY")
   dns upstream    $CPXY_DNS_UPSTREAM
   dns alternative $CPXY_DNS_ALTERNATIVE

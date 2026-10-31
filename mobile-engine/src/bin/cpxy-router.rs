@@ -54,16 +54,11 @@ mod cli {
         /// Disable the in-memory DNS answer cache
         #[arg(long, requires = "dns_listen")]
         pub no_dns_cache: bool,
-        /// Serve the read-only traffic API and offline browser UI on this address.
-        /// Disabled unless set. No authentication: use loopback or a trusted management IP.
-        #[arg(long, env = "API_LISTEN")]
-        pub api_listen: Option<std::net::SocketAddr>,
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
-        use clap::CommandFactory;
 
         #[test]
         fn exported_routes_match_userspace_policy_at_boundaries() {
@@ -184,30 +179,6 @@ mod cli {
                 .is_err()
             );
         }
-
-        #[test]
-        fn api_is_opt_in_and_requires_a_socket_address() {
-            Options::command().debug_assert();
-            assert!(
-                Options::try_parse_from(["cpxy-router", "--socks5-proxy", "127.0.0.1:1080"])
-                    .unwrap()
-                    .api_listen
-                    .is_none()
-            );
-            let options = Options::try_parse_from([
-                "cpxy-router",
-                "--socks5-proxy",
-                "127.0.0.1:1080",
-                "--api-listen",
-                "127.0.0.1:3010",
-            ])
-            .unwrap();
-            assert_eq!(options.api_listen.unwrap().to_string(), "127.0.0.1:3010");
-            assert!(Options::try_parse_from(["cpxy-router", "--api-listen", "nope"]).is_err());
-            let help = Options::command().render_long_help().to_string();
-            assert!(help.contains("--api-listen"));
-            assert!(help.contains("API_LISTEN"));
-        }
     }
 }
 #[cfg(target_os = "linux")]
@@ -215,7 +186,6 @@ fn main() -> anyhow::Result<()> {
     use anyhow::Context;
     use clap::Parser;
     use cli::Options;
-    use std::sync::Arc;
 
     tracing_subscriber::fmt::init();
     let options = Options::parse();
@@ -274,38 +244,20 @@ fn main() -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    // Fail before starting the worker if the explicitly requested API port is unavailable.
-    let api_listener = options
-        .api_listen
-        .map(|address| runtime.block_on(tokio::net::TcpListener::bind(address)))
-        .transpose()
-        .context("Cannot bind traffic API listener")?;
     let tun = mobile_engine::linux::create_tun(&options.tun)?;
-    let engine = Arc::new(mobile_engine::start_router(
+    let engine = mobile_engine::start_router(
         tun,
         proxy,
         client::outbound::ProxyRoutes(options.proxy_route),
         options.ipv6,
         options.mtu,
         dns,
-        Arc::new(()),
-    )?);
+    )?;
     let result = runtime.block_on(async {
-        let api = async {
-            match api_listener {
-                Some(listener) => mobile_engine::traffic_api::serve(listener, engine.clone()).await,
-                None => std::future::pending().await,
-            }
-        };
-        tokio::pin!(api);
         use tokio::signal::unix::{SignalKind, signal};
         let mut term = signal(SignalKind::terminate())?;
         loop {
             tokio::select! {
-                result = &mut api => {
-                    result.context("Traffic API stopped")?;
-                    anyhow::bail!("Traffic API stopped unexpectedly");
-                }
                 _ = term.recv() => return anyhow::Ok(()),
                 _ = tokio::signal::ctrl_c() => return Ok(()),
                 _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {

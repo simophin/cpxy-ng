@@ -3,7 +3,6 @@
 **[Downloads](https://cpxy-download.cloudflare-087.workers.dev/)**: the Android app and the OpenWrt package of every build ([latest](https://cpxy-download.cloudflare-087.workers.dev/latest/), [how publishing works](docs/downloads.md))
 
 - [OpenWrt user guide](docs/openwrt.md): proxy, split DNS, LAN routing and a Tailscale exit node per network, in one package
-- [Router traffic API and offline browser view](docs/router-traffic.md)
 - [OpenWrt packaging](packaging/openwrt/README.md)
 - [cpxy-tsgw user guide](docs/cpxy-tsgw.md): a Tailscale exit node in one container or static binary, no tailscaled needed
 - [Docker bundle user guide](docs/docker-bundle.md): the proxy and a Tailscale exit node for a Linux server, in one container

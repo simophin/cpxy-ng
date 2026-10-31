@@ -87,7 +87,7 @@ tunnel.
   broadcast are dropped silently.
 - Idle timeouts: TCP flows 1 hour (ipstack's 1-minute default would cut idle push channels), UDP
   flows 60 seconds, DNS flows 10 seconds.
-- Rust API (Phase 0): `mobile_engine::start(OwnedFd, &str, Arc<dyn EventListener>) ->
+- Rust API (Phase 0): `mobile_engine::start(OwnedFd, &str) ->
   Result<EngineHandle>`, `EngineHandle::stop()` and `EngineHandle::traffic()`. `start` blocks while
   the DNS servers are set up. `stop` ends every flow and waits until the TUN descriptor is closed
   before shutting the runtime down: ipstack's TCP streams block until their tasks end when dropped,
@@ -96,15 +96,9 @@ tunnel.
   `dev.fanchao.cpxy.vpn.engine`), generating both the Kotlin and the Swift bindings:
   - `startEngine(tunFd: Int, configJson: String): Engine`, throwing
     `EngineException.Failed(reason)`
-  - `Engine.stop()`, `Engine.traffic(): TrafficStats`
-  - `Engine.connectionsSince(since, limit)` and `Engine.connectionsBefore(before?, limit)`: pages
-    of the last 10,000 connections (`src/connection_log.rs`), each a `ConnectionEvent` mirroring
-    `OutboundEvent` (host, ip, port, `direct`/`proxy`, delay, time, optional error) with a
-    `seq` that is never reused in the process. The app looks up the country of the ip itself, in
-    its bundled `country.dat` (`CountryLookup`), so the engine only carries the local region's
-    ranges. A page's `oldestSeq` shows which were dropped. The traffic screen polls
-    `connectionsSince` every 500 ms while it follows the newest, and pages back with
-    `connectionsBefore`.
+  - `Engine.stop()` and `Engine.localProxyPort()`
+  - Connection history, SNI collection, country labels and the traffic UI have been removed.
+    Native routing bypasses userspace observation; diagnostics use logs and external probes.
 - `uniffi-bindgen` is a binary of the crate behind the `bindgen` feature. It reads the bindings from
   a host debug build: release libraries are stripped and carry no UniFFI metadata.
 - On Android the engine logs to logcat with the tag `cpxy-engine` (`paranoid-android`).

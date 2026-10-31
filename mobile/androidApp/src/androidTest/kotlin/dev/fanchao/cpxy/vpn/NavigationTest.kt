@@ -42,9 +42,6 @@ class NavigationTest {
     }
     private val controller = object : VpnController {
         override val state = MutableStateFlow<VpnState>(VpnState.Disconnected)
-        override val traffic = MutableStateFlow(Traffic())
-        override suspend fun connectionsSince(since: Long, limit: Int) = ConnectionPage(emptyList(), 0)
-        override suspend fun connectionsBefore(before: Long?, limit: Int) = ConnectionPage(emptyList(), 0)
         override suspend fun connect(profile: Profile) {}
         override fun disconnect() {}
     }
@@ -112,7 +109,7 @@ class NavigationTest {
         runBlocking { repository.save(original) }
         showApp()
         compose.waitUntil { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() }
-        for (label in listOf("VPN", "Traffic", "Settings")) {
+        for (label in listOf("VPN", "Settings")) {
             focusTab(label)
             press(Key.DirectionUp)
             compose.onNode(hasText(label) and hasClickAction()).assertIsNotFocused()
@@ -156,7 +153,7 @@ class NavigationTest {
         press(Key.DirectionLeft)
         compose.onNodeWithText("Home").assertIsFocused()
         repeat(5) { press(Key.DirectionDown) }
-        compose.onNode(isFocused() and (hasText("VPN") or hasText("Traffic") or hasText("Settings"))).assertExists()
+        compose.onNode(isFocused() and (hasText("VPN") or hasText("Settings"))).assertExists()
     }
 
     @Test fun dpadActivatesBothAppPickerButtons() {

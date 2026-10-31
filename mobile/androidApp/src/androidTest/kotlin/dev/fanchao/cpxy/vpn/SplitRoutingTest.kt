@@ -3,7 +3,6 @@ package dev.fanchao.cpxy.vpn
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -57,8 +56,6 @@ class SplitRoutingTest {
             connect(profile)
             assertEquals("External SOCKS HTTP", "OK", probe("http", "example.com", 80))
             assertEquals("Native private HTTP", "OK", probe("http", "10.0.2.2", 11081))
-            delay(1_200)
-            assertFalse("Native bypass appeared in engine history", context.app.controller.connectionsBefore(null, 100).records.any { it.event.ip == "10.0.2.2" })
             assertEquals("Captured QUIC must be rejected", "OK", probe("blocked", "1.1.1.1", 443))
             disconnect()
             // Force this private IP into TUN. UDP must still be direct even with a dead SOCKS
@@ -69,8 +66,6 @@ class SplitRoutingTest {
             assertEquals("Large direct UDP with dead SOCKS", "OK", probe("echo", "10.0.2.2", 11082, 1400))
             assertEquals("Ordinary overseas UDP with dead SOCKS", "OK", probe("dns", "1.1.1.1", 53))
             assertTrue("Forced TCP leaked direct", probe("http", "10.0.2.2", 11081).startsWith("FAIL"))
-            delay(1_200)
-            assertTrue("Forced TCP was not recorded as failed proxy", context.app.controller.connectionsBefore(null, 100).records.any { it.event.ip == "10.0.2.2" && it.event.outbound == "proxy" && it.event.error != null })
             disconnect()
         } finally {
             if (context.app.controller.state.value !is VpnState.Disconnected) disconnect()
@@ -103,10 +98,6 @@ class SplitRoutingTest {
                 // 10.233.0.2 sits in the private bypass set and must remain captured for DNS.
                 assertEquals("Virtual DNS probe failed", "OK", probe("dns", "10.233.0.2", 53))
                 assertEquals("Direct UDP probe failed", "OK", probe("dns", "1.1.1.1", 53))
-                delay(1_200)
-                val records = context.app.controller.connectionsBefore(null, 100).records
-                assertTrue("No successful SOCKS-routed TCP connection", records.any { it.event.outbound == "proxy" && it.event.error == null })
-                assertTrue("TUN traffic counters did not advance", context.app.controller.traffic.value.sent > 0)
                 disconnect()
                 assertNull(context.app.controller.localProxy())
             }

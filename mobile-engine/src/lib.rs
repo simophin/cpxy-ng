@@ -6,7 +6,8 @@
 //!   answers it on its own sockets instead.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
-//! - UDP 443 (QUIC) and TCP 853 (DNS over TLS) are refused; other UDP is relayed direct.
+//! - Captured UDP 443 (QUIC) is refused; other UDP is relayed direct. Legacy mode also
+//!   refuses TCP 853 (DNS over TLS); Android SOCKS mode follows normal TCP routing.
 //! - IPv6 is handled like IPv4, or refused, according to the config's [`Ipv6Mode`].
 //!
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
@@ -15,7 +16,6 @@ mod android_routes;
 #[cfg(target_os = "linux")]
 pub mod capi;
 mod config;
-mod connection_log;
 mod dns;
 mod ffi;
 mod filter;
@@ -24,16 +24,11 @@ mod fin;
 pub mod linux;
 mod proxy;
 mod routing;
-mod sni;
-#[cfg(any(target_os = "linux", test))]
-pub mod traffic_api;
 mod tun;
 
-pub use client::stats_server::OutboundEvent;
 pub use config::{
     Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_ADDR_V6, TUN_PREFIX_LEN, TUN_PREFIX_LEN_V6,
 };
-pub use connection_log::{ConnectionEvent, ConnectionPage, ConnectionRecord};
 pub use ffi::{Engine, EngineError, start_engine};
 
 uniffi::setup_scaffolding!();
@@ -41,7 +36,6 @@ uniffi::setup_scaffolding!();
 use client::dns_split::server::DnsSplitHandler;
 use client::dns_split::spec::ServerSpec;
 pub use client::ipv6::Ipv6Mode;
-use connection_log::ConnectionLog;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
 use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
@@ -58,7 +52,7 @@ use std::time::Duration;
 
 use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
-use tokio::sync::{Notify, broadcast, oneshot};
+use tokio::sync::{Notify, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 use tun::{Traffic, TunDevice};
 
@@ -87,23 +81,7 @@ const LOCAL_TCP_WINDOW: u32 = 64 << 10;
 const GATEWAY_TCP_WINDOW: u32 = 256 << 10;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
-/// How long a connection waits for the app to name its server before it is reported under its
-/// address. Only the report waits: apps that send first have sent by now, and the rest, such as
-/// SSH, wait for the server.
-const SNI_WAIT: Duration = Duration::from_secs(1);
-
-/// Receives what the engine reports while it runs. Called from engine threads.
-pub trait EventListener: Send + Sync {
-    /// A TCP flow was connected direct or through the proxy, or failed to connect.
-    fn on_outbound_event(&self, event: OutboundEvent);
-}
-
-/// Use `()` when no callback is needed; connection history is still recorded.
-impl EventListener for () {
-    fn on_outbound_event(&self, _: OutboundEvent) {}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TrafficStats {
     /// IP bytes from the device into the tunnel.
     pub sent: u64,
@@ -112,7 +90,6 @@ pub struct TrafficStats {
 }
 
 pub struct EngineHandle {
-    connections: Arc<ConnectionLog>,
     running: Mutex<Option<Running>>,
     traffic: Arc<Traffic>,
     /// Answers [`EngineHandle::resolve_dns`]; `None` when the engine leaves DNS alone.
@@ -133,15 +110,10 @@ struct Running {
 ///
 /// The app reaches the network the way the VPN does through
 /// [`EngineHandle::local_proxy_port`].
-pub fn start(
-    tun: OwnedFd,
-    config_json: &str,
-    listener: Arc<dyn EventListener>,
-) -> anyhow::Result<EngineHandle> {
+pub fn start(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
     start_with_dns(
         tun,
         config_json,
-        listener,
         DnsIntercept::VirtualServer,
         LOCAL_TCP_WINDOW,
         true,
@@ -151,15 +123,10 @@ pub fn start(
 /// Starts the engine for a Tailscale exit node (`cpxy-tsgw`), where the device is the exit
 /// node's side of WireGuard rather than a TUN the platform set up. Like [`start`], except that DNS
 /// to any address is answered: the exit node's clients send DNS to whatever servers they have.
-pub fn start_gateway(
-    tun: OwnedFd,
-    config_json: &str,
-    listener: Arc<dyn EventListener>,
-) -> anyhow::Result<EngineHandle> {
+pub fn start_gateway(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
     start_with_dns(
         tun,
         config_json,
-        listener,
         DnsIntercept::AnyServer,
         GATEWAY_TCP_WINDOW,
         false,
@@ -169,7 +136,6 @@ pub fn start_gateway(
 fn start_with_dns(
     tun: OwnedFd,
     config_json: &str,
-    listener: Arc<dyn EventListener>,
     intercept: DnsIntercept,
     tcp_window: u32,
     local_proxy: bool,
@@ -189,7 +155,6 @@ fn start_with_dns(
         settings.ipv6,
         settings.mtu,
         settings.tcp_window.unwrap_or(tcp_window),
-        listener,
         proxy::Ports {
             http: settings.http_proxy_port,
             socks: settings.socks_proxy_port,
@@ -233,7 +198,6 @@ pub fn start_router(
     ipv6: Ipv6Mode,
     mtu: u16,
     dns: Option<RouterDns>,
-    listener: Arc<dyn EventListener>,
 ) -> anyhow::Result<EngineHandle> {
     let dns_specs = dns.as_ref().map(|dns| DnsSpecs {
         split: dns::Specs {
@@ -257,7 +221,6 @@ pub fn start_router(
         ipv6,
         mtu,
         LOCAL_TCP_WINDOW,
-        listener,
         proxy::Ports::default(),
         dns_specs,
     )
@@ -319,7 +282,6 @@ fn start_inner(
     ipv6: Ipv6Mode,
     mtu: u16,
     tcp_window: u32,
-    listener: Arc<dyn EventListener>,
     proxy_ports: proxy::Ports,
     dns_specs: Option<DnsSpecs>,
 ) -> anyhow::Result<EngineHandle> {
@@ -385,16 +347,13 @@ fn start_inner(
         )?
     };
 
-    let (events_tx, events_rx) = broadcast::channel(256);
     let router = Arc::new(match server {
-        Backend::Cpxy(server) => Router::new(server, proxy_routes, events_tx),
-        Backend::Socks5(address) => Router::socks5(address, events_tx),
-        Backend::AndroidExternal(address) => Router::split_socks5(address, proxy_routes, events_tx),
+        Backend::Cpxy(server) => Router::new(server, proxy_routes),
+        Backend::Socks5(address) => Router::socks5(address),
+        Backend::AndroidExternal(address) => Router::split_socks5(address, proxy_routes),
         Backend::AndroidCpxy(_) => unreachable!(),
     });
     let (shutdown, shutdown_rx) = oneshot::channel();
-    let connections = Arc::new(ConnectionLog::new(connection_log::CAPACITY));
-    runtime.spawn(forward_events(events_rx, listener, connections.clone()));
     let resolver = dns.as_ref().map(|dns| dns.handler.clone());
     let stopped = runtime.spawn(run(
         device,
@@ -412,7 +371,6 @@ fn start_inner(
     tracing::info!("Engine started");
 
     Ok(EngineHandle {
-        connections,
         running: Mutex::new(Some(Running {
             runtime,
             shutdown,
@@ -426,7 +384,7 @@ fn start_inner(
 
 impl EngineHandle {
     /// Stops the engine and closes the TUN descriptor. Must not be called from an engine thread,
-    /// such as an [`EventListener`] callback.
+    /// including callbacks on its runtime.
     pub fn stop(&self) {
         let Some(running) = self.running.lock().unwrap().take() else {
             return;
@@ -456,17 +414,6 @@ impl EngineHandle {
     /// requests, which bypass the VPN. Only [`start`] opens one.
     pub fn local_proxy_port(&self) -> Option<u16> {
         self.local_proxy_port
-    }
-
-    /// The oldest `limit` connections from `since` (inclusive), oldest first.
-    /// `oldest_seq` identifies records already evicted from the bounded history.
-    pub fn connections_since(&self, since: u64, limit: u32) -> ConnectionPage {
-        self.connections.since(since, limit as usize)
-    }
-
-    /// The newest `limit` connections before `before` (exclusive), or the latest page.
-    pub fn connections_before(&self, before: Option<u64>, limit: u32) -> ConnectionPage {
-        self.connections.before(before, limit as usize)
     }
 
     pub fn traffic(&self) -> TrafficStats {
@@ -502,25 +449,6 @@ impl EngineHandle {
 impl Drop for EngineHandle {
     fn drop(&mut self) {
         self.stop();
-    }
-}
-
-async fn forward_events(
-    mut events: broadcast::Receiver<OutboundEvent>,
-    listener: Arc<dyn EventListener>,
-    connections: Arc<ConnectionLog>,
-) {
-    loop {
-        match events.recv().await {
-            Ok(event) => {
-                connections.push(event.clone().into());
-                listener.on_outbound_event(event);
-            }
-            Err(broadcast::error::RecvError::Lagged(n)) => {
-                tracing::debug!("Listener fell behind, skipped {n} events")
-            }
-            Err(broadcast::error::RecvError::Closed) => return,
-        }
     }
 }
 
@@ -603,8 +531,6 @@ fn mss_for_mtu(mtu: u16) -> u16 {
     mtu.saturating_sub(TCP_IP_HEADERS_LEN)
 }
 
-/// The connection is reported under its server name once the app's ClientHello names it, or
-/// under its address when no name comes within [`SNI_WAIT`].
 async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<DnsService>) {
     let dst = flow.peer_addr();
     if let Some(handler) = DnsService::handler_for(dns, dst) {
@@ -621,34 +547,17 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
         tls: false,
         initial_plaintext: Vec::new(),
     };
-    // The app's first bytes wait in the flow while connecting, and the tap reads the server name
-    // from them as they are relayed, so connecting never waits for it.
-    let (name_tx, mut name_rx) = oneshot::channel();
-    let mut flow = sni::SniTap::new(fin::FinRetry::new(flow), name_tx);
-    let (outcome, upstream) = router.connect(request).await;
-    let mut upstream = match upstream {
+    let mut flow = fin::FinRetry::new(flow);
+    let mut upstream = match cpxy_ng::outbound::Outbound::send(router.as_ref(), request).await {
         Ok(upstream) => upstream,
-        Err(_) => {
-            flow.sniff_buffered().await;
-            let name = name_rx.try_recv().ok().flatten();
-            router.report(outcome, name.unwrap_or(address));
-            // Dropping the flow resets the app's connection.
+        Err(error) => {
+            tracing::warn!(%dst, %error, "TCP connection failed");
             return;
         }
     };
-
-    let relay = async move {
-        if let Err(e) = tokio::io::copy_bidirectional(&mut flow, &mut upstream).await {
-            tracing::debug!("TCP flow to {dst} ended: {e}");
-        }
-        // Dropping the tap here ends the wait for a name.
-    };
-    let report = async {
-        let name = tokio::time::timeout(SNI_WAIT, name_rx).await;
-        let name = name.ok().and_then(Result::ok).flatten();
-        router.report(outcome, name.unwrap_or(address));
-    };
-    tokio::join!(relay, report);
+    if let Err(error) = tokio::io::copy_bidirectional(&mut flow, &mut upstream).await {
+        tracing::debug!(%dst, %error, "TCP flow ended");
+    }
 }
 
 async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
@@ -692,11 +601,6 @@ mod tests {
     use super::*;
     use std::os::fd::{AsRawFd, FromRawFd};
 
-    struct Ignore;
-    impl EventListener for Ignore {
-        fn on_outbound_event(&self, _: OutboundEvent) {}
-    }
-
     #[test]
     fn android_udp_preserves_empty_and_large_datagrams_with_dead_socks() {
         use std::os::unix::net::UnixDatagram;
@@ -710,7 +614,7 @@ mod tests {
             let (tun, peer) = UnixDatagram::pair().unwrap();
             peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
             let config = r#"{"android_socks":true,"socks5":"127.0.0.1:9","dns_upstream":["127.0.0.1"],"dns_alternative":["127.0.0.1"]}"#;
-            let engine = start(tun.into(), config, Arc::new(())).unwrap();
+            let engine = start(tun.into(), config).unwrap();
             for (index, size) in [0, 1400].into_iter().enumerate() {
                 let builder = if ipv6 {
                     etherparse::PacketBuilder::ipv6(
@@ -745,30 +649,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn records_events_even_without_a_callback() {
-        let log = Arc::new(ConnectionLog::new(2));
-        let (sender, receiver) = broadcast::channel(2);
-        let task = tokio::spawn(forward_events(receiver, Arc::new(()), log.clone()));
-        sender
-            .send(OutboundEvent::Connected {
-                host: "example.com".into(),
-                ip: None,
-                port: 443,
-                outbound: "proxy".into(),
-                delay_mills: 12,
-                request_time_mills: 34,
-            })
-            .ok()
-            .unwrap();
-        drop(sender);
-        task.await.unwrap();
-        let page = log.before(None, 10);
-        assert_eq!(page.records.len(), 1);
-        assert_eq!(page.records[0].event.host, "example.com");
-        assert_eq!(page.records[0].event.delay_millis, 12);
-    }
-
     fn is_open(fd: i32) -> bool {
         // SAFETY: F_GETFD only inspects the descriptor table.
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
@@ -785,7 +665,7 @@ mod tests {
         // SAFETY: both descriptors were just created and are owned here.
         let (tun, peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
         let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
-        let engine = start_gateway(tun, config, Arc::new(Ignore)).unwrap();
+        let engine = start_gateway(tun, config).unwrap();
         assert!(engine.is_running());
 
         drop(peer);
@@ -844,7 +724,7 @@ mod tests {
         let config = format!(
             r#"{{"server":"http://:k@127.0.0.1:1", "dns_upstream":["127.0.0.1"], "dns_alternative":["127.0.0.1"], "socks_proxy_port":{port}, "android_socks":{android}}}"#
         );
-        let engine = start(tun, &config, Arc::new(Ignore)).unwrap();
+        let engine = start(tun, &config).unwrap();
         let mut client = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -876,7 +756,7 @@ mod tests {
             tun.into(),
             "127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
-            Ipv6Mode::Full,
+            Ipv6Mode::Off,
             DEFAULT_MTU,
             Some(RouterDns {
                 listen,
@@ -887,7 +767,6 @@ mod tests {
                 local_domains: vec![Name::from_ascii("lan").unwrap()],
                 cache: true,
             }),
-            Arc::new(Ignore),
         )
         .unwrap();
 
@@ -919,79 +798,6 @@ mod tests {
         engine.stop();
         std::net::UdpSocket::bind(listen).unwrap();
         std::net::TcpListener::bind(listen).unwrap();
-    }
-
-    #[test]
-    fn reports_a_tls_connection_under_its_server_name() {
-        use std::io::Read;
-        use std::os::unix::net::UnixDatagram;
-
-        struct Channel(Mutex<std::sync::mpsc::Sender<OutboundEvent>>);
-        impl EventListener for Channel {
-            fn on_outbound_event(&self, event: OutboundEvent) {
-                let _ = self.0.lock().unwrap().send(event);
-            }
-        }
-
-        let (tun, peer) = UnixDatagram::pair().unwrap();
-        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let (events_tx, events) = std::sync::mpsc::channel();
-        let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
-        let engine = start(tun.into(), config, Arc::new(Channel(Mutex::new(events_tx)))).unwrap();
-
-        // Loopback goes direct, to this listener.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let send = |seq: u32, ack: Option<u32>, payload: &[u8]| {
-            let builder = etherparse::PacketBuilder::ipv4(TUN_ADDR.octets(), [127, 0, 0, 1], 64)
-                .tcp(40000, port, seq, 65535);
-            let builder = match ack {
-                Some(ack) => builder.ack(ack).psh(),
-                None => builder.syn(),
-            };
-            let mut packet = Vec::with_capacity(builder.size(payload.len()));
-            builder.write(&mut packet, payload).unwrap();
-            peer.send(&packet).unwrap();
-        };
-        send(1, None, &[]);
-        let mut packet = [0u8; 2048];
-        let syn_ack = loop {
-            let n = peer.recv(&mut packet).unwrap();
-            let sliced = etherparse::SlicedPacket::from_ip(&packet[..n]).unwrap();
-            if let Some(etherparse::TransportSlice::Tcp(tcp)) = sliced.transport
-                && tcp.syn()
-                && tcp.ack()
-            {
-                break tcp.sequence_number();
-            }
-        };
-        let hello = sni::tests::client_hello(Some(&sni::tests::server_name_ext(b"example.com")));
-        send(2, Some(syn_ack.wrapping_add(1)), &hello);
-
-        let (mut accepted, _) = listener.accept().unwrap();
-        accepted
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        let mut relayed = vec![0u8; hello.len()];
-        accepted.read_exact(&mut relayed).unwrap();
-        assert_eq!(relayed, hello);
-
-        match events.recv_timeout(Duration::from_secs(5)).unwrap() {
-            OutboundEvent::Connected {
-                host, ip, outbound, ..
-            } => {
-                assert_eq!(host, "example.com");
-                assert_eq!(ip, Some(Ipv4Addr::LOCALHOST.into()));
-                assert_eq!(outbound, "direct");
-            }
-            OutboundEvent::Error { error, .. } => panic!("connecting failed: {error}"),
-        }
-        let page = engine.connections_before(None, 10);
-        assert_eq!(page.records.len(), 1);
-        assert_eq!(page.records[0].event.host, "example.com");
-        assert_eq!(page.records[0].event.outbound, "direct");
-        assert_eq!(engine.connections_since(page.records[0].seq, 10), page);
-        engine.stop();
     }
 
     #[test]
@@ -1034,7 +840,7 @@ mod tests {
 
         let (tun, peer) = UnixDatagram::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let engine = start(tun.into(), &config("direct"), Arc::new(Ignore)).unwrap();
+        let engine = start(tun.into(), &config("direct")).unwrap();
         let mut buf = [0u8; 2048];
 
         peer.send(&packet_to(tcp_port, Some((1, None)), &[]))
@@ -1071,7 +877,7 @@ mod tests {
 
         let (tun, peer) = UnixDatagram::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let engine = start(tun.into(), &config("off"), Arc::new(Ignore)).unwrap();
+        let engine = start(tun.into(), &config("off")).unwrap();
         peer.send(&packet_to(tcp_port, Some((1, None)), &[]))
             .unwrap();
         let n = peer.recv(&mut buf).unwrap();
@@ -1096,7 +902,7 @@ mod tests {
         let raw = tun.as_raw_fd();
 
         let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
-        let engine = start(tun, config, Arc::new(Ignore)).unwrap();
+        let engine = start(tun, config).unwrap();
         assert!(is_open(raw));
 
         // Keep a TCP flow open while stopping: loopback goes direct, to this listener.
