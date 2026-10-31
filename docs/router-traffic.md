@@ -14,7 +14,7 @@ and vanilla JavaScript. The API works independently of the page.
 For a standalone Linux worker, add `--api-listen` to its existing arguments:
 
 ```sh
-SERVER='https://:<key>@proxy.example:443' cpxy-router --tun cpxy0 --api-listen 127.0.0.1:3010
+cpxy-router --socks5-proxy 127.0.0.1:1080 --tun cpxy0 --api-listen 127.0.0.1:3010
 ```
 
 `API_LISTEN=127.0.0.1:3010` is the equivalent environment setting. The listener is disabled
@@ -74,7 +74,8 @@ log entries or country flags. Country flags would require shipping the full coun
 the router currently embeds only local-region routing data. Router-originated traffic and
 connections through the separate `cpxy-client` and `cpxy-tsgw` services are outside this worker's
 view. Byte counters measure TUN IP bytes, not WAN/proxy transport bytes, and exclude the
-router's separately served DNS.
+router's separately served DNS. Native CN/private forwarding bypasses the TUN and
+is absent from both connection history and byte totals.
 
 ## HTTP API
 

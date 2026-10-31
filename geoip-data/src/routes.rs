@@ -71,6 +71,80 @@ pub fn direct_ipv6() -> Vec<(u128, u8)> {
     result
 }
 
+/// Router policy: reviewed CN IPv6 plus private/loopback/link-local ranges, minus
+/// inclusive forced-proxy ranges. Keep private ranges aligned with `is_private`.
+pub fn router_direct_ipv6(proxy: &[(u128, u128)]) -> Vec<(u128, u8)> {
+    let mut ranges: Vec<_> = crate::CN6
+        .chunks_exact(32)
+        .map(|row| {
+            (
+                u128::from_be_bytes(row[..16].try_into().unwrap()),
+                u128::from_be_bytes(row[16..].try_into().unwrap()),
+            )
+        })
+        .collect();
+    ranges.extend([
+        (1, 1),
+        (0xfc00u128 << 112, (0xfe00u128 << 112) - 1),
+        (0xfe80u128 << 112, (0xfec0u128 << 112) - 1),
+    ]);
+    ranges.sort_unstable();
+    let mut merged: Vec<(u128, u128)> = Vec::new();
+    for (start, end) in ranges {
+        if let Some(last) = merged.last_mut()
+            && start <= last.1.saturating_add(1)
+        {
+            last.1 = last.1.max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+    let mut cuts = proxy.to_vec();
+    cuts.sort_unstable();
+    let mut result = Vec::new();
+    for (start, end) in merged {
+        let mut next = Some(start);
+        for &(cut_start, cut_end) in &cuts {
+            let Some(start) = next else { break };
+            if cut_end < start {
+                continue;
+            }
+            if cut_start > end {
+                break;
+            }
+            if cut_start > start {
+                emit_v6(start, cut_start - 1, &mut result);
+            }
+            next = if cut_end >= end {
+                None
+            } else {
+                Some(cut_end + 1)
+            };
+        }
+        if let Some(start) = next {
+            emit_v6(start, end, &mut result);
+        }
+    }
+    result
+}
+
+fn emit_v6(mut start: u128, end: u128, result: &mut Vec<(u128, u8)>) {
+    loop {
+        let remaining = end - start;
+        let size_bits = if remaining == u128::MAX {
+            128
+        } else {
+            (remaining + 1).ilog2()
+        };
+        let bits = start.trailing_zeros().min(size_bits);
+        result.push((start, (128 - bits) as u8));
+        if bits == 128 || remaining < (1u128 << bits) {
+            break;
+        }
+        start += 1u128 << bits;
+    }
+}
+
 fn merge(mut ranges: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     ranges.sort_unstable();
     let mut merged: Vec<(u64, u64)> = Vec::new();

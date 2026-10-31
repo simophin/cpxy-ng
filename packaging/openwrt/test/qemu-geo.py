@@ -3,7 +3,7 @@
 
 Usage: unshare -Urmn python3 qemu-geo.py IMAGE IPK DEPS_DIR SERVER RESULTS_DIR
 IMAGE is an official x86-64 combined ext4 image; DEPS_DIR contains matching dependency ipks.
-Requires iproute2, QEMU, curl and dig. No third-party Python packages or host bridges needed.
+Requires iproute2, QEMU, curl and dig; the package must include real cpxy-client/router binaries. No third-party Python packages or host bridges needed.
 """
 import contextlib
 import http.server
@@ -224,7 +224,7 @@ def main():
             console.command("uci set network.guest=interface; uci set network.guest.device=eth2; uci set network.guest.proto=static; uci set network.guest.ipaddr=192.168.9.1; uci set network.guest.netmask=255.255.255.0; uci commit network; /etc/init.d/network reload; sleep 3")
             console.command("uci set firewall.guests=zone; uci set firewall.guests.name=guests; uci add_list firewall.guests.network=guest; uci set firewall.guests.input=ACCEPT; uci set firewall.guests.output=ACCEPT; uci set firewall.guests.forward=REJECT; uci set firewall.guestwan=forwarding; uci set firewall.guestwan.src=guests; uci set firewall.guestwan.dest=wan; uci commit firewall; /etc/init.d/firewall reload")
             console.command("uci set cpxy.guest=instance; uci set cpxy.guest.index=1; uci add_list cpxy.guest.network=guest; uci set cpxy.guest.server='http://:vm-guest@192.0.2.3:8443'")
-            console.command("uci set cpxy.defaults.server='http://:vm-test@192.0.2.1:8443'; uci set cpxy.defaults.client=0; uci set cpxy.defaults.tsgw=0; uci set cpxy.defaults.router_geoip=1; uci -q delete cpxy.defaults.dns_upstream; uci add_list cpxy.defaults.dns_upstream=192.0.2.1; uci add_list cpxy.defaults.dns_alternative='tcp://192.0.2.1?via=cpxy'; uci commit cpxy; /etc/init.d/cpxy-router enable; /etc/init.d/cpxy-router start", 120)
+            console.command("uci set cpxy.defaults.server='http://:vm-test@192.0.2.1:8443'; uci set cpxy.defaults.client=1; uci set cpxy.defaults.tsgw=0; uci set cpxy.defaults.router_geoip=1; uci -q delete cpxy.defaults.dns_upstream; uci add_list cpxy.defaults.dns_upstream=192.0.2.1; uci add_list cpxy.defaults.dns_alternative='tcp://192.0.2.1?via=cpxy'; uci commit cpxy; /etc/init.d/cpxy-client enable; /etc/init.d/cpxy-client start; /etc/init.d/cpxy-router enable; /etc/init.d/cpxy-router start", 120)
 
             def fetch(ip, source='lan'):
                 return ns(source, 'curl', '-fsS', '--noproxy', '*', '--max-time', '8', f'http://{ip}:8000/')
@@ -271,21 +271,15 @@ def main():
             assert not ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@192.168.8.1', 'proxy.test', 'AAAA')
             assert ns('lan', 'dig', '+tcp', '+short', '+time=3', '+tries=1', '@192.168.8.1', 'proxy.test', 'A') == '93.184.216.34'
             assert 'DNS TCP peer=192.0.2.1' in (results / 'fixtures.log').read_text()
-            print('PASS: VM split DNS, proxied alternative, IPv4-only answers', flush=True)
+            print('PASS: VM split DNS, proxied alternative, empty AAAA fixture answer', flush=True)
             console.command('ip -6 addr add 2001:db8:8::1/64 dev br-lan nodad; ip -6 addr add 2001:db8:2::2/64 dev eth1 nodad; ip -6 route add default via 2001:db8:2::1')
             ns('lan', 'ping', '-6', '-c1', '-W3', '2001:db8:8::1')
-            # Establish that the fixture has a working routed IPv6 path, then restore
-            # refusal. Otherwise a missing return route could produce a false pass.
-            console.command('ip -6 rule add priority 9103 iif br-lan lookup main')
-            assert fetch('[2001:db8:100::34]') == '2001:db8:8::50'
-            console.command('ip -6 rule del priority 9103 iif br-lan lookup main')
-            try:
-                fetch('[2001:db8:100::34]')
-            except subprocess.CalledProcessError as error:
-                assert error.returncode == 7, f'Expected prompt IPv6 refusal, got {error.stderr}'
-            else:
-                raise AssertionError('IPv6 bypassed the IPv4 policy')
-            print('PASS: VM local IPv6 remains reachable; internet IPv6 is refused', flush=True)
+            console.command('/etc/init.d/cpxy-router reload; sleep 3', 120)
+            assert fetch('[2001:db8:100::34]') == '2001:db8:100::34'
+            print('PASS: VM local IPv6 stays reachable; overseas IPv6 uses SOCKS5', flush=True)
+            assert ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@2001:db8:8::1', 'proxy.test', 'A') == '93.184.216.34'
+            assert ns('lan', 'dig', '+tcp', '+short', '+time=3', '+tries=1', '@2001:db8:8::1', 'proxy.test', 'A') == '93.184.216.34'
+            print('PASS: VM IPv6 UDP/TCP DNS redirection', flush=True)
             console.command("before=$(pidof cpxy-router); /etc/init.d/cpxy-router reload; sleep 2; test \"$before\" = \"$(pidof cpxy-router)\"")
             paths()
             console.command('/etc/init.d/firewall reload; sleep 2')

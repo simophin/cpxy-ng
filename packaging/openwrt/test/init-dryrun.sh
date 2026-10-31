@@ -86,8 +86,8 @@ service() (
 		cpxy_geo_uplink() { echo '192.0.2.1 wan'; }
 		cpxy_geo_guard() { echo "guard $*" >>"$LOG"; }
 		cpxy_geo_healthy() { return 0; }
-		cpxy_geo_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "geo_up $CPXY_TUN $CPXY_TABLE" >>"$LOG"; }
-		cpxy_geo_down() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "geo_down $CPXY_TUN" >>"$LOG"; }
+		cpxy_geo_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "geo_up $CPXY_TUN $CPXY_TABLE" >>"$LOG"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
+		cpxy_geo_down() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "geo_down $CPXY_TUN" >>"$LOG"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
 	fi
 	"$2"
 )
@@ -140,18 +140,19 @@ want 'set file /tmp/cpxy/client-guest.env'
 grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
 # cpxy-router: one worker per instance, which also answers its DNS
-want 'up cpxy0 100 9100 br-lan'
-want 'up cpxy1 101 9110 br-guest'
-want 'up cpxy2 102 9120 br-iot'
+want 'geo_up cpxy0 100'
+want 'geo_up cpxy1 101'
+want 'geo_up cpxy2 102'
 want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full'
-want 'set env SERVER=https://:guest-key@second.example:443 NO_COLOR=1'
+want 'set env NO_COLOR=1'
 absent '_dns'
 absent 'cpxy-dns-split'
-want 'append command --dns-listen 0.0.0.0:5345'
+want 'append command --dns-listen [::]:5345'
 want 'append command --dns-alternative tcp://1.1.1.1?via=cpxy'
 absent 'append command --dns-alternative tcp://8.8.8.8'
 # The worker asks those through its instance's server, whose key stays out of the process list
-grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/router-guest.env || fail 'router server'
+if grep -q SERVER /tmp/cpxy/router-guest.env; then fail 'router has cpxy credentials'; fi
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full --socks5-proxy 127.0.0.1:1081'
 absent 'append command --server'
 want 'append command --dns-local-server 127.0.0.1:53'
 want 'append command --dns-local-domain lan'
@@ -167,11 +168,8 @@ absent 'append command --sinkhole'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.src)" = visitors ] || fail 'DNS redirect zone'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.dest_port)" = 5345 ] || fail 'DNS redirect port'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.target)" = DNAT ] || fail 'DNS redirect target'
-[ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = REJECT ] || fail 'IPv6 DNS refusal'
-[ "$(uci get firewall.cpxy_inst_iot_dns6f_1.dest)" = '*' ] || fail 'forwarded IPv6 DNS refusal'
-position() { uci show firewall | grep -E '^firewall\.[^.]+=' | grep -n "^firewall\.$1=" | cut -d: -f1; }
-[ "$(position cpxy_inst_guest_dns6_1)" -lt "$(position visitors_dns)" ] || fail 'IPv6 DNS refusal after an accept rule'
-[ "$(position cpxy_inst_guest_dns6f_1)" -lt "$(position visitors_dns)" ] || fail 'forwarded IPv6 DNS refusal after an accept rule'
+[ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = DNAT ] || fail 'IPv6 DNS redirect'
+[ "$(uci get firewall.cpxy_inst_iot_dns6_1.family)" = ipv6 ] || fail 'IPv6 DNS redirect family'
 # cpxy-tsgw: main and guest only
 want 'set command /usr/bin/cpxy-tsgw'
 want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
@@ -248,14 +246,12 @@ absent 'PROXY_ROUTES'
 if grep -q '^PROXY_ROUTES' /tmp/cpxy/client-main.env; then fail 'client routes not cleared'; fi
 if grep -q '^PROXY_ROUTES' /tmp/cpxy/tsgw-guest.env; then fail 'tsgw routes not cleared'; fi
 
-# Changing an instance's IPv6 mode sets its routing up again and restarts its worker.
+# The shared IPv6 setting belongs to mobile/tsgw; router always splits both families.
 uci set cpxy.guest.ipv6=direct
 : >"$LOG"
 router reload_service
-want 'up cpxy1 101 9110 br-guest'
-absent 'up cpxy0'
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 direct'
-want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 full'
+absent 'geo_up '
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full'
 uci set cpxy.guest.ipv6=on
 invalid "guest: option 'ipv6' must be off, direct or full"
 uci delete cpxy.guest.ipv6
@@ -297,7 +293,7 @@ uci delete cpxy.guest.smartdns_server
 uci set cpxy.guest.tun=cpxy0
 : >/tmp/err
 if service cpxy-router reload_service 2>/tmp/err; then fail 'duplicate tun accepted'; fi
-grep -qF 'duplicate tun' /tmp/err || fail 'missing error: duplicate tun'
+grep -qF 'stop cpxy-router' /tmp/err || fail 'missing live resource migration error'
 uci delete cpxy.guest.tun
 uci delete cpxy.main.network
 uci add_list cpxy.main.network=lan
@@ -354,24 +350,23 @@ router stop_service
 [ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
 if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
 
-# Kernel GeoIP is IPv4-only independently of the shared Tailscale IPv6 setting.
+# Kernel GeoIP protects both families independently of the Tailscale setting.
 uci set cpxy.main.router_geoip=1
 : >"$LOG"
 router start_service
 want 'guard cpxy0 br-lan br-extra'
 want 'geo_up cpxy0 100'
-want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 off'
-want 'append command --proxy-route 0.0.0.0/0'
+want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 full'
+absent 'append command --proxy-route 0.0.0.0/0'
 want 'append file /usr/bin/cpxy-router'
 [ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
 touch /tmp/no-lan
 if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP activated with an unresolved LAN'; fi
 grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
 rm /tmp/no-lan
-uci set cpxy.main.router_ipv6=full
-if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP IPv6 accepted'; fi
-grep -q 'requires router_ipv6 off' /tmp/err || fail 'missing GeoIP IPv6 error'
 uci set cpxy.main.router_ipv6=off
+invalid 'router_ipv6 must be full'
+uci set cpxy.main.router_ipv6=full
 uci set firewall.@defaults[0].flow_offloading=1
 if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP offloading accepted'; fi
 grep -q 'disable flow_offloading' /tmp/err || fail 'missing GeoIP offloading error'
@@ -385,10 +380,39 @@ router stop_service
 want 'geo_down cpxy0'
 [ -f /etc/cpxy/router-guards/main ] || fail 'stop lost next-boot assignments'
 uci set cpxy.main.router_geoip=0
-router start_service
-[ ! -f /etc/cpxy/router-guards/main ] || fail 'legacy mode retained a stale boot snapshot'
-if uci -q get firewall.cpxy_boot_guard; then fail 'legacy mode retained boot firewall include'; fi
-router stop_service
+invalid 'router_geoip must be 1'
+uci set cpxy.main.router_geoip=1
+
+# External SOCKS5 requires no cpxy client, server credentials or Tailscale process.
+uci set cpxy.main.enabled=0
+uci set cpxy.iot.enabled=0
+uci set cpxy.guest.enabled=1
+uci set cpxy.guest.client=0
+uci set cpxy.guest.tsgw=0
+uci set cpxy.guest.router_socks5_proxy='[2001:db8::1]:1080'
+uci delete cpxy.guest.server
+uci delete cpxy.defaults.server
+uci set cpxy.guest.router_dns=1
+: >"$LOG"
+everything start_service
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full --socks5-proxy [2001:db8::1]:1080'
+absent 'set command /usr/bin/cpxy-client'
+absent 'set command /usr/bin/cpxy-tsgw'
+absent 'SERVER='
+uci delete cpxy.guest.router_socks5_proxy
+invalid 'enable client or set router_socks5_proxy'
+# Instances without routed networks retain client-only configuration behavior.
+uci set cpxy.guest.client=1
+uci set cpxy.guest.server='https://:client-key@proxy.example:443'
+uci delete cpxy.guest.network
+uci set cpxy.guest.router_geoip=0
+uci set cpxy.guest.router_ipv6=off
+uci set cpxy.guest.dns_listen=0.0.0.0:5345
+: >"$LOG"
+everything start_service
+want 'set command /usr/bin/cpxy-client'
+absent 'set command /usr/bin/cpxy-router'
+absent 'SOCKS5_PROXY_LISTEN='
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

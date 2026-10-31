@@ -1,5 +1,7 @@
 use client::dns_split::is_local_region_ip;
-use client::outbound::{DirectOutbound, ProtocolOutbound, ProxyRoutes, is_private};
+use client::outbound::{
+    DirectOutbound, EitherOutbound, ProtocolOutbound, ProxyRoutes, Socks5Outbound, is_private,
+};
 use client::protocol_config::Config as ServerConfig;
 use client::stats_server::OutboundEvent;
 use cpxy_ng::either_stream::EitherStream;
@@ -19,7 +21,8 @@ use tokio::sync::broadcast;
 /// can name the host after connecting.
 pub struct Router {
     direct: DirectOutbound,
-    proxy: ProtocolOutbound,
+    proxy: EitherOutbound<ProtocolOutbound, Socks5Outbound>,
+    always_proxy: bool,
     proxy_routes: ProxyRoutes,
     events_tx: broadcast::Sender<OutboundEvent>,
 }
@@ -57,8 +60,22 @@ impl Router {
     ) -> Self {
         Self {
             direct: DirectOutbound::default(),
-            proxy: ProtocolOutbound(server),
+            proxy: EitherOutbound::Left(ProtocolOutbound(server)),
+            always_proxy: false,
             proxy_routes,
+            events_tx,
+        }
+    }
+
+    pub fn socks5(
+        address: std::net::SocketAddr,
+        events_tx: broadcast::Sender<OutboundEvent>,
+    ) -> Self {
+        Self {
+            direct: DirectOutbound::default(),
+            proxy: EitherOutbound::Right(Socks5Outbound(address)),
+            always_proxy: true,
+            proxy_routes: ProxyRoutes(Vec::new()),
             events_tx,
         }
     }
@@ -75,7 +92,11 @@ impl Router {
             OutboundHost::Domain(_) => None,
             OutboundHost::Resolved { ip, .. } => *ip,
         };
-        let route = route(&self.proxy_routes, ip);
+        let route = if self.always_proxy {
+            Route::Proxy
+        } else {
+            route(&self.proxy_routes, ip)
+        };
         let port = req.port;
         let request_time_mills = SystemTime::UNIX_EPOCH
             .elapsed()
@@ -194,6 +215,27 @@ mod tests {
                 matches!(rx.recv().await.unwrap(), OutboundEvent::Error { outbound, ip: Some(addr), .. } if outbound == "proxy" && addr.to_string() == ip)
             );
         }
+    }
+
+    #[tokio::test]
+    async fn router_tun_never_reclassifies_a_private_destination_as_direct() {
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = proxy.local_addr().unwrap();
+        drop(proxy);
+        let (tx, mut rx) = broadcast::channel(4);
+        let router = Router::socks5(address, tx);
+        let result = router
+            .send(OutboundRequest {
+                host: OutboundHost::Domain("127.0.0.1".into()),
+                port: 80,
+                tls: false,
+                initial_plaintext: vec![],
+            })
+            .await;
+        assert!(result.is_err());
+        assert!(
+            matches!(rx.recv().await.unwrap(), OutboundEvent::Error { outbound, .. } if outbound == "proxy")
+        );
     }
 
     #[test]

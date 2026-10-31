@@ -5,6 +5,12 @@ mod cli {
 
     #[derive(Parser)]
     pub struct Options {
+        /// Required plaintext, no-auth SOCKS5 endpoint. May be cpxy-client on loopback.
+        #[arg(long, env = "SOCKS5_PROXY", required_unless_present_any = ["export_direct_routes", "export_direct_routes_v6", "geoip_version"])]
+        pub socks5_proxy: Option<std::net::SocketAddr>,
+        /// Print exact IPv6 CN/private direct CIDRs, excluding --proxy-route, then exit.
+        #[arg(long)]
+        pub export_direct_routes_v6: bool,
         /// Print exact IPv4 direct CIDRs, excluding --proxy-route, then exit without a worker.
         #[arg(long)]
         pub export_direct_routes: bool,
@@ -16,7 +22,7 @@ mod cli {
         pub proxy_route: Vec<ipnet::IpNet>,
         #[arg(long, default_value = "cpxy0")]
         pub tun: String,
-        /// Which IPv6 to relay: `full` needs a cpxy server that can reach IPv6, `direct` relays
+        /// Which IPv6 to relay: `full` needs a SOCKS5 proxy that can reach IPv6, `direct` relays
         /// only what routes direct, and `off` refuses it.
         #[arg(long, env = "IPV6", value_enum, default_value_t = mobile_engine::Ipv6Mode::Full)]
         pub ipv6: mobile_engine::Ipv6Mode,
@@ -52,7 +58,6 @@ mod cli {
         /// Disabled unless set. No authentication: use loopback or a trusted management IP.
         #[arg(long, env = "API_LISTEN")]
         pub api_listen: Option<std::net::SocketAddr>,
-        // Keep the secret out of process arguments and parser diagnostics.
     }
 
     #[cfg(test)]
@@ -111,16 +116,92 @@ mod cli {
         }
 
         #[test]
+        fn exported_ipv6_routes_match_userspace_at_boundaries() {
+            let proxy = client::outbound::ProxyRoutes::parse(&[
+                "2400:3200::/33".into(),
+                "fc00::/8".into(),
+                "::1/128".into(),
+            ])
+            .unwrap();
+            let cuts = proxy
+                .0
+                .iter()
+                .filter_map(|net| match net {
+                    ipnet::IpNet::V6(n) => {
+                        Some((u128::from(n.network()), u128::from(n.broadcast())))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let prefixes = geoip_data::routes::router_direct_ipv6(&cuts);
+            let mut addresses = vec![0, 1, u128::MAX];
+            for &(start, prefix) in &prefixes {
+                let mask = u128::MAX.checked_shl((128 - prefix) as u32).unwrap_or(0);
+                let end = start | !mask;
+                addresses.extend([start.saturating_sub(1), start, end, end.saturating_add(1)]);
+            }
+            for bytes in geoip_data::CN6.chunks_exact(16) {
+                let ip = u128::from_be_bytes(bytes.try_into().unwrap());
+                addresses.extend([ip.saturating_sub(1), ip, ip.saturating_add(1)]);
+            }
+            let mut random = 42u128;
+            for _ in 0..50_000 {
+                random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+                addresses.push(random);
+            }
+            for ip in addresses {
+                let address = std::net::IpAddr::V6(ip.into());
+                let expected = !proxy.contains(Some(address))
+                    && (client::outbound::is_private(address)
+                        || client::dns_split::is_local_region_ip(address));
+                let index = prefixes.partition_point(|&(start, _)| start <= ip);
+                let actual = index > 0 && {
+                    let (start, prefix) = prefixes[index - 1];
+                    let mask = u128::MAX.checked_shl((128 - prefix) as u32).unwrap_or(0);
+                    ip & mask == start
+                };
+                assert_eq!(actual, expected, "{address}");
+            }
+            assert!(geoip_data::routes::router_direct_ipv6(&[(0, u128::MAX)]).is_empty());
+        }
+
+        #[test]
+        fn socks5_is_required_except_for_policy_exports() {
+            assert!(Options::try_parse_from(["cpxy-router"]).is_err());
+            for flag in [
+                "--export-direct-routes",
+                "--export-direct-routes-v6",
+                "--geoip-version",
+            ] {
+                assert!(Options::try_parse_from(["cpxy-router", flag]).is_ok());
+            }
+            assert!(
+                Options::try_parse_from([
+                    "cpxy-router",
+                    "--socks5-proxy",
+                    "socks5://user:pass@localhost:1080"
+                ])
+                .is_err()
+            );
+        }
+
+        #[test]
         fn api_is_opt_in_and_requires_a_socket_address() {
             Options::command().debug_assert();
             assert!(
-                Options::try_parse_from(["cpxy-router"])
+                Options::try_parse_from(["cpxy-router", "--socks5-proxy", "127.0.0.1:1080"])
                     .unwrap()
                     .api_listen
                     .is_none()
             );
-            let options =
-                Options::try_parse_from(["cpxy-router", "--api-listen", "127.0.0.1:3010"]).unwrap();
+            let options = Options::try_parse_from([
+                "cpxy-router",
+                "--socks5-proxy",
+                "127.0.0.1:1080",
+                "--api-listen",
+                "127.0.0.1:3010",
+            ])
+            .unwrap();
             assert_eq!(options.api_listen.unwrap().to_string(), "127.0.0.1:3010");
             assert!(Options::try_parse_from(["cpxy-router", "--api-listen", "nope"]).is_err());
             let help = Options::command().render_long_help().to_string();
@@ -161,11 +242,26 @@ fn main() -> anyhow::Result<()> {
         out.flush()?;
         return Ok(());
     }
-    let server = std::env::var("SERVER")
-        .map_err(|_| anyhow::anyhow!("SERVER is required"))?
-        .parse()
-        .map_err(|_| anyhow::anyhow!("Invalid SERVER URL"))?;
-    // dns_split asks the servers given with ?via=cpxy through the same server.
+    if options.export_direct_routes_v6 {
+        let cuts = options
+            .proxy_route
+            .iter()
+            .filter_map(|net| match net {
+                ipnet::IpNet::V6(net) => {
+                    Some((u128::from(net.network()), u128::from(net.broadcast())))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        use std::io::Write;
+        let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+        for (addr, prefix) in geoip_data::routes::router_direct_ipv6(&cuts) {
+            writeln!(out, "{}/{prefix}", std::net::Ipv6Addr::from(addr))?;
+        }
+        out.flush()?;
+        return Ok(());
+    }
+    let proxy = options.socks5_proxy.context("--socks5-proxy is required")?;
     let dns = options.dns_listen.map(|listen| mobile_engine::RouterDns {
         listen,
         upstream: options.dns_upstream,
@@ -187,7 +283,7 @@ fn main() -> anyhow::Result<()> {
     let tun = mobile_engine::linux::create_tun(&options.tun)?;
     let engine = Arc::new(mobile_engine::start_router(
         tun,
-        server,
+        proxy,
         client::outbound::ProxyRoutes(options.proxy_route),
         options.ipv6,
         options.mtu,

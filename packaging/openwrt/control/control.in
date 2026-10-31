@@ -6,6 +6,6 @@ Section: net
 Architecture: @ARCH@
 Maintainer: cpxy-ng
 Description: cpxy for OpenWrt: per network, an HTTP proxy, LAN routing with split DNS and a Tailscale exit node
- One instance per set of networks, each with its own cpxy server: cpxy-client (HTTP proxy),
- cpxy-router (TCP through the server, DNS through dns_split, overseas DNS through the server)
+ One instance per set of networks, using cpxy or an external SOCKS5 proxy: cpxy-client (HTTP proxy),
+ cpxy-router (kernel IPv4/IPv6 split, overseas TCP/DNS through SOCKS5)
  and cpxy-tsgw (Tailscale exit node). Configure /etc/config/cpxy.

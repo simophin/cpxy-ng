@@ -51,7 +51,7 @@ _validate_network() {
 }
 
 _validate_instance() {
-	local tun="$CPXY_TUN" table="$CPXY_TABLE" priority="$CPXY_PRIORITY" old iface dns_port=- entry geo_hash=- uplink='- -' mode="$CPXY_IPV6"
+	local tun="$CPXY_TUN" table="$CPXY_TABLE" priority="$CPXY_PRIORITY" old iface dns_port=- entry geo_hash=- uplink='- -' uplink6='- -' mode="$CPXY_IPV6"
 	SECTION="$1"
 	[ "$CPXY_ROUTER" = 1 ] || return 0
 	[ -n "$CPXY_NETWORKS" ] || return 0
@@ -72,8 +72,8 @@ _validate_instance() {
 	fi
 	if [ "$CPXY_GEOIP" = 1 ]; then
 		[ "$priority" -le 32761 ] || { _invalid "$SECTION: GeoIP rule_priority must be 1..32761"; return; }
-		[ "$CPXY_ROUTER_IPV6" = off ] || { _invalid "$SECTION: router_geoip requires router_ipv6 off"; return; }
-		mode=off
+		[ "$CPXY_ROUTER_IPV6" = full ] || { _invalid "$SECTION: router_ipv6 must be full"; return; }
+		mode=full
 		[ "$table" -le 55535 ] || { _invalid "$SECTION: GeoIP routing_table must leave room for staging table +10000"; return; }
 		for entry in flow_offloading flow_offloading_hw; do
 			[ "$(uci -q get "firewall.@defaults[0].$entry")" != 1 ] || {
@@ -81,14 +81,18 @@ _validate_instance() {
 				return
 			}
 		done
-		uplink="$(cpxy_geo_uplink)" || { _invalid "$SECTION: router_geoip requires one simple main-table IPv4 default"; return; }
+		uplink="$(cpxy_geo_uplink -4)" || { _invalid "$SECTION: router_geoip requires one simple main-table IPv4 default"; return; }
+		uplink6="$(cpxy_geo_uplink -6)" || { _invalid "$SECTION: requires one simple main-table IPv6 default"; return; }
 		set -- --export-direct-routes
 		for entry in $CPXY_PROXY_ROUTES; do
-			case "$entry" in *:*) _invalid "$SECTION: router_geoip accepts IPv4 proxy_route only"; return ;; esac
 			set -- "$@" --proxy-route "$entry"
 		done
 		"$CPXY_BIN/cpxy-router" "$@" >"$PLAN/routes/$SECTION" || { _invalid "$SECTION: route export failed"; return; }
-		geo_hash="$(sha256sum <"$PLAN/routes/$SECTION")" || { _invalid "$SECTION: policy checksum failed"; return; }
+		# Export each family from the same binary and policy, then hash both.
+		set -- --export-direct-routes-v6
+		for entry in $CPXY_PROXY_ROUTES; do set -- "$@" --proxy-route "$entry"; done
+		"$CPXY_BIN/cpxy-router" "$@" >"$PLAN/routes/$SECTION.v6" || { _invalid "$SECTION: IPv6 route export failed"; return; }
+		geo_hash="$(cat "$PLAN/routes/$SECTION" "$PLAN/routes/$SECTION.v6" | sha256sum)" || { _invalid "$SECTION: policy checksum failed"; return; }
 		# Resource changes must not remove the running instance's guard before replacement.
 		if [ -f "$CPXY_STATE/$SECTION" ]; then
 			[ "$(sed -n '8p' "$CPXY_STATE/$SECTION")" = 1 ] || {
@@ -104,7 +108,7 @@ _validate_instance() {
 		# Never flush a table/priority range claimed by a different service.
 		if [ ! -f "$CPXY_STATE/$SECTION" ]; then
 			for entry in "$table" "$((table + 10000))"; do
-				[ -z "$(ip -4 route show table "$entry" 2>/dev/null)" ] || _invalid "$SECTION: routing table $entry is already occupied"
+				[ -z "$(ip -4 route show table "$entry" 2>/dev/null)$(ip -6 route show table "$entry" 2>/dev/null)" ] || _invalid "$SECTION: routing table $entry is already occupied"
 			done
 			for entry in "$priority" "$((priority + 1))" "$((priority + 2))" "$((priority + 3))" "$((priority + 4))"; do
 				[ -z "$(ip -4 rule show priority "$entry")$(ip -6 rule show priority "$entry")" ] || _invalid "$SECTION: rule priority $entry is already occupied"
@@ -129,7 +133,7 @@ _validate_instance() {
 		_validate_network "$iface"
 	done
 	[ "$CPXY_ROUTER_DNS" = 1 ] && dns_port="$(_cpxy_port "$CPXY_DNS_LISTEN")"
-	printf '%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" "$mode" "$CPXY_GEOIP" "$uplink" "$geo_hash" >"$PLAN/$SECTION"
+	printf '%s\n' "$tun" "$table" "$priority" "$LAN_DEVS" "$ZONES" "$dns_port" "$mode" "$CPXY_GEOIP" "$uplink" "$geo_hash" "$uplink6" >"$PLAN/$SECTION"
 }
 
 _prepare_plan() {
@@ -161,6 +165,8 @@ _read_state() {
 		read -r CPXY_IPV6
 		read -r GEOIP || GEOIP=0
 		read -r UPLINK || UPLINK='- -'
+		read -r GEO_HASH || GEO_HASH=-
+		read -r UPLINK6 || UPLINK6='- -'
 	} <"$1"
 	cpxy_net_select "$TUN" "$TABLE" "$PRIORITY"
 }
@@ -168,14 +174,10 @@ _read_state() {
 _start_worker() {
 	local entry
 	procd_open_instance "${1}_tun"
-	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN" --ipv6 "$CPXY_IPV6"
-	# Kernel owns the direct decision. Every TCP packet still reaching TUN must use cpxy,
-	# including during policy reloads; never let an old worker reclassify it as direct.
-	[ "$GEOIP" != 1 ] || procd_append_param command --proxy-route 0.0.0.0/0
+	procd_set_param command "$CPXY_BIN/cpxy-router" --tun "$TUN" --ipv6 "$CPXY_IPV6" --socks5-proxy "$CPXY_ROUTER_SOCKS5"
 	[ "$CPXY_ROUTER_API" = 0 ] || procd_append_param command --api-listen "$CPXY_ROUTER_API_LISTEN"
-	if [ "$GEOIP" != 1 ]; then
-		for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
-	fi
+	# These overrides classify resolver destinations; TUN TCP is always proxied.
+	for entry in $CPXY_PROXY_ROUTES; do procd_append_param command --proxy-route "$entry"; done
 	if [ "$DNS_PORT" != - ]; then
 		procd_append_param command --dns-listen "$CPXY_DNS_LISTEN"
 		for entry in $CPXY_DNS_SEARCH_DOMAINS; do procd_append_param command --dns-search-domain "$entry"; done
@@ -185,9 +187,7 @@ _start_worker() {
 		for entry in $CPXY_DNS_LOCAL_DOMAINS; do procd_append_param command --dns-local-domain "$entry"; done
 		[ "$CPXY_DNS_CACHE" = 1 ] || procd_append_param command --no-dns-cache
 	fi
-	# The server URL holds the key: in the environment, out of the process list. dns_split asks
-	# the servers given with ?via=cpxy through it.
-	cpxy_procd_env "router-$1" SERVER="$CPXY_SERVER" NO_COLOR=1
+	cpxy_procd_env "router-$1" NO_COLOR=1
 	# A package/data update must also replace DNS workers using the old embedded dataset.
 	procd_append_param file "$CPXY_BIN/cpxy-router"
 	procd_set_param respawn 3600 5 0
@@ -202,6 +202,9 @@ _start_instance() {
 	ROUTED=1
 	_read_state "$state"
 	wan="${UPLINK##* }"
+	CPXY_GEO6_ROUTES="$PLAN/routes/$1.v6"
+	CPXY_GEO6_GATEWAY="${UPLINK6%% *}"
+	CPXY_GEO6_WAN="${UPLINK6##* }"
 	if [ ! -f "$CPXY_STATE/$1" ] || ! cmp -s "$state" "$CPXY_STATE/$1" || ! ip link show "$TUN" >/dev/null 2>&1 ||
 		{ [ "$GEOIP" = 1 ] && ! cpxy_geo_healthy "$PLAN/routes/$1" "$wan" $LAN_DEVS; }; then
 		# Record before setup so partial failures remain removable.

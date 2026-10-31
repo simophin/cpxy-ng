@@ -11,7 +11,7 @@
 # The router mimics OpenWrt: strict rp_filter, forward policy drop, and the package's real
 # routing code (net.sh), native packet engine and nftables snippet. It does not run fw4 or dnsmasq.
 #
-# usage: lab.sh <dir with cpxy-router and cpxy-server>
+# usage: lab.sh <dir with cpxy-router, cpxy-client and cpxy-server>
 set -u
 
 if [ -z "${CPXY_LAB_INNER:-}" ]; then
@@ -139,16 +139,25 @@ expect_seen "baseline: request arrives from the router's WAN address" 192.0.2.2
 mark; check "baseline: LAN reaches the web server directly over IPv6" fetch "$URL_V6"
 expect_seen "baseline: IPv6 request arrives from the LAN address" 2001:db8:8::50
 
+# The production router uses both family exports and an independent SOCKS5 process.
+"$BIN/cpxy-router" --export-direct-routes >"$WORK/direct.cidrs"
+"$BIN/cpxy-router" --export-direct-routes-v6 >"$WORK/direct6.cidrs"
+GEO="$(dirname "$NET")/geo.sh"
+kernel_up() {
+    in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select '$1' '$2' '$3'; CPXY_GEO6_ROUTES='$WORK/direct6.cidrs'; CPXY_GEO6_GATEWAY=2001:db8:2::1; CPXY_GEO6_WAN=wan0r; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r '$4'"
+}
+bg ip netns exec router env CONFIG=http://:lab@192.0.2.1:8443 SOCKS5_PROXY_LISTEN=127.0.0.1:1080 "$BIN/cpxy-client" >"$WORK/socks.log" 2>&1
+SOCKS_PID=$!
 # --- Start the service pieces exactly as the init script does ---
-in_router sh -c "CPXY_IPV6=full; . '$NET'; cpxy_net_up lan0r"
+kernel_up cpxy0 100 9100 lan0r
 check "policy routing installs" in_router ip rule show
 # ip netns exec execs, so $! is the native worker itself.
-bg ip netns exec router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun cpxy0 --api-listen 127.0.0.1:3010 >"$WORK/tun.log" 2>&1
+bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun cpxy0 --api-listen 127.0.0.1:3010 >"$WORK/tun.log" 2>&1
 TUN_PID=$!
 sleep 2
 
 check "offline traffic page is served" in_router curl -fsS --max-time 3 --noproxy '*' http://127.0.0.1:3010/
-check_not "occupied API port prevents startup" in_router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun api-conflict --api-listen 127.0.0.1:3010
+check_not "occupied API port prevents startup" in_router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun api-conflict --api-listen 127.0.0.1:3010
 check_not "API bind failure creates no TUN device" in_router ip link show api-conflict
 in_router curl -fsS --max-time 3 --noproxy '*' http://127.0.0.1:3010/api/traffic >"$WORK/api-start.json"
 
@@ -173,7 +182,7 @@ assert traffic["session"] == page["session"]
 assert any(r["event"]["ip"] == "93.184.216.34" and r["event"]["outbound"] == "proxy" and r["event"]["error"] is None for r in page["records"]), page
 '
 # A reload runs cpxy_net_up again while native worker keeps running; it must stay attached to cpxy0
-in_router sh -c "CPXY_IPV6=full; . '$NET'; cpxy_net_up lan0r"
+kernel_up cpxy0 100 9100 lan0r
 mark; check "reload: LAN still reaches the web server through the proxy" fetch
 got="$(seen)"
 if [ -n "$got" ] && [ "$got" != 192.0.2.2 ]; then pass "reload: still through cpxy"
@@ -214,7 +223,7 @@ case "$got" in
 *) pass "IPv6 request came through cpxy (web server saw: $got)" ;;
 esac
 check "local-region TCP over IPv6 is reachable" in_lan curl -gsS --max-time 5 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
-grep -q '^2001:db8:2::2 ' "$WORK/direct.log" && pass "local-region TCP over IPv6 goes direct from the router" ||
+grep -q '^2001:db8:8::50 ' "$WORK/direct.log" && pass "local-region TCP over IPv6 is forwarded natively" ||
 	fail "local-region TCP over IPv6 was not direct"
 got="$(udp_probe 443 2001:db8:100::34)"
 [ "$got" = refused ] && pass "QUIC over IPv6 gets an immediate ICMPv6 refusal" || fail "IPv6 UDP 443 was not refused (got: $got)"
@@ -224,8 +233,9 @@ got="$(udp_probe 9999 2001:db8:100::34)"
 
 # --- A second network selects a genuinely different upstream server. ---
 bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
-in_router sh -c ". '$NET'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
-bg ip netns exec router env SERVER=http://:guestlab@192.0.3.1:8444 "$BIN/cpxy-router" --tun cpxy1 >"$WORK/guest-tun.log" 2>&1
+kernel_up cpxy1 101 9110 guest0r
+bg ip netns exec router env CONFIG=http://:guestlab@192.0.3.1:8444 SOCKS5_PROXY_LISTEN=127.0.0.1:1081 "$BIN/cpxy-client" >"$WORK/guest-socks.log" 2>&1
+bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1081 --tun cpxy1 >"$WORK/guest-tun.log" 2>&1
 GUEST_PID=$!
 sleep 1
 guest_fetch() { in_guest curl -sS --max-time 5 --noproxy '*' "$URL"; }
@@ -233,7 +243,7 @@ mark; check "guest uses second upstream" guest_fetch
 expect_seen "guest upstream has its own source address" 192.0.3.1
 mark; check "main still uses first upstream" fetch
 expect_seen "main upstream unchanged" 93.184.216.34
-in_router sh -c ". '$NET'; cpxy_net_select cpxy1 101 9110; cpxy_net_up guest0r"
+kernel_up cpxy1 101 9110 guest0r
 mark; check "guest reload preserves second upstream" guest_fetch
 expect_seen "guest reload keeps second source address" 192.0.3.1
 kill "$GUEST_PID"
@@ -242,7 +252,7 @@ mark; check_not "guest worker failure is closed" guest_fetch
 expect_not_direct "guest failure has no WAN fallback"
 mark; check "guest failure leaves main working" fetch
 expect_seen "main upstream after guest failure" 93.184.216.34
-in_router sh -c ". '$NET'; cpxy_net_select cpxy1 101 9110; cpxy_net_down_routing"
+in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select cpxy1 101 9110; cpxy_geo_down"
 mark; check "guest stop restores direct routing" guest_fetch
 expect_seen "guest direct after stop" 192.0.2.2
 mark; check "guest stop leaves main working" fetch
@@ -256,7 +266,7 @@ expect_not_direct "native worker down: nothing leaked via the WAN"
 # The persistent TUN survives worker exit and can be attached again without redoing routes.
 check_not "worker exit closes the traffic listener" in_router curl -fsS --max-time 2 --noproxy '*' http://127.0.0.1:3010/api/traffic
 check "worker exit preserves the TUN device" in_router ip link show cpxy0
-bg ip netns exec router env SERVER=http://:lab@192.0.2.1:8443 "$BIN/cpxy-router" --tun cpxy0 --api-listen 127.0.0.1:3010 >>"$WORK/tun.log" 2>&1
+bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --tun cpxy0 --api-listen 127.0.0.1:3010 >>"$WORK/tun.log" 2>&1
 TUN_PID=$!
 sleep 1
 check "worker restart changes traffic API session" in_router python3 -c '
@@ -269,6 +279,13 @@ assert old["session"] != new["session"]
 mark; check "worker restart restores proxied TCP" fetch
 expect_not_direct "worker restart still uses cpxy"
 
+kill "$SOCKS_PID"; sleep 0.5
+mark; check_not "SOCKS5 down: overseas TCP fails closed" fetch
+expect_not_direct "SOCKS5 down: no direct fallback"
+check "SOCKS5 down: regional IPv6 stays native" in_lan curl -gfsS --max-time 3 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
+bg ip netns exec router env CONFIG=http://:lab@192.0.2.1:8443 SOCKS5_PROXY_LISTEN=127.0.0.1:1080 "$BIN/cpxy-client" >>"$WORK/socks.log" 2>&1
+SOCKS_PID=$!
+sleep 0.5
 kill "$SERVER_PID"; sleep 0.5
 mark; check_not "server down: non-local TCP fails closed" fetch
 expect_not_direct "server down: no direct fallback"
@@ -277,8 +294,40 @@ kill -TERM "$TUN_PID"
 if wait "$TUN_PID"; then pass "worker stops cleanly"; else fail "worker stop returned an error"; fi
 check_not "worker never panicked" grep -m3 panicked "$WORK/tun.log"
 
+# A real external SOCKS5 fixture must work after the cpxy server has stopped.
+SOCKS_FIXTURE="$(cd "$(dirname "$0")" && pwd)/socks5-fixture.py"
+DNS_FIXTURE="$(cd "$(dirname "$0")/../../../mobile-engine/test" && pwd)/dns.py"
+bg ip netns exec inet python3 "$SOCKS_FIXTURE" 2001:db8:2::1 1082 >"$WORK/external-socks.log" 2>&1
+in_inet ip addr add 8.8.8.8/32 dev lo
+bg ip netns exec inet python3 "$DNS_FIXTURE" serve 114.114.114.114 0 cn.test=114.114.114.114 overseas.test=93.184.216.34 >"$WORK/cn-dns.log" 2>&1
+bg ip netns exec inet python3 "$DNS_FIXTURE" serve 8.8.8.8 0 overseas.test=93.184.216.34 overseas.test=2001:db8:100::34 >"$WORK/overseas-dns.log" 2>&1
+bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy '[2001:db8:2::1]:1082' --tun cpxy0 --dns-listen '[::]:5335' --dns-upstream 114.114.114.114 --dns-alternative 8.8.8.8 >"$WORK/external-router.log" 2>&1
+TUN_PID=$!
+sleep 1
+mark; check "external SOCKS5 without cpxy server relays IPv4" fetch
+expect_seen "external SOCKS5 uses proxy exit" 93.184.216.34
+check "external SOCKS5 relays IPv6" fetch "$URL_V6"
+check "DNS redirect installs for both address families" in_router nft -f - <<'NFT'
+table inet cpxy_test_dns {
+    chain prerouting {
+        type nat hook prerouting priority dstnat;
+        iifname "lan0r" udp dport 53 redirect to :5335
+        iifname "lan0r" tcp dport 53 redirect to :5335
+    }
+}
+NFT
+dns_query() { in_lan python3 "$DNS_FIXTURE" query "$@"; }
+[ "$(dns_query 8.8.4.4 cn.test)" = 'NOERROR 114.114.114.114' ] && pass "Chinese DNS answer via direct UDP" || fail "Chinese DNS answer"
+[ "$(dns_query 8.8.4.4 overseas.test tcp)" = 'NOERROR 93.184.216.34' ] && pass "IPv4 TCP DNS redirected and proxied" || fail "IPv4 TCP DNS"
+[ "$(dns_query 2001:4860:4860::8844 overseas.test udp AAAA)" = 'NOERROR 2001:db8:100::34' ] && pass "IPv6 UDP DNS redirected, AAAA retained" || fail "IPv6 UDP DNS"
+[ "$(dns_query 2001:4860:4860::8844 overseas.test tcp)" = 'NOERROR 93.184.216.34' ] && pass "IPv6 TCP DNS redirected" || fail "IPv6 TCP DNS"
+check "overseas UDP DNS specification used SOCKS5 TCP" grep -q 'CONNECT 8.8.8.8 53' "$WORK/external-socks.log"
+check_not "Chinese DNS never enters SOCKS5" grep -q 'CONNECT 114.114.114.114 53' "$WORK/external-socks.log"
+kill "$TUN_PID"; wait "$TUN_PID"
+in_router nft delete table inet cpxy_test_dns
+
 # --- Stop: the original setup is back ---
-in_router sh -c ". '$NET'; cpxy_net_down_routing"
+in_router sh -c ". '$NET'; . '$GEO'; cpxy_geo_down"
 [ "$(in_router ip -4 rule show | grep -c 910)" = 0 ] && pass "stop: rules removed" || fail "stop: rules remain"
 [ "$(in_router ip -4 route show table 100 | wc -l)" = 0 ] && pass "stop: table 100 empty" || fail "stop: table 100 not empty"
 [ "$(in_router ip -6 rule show | grep -c 910)" = 0 ] && pass "stop: IPv6 rules removed" || fail "stop: IPv6 rules remain"
@@ -292,6 +341,6 @@ if [ "$FAILED" = 0 ]; then
 	echo "lab passed"
 else
 	echo "lab FAILED"
-	for f in tun server; do echo "== $f.log"; tail -n 15 "$WORK/$f.log" 2>/dev/null; done
+	for f in tun server external-router external-socks cn-dns overseas-dns; do echo "== $f.log"; tail -n 15 "$WORK/$f.log" 2>/dev/null; done
 fi
 exit "$FAILED"

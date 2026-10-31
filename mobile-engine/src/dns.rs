@@ -7,12 +7,12 @@ use client::dns_split::policy::Racer;
 use client::dns_split::server::{
     DnsSplitHandler, encode_udp, serve_tcp, serve_tcp_connection, serve_udp,
 };
-use client::dns_split::spec::ServerSpec;
+use client::dns_split::spec::{Destination, Endpoint, ServerSpec, Via};
 use client::dns_split::upstream::{
     Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
 };
 use client::ipv6::Ipv6Mode;
-use client::outbound::ProtocolOutbound;
+use client::outbound::{ProtocolOutbound, ProxyRoutes, Socks5Outbound};
 use client::protocol_config::Config as ServerConfig;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -51,11 +51,60 @@ pub struct Specs<'a> {
 /// decides between direct and the cpxy server for the device's flows. Must run on the engine's
 /// runtime, which then purges the cache's expired answers.
 pub async fn handler(specs: &Specs<'_>, server: &ServerConfig) -> anyhow::Result<DnsSplitHandler> {
+    build_handler(
+        specs,
+        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(server.clone())))),
+        None,
+    )
+    .await
+}
+
+/// Router sockets bypass ingress policy rules, so classify resolver destinations explicitly.
+/// Proxied UDP DNS is upgraded to TCP; the LAN-facing listener still accepts UDP and TCP.
+pub async fn router_handler(
+    specs: &Specs<'_>,
+    proxy: SocketAddr,
+    routes: &ProxyRoutes,
+) -> anyhow::Result<DnsSplitHandler> {
+    build_handler(
+        specs,
+        Arc::new(OutboundDialer(Arc::new(Socks5Outbound(proxy)))),
+        Some(routes),
+    )
+    .await
+}
+
+async fn router_spec(spec: &ServerSpec, routes: &ProxyRoutes) -> anyhow::Result<ServerSpec> {
+    let mut spec = spec.clone();
+    // Legacy explicit proxy specs stay supported; the dialer is now SOCKS5.
+    if spec.via == Via::Cpxy {
+        return Ok(spec);
+    }
+    let Destination::Addr(address) = spec.resolve().await? else {
+        anyhow::bail!("DNS address must resolve before classification");
+    };
+    let proxy = crate::routing::route(routes, Some(address.ip())) == crate::routing::Route::Proxy;
+    spec.via = if proxy { Via::Cpxy } else { Via::Direct };
+    match &mut spec.endpoint {
+        Endpoint::Udp(_) if proxy => spec.endpoint = Endpoint::Tcp(address),
+        Endpoint::Tls { ip, .. } | Endpoint::Https { ip, .. } => *ip = Some(address.ip()),
+        _ => {}
+    }
+    Ok(spec)
+}
+
+async fn build_handler(
+    specs: &Specs<'_>,
+    cpxy: Arc<dyn Dialer>,
+    routes: Option<&ProxyRoutes>,
+) -> anyhow::Result<DnsSplitHandler> {
     let tls_config = tls_client_config()?;
-    let cpxy: Arc<dyn Dialer> =
-        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(server.clone()))));
     let new_upstream = async |spec: &ServerSpec| {
-        HickoryUpstream::new(spec, tls_config.clone(), QUERY_TIMEOUT, Some(cpxy.clone())).await
+        let spec = match routes {
+            Some(routes) => router_spec(spec, routes).await?,
+            None => spec.clone(),
+        };
+        HickoryUpstream::new(&spec, tls_config.clone(), QUERY_TIMEOUT, Some(cpxy.clone())).await
     };
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
     for (group, group_specs) in [
@@ -87,9 +136,14 @@ pub async fn handler(specs: &Specs<'_>, server: &ServerConfig) -> anyhow::Result
     .with_search_domains(specs.search_domains.to_vec())
     .with_ipv6(specs.ipv6);
     if let Some((spec, domains)) = specs.local {
-        let server = new_upstream(spec)
-            .await
-            .with_context(|| format!("Error setting up local DNS server {spec}"))?;
+        let server = if routes.is_some() {
+            let mut local = spec.clone();
+            local.via = Via::Direct;
+            HickoryUpstream::new(&local, tls_config.clone(), QUERY_TIMEOUT, None).await
+        } else {
+            new_upstream(spec).await
+        }
+        .with_context(|| format!("Error setting up local DNS server {spec}"))?;
         tracing::info!("Using local DNS server {} for local names", server.name());
         let domains = domains.iter().map(|domain| {
             let mut domain = domain.clone();
@@ -179,5 +233,76 @@ pub async fn serve_tcp_flow(
 ) {
     if let Err(e) = serve_tcp_connection(flow, &handler).await {
         tracing::debug!("DNS over TCP ended: {e:?}");
+    }
+}
+
+#[cfg(test)]
+mod router_tests {
+    use super::*;
+    use client::handshaker::Handshaker;
+    use client::socks_proxy_server::{ProxyRequest, SocksProxyHandshaker};
+    use hickory_proto::op::{MessageType, Query};
+    use hickory_proto::rr::RecordType;
+
+    #[tokio::test]
+    async fn resolver_transport_follows_destination_and_overrides_in_both_families() {
+        let routes = ProxyRoutes::parse(&["223.5.5.5/32".into(), "2400:3200::/32".into()]).unwrap();
+        for (input, proxy, tcp) in [
+            ("114.114.114.114", false, false),
+            ("8.8.8.8", true, true),
+            ("223.5.5.5", true, true),
+            ("[2400:3200::1]:53", true, true),
+            ("[240e::1]:53", false, false),
+            ("[2001:4860:4860::8888]:53", true, true),
+            ("[fd00::1]:53", false, false),
+            ("https://dns.google?ip=8.8.8.8", true, false),
+        ] {
+            let spec = router_spec(&input.parse().unwrap(), &routes).await.unwrap();
+            assert_eq!(spec.via == Via::Cpxy, proxy, "{input}");
+            assert_eq!(matches!(spec.endpoint, Endpoint::Tcp(_)), tcp, "{input}");
+        }
+    }
+
+    #[tokio::test]
+    async fn overseas_dns_reaches_socks5_as_tcp_with_original_address() {
+        for destination in ["8.8.8.8:53", "[2001:4860:4860::8888]:53"] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let proxy = listener.local_addr().unwrap();
+            let expected: SocketAddr = destination.parse().unwrap();
+            let fixture = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let (request, handshake) = SocksProxyHandshaker::accept(socket).await.unwrap();
+                assert!(matches!(request, ProxyRequest::WithIP(addr) if addr == expected));
+                let mut stream = handshake.respond_ok().await.unwrap();
+                let length = stream.read_u16().await.unwrap();
+                let mut bytes = vec![0; length as usize];
+                stream.read_exact(&mut bytes).await.unwrap();
+                let mut response = Message::from_vec(&bytes).unwrap();
+                assert_eq!(response.queries()[0].name().to_ascii(), "example.com.");
+                response.set_message_type(MessageType::Response);
+                let bytes = response.to_vec().unwrap();
+                stream.write_u16(bytes.len() as u16).await.unwrap();
+                stream.write_all(&bytes).await.unwrap();
+            });
+            let spec = router_spec(&destination.parse().unwrap(), &ProxyRoutes::default())
+                .await
+                .unwrap();
+            let upstream = HickoryUpstream::new(
+                &spec,
+                tls_client_config().unwrap(),
+                QUERY_TIMEOUT,
+                Some(Arc::new(OutboundDialer(Arc::new(Socks5Outbound(proxy))))),
+            )
+            .await
+            .unwrap();
+            let mut query = Message::new();
+            query.add_query(Query::query(
+                Name::from_ascii("example.com.").unwrap(),
+                RecordType::A,
+            ));
+            let answer = upstream.query(query).await.unwrap();
+            assert_eq!(answer.message_type(), MessageType::Response);
+            fixture.await.unwrap();
+        }
     }
 }
