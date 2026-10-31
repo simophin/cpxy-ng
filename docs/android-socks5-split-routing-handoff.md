@@ -1,7 +1,7 @@
 # Android SOCKS5 split routing: implementation handoff
 
 Date: 2026-10-31. Branch: `feat/socks5-kernel-router`.
-Status: design/handoff only; Android changes are not implemented by this document.
+Status: implementation in progress; see the progress log below.
 Baseline: the SOCKS5 OpenWrt router implementation on this branch, PR #158.
 
 ## Objective and conversation decisions
@@ -167,7 +167,7 @@ silently force those platforms into Android's route installation mechanism.
 
 ## Suggested work sequence
 
-- [ ] Inspect current branch changes and applicable instructions; record a short
+- [x] Inspect current branch changes and applicable instructions; record a short
   implementation plan before edits. Do not overwrite unrelated user work.
 - [ ] Add a shared, testable IPv4/IPv6 route-plan interface, virtual DNS reservation,
   forced-route subtraction, and conservative capture fallback.
@@ -227,3 +227,18 @@ that the Android changes described here have been implemented or tested.
 - [Android VPN guide](https://developer.android.com/develop/connectivity/vpn):
   VPN lifecycle, outbound socket handling, per-app behavior and the single active
   VPN service per user/profile restriction.
+
+## Implementation progress
+
+2026-10-31: inspected the handoff and baseline router PR #158. No repository
+AGENTS.md applies. Untracked `client/android-app/` and `blocklist-data/` are
+pre-existing and excluded from this work. Implementation is on
+`feat/android-socks5-split-routing`, stacked on the router branch.
+
+Plan: first compile shared dual-family route plans with a reserved virtual DNS
+host and bounded conservative fallback; next add compatible backend profiles and
+an engine-owned embedded SOCKS listener; then install Android routes, test the
+Rust/Kotlin policy and lifecycle, and exercise the APK in an emulator. Record
+measured route counts/setup timings and distinguish emulator evidence from
+physical-network scenarios that cannot be reproduced here. Test server credentials
+are session-only and must not enter commits or artifacts.
