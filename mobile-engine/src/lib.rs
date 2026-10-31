@@ -697,6 +697,54 @@ mod tests {
         fn on_outbound_event(&self, _: OutboundEvent) {}
     }
 
+    #[test]
+    fn android_udp_preserves_empty_and_large_datagrams_with_dead_socks() {
+        use std::os::unix::net::UnixDatagram;
+        for ipv6 in [false, true] {
+            let endpoint =
+                std::net::UdpSocket::bind(if ipv6 { "[::1]:0" } else { "127.0.0.1:0" }).unwrap();
+            endpoint
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let destination = endpoint.local_addr().unwrap();
+            let (tun, peer) = UnixDatagram::pair().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let config = r#"{"android_socks":true,"socks5":"127.0.0.1:9","dns_upstream":["127.0.0.1"],"dns_alternative":["127.0.0.1"]}"#;
+            let engine = start(tun.into(), config, Arc::new(())).unwrap();
+            for (index, size) in [0, 1400].into_iter().enumerate() {
+                let builder = if ipv6 {
+                    etherparse::PacketBuilder::ipv6(
+                        TUN_ADDR_V6.octets(),
+                        Ipv6Addr::LOCALHOST.octets(),
+                        64,
+                    )
+                } else {
+                    etherparse::PacketBuilder::ipv4(
+                        TUN_ADDR.octets(),
+                        Ipv4Addr::LOCALHOST.octets(),
+                        64,
+                    )
+                }
+                .udp(40000 + index as u16, destination.port());
+                let payload = vec![7; size];
+                let mut packet = Vec::new();
+                builder.write(&mut packet, &payload).unwrap();
+                peer.send(&packet).unwrap();
+                let mut buffer = [0; 2048];
+                let (n, sender) = endpoint.recv_from(&mut buffer).unwrap();
+                assert_eq!(n, size);
+                endpoint.send_to(&buffer[..n], sender).unwrap();
+                let n = peer.recv(&mut buffer).unwrap();
+                let packet = etherparse::SlicedPacket::from_ip(&buffer[..n]).unwrap();
+                let Some(etherparse::TransportSlice::Udp(udp)) = packet.transport else {
+                    panic!("not UDP")
+                };
+                assert_eq!(udp.payload(), payload);
+            }
+            engine.stop();
+        }
+    }
+
     #[tokio::test]
     async fn records_events_even_without_a_callback() {
         let log = Arc::new(ConnectionLog::new(2));

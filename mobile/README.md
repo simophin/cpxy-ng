@@ -196,9 +196,10 @@ loopback SOCKS backend inside the app; optional shared proxy ports remain separa
 
 Android excludes CN/private destination prefixes from VPN routes on API 33+ and
 uses included complement routes on API 26–32. Virtual DNS `10.233.0.2` and forced
-proxy routes always stay captured. Route plans have a 512-entry budget: smaller
-CN prefixes may remain captured and use direct sockets in the engine. If a device
-rejects its plan, the app logs the reason and retries full capture with the same
+proxy routes always stay captured. The app first attempts exact routes. If the
+platform rejects that plan, it logs the reason and retries within a 512-entry
+budget: smaller CN prefixes may remain captured and use direct sockets in the
+engine. If that plan is rejected too, it retries full capture with the same
 userspace split routing. `CpxyVpnService` logs route counts and setup milliseconds.
 IPv6 Off captures and refuses all IPv6; it does not install native IPv6 bypass.
 
@@ -212,21 +213,25 @@ datagrams (the packet stack has no IP fragmentation support).
 
 ### Opt-in emulator network smoke test
 
-Build both APKs and the NDK probe in `test/vpn-probe.c`, then install the APKs and
-push the executable probe to `/data/local/tmp/cpxy-vpn-probe`. Place the test Cpxy
-URL in `/data/local/tmp/cpxy-vpn-test-server` without printing or committing it.
-Grant VPN consent, keep the app in the foreground, and run:
+Build `:androidApp:assembleDebug :androidApp:assembleDebugAndroidTest
+:vpnProbe:assembleDebug` and install all three APKs in the emulator. The probe is a
+small, separate test application with its own UID and an ordered-broadcast
+receiver. Place the test Cpxy URL in `/data/local/tmp/cpxy-vpn-test-server` without
+printing or committing it. Grant VPN consent, keep the VPN app in the foreground,
+and run:
 
 ```sh
 adb shell am instrument -w \
   -e class dev.fanchao.cpxy.vpn.SplitRoutingTest \
-  -e vpnProbe /data/local/tmp/cpxy-vpn-probe \
   -e vpnServerFile /data/local/tmp/cpxy-vpn-test-server \
+  -e vpnSocksEndpoint 10.0.2.2:11080 \
   dev.fanchao.cpxy.vpn.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-The probe runs as shell UID so its DNS/HTTP traffic enters the VPN; instrumentation
-itself shares the app's excluded UID. The test checks virtual DNS, ordinary direct
-UDP DNS, overseas HTTP through the selected SOCKS path, counters, and two complete
-start/stop cycles. Without fixture arguments the network test is skipped. Remove
-the temporary server file after testing.
+`vpnProbe` runs outside the excluded VPN UID. The tests check virtual DNS,
+ordinary direct UDP DNS, overseas HTTP through SOCKS, counters, complete restart
+cycles, native private bypass, captured UDP/443 rejection, forced TCP failure,
+and empty/large direct UDP while SOCKS is unavailable. External SOCKS checks
+require `python3 vpnProbe/fixture.py` running on the emulator host (loopback
+SOCKS on 11080, HTTP on 11081, and UDP echo on 11082). Without fixture arguments the corresponding tests are skipped.
+Remove the temporary server file and uninstall the probe APK after testing.

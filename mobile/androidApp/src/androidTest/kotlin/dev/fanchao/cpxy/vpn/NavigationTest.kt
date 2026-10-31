@@ -15,6 +15,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import okio.Path.Companion.toOkioPath
+import org.junit.Before
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -46,6 +47,12 @@ class NavigationTest {
         override suspend fun connectionsBefore(before: Long?, limit: Int) = ConnectionPage(emptyList(), 0)
         override suspend fun connect(profile: Profile) {}
         override fun disconnect() {}
+    }
+
+    @Before fun enableKeyboardFocus() {
+        // Compose key injection does not switch the Android window out of touch mode on all
+        // API levels. These tests exercise keyboard/D-pad focus, including on phone emulators.
+        InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
     }
 
     @After fun cleanUp() {
@@ -196,6 +203,20 @@ class NavigationTest {
         search.assertIsFocused()
         press(Key.DirectionUp)
         compose.onNodeWithContentDescription("Back").assertIsFocused()
+    }
+
+    @Test fun externalSocksProfileSavesWithoutCpxyCredentials() {
+        var done = false
+        compose.setContent { MaterialTheme { EditProfileScreen(null, repository, { done = true }) } }
+        compose.onNodeWithText("Name").performTextInput("External")
+        compose.onNodeWithText("External SOCKS5").performClick()
+        compose.onNodeWithText("SOCKS5 endpoint").performTextInput("proxy.example.com:1080")
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil { done }
+        val saved = runBlocking { repository.profiles.first().selected!! }
+        assertEquals(ProfileBackend.Socks5, saved.backend)
+        assertEquals("proxy.example.com:1080", saved.socks5)
+        assertEquals("", saved.server)
     }
 
     @Test fun duplicateIsPrefilledAndSavedSeparately() {

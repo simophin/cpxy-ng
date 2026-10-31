@@ -166,7 +166,6 @@ private fun EditProfileForm(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Field("Name", name, { name = it }, errors[ProfileField.Name], onNext = next)
             Text("Connection", style = MaterialTheme.typography.titleSmall)
             Column(Modifier.selectableGroup()) {
                 for (type in ProfileBackend.entries) {
@@ -177,6 +176,7 @@ private fun EditProfileForm(
                     )
                 }
             }
+            Field("Name", name, { name = it }, errors[ProfileField.Name], onNext = next)
             Field(
                 label = if (backend == ProfileBackend.Cpxy) "Server" else "SOCKS5 endpoint",
                 value = if (backend == ProfileBackend.Cpxy) server else socks5,

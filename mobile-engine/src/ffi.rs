@@ -95,11 +95,21 @@ pub fn android_route_plan(
     proxy_routes: Vec<String>,
     ipv6: String,
     exclusions: bool,
+    max_routes: u32,
 ) -> Result<crate::android_routes::AndroidRoutePlan, EngineError> {
     let compile = || -> anyhow::Result<_> {
+        anyhow::ensure!(
+            (4..=100_000).contains(&max_routes),
+            "Route budget must be between 4 and 100000"
+        );
         let routes = client::outbound::ProxyRoutes::parse(&proxy_routes)?;
         let mode: client::ipv6::Ipv6Mode = serde_json::from_value(serde_json::Value::String(ipv6))?;
-        Ok(crate::android_routes::plan(&routes, mode, exclusions))
+        Ok(crate::android_routes::plan(
+            &routes,
+            mode,
+            exclusions,
+            max_routes as usize,
+        ))
     };
     compile().map_err(|e| EngineError::Failed {
         reason: format!("{e:#}"),

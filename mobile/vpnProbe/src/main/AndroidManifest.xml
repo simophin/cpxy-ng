@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application android:label="CPXY VPN test probe" android:allowBackup="false" android:usesCleartextTraffic="true">
+        <receiver android:name=".ProbeReceiver" android:exported="true" />
+    </application>
+</manifest>

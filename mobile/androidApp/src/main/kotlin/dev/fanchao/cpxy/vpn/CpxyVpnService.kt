@@ -10,8 +10,10 @@ import android.net.VpnService
 import android.net.IpPrefix
 import android.os.Build
 import android.os.SystemClock
+import android.os.TransactionTooLargeException
 import android.util.Log
 import java.net.InetAddress
+import java.util.concurrent.ConcurrentHashMap
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -20,6 +22,7 @@ import dev.fanchao.cpxy.vpn.engine.Engine
 import dev.fanchao.cpxy.vpn.engine.EngineException
 import dev.fanchao.cpxy.vpn.engine.startEngine
 import dev.fanchao.cpxy.vpn.engine.androidRoutePlan
+import dev.fanchao.cpxy.vpn.engine.AndroidRoutePlan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,12 +48,15 @@ class CpxyVpnService : VpnService() {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val engineDispatcher = Dispatchers.IO.limitedParallelism(1)
     private var engine: Engine? = null
+    @Volatile private var latestStartId = 0
+    private var finalState: VpnState = VpnState.Disconnected
     /** Reports the traffic. */
     private var monitorJob: Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         if (intent?.action == ACTION_STOP) {
-            scope.launch(engineDispatcher) { stop(VpnState.Disconnected) }
+            scope.launch(engineDispatcher) { stop(VpnState.Disconnected, startId) }
             return START_NOT_STICKY
         }
 
@@ -62,11 +68,12 @@ class CpxyVpnService : VpnService() {
         scope.launch(engineDispatcher) {
             val profile = requested ?: app.repository.profiles.first().selected
             if (profile == null) {
-                stop(VpnState.Failed("Add a profile to connect"))
+                stop(VpnState.Failed("Add a profile to connect"), startId)
                 return@launch
             }
+            if (startId != latestStartId) return@launch
             controller.reportState(VpnState.Connecting(profile.id))
-            start(profile, app.settingsRepository.settings.first())
+            start(profile, app.settingsRepository.settings.first(), startId)
         }
         return START_STICKY
     }
@@ -79,15 +86,18 @@ class CpxyVpnService : VpnService() {
     override fun onDestroy() {
         runBlocking(engineDispatcher) { stopEngine() }
         scope.cancel()
+        controller.reportState(finalState)
         super.onDestroy()
     }
 
-    private fun CoroutineScope.start(profile: Profile, settings: AppSettings) {
+    private fun CoroutineScope.start(profile: Profile, settings: AppSettings, startId: Int) {
         val started = runCatching {
             val routeStarted = SystemClock.elapsedRealtime()
             val exclusions = Build.VERSION.SDK_INT >= 33
-            val plan = androidRoutePlan(settings.proxyRoutes, profile.ipv6.name.lowercase(), exclusions)
-            if (plan.fallbackReason.isNotEmpty()) Log.w(TAG, plan.fallbackReason)
+            val routeKey = profile.ipv6.name + ":" + settings.proxyRoutes.joinToString(",")
+            val exactAttempt = routeKey !in oversizedRoutePlans
+            var plan = androidRoutePlan(settings.proxyRoutes, profile.ipv6.name.lowercase(), exclusions, if (exactAttempt) 100_000u else 512u)
+            if (!exactAttempt) Log.w(TAG, "Previously rejected exact plan; ${plan.fallbackReason}")
             fun builder() = Builder()
                 .setSession(profile.name)
                 .setMtu(TunParameters.MTU)
@@ -104,27 +114,48 @@ class CpxyVpnService : VpnService() {
                 }
                 .route(settings.routing(ownPackage = packageName))
                 .setConfigureIntent(mainActivityIntent())
+            var installedExclusions = 0
             var fullCaptureFallback = false
-            val tun = try {
-                builder().apply {
-                    plan.included.forEach { prefix ->
+            fun install(routePlan: AndroidRoutePlan): android.os.ParcelFileDescriptor {
+                installedExclusions = 0
+                return builder().apply {
+                    routePlan.included.forEach { prefix ->
                         addRoute(prefix.substringBefore('/'), prefix.substringAfter('/').toInt())
                     }
                     if (Build.VERSION.SDK_INT >= 33) {
-                        plan.excluded.forEach {
-                            excludeRoute(IpPrefix(InetAddress.getByName(it.substringBefore('/')), it.substringAfter('/').toInt()))
+                        routePlan.excluded.forEach {
+                            val address = InetAddress.getByName(it.substringBefore('/'))
+                            // Android rejects loopback prefixes. They already use the local
+                            // routing table before VPN policy and need no destination exclusion.
+                            if (!address.isLoopbackAddress) {
+                                excludeRoute(IpPrefix(address, it.substringAfter('/').toInt()))
+                                installedExclusions++
+                            }
                         }
                     }
                 }.establish() ?: error("The VPN permission was revoked")
-            } catch (e: Exception) {
-                // A device may impose a smaller route/Binder limit. Full capture is safe because
-                // the split SOCKS router still relays captured CN/private flows directly.
-                fullCaptureFallback = true
-                Log.w(TAG, "Route plan installation failed; retrying with full capture (${e.javaClass.simpleName})")
-                builder().addRoute("0.0.0.0", 0).addRoute("::", 0).establish()
-                    ?: error("The VPN permission was revoked")
             }
-            Log.i(TAG, "VPN routes: API=${Build.VERSION.SDK_INT}, included=${plan.included.size}, excluded=${plan.excluded.size}, fullCaptureFallback=$fullCaptureFallback, setupMs=${SystemClock.elapsedRealtime() - routeStarted}")
+            val tun = try {
+                install(plan)
+            } catch (exactError: Exception) {
+                if (exactAttempt && generateSequence<Throwable>(exactError) { it.cause }.any { it is TransactionTooLargeException }) {
+                    oversizedRoutePlans.add(routeKey)
+                }
+                Log.w(TAG, "${if (exactAttempt) "Exact" else "Bounded"} route installation failed: included=${plan.included.size}, excluded=${plan.excluded.size}, ${exactError.javaClass.simpleName}: ${exactError.message}")
+                plan = androidRoutePlan(settings.proxyRoutes, profile.ipv6.name.lowercase(), exclusions, 512u)
+                Log.w(TAG, plan.fallbackReason)
+                try {
+                    install(plan)
+                } catch (boundedError: Exception) {
+                    // Full capture remains safe: the userspace router retains direct CN policy.
+                    fullCaptureFallback = true
+                    installedExclusions = 0
+                    Log.w(TAG, "Bounded route installation failed; using full capture (${boundedError.javaClass.simpleName}: ${boundedError.message})")
+                    builder().addRoute("0.0.0.0", 0).addRoute("::", 0).establish()
+                        ?: error("The VPN permission was revoked")
+                }
+            }
+            Log.i(TAG, "VPN routes: API=${Build.VERSION.SDK_INT}, included=${if (fullCaptureFallback) 2 else plan.included.size}, excluded=$installedExclusions, fullCaptureFallback=$fullCaptureFallback, setupMs=${SystemClock.elapsedRealtime() - routeStarted}")
             // Establishing the replacement first keeps policy updates/profile switches from
             // briefly removing VPN capture while the old engine shuts down.
             stopEngine()
@@ -146,7 +177,7 @@ class CpxyVpnService : VpnService() {
             }
         }.onFailure { e ->
             Log.e(TAG, "Failed to start the engine", e)
-            stop(VpnState.Failed((e as? EngineException.Failed)?.reason ?: e.message ?: e.toString()))
+            stop(VpnState.Failed((e as? EngineException.Failed)?.reason ?: e.message ?: e.toString()), startId)
         }
     }
 
@@ -169,11 +200,15 @@ class CpxyVpnService : VpnService() {
         }
     }
 
-    private fun stop(state: VpnState) {
+    private fun stop(state: VpnState, startId: Int = latestStartId) {
+        if (startId != latestStartId) return
         stopEngine()
-        controller.reportState(state)
+        // A newer connect may arrive while native shutdown blocks. Do not stop its service.
+        if (startId != latestStartId) return
+        finalState = state
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopSelfResult(startId)
+        // Publish the terminal state in onDestroy, after the service is ready to restart.
     }
 
     private fun stopEngine() {
@@ -223,6 +258,8 @@ class CpxyVpnService : VpnService() {
     )
 
     companion object {
+        // Policy-specific and process-local: IPv6 Off or changed forced routes may fit exactly.
+        private val oversizedRoutePlans = ConcurrentHashMap.newKeySet<String>()
         private const val TAG = "CpxyVpnService"
         private const val ACTION_START = "dev.fanchao.cpxy.vpn.START"
         private const val ACTION_STOP = "dev.fanchao.cpxy.vpn.STOP"

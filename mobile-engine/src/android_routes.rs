@@ -11,9 +11,12 @@ pub struct AndroidRoutePlan {
     pub fallback_reason: String,
 }
 
-const ROUTE_BUDGET: usize = 512;
-
-pub fn plan(routes: &ProxyRoutes, ipv6: Ipv6Mode, exclusions: bool) -> AndroidRoutePlan {
+pub fn plan(
+    routes: &ProxyRoutes,
+    ipv6: Ipv6Mode,
+    exclusions: bool,
+    route_budget: usize,
+) -> AndroidRoutePlan {
     let mut v4 = vec![(u32::from(crate::DNS_ADDR), u32::from(crate::DNS_ADDR))];
     let mut v6 = Vec::new();
     for net in &routes.0 {
@@ -30,7 +33,7 @@ pub fn plan(routes: &ProxyRoutes, ipv6: Ipv6Mode, exclusions: bool) -> AndroidRo
     };
     // Bound each family independently so a fragmented IPv6 dataset cannot remove IPv4
     // native bypass. Dropping narrow direct prefixes only captures more traffic.
-    let budget = ROUTE_BUDGET / 2;
+    let budget = route_budget / 2;
     let mut max4 = 32;
     let routes4 = loop {
         let direct: Vec<_> = direct4
@@ -91,7 +94,7 @@ pub fn plan(routes: &ProxyRoutes, ipv6: Ipv6Mode, exclusions: bool) -> AndroidRo
             String::new()
         } else {
             format!(
-                "Route budget {ROUTE_BUDGET}: exact direct prefixes v4={}, v6={}; retaining prefixes <= /{max4}, /{max6}; captured CN/private flows use direct sockets",
+                "Route budget {route_budget}: exact direct prefixes v4={}, v6={}; retaining prefixes <= /{max4}, /{max6}; captured CN/private flows use direct sockets",
                 direct4.len(),
                 direct6.len()
             )
@@ -114,6 +117,22 @@ mod tests {
     }
 
     #[test]
+    fn exact_plan_is_available_before_platform_fallback() {
+        for exclusions in [false, true] {
+            let plan = plan(&ProxyRoutes::default(), Ipv6Mode::Full, exclusions, 100_000);
+            assert!(plan.fallback_reason.is_empty());
+            assert!(!captured(&plan, "223.5.5.5".parse().unwrap()));
+            assert!(!captured(&plan, "2400:3200::1".parse().unwrap()));
+            assert!(captured(&plan, "10.233.0.2".parse().unwrap()));
+            eprintln!(
+                "Exact exclusions={exclusions}: included={} excluded={}",
+                plan.included.len(),
+                plan.excluded.len()
+            );
+        }
+    }
+
+    #[test]
     fn both_platforms_never_bypass_proxy_or_virtual_dns() {
         let routes = ProxyRoutes::parse(&[
             "223.5.5.5/32".into(),
@@ -123,14 +142,14 @@ mod tests {
         .unwrap();
         for mode in [Ipv6Mode::Full, Ipv6Mode::Direct, Ipv6Mode::Off] {
             for exclusions in [false, true] {
-                let plan = plan(&routes, mode, exclusions);
+                let plan = plan(&routes, mode, exclusions, 512);
                 eprintln!(
                     "{mode:?} exclusions={exclusions}: included={} excluded={} {}",
                     plan.included.len(),
                     plan.excluded.len(),
                     plan.fallback_reason
                 );
-                assert!(plan.included.len() + plan.excluded.len() <= ROUTE_BUDGET);
+                assert!(plan.included.len() + plan.excluded.len() <= 512);
                 for ip in [
                     "10.233.0.2",
                     "223.5.5.5",
@@ -161,7 +180,7 @@ mod tests {
     fn broad_forced_routes_capture_everything() {
         let routes = ProxyRoutes::parse(&["0.0.0.0/0".into(), "::/0".into()]).unwrap();
         for exclusions in [false, true] {
-            let plan = plan(&routes, Ipv6Mode::Full, exclusions);
+            let plan = plan(&routes, Ipv6Mode::Full, exclusions, 512);
             assert!(plan.excluded.is_empty());
             assert!(plan.fallback_reason.is_empty());
             assert_eq!(plan.included, ["0.0.0.0/0", "::/0"]);
