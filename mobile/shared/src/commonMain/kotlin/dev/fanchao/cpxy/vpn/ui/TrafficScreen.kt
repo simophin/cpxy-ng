@@ -131,6 +131,12 @@ private fun TrafficLogView(
         // Outside the list: as its first item, it would stay in view while older entries are
         // inserted after it, so they would keep loading.
         Attribution()
+        Text(
+            "VPN traffic only. Native CN/private bypass is not counted or logged.",
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().nestedScroll(followWhenAtEnd),

@@ -2497,7 +2497,6 @@ dependencies = [
 [[package]]
 name = "ipstack"
 version = "1.0.2-dev"
-source = "git+https://github.com/simophin/ipstack?rev=49720c1a1effacee1073d419452432629ef64297#49720c1a1effacee1073d419452432629ef64297"
 dependencies = [
  "ahash",
  "etherparse 0.20.3",

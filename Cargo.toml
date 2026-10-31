@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["cpxy-ng", "client", "server", "geoip-data", "geoip-v2ray", "mobile-engine", "rtp-mobile", "tsgw", "rtp-l3", "rtp-service", "port-admission"]
+members = ["cpxy-ng", "client", "server", "geoip-data", "geoip-v2ray", "mobile-engine", "rtp-mobile", "tsgw", "rtp-l3", "rtp-service", "port-admission", "vendor/ipstack"]
 
 [profile."release"]
 strip = true
@@ -11,3 +11,8 @@ opt-level = 3
 
 [profile.dev.package.blake2]
 opt-level = 3
+
+# The pinned upstream UDP AsyncRead API conflates empty datagrams and EOF, and its
+# AsyncWrite API truncates at MTU. Keep a small datagram API patch locally until upstreamed.
+[patch."https://github.com/simophin/ipstack"]
+ipstack = { path = "vendor/ipstack" }

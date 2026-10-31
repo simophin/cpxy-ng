@@ -19,6 +19,30 @@ class ProfileTest {
     )
 
     @Test
+    fun oldProfilesKeepTheirIdentityCredentialsAndBackend() {
+        val saved = Json.decodeFromString<StoredProfiles>("""{"selectedId":"old","profiles":[{"id":"old","name":"Old","server":"http://:key@example.com","dnsUpstream":["223.5.5.5"],"dnsAlternative":["8.8.8.8"]}]}""")
+        assertEquals("old", saved.selected?.id)
+        assertEquals("http://:key@example.com", saved.selected?.server)
+        assertEquals(ProfileBackend.Cpxy, saved.selected?.backend)
+        assertEquals(saved, Json.decodeFromString<StoredProfiles>(Json.encodeToString(saved)))
+    }
+
+    @Test
+    fun externalSocksValidatesAndExportsWithoutCpxyCredentials() {
+        val socks = profile.copy(backend = ProfileBackend.Socks5, socks5 = "[::1]:1080", server = "")
+        assertTrue(socks.validationErrors().isEmpty())
+        val config = Json.decodeFromString<EngineConfig>(socks.engineConfigJson(androidSocks = true))
+        assertEquals("", config.server)
+        assertEquals("[::1]:1080", config.socks5)
+        assertTrue(config.androidSocks)
+        assertEquals(socks, Json.decodeFromString<Profile>(Json.encodeToString(socks)))
+        for (endpoint in listOf("https://host:1080", "user:pass@host:1080", "host:0", "host:65536", "::1:1080", "host")) {
+            assertTrue(socks.copy(socks5 = endpoint).validationErrors().containsKey(ProfileField.Server), endpoint)
+        }
+        assertTrue(validSocksEndpoint("proxy.example.com:1080"))
+    }
+
+    @Test
     fun engineConfigUsesTheEngineFieldNames() {
         val json = Json.parseToJsonElement(profile.engineConfigJson()).jsonObject
         assertEquals(

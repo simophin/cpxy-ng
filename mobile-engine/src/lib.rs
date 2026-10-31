@@ -55,7 +55,7 @@ use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
 use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
 use tokio::sync::{Notify, broadcast, oneshot};
@@ -670,18 +670,18 @@ async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddr) -> std::io::Resu
     let socket = UdpSocket::bind((unspecified, 0)).await?;
     socket.connect(dst).await?;
 
-    let mut from_app = vec![0u8; 65535];
     let mut from_remote = vec![0u8; 65535];
     loop {
         tokio::select! {
-            n = flow.read(&mut from_app) => {
-                match n? {
-                    0 => return Ok(()),
-                    n => { socket.send(&from_app[..n]).await?; }
-                }
+            packet = flow.recv_datagram() => {
+                let Some(packet) = packet? else { return Ok(()) };
+                socket.send(&packet).await?;
             }
             n = socket.recv(&mut from_remote) => {
-                flow.write_all(&from_remote[..n?]).await?;
+                if let Err(error) = flow.send_datagram(&from_remote[..n?]) {
+                    if error.kind() != std::io::ErrorKind::InvalidInput { return Err(error); }
+                    tracing::debug!(%dst, "Dropped UDP reply exceeding TUN MTU");
+                }
             }
         }
     }

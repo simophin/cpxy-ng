@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.fanchao.cpxy.vpn.Ipv6Mode
 import dev.fanchao.cpxy.vpn.Profile
+import dev.fanchao.cpxy.vpn.ProfileBackend
 import dev.fanchao.cpxy.vpn.ProfileField
 import dev.fanchao.cpxy.vpn.ProfileRepository
 import dev.fanchao.cpxy.vpn.parseServerList
@@ -98,6 +99,8 @@ private fun EditProfileForm(
     onDone: () -> Unit,
 ) {
     var name by remember(initial.id) { mutableStateOf(initial.name) }
+    var backend by remember(initial.id) { mutableStateOf(initial.backend) }
+    var socks5 by remember(initial.id) { mutableStateOf(initial.socks5) }
     var server by remember(initial.id) { mutableStateOf(initial.server) }
     var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
     var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
@@ -112,6 +115,8 @@ private fun EditProfileForm(
         dnsUpstream = parseServerList(dnsUpstream),
         dnsAlternative = parseServerList(dnsAlternative),
         ipv6 = ipv6,
+        backend = backend,
+        socks5 = socks5.trim(),
     )
     val errors = if (showErrors) profile.validationErrors() else emptyMap()
 
@@ -162,13 +167,23 @@ private fun EditProfileForm(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Field("Name", name, { name = it }, errors[ProfileField.Name], onNext = next)
+            Text("Connection", style = MaterialTheme.typography.titleSmall)
+            Column(Modifier.selectableGroup()) {
+                for (type in ProfileBackend.entries) {
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth().selectable(selected = backend == type, role = Role.RadioButton, onClick = { backend = type }),
+                        leadingContent = { RadioButton(selected = backend == type, onClick = null) },
+                        headlineContent = { Text(if (type == ProfileBackend.Cpxy) "Cpxy" else "External SOCKS5") },
+                    )
+                }
+            }
             Field(
-                label = "Server",
-                value = server,
-                onValueChange = { server = it },
+                label = if (backend == ProfileBackend.Cpxy) "Server" else "SOCKS5 endpoint",
+                value = if (backend == ProfileBackend.Cpxy) server else socks5,
+                onValueChange = { if (backend == ProfileBackend.Cpxy) server = it else socks5 = it },
                 error = errors[ProfileField.Server],
                 onNext = next,
-                hint = "https://:key@example.com",
+                hint = if (backend == ProfileBackend.Cpxy) "https://:key@example.com" else "proxy.example.com:1080 (plaintext, no authentication)",
                 keyboardType = KeyboardType.Uri,
             )
             Field(
@@ -188,7 +203,7 @@ private fun EditProfileForm(
                 error = errors[ProfileField.DnsAlternative],
                 imeAction = ImeAction.Done,
                 onDone = ::save,
-                hint = "One per line. Used otherwise. ?via=cpxy asks through the server (TCP, TLS or HTTPS).",
+                hint = "One per line. Used otherwise. ?via=cpxy forces the selected proxy (TCP, TLS or HTTPS).",
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
             )

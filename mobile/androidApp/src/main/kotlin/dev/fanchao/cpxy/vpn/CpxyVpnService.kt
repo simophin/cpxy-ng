@@ -7,7 +7,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
+import android.net.IpPrefix
+import android.os.Build
+import android.os.SystemClock
 import android.util.Log
+import java.net.InetAddress
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -15,6 +19,7 @@ import androidx.core.app.ServiceCompat
 import dev.fanchao.cpxy.vpn.engine.Engine
 import dev.fanchao.cpxy.vpn.engine.EngineException
 import dev.fanchao.cpxy.vpn.engine.startEngine
+import dev.fanchao.cpxy.vpn.engine.androidRoutePlan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,15 +83,17 @@ class CpxyVpnService : VpnService() {
     }
 
     private fun CoroutineScope.start(profile: Profile, settings: AppSettings) {
-        stopEngine()
         val started = runCatching {
-            val tun = Builder()
+            val routeStarted = SystemClock.elapsedRealtime()
+            val exclusions = Build.VERSION.SDK_INT >= 33
+            val plan = androidRoutePlan(settings.proxyRoutes, profile.ipv6.name.lowercase(), exclusions)
+            if (plan.fallbackReason.isNotEmpty()) Log.w(TAG, plan.fallbackReason)
+            fun builder() = Builder()
                 .setSession(profile.name)
                 .setMtu(TunParameters.MTU)
                 .addAddress(TunParameters.ADDRESS, TunParameters.PREFIX_LENGTH)
                 .addDnsServer(TunParameters.DNS_SERVER)
                 .apply { settings.dnsSearchDomains.forEach { addSearchDomain(it) } }
-                .addRoute("0.0.0.0", 0)
                 // Without an IPv6 address apps do not use IPv6; the route keeps it off the
                 // underlying network either way. On a network without IPv6, the engine refuses
                 // what would go direct, so apps fall back to IPv4.
@@ -95,13 +102,34 @@ class CpxyVpnService : VpnService() {
                         addAddress(TunParameters.ADDRESS_V6, TunParameters.PREFIX_LENGTH_V6)
                     }
                 }
-                .addRoute("::", 0)
                 .route(settings.routing(ownPackage = packageName))
                 .setConfigureIntent(mainActivityIntent())
-                .establish()
-                ?: error("The VPN permission was revoked")
+            var fullCaptureFallback = false
+            val tun = try {
+                builder().apply {
+                    plan.included.forEach { prefix ->
+                        addRoute(prefix.substringBefore('/'), prefix.substringAfter('/').toInt())
+                    }
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        plan.excluded.forEach {
+                            excludeRoute(IpPrefix(InetAddress.getByName(it.substringBefore('/')), it.substringAfter('/').toInt()))
+                        }
+                    }
+                }.establish() ?: error("The VPN permission was revoked")
+            } catch (e: Exception) {
+                // A device may impose a smaller route/Binder limit. Full capture is safe because
+                // the split SOCKS router still relays captured CN/private flows directly.
+                fullCaptureFallback = true
+                Log.w(TAG, "Route plan installation failed; retrying with full capture (${e.javaClass.simpleName})")
+                builder().addRoute("0.0.0.0", 0).addRoute("::", 0).establish()
+                    ?: error("The VPN permission was revoked")
+            }
+            Log.i(TAG, "VPN routes: API=${Build.VERSION.SDK_INT}, included=${plan.included.size}, excluded=${plan.excluded.size}, fullCaptureFallback=$fullCaptureFallback, setupMs=${SystemClock.elapsedRealtime() - routeStarted}")
+            // Establishing the replacement first keeps policy updates/profile switches from
+            // briefly removing VPN capture while the old engine shuts down.
+            stopEngine()
             // The engine owns the descriptor from here, and closes it even when it fails to start.
-            startEngine(tun.detachFd(), profile.engineConfigJson(settings))
+            startEngine(tun.detachFd(), profile.engineConfigJson(settings, androidSocks = true))
         }
 
         started.onSuccess { started ->

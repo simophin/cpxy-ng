@@ -171,12 +171,12 @@ silently force those platforms into Android's route installation mechanism.
   implementation plan before edits. Do not overwrite unrelated user work.
 - [x] Add a shared, testable IPv4/IPv6 route-plan interface, virtual DNS reservation,
   forced-route subtraction, and conservative capture fallback.
-- [ ] Add backend/profile migration and validation; preserve IDs, import/export,
+- [x] Add backend/profile migration and validation; preserve IDs, import/export,
   selected profile and optional user-facing proxy settings.
 - [x] Implement lifecycle-owned embedded cpxy SOCKS listener and external SOCKS mode.
-- [ ] Wire Android API 33+ exclusion and API 26-32 inclusion paths through UniFFI;
+- [x] Wire Android API 33+ exclusion and API 26-32 inclusion paths through UniFFI;
   retain direct handling for any CN traffic captured by a conservative plan.
-- [ ] Reuse direct UDP and split DNS with the new backend; align TCP/853 and
+- [x] Reuse direct UDP and split DNS with the new backend; align TCP/853 and
   captured UDP/443 filtering without changing unrelated legacy consumers.
 - [ ] Add focused tests, build the APK and validate on emulator/device. Update this
   handoff/checklist with completed work, evidence and remaining limitations.
@@ -262,3 +262,24 @@ passed (60 client, 6 geo-data, 58 engine, 4 router tests). Tests require local s
 access outside the execution sandbox. Android APK/Kotlin/emulator validation is
 in progress. Host disk space required moving this repository's disposable Rust
 incremental cache into `/tmp`; Android build outputs are also under `/tmp`.
+
+App stage: profile type/endpoint editing, compatible persistence/default decoding,
+and engine JSON are wired. Native destination bypass uses API 33 exclusions or
+API 26–32 positive complement routes. Both paths keep IPv6 Off fully captured.
+Installation failures retry full capture and log a reason; setup logs report
+route counts and elapsed time. Profile switches establish replacement capture
+before shutting down the previous engine. Traffic UI explains native bypass scope.
+
+UDP review found empty datagrams were treated as EOF and oversized replies could
+be emitted as multiple datagrams. The pinned ipstack copy is patched locally with
+a datagram API (source revision/license and exact changes recorded in
+`vendor/ipstack/CPXY-PATCH.md`). Empty datagrams now relay correctly; oversize
+replies are dropped whole because IP fragmentation is unsupported. Packet-stack
+unit tests cover empty payloads, closure, IPv4/IPv6 MTU limits and idle expiry.
+
+Validation so far: all 51 Kotlin JVM tests passed; debug APK and instrumentation
+APK built successfully for all four supported ABIs. Rust unit suites passed with
+the patch (60 client + 6 geo-data + 38 ipstack + 58 engine + 4 router). Upstream
+ipstack documentation examples require omitted unrelated dev dependencies, so
+its doctests are disabled; existing project doctests remain enabled. Emulator
+network tests are in progress on API 36; an isolated API 30 image is installed.
