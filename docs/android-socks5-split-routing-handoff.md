@@ -346,3 +346,10 @@ D-pad initial-focus assertion failure. Keyboard/D-pad tests now explicitly leave
 Android touch mode. These remaining navigation failures are not claimed as
 passed and need follow-up on phone/TV input behavior; the new backend editor and
 VPN network checks pass.
+
+Publication: [PR #159](https://github.com/simophin/cpxy-ng/pull/159), stacked on
+router PR #158. Final cached-policy measurements were 113–169 ms; all four
+network tests passed after the rejection-cache change. Temporary test credentials
+are removed from both emulators and the host after validation. Temporary build
+cache links are removed so future builds do not depend on `/tmp` surviving a
+reboot; existing release executables retain their original paths.
