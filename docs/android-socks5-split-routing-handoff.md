@@ -386,3 +386,7 @@ empty/large UDP with a dead proxy. Four focused UI checks pass: two-tab D-pad
 navigation, external profile creation, duplication and IME Next/Done. Earlier
 API 30 measurements and broader navigation limitations above remain historical;
 this follow-up was revalidated on API 36. Commit: `729b1b3`.
+
+CI follow-up for PR #159: the mobile-engine workflow still invoked the deleted
+`mobile-engine/test/traffic-ui.mjs`. Remove that browser-test step and its now
+unused Node setup; retain engine unit tests and both real-TUN routing labs.
