@@ -80,6 +80,19 @@ impl Router {
         }
     }
 
+    /// Android also receives CN/private flows captured by a bounded route plan.
+    pub fn split_socks5(
+        address: std::net::SocketAddr,
+        proxy_routes: ProxyRoutes,
+        events_tx: broadcast::Sender<OutboundEvent>,
+    ) -> Self {
+        Self {
+            proxy_routes,
+            always_proxy: false,
+            ..Self::socks5(address, events_tx)
+        }
+    }
+
     /// Connects without reporting it.
     pub async fn connect(
         &self,

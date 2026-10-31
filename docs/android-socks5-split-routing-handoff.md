@@ -169,11 +169,11 @@ silently force those platforms into Android's route installation mechanism.
 
 - [x] Inspect current branch changes and applicable instructions; record a short
   implementation plan before edits. Do not overwrite unrelated user work.
-- [ ] Add a shared, testable IPv4/IPv6 route-plan interface, virtual DNS reservation,
+- [x] Add a shared, testable IPv4/IPv6 route-plan interface, virtual DNS reservation,
   forced-route subtraction, and conservative capture fallback.
 - [ ] Add backend/profile migration and validation; preserve IDs, import/export,
   selected profile and optional user-facing proxy settings.
-- [ ] Implement lifecycle-owned embedded cpxy SOCKS listener and external SOCKS mode.
+- [x] Implement lifecycle-owned embedded cpxy SOCKS listener and external SOCKS mode.
 - [ ] Wire Android API 33+ exclusion and API 26-32 inclusion paths through UniFFI;
   retain direct handling for any CN traffic captured by a conservative plan.
 - [ ] Reuse direct UDP and split DNS with the new backend; align TCP/853 and
@@ -242,3 +242,23 @@ Rust/Kotlin policy and lifecycle, and exercise the APK in an emulator. Record
 measured route counts/setup timings and distinguish emulator evidence from
 physical-network scenarios that cannot be reproduced here. Test server credentials
 are session-only and must not enter commits or artifacts.
+
+Engine stage: shared UniFFI route plans reserve `10.233.0.2/32`, subtract forced
+routes in both families, compile the IPv6 complement, and bound each family's
+route count within a total 512-entry budget. The bounded plan only captures extra
+direct traffic; its reason is returned to Android. Example forced-route test:
+API 33 plan has 2 includes + 432 excludes; legacy plan has 408 includes.
+
+Android's explicit `android_socks` config starts an ephemeral, loopback-only pure
+ProtocolOutbound SOCKS backend before initializing split DNS. External host:port
+SOCKS endpoints are validated/resolved outside the VPN. Both use split SOCKS
+routing for captured CN/private traffic; OpenWrt remains unconditional SOCKS and
+legacy mobile/gateway filtering/DNS stay unchanged. The embedded listener is
+monitored and its runtime owns listener/connection cleanup, including startup
+failure. TCP/853 is allowed in the new mode; captured UDP/443 stays rejected.
+
+Validation: `cargo test --locked --offline -p client -p mobile-engine -p geoip-data`
+passed (60 client, 6 geo-data, 58 engine, 4 router tests). Tests require local socket
+access outside the execution sandbox. Android APK/Kotlin/emulator validation is
+in progress. Host disk space required moving this repository's disposable Rust
+incremental cache into `/tmp`; Android build outputs are also under `/tmp`.

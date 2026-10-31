@@ -88,3 +88,20 @@ mod tests {
         assert!(start_engine(-1, config.into()).is_err());
     }
 }
+
+/// Compile before establishing the VPN; no sockets or TUN ownership are needed.
+#[uniffi::export]
+pub fn android_route_plan(
+    proxy_routes: Vec<String>,
+    ipv6: String,
+    exclusions: bool,
+) -> Result<crate::android_routes::AndroidRoutePlan, EngineError> {
+    let compile = || -> anyhow::Result<_> {
+        let routes = client::outbound::ProxyRoutes::parse(&proxy_routes)?;
+        let mode: client::ipv6::Ipv6Mode = serde_json::from_value(serde_json::Value::String(ipv6))?;
+        Ok(crate::android_routes::plan(&routes, mode, exclusions))
+    };
+    compile().map_err(|e| EngineError::Failed {
+        reason: format!("{e:#}"),
+    })
+}

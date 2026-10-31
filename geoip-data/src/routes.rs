@@ -42,6 +42,17 @@ pub fn tunnel_ipv4(proxy: &[(u32, u32)], longest_direct: u8) -> Vec<(u32, u8)> {
     compile(vec![(0, 1 << 32)], direct)
 }
 
+/// Complement of an already selected IPv4 direct set.
+pub fn complement_ipv4(direct: &[(u32, u8)]) -> Vec<(u32, u8)> {
+    compile(
+        vec![(0, 1 << 32)],
+        direct
+            .iter()
+            .map(|&(ip, p)| (ip as u64, ip as u64 + (1u64 << (32 - p))))
+            .collect(),
+    )
+}
+
 /// Exact China IPv6 prefixes from the same reviewed data used by DNS.
 /// Inclusive ends avoid overflowing at the end of the IPv6 address space.
 pub fn direct_ipv6() -> Vec<(u128, u8)> {
@@ -124,6 +135,37 @@ pub fn router_direct_ipv6(proxy: &[(u128, u128)]) -> Vec<(u128, u8)> {
         if let Some(start) = next {
             emit_v6(start, end, &mut result);
         }
+    }
+    result
+}
+
+/// Complement of a disjoint IPv6 direct-prefix set, including both address-space endpoints.
+pub fn complement_ipv6(direct: &[(u128, u8)]) -> Vec<(u128, u8)> {
+    let mut ranges: Vec<_> = direct
+        .iter()
+        .map(|&(ip, prefix)| {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX << (128 - prefix)
+            };
+            (ip & mask, ip | !mask)
+        })
+        .collect();
+    ranges.sort_unstable();
+    let mut next = Some(0);
+    let mut result = Vec::new();
+    for (start, end) in ranges {
+        let Some(cursor) = next else { break };
+        if start > cursor {
+            emit_v6(cursor, start - 1, &mut result);
+        }
+        if end >= cursor {
+            next = end.checked_add(1);
+        }
+    }
+    if let Some(cursor) = next {
+        emit_v6(cursor, u128::MAX, &mut result);
     }
     result
 }
@@ -261,6 +303,26 @@ mod tests {
 #[cfg(test)]
 mod ipv6_tests {
     use super::*;
+
+    #[test]
+    fn complement_handles_zero_max_and_overlapping_ranges() {
+        assert_eq!(complement_ipv6(&[]), [(0, 0)]);
+        assert!(complement_ipv6(&[(0, 0)]).is_empty());
+        let direct = [(0, 128), (u128::MAX, 128), (0xfc00u128 << 112, 7)];
+        let complement = complement_ipv6(&direct);
+        let covers = |ip| {
+            complement.iter().any(|&(a, p)| {
+                let mask = if p == 0 { 0 } else { u128::MAX << (128 - p) };
+                ip & mask == a
+            })
+        };
+        assert!(!covers(0));
+        assert!(covers(1));
+        assert!(!covers(u128::MAX));
+        assert!(covers(u128::MAX - 1));
+        assert!(!covers(0xfd00u128 << 112));
+        assert_eq!(complement_ipv6(&[(0, 1), (0, 2)]), [(1u128 << 127, 1)]);
+    }
 
     #[test]
     fn exported_ipv6_prefixes_exactly_cover_reviewed_ranges() {

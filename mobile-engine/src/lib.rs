@@ -11,6 +11,7 @@
 //!
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
 
+mod android_routes;
 #[cfg(target_os = "linux")]
 pub mod capi;
 mod config;
@@ -176,7 +177,14 @@ fn start_with_dns(
     let settings = Config::from_json(config_json)?.settings()?;
     start_inner(
         tun,
-        Backend::Cpxy(settings.server),
+        if settings.android_socks {
+            match settings.socks5 {
+                Some(address) => Backend::AndroidExternal(address),
+                None => Backend::AndroidCpxy(settings.server.expect("validated cpxy server")),
+            }
+        } else {
+            Backend::Cpxy(settings.server.expect("validated cpxy server"))
+        },
         settings.proxy_routes,
         settings.ipv6,
         settings.mtu,
@@ -300,6 +308,8 @@ impl DnsService {
 enum Backend {
     Cpxy(client::protocol_config::Config),
     Socks5(SocketAddr),
+    AndroidCpxy(client::protocol_config::Config),
+    AndroidExternal(SocketAddr),
 }
 
 fn start_inner(
@@ -318,6 +328,21 @@ fn start_inner(
         .thread_name("cpxy-engine")
         .enable_all()
         .build()?;
+    // Bind and spawn on a live multi-thread runtime before resolver initialization can dial it.
+    // The task and all accepted connections are owned by this runtime, including error paths.
+    let android = matches!(
+        &server,
+        Backend::AndroidCpxy(_) | Backend::AndroidExternal(_)
+    );
+    let mut embedded_task = None;
+    let server = match server {
+        Backend::AndroidCpxy(config) => {
+            let (address, task) = runtime.block_on(proxy::embedded(config))?;
+            embedded_task = Some(task);
+            Backend::AndroidExternal(address)
+        }
+        server => server,
+    };
     let dns = dns_specs
         .as_ref()
         .map(|specs| {
@@ -325,9 +350,10 @@ fn start_inner(
                 .block_on(async {
                     match &server {
                         Backend::Cpxy(server) => dns::handler(&specs.split, server).await,
-                        Backend::Socks5(address) => {
+                        Backend::Socks5(address) | Backend::AndroidExternal(address) => {
                             dns::router_handler(&specs.split, *address, &proxy_routes).await
                         }
+                        Backend::AndroidCpxy(_) => unreachable!(),
                     }
                 })
                 .map(|handler| DnsService {
@@ -352,7 +378,7 @@ fn start_inner(
             tun,
             mtu,
             filter::Filter::new(ipv6, proxy_routes.clone())
-                .with_router(matches!(&server, Backend::Socks5(_))),
+                .with_tcp_dot_allowed(android || matches!(&server, Backend::Socks5(_))),
             traffic.clone(),
             device_eof.clone(),
             device_closed_tx,
@@ -363,6 +389,8 @@ fn start_inner(
     let router = Arc::new(match server {
         Backend::Cpxy(server) => Router::new(server, proxy_routes, events_tx),
         Backend::Socks5(address) => Router::socks5(address, events_tx),
+        Backend::AndroidExternal(address) => Router::split_socks5(address, proxy_routes, events_tx),
+        Backend::AndroidCpxy(_) => unreachable!(),
     });
     let (shutdown, shutdown_rx) = oneshot::channel();
     let connections = Arc::new(ConnectionLog::new(connection_log::CAPACITY));
@@ -378,6 +406,7 @@ fn start_inner(
         dns,
         proxies,
         dns_listeners,
+        embedded_task,
         shutdown_rx,
     ));
     tracing::info!("Engine started");
@@ -505,6 +534,7 @@ async fn run(
     dns: Option<DnsService>,
     proxies: proxy::Listeners,
     dns_listeners: Option<dns::Listeners>,
+    embedded_task: Option<JoinHandle<anyhow::Result<()>>>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     let mut tcp_config = TcpConfig::default();
@@ -523,6 +553,9 @@ async fn run(
         proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
     if let (Some(listeners), Some(dns)) = (dns_listeners, &dns) {
         listeners.spawn(dns.handler.clone(), &mut listener_tasks);
+    }
+    if let Some(task) = embedded_task {
+        listener_tasks.spawn(async move { task.await? });
     }
     let mut flows = JoinSet::new();
 
@@ -744,6 +777,11 @@ mod tests {
 
     #[test]
     fn stopping_engine_closes_proxy_listeners_and_pending_handshakes() {
+        check_proxy_shutdown(false);
+        check_proxy_shutdown(true);
+    }
+
+    fn check_proxy_shutdown(android: bool) {
         use std::io::{Read, Write};
         let reserved = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
         let port = reserved.local_addr().unwrap().port();
@@ -756,7 +794,7 @@ mod tests {
         );
         let (tun, _peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
         let config = format!(
-            r#"{{"server":"http://:k@127.0.0.1:1", "dns_upstream":["127.0.0.1"], "dns_alternative":["127.0.0.1"], "socks_proxy_port":{port}}}"#
+            r#"{{"server":"http://:k@127.0.0.1:1", "dns_upstream":["127.0.0.1"], "dns_alternative":["127.0.0.1"], "socks_proxy_port":{port}, "android_socks":{android}}}"#
         );
         let engine = start(tun, &config, Arc::new(Ignore)).unwrap();
         let mut client = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
