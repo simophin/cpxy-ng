@@ -9,7 +9,7 @@ Baseline: the SOCKS5 OpenWrt router implementation on this branch, PR #158.
 
 Apply the router's SOCKS5 architecture to the original Android app under `mobile/`
 and its Rust engine under `mobile-engine/`. Use the old cpxy protocol for cpxy
-profiles; do not build this on the RTP experiment (`mobile-rtp/`, `rtp-mobile/`).
+profiles.
 
 The user specifically wants Android's rootless destination-route exclusion to
 bypass CN traffic in native networking. They also confirmed the design discussion
