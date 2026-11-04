@@ -12,8 +12,10 @@ For both IPv4 and IPv6, CN/private TCP forwards directly in the kernel; overseas
 TCP enters TUN and uses SOCKS5. `proxy_route` overrides CN/private classification,
 except router-local and connected-network access. UDP forwards directly for all
 destinations except UDP/443, which is rejected (including QUIC/HTTP/3). TCP/853
-follows ordinary TCP splitting. Essential local ICMPv6/neighbor discovery remains
-available. The router's own outbound sockets use ordinary system routing.
+follows ordinary TCP splitting. ICMP (including IPv4/IPv6 ping) uses ordinary WAN
+routing directly, regardless of `proxy_route`; it cannot travel through SOCKS5.
+Essential local ICMPv6/neighbor discovery remains available. The router's own
+outbound sockets use ordinary system routing.
 
 The router and split DNS use the same bundled CN datasets. No extra GeoIP/PBR
 package is needed. DNS on UDP/TCP 53 is redirected for both address families to a
@@ -294,6 +296,7 @@ the details.
 
 - **Overseas TCP fails closed.** Worker/proxy failure does not cause WAN fallback.
 - **UDP is direct**, except UDP/443 is rejected for both families.
+- **Ping is direct** over IPv4 and IPv6, including when the proxy is down.
 - **IPv6 follows the same kernel split as IPv4.** Overseas IPv6 TCP needs a proxy
   with IPv6 destination connectivity; CN IPv6 uses the router's native IPv6 uplink.
 - **Only selected networks are captured**, not router-originated connections.

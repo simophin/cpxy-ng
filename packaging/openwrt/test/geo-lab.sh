@@ -6,7 +6,10 @@ geo_up() { in_router sh -c ". '$NET'; . '$GEO'; CPXY_GEO6_ROUTES='$WORK/direct6.
 geo_direct() { in_lan curl -fsS --max-time 3 --noproxy '*' http://114.114.114.114:8000/index.html; }
 check "GeoIP full dataset installs" geo_up
 check "GeoIP direct TCP works with no worker or server" geo_direct
-check_not "GeoIP TCP optimization does not newly forward public ICMP" in_lan ping -c1 -W1 114.114.114.114
+check "GeoIP regional IPv4 ping works without a worker or server" in_lan ping -c1 -W2 114.114.114.114
+check "GeoIP overseas IPv4 ping works without a worker or server" in_lan ping -c1 -W2 93.184.216.34
+check "GeoIP regional IPv6 ping works without a worker or server" in_lan ping -6 -c1 -W2 2400:3200::114
+check "GeoIP overseas IPv6 ping works without a worker or server" in_lan ping -6 -c1 -W2 2001:db8:100::34
 mark; check_not "GeoIP proxy TCP without worker fails closed" fetch
 expect_not_direct "GeoIP no worker does not leak"
 check_not "GeoIP overseas IPv6 TCP without worker fails closed" fetch "$URL_V6"
@@ -33,6 +36,10 @@ expect_seen "GeoIP second instance source" 192.0.3.1
 check "GeoIP repeat generation switches safely" geo_up
 check "GeoIP event reload accepts closed stdin" in_router sh -c ". '$NET'; . '$GEO'; CPXY_GEO6_ROUTES='$WORK/direct6.cidrs'; CPXY_GEO6_GATEWAY=2001:db8:2::1; CPXY_GEO6_WAN=wan0r; exec 0<&-; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r lan0r"
 check "GeoIP active generation is healthy" in_router sh -c ". '$NET'; . '$GEO'; CPXY_GEO6_ROUTES='$WORK/direct6.cidrs'; CPXY_GEO6_WAN=wan0r; cpxy_geo_healthy '$WORK/direct.cidrs' wan0r lan0r"
+in_router ip -6 rule del priority 9102 iif lan0r ipproto 58 lookup main
+check_not "GeoIP health detects a missing ICMP bypass" in_router sh -c ". '$NET'; . '$GEO'; CPXY_GEO6_ROUTES='$WORK/direct6.cidrs'; CPXY_GEO6_WAN=wan0r; cpxy_geo_healthy '$WORK/direct.cidrs' wan0r lan0r"
+check "GeoIP reload restores the ICMP bypass" geo_up
+check "GeoIP restored IPv6 ping works" in_lan ping -6 -c1 -W2 2001:db8:100::34
 
 # A partially switched family must recover without overwriting a selected table.
 check "GeoIP simulate interrupted IPv6 selector" in_router ip -6 rule del priority 9103
@@ -68,6 +75,7 @@ check "GeoIP restores IPv6 regional policy" geo_up
 "$BIN/cpxy-router" --export-direct-routes --proxy-route 0.0.0.0/0 >"$WORK/direct.cidrs"
 check "GeoIP all-proxy policy accepts an empty direct list" geo_up
 check "GeoIP empty direct list still reaches regional destination via server" geo_direct
+check "GeoIP all-proxy policy keeps IPv4 ping direct" in_lan ping -c1 -W2 114.114.114.114
 "$BIN/cpxy-router" --export-direct-routes >"$WORK/direct.cidrs"
 check "GeoIP restores automatic regional policy" geo_up
 check "GeoIP unavailable WAN stages direct refusals" in_router sh -c ". '$NET'; . '$GEO'; CPXY_GEO6_ROUTES='$WORK/direct6.cidrs'; CPXY_GEO6_GATEWAY=2001:db8:2::1; CPXY_GEO6_WAN=wan0r; cpxy_geo_up '$WORK/direct.cidrs' - - lan0r"

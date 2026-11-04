@@ -173,6 +173,8 @@ else fail "reload: request did not go through the proxy (web server saw: '${got}
 mark; check "router's own traffic still goes out WAN" in_router curl -sS --max-time 5 --noproxy '*' "$URL"
 expect_seen "router traffic is not captured" 192.0.2.2
 check "LAN can still reach the router itself" in_lan ping -c1 -W2 192.168.8.1
+check "LAN IPv4 ping goes directly to the internet" in_lan ping -c1 -W2 93.184.216.34
+check "LAN IPv6 ping goes directly to the internet" in_lan ping -6 -c1 -W2 2001:db8:100::34
 # udp_probe <port> [host]: prints what a UDP datagram from the LAN to the internet echo server got back
 udp_probe() {
 	in_lan sh -c "timeout 3 python3 - $1 ${2:-93.184.216.34} <<'PY'
@@ -229,6 +231,7 @@ expect_seen "main upstream unchanged" 93.184.216.34
 kernel_up cpxy1 101 9110 guest0r
 mark; check "guest reload preserves second upstream" guest_fetch
 expect_seen "guest reload keeps second source address" 192.0.3.1
+check "guest IPv4 ping goes directly to the internet" in_guest ping -c1 -W2 93.184.216.34
 kill "$GUEST_PID"
 sleep 0.5
 mark; check_not "guest worker failure is closed" guest_fetch
@@ -245,6 +248,8 @@ expect_seen "main upstream after guest stop" 93.184.216.34
 kill "$TUN_PID"; sleep 1
 mark; check_not "native worker down: LAN traffic is refused" fetch
 expect_not_direct "native worker down: nothing leaked via the WAN"
+check "worker down: IPv4 ping stays direct" in_lan ping -c1 -W2 93.184.216.34
+check "worker down: IPv6 ping stays direct" in_lan ping -6 -c1 -W2 2001:db8:100::34
 
 # The persistent TUN survives worker exit and can be attached again without redoing routes.
 check "worker exit preserves the TUN device" in_router ip link show cpxy0
