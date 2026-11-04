@@ -195,108 +195,6 @@ jobs:
         run: ./gradlew :shared:allTests
         working-directory: mobile
 
-  test_mobile_rtp_shared:
-    name: Test RTP app shared UI
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up Java 21
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Cache Gradle files
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-      - name: Run shared tests
-        run: ./gradlew :shared:allTests
-        working-directory: mobile-rtp
-
-  # The RTP app is not published to the download server yet: its APK is a CI artifact only.
-  build_mobile_rtp:
-    name: Build RTP app APK
-    if: github.event_name != 'pull_request'
-    needs: [version, test_rtp, test_mobile_rtp_shared]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Cache Gradle files
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      - name: Install all the required targets
-        run: >
-          rustup target add
-          aarch64-linux-android
-          armv7-linux-androideabi
-          x86_64-linux-android
-          i686-linux-android
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: mobile-rtp-android
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install cargo-ndk
-        run: cargo binstall cargo-ndk --version 4.1.2 --locked
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install pinned Android NDK
-        run: >
-          "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          "ndk;28.2.13676358"
-
-      - name: Build APK and Gradle-owned Rust libraries
-        run: ./gradlew :androidApp:assembleRelease
-        working-directory: mobile-rtp
-        env:
-          CPXY_RTP_VERSION: ${{ needs.version.outputs.version }}
-
-      - name: Inspect packaged native libraries
-        run: |
-          unzip -Z1 mobile-rtp/androidApp/build/outputs/apk/release/androidApp-release.apk \
-            | grep '^lib/.*/librtp_mobile\.so$' \
-            | sort \
-            | diff -u - <(printf '%s\n' \
-                lib/arm64-v8a/librtp_mobile.so \
-                lib/armeabi-v7a/librtp_mobile.so \
-                lib/x86/librtp_mobile.so \
-                lib/x86_64/librtp_mobile.so)
-
-      - name: Name the APK
-        run: |
-          mkdir rtp-android
-          cp mobile-rtp/androidApp/build/outputs/apk/release/androidApp-release.apk rtp-android/cpxy-rtp.apk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: rtp-android
-          path: rtp-android
-          if-no-files-found: error
-
   # Builds the static router binaries (the shared packet engine as a native router client, which
   # also answers DNS, plus the client) and packages them with cpxy-tsgw.
   build_openwrt_package:
@@ -331,9 +229,8 @@ jobs:
       - name: Build router executables
         run: >
           cross build --release --locked --target ${{ matrix.target.rust }}
-          -p mobile-engine -p client -p server -p cpxy-tsgw -p rtp-service -p rtp-mobile
+          -p mobile-engine -p client -p server -p cpxy-tsgw
           --bin cpxy-router --bin standalone --bin server --bin cpxy-tsgw
-          --bin cpxy-rtp --bin cpxy-rtp-router
 
       - name: Build package
         env:
@@ -342,18 +239,13 @@ jobs:
           RELEASE: target/${{ matrix.target.rust }}/release
         run: |
           mkdir -p bins
-          cp "$RELEASE/cpxy-rtp" "$RELEASE/cpxy-rtp-router" bins/
           cp "$RELEASE/cpxy-tsgw" bins/cpxy-tsgw
           cp "$RELEASE/cpxy-router" bins/cpxy-router
           cp "$RELEASE/standalone" bins/cpxy-client
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
-          packaging/openwrt/build-rtp-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package/rtp
           docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
             apk add --no-cache openssl
             packaging/openwrt/build-apk-variants.sh "$1" "$2" bins openwrt-package/apk
-            for arch in $(packaging/openwrt/apk-architectures.sh "$1"); do
-              packaging/openwrt/build-rtp-apk.sh "$arch" "$2" bins "openwrt-package/rtp/apk/$arch"
-            done
           ' sh '${{ matrix.target.rust }}' '${{ needs.version.outputs.ipk_version }}'
           ls -l openwrt-package bins
 
@@ -370,21 +262,6 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           cp target/${{ matrix.target.rust }}/release/server bins/cpxy-server
           packaging/openwrt/test/lab.sh bins
-
-      - name: Test RTP router in disposable OpenWrt QEMU
-        if: matrix.target.opkg_arch == 'x86_64'
-        env:
-          RTP_QEMU_ASSETS: ${{ runner.temp }}/rtp-qemu
-        run: |
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 iproute2 curl dnsutils
-          python3 packaging/openwrt/test/fetch-rtp-qemu-assets.py "$RTP_QEMU_ASSETS"
-          cp openwrt-package/rtp/*.ipk "$RTP_QEMU_ASSETS/cpxy-rtp.ipk"
-          sudo env RTP_QEMU_ASSETS="$RTP_QEMU_ASSETS" RTP_SERVICE_BIN="$PWD/bins/cpxy-rtp" \
-            unshare -nm bash rtp-service/tests/private-linux-lab.sh -c '
-              python3 packaging/openwrt/test/qemu-rtp.py \
-                "$RTP_QEMU_ASSETS/openwrt.img" "$RTP_QEMU_ASSETS/cpxy-rtp.ipk" \
-                "$RTP_QEMU_ASSETS/deps" "$RTP_SERVICE_BIN" "$RTP_QEMU_ASSETS/results"
-            '
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -514,89 +391,6 @@ jobs:
       - name: Test the image
         run: packaging/docker/test/bundle.sh cpxy-bundle:test target/release/server
 
-  # cpxy-rtp against real TUNs, routing and firewalld, in network namespaces.
-  # Each firewalld test starts its own instance on a private bus; the runner's firewall is untouched.
-  test_rtp:
-    name: Test RTP service
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: rtp
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Test crates
-        run: cargo test --locked -p rtp-l3 -p rtp-service -p port-admission -p rtp-mobile
-      - name: Build lab executables
-        run: cargo build --locked -p rtp-service -p port-admission -p rtp-mobile --bins
-      - name: Prepare namespace lab
-        run: |
-          # Install firewalld without letting the package start it on the runner.
-          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d >/dev/null
-          sudo chmod +x /usr/sbin/policy-rc.d
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends iproute2 nftables iputils-ping python3 firewalld dbus-daemon openssl
-          sudo rm /usr/sbin/policy-rc.d
-          # Ubuntu runners restrict unprivileged user namespaces by default.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - name: Test lifecycle, repair, applications and fail-closed routing
-        run: |
-          unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
-          RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-lifecycle.sh
-          unshare -Urnm bash rtp-service/tests/linux-applications.sh
-          bash rtp-service/tests/linux-namespace-broker.sh
-          bash rtp-service/tests/linux-dual-stack.sh
-          unshare -Urnm bash rtp-service/tests/linux-internet.sh
-      - name: Test in-process firewalld ports, forwarding and masquerade
-        run: |
-          unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
-          RTP_TEST_REPAIR=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
-          RTP_TEST_OS_PORTS=1 unshare -Urnm bash rtp-service/tests/linux-firewalld.sh
-      - name: Exercise HTTP-controlled mobile transport in Linux namespaces
-        run: unshare -Urnm bash rtp-mobile/tests/linux-lab.sh
-      - name: Exercise OpenWrt regional IPv6 guard and fast rejection
-        run: unshare -Urnm bash packaging/openwrt/test/ipv6-direct.sh
-
-  # Self-contained static binaries: copy to any Linux host, no libc or packaging needed.
-  build_rtp:
-    name: Build static cpxy-rtp (${{ matrix.target }})
-    strategy:
-      matrix:
-        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: rtp-${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: cargo-bins/cargo-binstall@main
-      - name: Install cross
-        run: cargo binstall cross
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build
-        run: >
-          cross build --release --locked --target ${{ matrix.target }}
-          -p rtp-service --bin cpxy-rtp
-      - name: Check the binaries are static
-        run: |
-          mkdir -p rtp-bins
-          path=target/${{ matrix.target }}/release/cpxy-rtp
-          file "$path" | tee /dev/stderr | grep -Eq 'static(-pie)? linked|statically linked'
-          cp "$path" rtp-bins/
-      - name: Run the x86_64 binary
-        if: startsWith(matrix.target, 'x86_64')
-        run: rtp-bins/cpxy-rtp --help
-      - name: Upload binaries
-        uses: actions/upload-artifact@v7
-        with:
-          name: cpxy-rtp-${{ matrix.target }}
-          path: rtp-bins
-          if-no-files-found: error
-
   test:
     name: Run tests on main platform
     runs-on: ubuntu-latest
@@ -662,17 +456,11 @@ jobs:
             arch="${dir#artifacts/openwrt-}"
             mkdir -p "$out/openwrt/$arch"
             cp "$dir"/*.ipk "$out/openwrt/$arch/cpxy.ipk"
-            cp "$dir"/rtp/*.ipk "$out/openwrt/$arch/cpxy-rtp.ipk"
             packaging/openwrt/make-feed.sh "$out/openwrt/$arch" "$key"
             for apk_dir in "$dir"/apk/*; do
               apk_arch="${apk_dir##*/}"
               mkdir -p "$out/openwrt-apk/$apk_arch"
               cp "$apk_dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy.apk"
-            done
-            for apk_dir in "$dir"/rtp/apk/*; do
-              apk_arch="${apk_dir##*/}"
-              mkdir -p "$out/openwrt-apk/$apk_arch"
-              cp "$apk_dir"/*.apk "$out/openwrt-apk/$apk_arch/cpxy-rtp.apk"
             done
           done
           rm "$key"

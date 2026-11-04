@@ -10,8 +10,6 @@
 - [GeoIP data source](geoip-data/SOURCE.md)
 - [OpenWrt router DNS design notes](docs/openwrt-router-dns-handoff.md)
 - [Mobile VPN app plan](docs/mobile-vpn-plan.md)
-- [HTTP-controlled RTP transport](rtp-service/README.md): Linux service, protocol and validation
-- [RTP L3 application plan](docs/rtp-l3-application-plan.md): managed Linux services, dynamic firewalld ports and packet-engine integration
 
 ### Fixed proxy routes
 
