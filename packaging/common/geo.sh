@@ -36,11 +36,12 @@ cpxy_geo_uplink() {
 # CPXY_GEO6_ROUTES/GATEWAY/WAN opt into a second-family generation. Legacy callers
 # without these variables retain IPv4-only behavior; the router service always supplies them.
 cpxy_geo_healthy() {
-    local routes="$1" wan="$2" family dev active expected actual copies devices
+    local routes="$1" wan="$2" family dev active expected actual copies devices icmp
     shift 2
     devices="$*"
     for family in -4 -6; do
         [ "$family" != -6 ] || [ -n "${CPXY_GEO6_ROUTES:-}" ] || continue
+        icmp=icmp; [ "$family" != -6 ] || icmp=ipv6-icmp
         if [ "$family" = -6 ]; then routes="$CPXY_GEO6_ROUTES"; wan="$CPXY_GEO6_WAN"; fi
         copies=1; [ "$wan" = - ] || copies=2
         active="$(ip "$family" rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
@@ -54,6 +55,7 @@ cpxy_geo_healthy() {
             ip "$family" rule show priority "$CPXY_PRIO_TUN" | grep -qF "iif $dev ipproto tcp lookup $active" || return 1
             ip "$family" rule show priority "$CPXY_PRIO_MAIN" | grep -qF "iif $dev ipproto udp dport 443 prohibit" || return 1
             ip "$family" rule show priority "$CPXY_PRIO_UDP" | grep -qF "iif $dev ipproto udp lookup main" || return 1
+            ip "$family" rule show priority "$CPXY_PRIO_UDP" | grep -qF "iif $dev ipproto $icmp lookup main" || return 1
         done
     done
     for dev in "$CPXY_TUN" $devices; do
@@ -90,7 +92,7 @@ _cpxy_geo_stage() {
 
 # cpxy_geo_up <IPv4 CIDR file> <IPv4 gateway or -> <IPv4 WAN or -> <LAN devices...>
 cpxy_geo_up() (
-    local prefixes="$1" gateway="$2" wan="$3" dev fam active stage work active6 families=-4
+    local prefixes="$1" gateway="$2" wan="$3" dev fam active stage work active6 icmp families=-4
     shift 3
     cpxy_geo_guard "$CPXY_TUN" "$@" || return 1
     active="$(ip -4 rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
@@ -127,11 +129,14 @@ cpxy_geo_up() (
         _cpxy_flush_rules "$fam" "$CPXY_PRIO_TUN"
     done
     for fam in $families; do
+        icmp=1; [ "$fam" != -6 ] || icmp=58
         for dev in "$@"; do
             # Block QUIC even when a connected route would bypass the split table.
             ip "$fam" rule add priority "$CPXY_PRIO_MAIN" iif "$dev" ipproto udp dport 443 prohibit || return 1
             ip "$fam" rule add priority "$CPXY_PRIO_QUIC" iif "$dev" lookup main suppress_prefixlength 0 || return 1
             ip "$fam" rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
+            # ICMP cannot use SOCKS5; ping and network control traffic use the WAN.
+            ip "$fam" rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto "$icmp" lookup main || return 1
             ip "$fam" rule add priority "$CPXY_PRIO_TUN" iif "$dev" ipproto tcp lookup "$stage" || return 1
         done
         # TUN writes are replies; never reclassify them through the proxy.
