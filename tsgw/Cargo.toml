@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-base64 = "0.22"
+base64 = "0.23"
 clap = { version = "4", features = ["derive"] }
 ipnet = "2"
 libc = "0.2"
