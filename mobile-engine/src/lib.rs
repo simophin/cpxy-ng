@@ -190,12 +190,12 @@ pub struct RouterDns {
 }
 
 /// Starts the shared packet engine for a router, which answers DNS on `dns.listen` rather than
-/// from the TUN. No SOCKS listener is needed.
+/// from the TUN. LAN IPv6 is refused and AAAA queries return no records.
+/// The SOCKS5 transport itself may still use IPv6. No SOCKS listener is needed.
 pub fn start_router(
     tun: OwnedFd,
     socks5_proxy: SocketAddr,
     proxy_routes: client::outbound::ProxyRoutes,
-    ipv6: Ipv6Mode,
     mtu: u16,
     dns: Option<RouterDns>,
 ) -> anyhow::Result<EngineHandle> {
@@ -209,7 +209,7 @@ pub fn start_router(
                 .as_ref()
                 .map(|server| (server, dns.local_domains.as_slice())),
             cache: dns.cache,
-            ipv6,
+            ipv6: Ipv6Mode::Off,
         },
         intercept: None,
         listen: Some(dns.listen),
@@ -218,7 +218,7 @@ pub fn start_router(
         tun,
         Backend::Socks5(socks5_proxy),
         proxy_routes,
-        ipv6,
+        Ipv6Mode::Off,
         mtu,
         LOCAL_TCP_WINDOW,
         proxy::Ports::default(),
@@ -751,19 +751,26 @@ mod tests {
         let listen = reserved.local_addr().unwrap();
         drop(reserved);
         let (tun, _peer) = UnixDatagram::pair().unwrap();
-        let spec = |s: &str| s.parse::<ServerSpec>().unwrap();
+        // Keep both resolver transports open: AAAA replies must not contact either.
+        let resolver_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let resolver_addr = resolver_udp.local_addr().unwrap();
+        let resolver_tcp = std::net::TcpListener::bind(resolver_addr).unwrap();
+        resolver_udp.set_nonblocking(true).unwrap();
+        resolver_tcp.set_nonblocking(true).unwrap();
+        let spec = format!("udp://{resolver_addr}")
+            .parse::<ServerSpec>()
+            .unwrap();
         let engine = start_router(
             tun.into(),
             "127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
-            Ipv6Mode::Off,
             DEFAULT_MTU,
             Some(RouterDns {
                 listen,
-                upstream: vec![spec("127.0.0.1")],
-                alternative: vec![spec("127.0.0.1")],
+                upstream: vec![spec.clone()],
+                alternative: vec![spec.clone()],
                 search_domains: Vec::new(),
-                local_server: Some(spec("127.0.0.1")),
+                local_server: Some(spec),
                 local_domains: vec![Name::from_ascii("lan").unwrap()],
                 cache: true,
             }),
@@ -783,7 +790,13 @@ mod tests {
         udp.send_to(&query, listen).unwrap();
         let mut buf = [0; 512];
         let n = udp.recv(&mut buf).unwrap();
-        assert_eq!(Message::from_vec(&buf[..n]).unwrap().id(), 7);
+        let response = Message::from_vec(&buf[..n]).unwrap();
+        assert_eq!(response.id(), 7);
+        assert_eq!(
+            response.response_code(),
+            hickory_proto::op::ResponseCode::NoError
+        );
+        assert!(response.answers().is_empty());
 
         let mut tcp = std::net::TcpStream::connect(listen).unwrap();
         tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -793,7 +806,21 @@ mod tests {
         tcp.read_exact(&mut len).unwrap();
         let mut reply = vec![0; u16::from_be_bytes(len).into()];
         tcp.read_exact(&mut reply).unwrap();
-        assert_eq!(Message::from_vec(&reply).unwrap().id(), 7);
+        let response = Message::from_vec(&reply).unwrap();
+        assert_eq!(response.id(), 7);
+        assert_eq!(
+            response.response_code(),
+            hickory_proto::op::ResponseCode::NoError
+        );
+        assert!(response.answers().is_empty());
+        assert_eq!(
+            resolver_udp.recv(&mut buf).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert_eq!(
+            resolver_tcp.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
 
         engine.stop();
         std::net::UdpSocket::bind(listen).unwrap();

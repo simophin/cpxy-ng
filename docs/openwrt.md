@@ -8,11 +8,11 @@ automatically. Set `router_socks5_proxy 'IP:port'` (or `'[IPv6]:port'`) to use a
 external proxy. For an external-only instance, set `client '0'` and `tsgw '0'`;
 no cpxy server or credentials are then required.
 
-For both IPv4 and IPv6, CN/private TCP forwards directly in the kernel; overseas
+For IPv4, CN/private TCP forwards directly in the kernel; overseas
 TCP enters TUN and uses SOCKS5. `proxy_route` overrides CN/private classification,
 except router-local and connected-network access. UDP forwards directly for all
 destinations except UDP/443, which is rejected (including QUIC/HTTP/3). TCP/853
-follows ordinary TCP splitting. ICMP (including IPv4/IPv6 ping) uses ordinary WAN
+follows ordinary TCP splitting. IPv4 ICMP (including ping) uses ordinary WAN
 routing directly, regardless of `proxy_route`; it cannot travel through SOCKS5.
 Essential local ICMPv6/neighbor discovery remains available. The router's own
 outbound sockets use ordinary system routing.
@@ -30,27 +30,29 @@ and private reverse lookups still go to dnsmasq directly.
 ### Migration and routing lifecycle
 
 Stop the old router service before upgrading its routing configuration. Set
-`router_geoip '1'`, `router_ipv6 'full'` and `dns_listen '[::]:5335'` (port is
+`router_geoip '1'` and `dns_listen '[::]:5335'` (port is
 5335 + 10 × instance index). Disable firewall `flow_offloading` and
 `flow_offloading_hw`, reload the firewall, commit cpxy configuration, then start
 `cpxy-client` and `cpxy-router`. Explicit stop restores ordinary WAN access.
-Existing legacy `router_geoip '0'`, IPv4-only DNS listeners and `router_ipv6 'off'`
-are rejected with migration errors. The shared `ipv6` setting continues to control
-Tailscale; the router uses the same policy for both families.
+Existing legacy `router_geoip '0'` and IPv4-only DNS listeners are rejected with
+migration errors. Old `router_ipv6` settings are ignored. The shared `ipv6` setting
+continues to control Tailscale; routed network clients always use IPv4. AAAA
+queries receive empty answers locally without contacting either resolver. The
+router host and cpxy-client can still use IPv6 to reach upstream servers.
 
-Each instance reserves two routing tables (configured table and table + 10000)
-in both families, plus five rule priorities. It supports one simple default route
-per family, including gateway and point-to-point uplinks. A missing default keeps
-regional destinations unreachable until that family recovers; overseas TCP can
-still use a proxy reachable through the other family. ECMP/custom PBR requires
-separate integration. Normal WAN forwarding and IPv4 masquerading must already
+Each instance reserves two IPv4 routing tables (configured table and table + 10000)
+and five rule priorities. IPv6 uses an ingress reject rule and no policy tables;
+reload removes the old IPv6 tables and forwarding selectors. IPv4 supports one
+simple default route, including gateway and point-to-point uplinks. A missing
+default keeps regional destinations unreachable until the uplink recovers.
+ECMP/custom PBR requires separate integration. Normal WAN forwarding and IPv4 masquerading must already
 be configured; the package preserves administrator firewall denies.
 
 Route generations and independent terminal guards prevent overseas TCP falling
 back to WAN if tables, TUN, worker or proxy fail. Direct regional traffic remains
 independent of worker/proxy health. The firewall boot include blocks forwarding
-until both families have capture and terminal rules. Non-secret resource snapshots
-under `/etc/cpxy/router-guards/` survive stop for the next enabled boot; uninstall
+until IPv4 has capture and terminal rules and IPv6 has its terminal reject rule.
+Non-secret resource snapshots under `/etc/cpxy/router-guards/` survive stop for the next enabled boot; uninstall
 removes them. Changing TUN/table/priorities requires stop/start. Policy changes may
 reconnect affected flows.
 
@@ -216,8 +218,8 @@ never taken from `defaults`.
 | `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy; automatically enabled when the router uses the sibling client. |
 | `router_socks5_proxy` | sibling client loopback | External plaintext no-auth SOCKS5 endpoint (`IP:port` or `[IPv6]:port`). |
-| `router_geoip` / `router_ipv6` | `1` / `full` | Required kernel split for both families. |
-| `ipv6` | `full` | IPv6 for mobile/Tailscale clients; router always splits both families. `full` routes it like IPv4, which needs a server that can reach IPv6; `direct` only what goes direct (local-region and private addresses), for a server that cannot; `off` refuses it, so devices use IPv4. The router's WAN needs IPv6, and its networks IPv6 addresses (OpenWrt hands them out by default). |
+| `router_geoip` | `1` | Required kernel IPv4 split. IPv6 forwarding is always refused; obsolete `router_ipv6` settings are ignored. |
+| `ipv6` | `full` | Tailscale client IPv6 mode (`full`, `direct`, `off`). Router-network clients always use IPv4. Does not restrict cpxy-client upstream transport. |
 | `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |
 | `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. |
 | `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, through the router SOCKS5 endpoint (cpxy for tsgw). |
@@ -295,10 +297,10 @@ the details.
 ## Things to know
 
 - **Overseas TCP fails closed.** Worker/proxy failure does not cause WAN fallback.
-- **UDP is direct**, except UDP/443 is rejected for both families.
-- **Ping is direct** over IPv4 and IPv6, including when the proxy is down.
-- **IPv6 follows the same kernel split as IPv4.** Overseas IPv6 TCP needs a proxy
-  with IPv6 destination connectivity; CN IPv6 uses the router's native IPv6 uplink.
+- **IPv4 UDP is direct**, except UDP/443 is rejected.
+- **IPv4 ping is direct**, including when the proxy is down.
+- **Router-network IPv6 forwarding is refused**, and AAAA queries return empty answers.
+  IPv6 remains available to router-originated connections, including cpxy-client.
 - **Only selected networks are captured**, not router-originated connections.
 - **Software/hardware flow offloading must be disabled** for kernel routing mode.
 

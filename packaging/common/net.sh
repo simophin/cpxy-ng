@@ -11,8 +11,7 @@
 # All other UDP (WebRTC, games, VoIP, DNS to outside resolvers) goes out the WAN (prio 9102).
 # ICMP also uses the WAN directly; it cannot be relayed through the proxy.
 #
-# IPv6 takes the same path unless CPXY_IPV6 is off (or unset); then LAN IPv6 meets table 100's
-# `unreachable default`, so clients fall back to IPv4.
+# IPv6 ingress is prohibited; no IPv6 routing table is installed.
 #
 # cpxy0 is created persistently here; the worker attaches by name and leaves routing alone.
 # Router-originated outbound sockets therefore use the ordinary WAN routing table.
@@ -41,30 +40,21 @@ _cpxy_flush_rules() {
 # Also run on every reload (a config change, a LAN interface coming up) while cpxy-router keeps
 # running, so an existing cpxy0 is kept: a new device would leave cpxy-router attached to the old one.
 cpxy_net_up() {
-	local dev fam icmp families=-4
-
-	# Idempotent: rules and routes start from a clean slate
+	local dev
 	_cpxy_net_down_rules
-
 	ip link show "$CPXY_TUN" >/dev/null 2>&1 || ip tuntap add dev "$CPXY_TUN" mode tun || return 1
 	ip link set "$CPXY_TUN" up || return 1
-
-	for fam in -4 -6; do
-		ip $fam route replace unreachable default table "$CPXY_TABLE" metric 1000 || return 1
-		for dev in "$CPXY_TUN" "$@"; do
-			ip $fam rule add priority "$CPXY_PRIO_MAIN" iif "$dev" lookup main suppress_prefixlength 0 || return 1
-			ip $fam rule add priority "$CPXY_PRIO_TUN" iif "$dev" lookup "$CPXY_TABLE" || return 1
-		done
+	ip -4 route replace unreachable default table "$CPXY_TABLE" metric 1000 || return 1
+	ip -4 route replace default dev "$CPXY_TUN" table "$CPXY_TABLE" metric 10 || return 1
+	for dev in "$CPXY_TUN" "$@"; do
+		ip -6 rule add priority "$CPXY_PRIO_TUN" iif "$dev" prohibit || return 1
+		ip -4 rule add priority "$CPXY_PRIO_MAIN" iif "$dev" lookup main suppress_prefixlength 0 || return 1
+		ip -4 rule add priority "$CPXY_PRIO_TUN" iif "$dev" lookup "$CPXY_TABLE" || return 1
 	done
-	[ "${CPXY_IPV6:-off}" = off ] || families="-4 -6"
-	for fam in $families; do
-		icmp=1; [ "$fam" != -6 ] || icmp=58
-		ip $fam route replace default dev "$CPXY_TUN" table "$CPXY_TABLE" metric 10 || return 1
-		for dev in "$@"; do
-			ip $fam rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto udp dport 443 lookup "$CPXY_TABLE" || return 1
-			ip $fam rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
-			ip $fam rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto "$icmp" lookup main || return 1
-		done
+	for dev in "$@"; do
+		ip -4 rule add priority "$CPXY_PRIO_QUIC" iif "$dev" ipproto udp dport 443 lookup "$CPXY_TABLE" || return 1
+		ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
+		ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto icmp lookup main || return 1
 	done
 }
 

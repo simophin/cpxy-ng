@@ -1,5 +1,6 @@
 #!/bin/sh
-# Dual-family GeoIP route generations. net.sh supplies selection and priority-scoped deletion.
+# IPv4 GeoIP route generations; net.sh supplies selection and priority-scoped deletion.
+# IPv6 ingress is prohibited without a routing table.
 # The terminal guards are independent of both tables. A missing/partial table never uses WAN.
 
 cpxy_geo_guard() {
@@ -33,32 +34,32 @@ cpxy_geo_uplink() {
 		}'
 }
 
-# CPXY_GEO6_ROUTES/GATEWAY/WAN opt into a second-family generation. Legacy callers
-# without these variables retain IPv4-only behavior; the router service always supplies them.
+# IPv6 needs only terminal ingress guards. Detect old dual-family state on upgrade,
+# so even an otherwise healthy IPv4 generation reloads and removes IPv6 forwarding.
 cpxy_geo_healthy() {
-    local routes="$1" wan="$2" family dev active expected actual copies devices icmp
+    local routes="$1" wan="$2" dev active expected actual copies=1 family prio table
     shift 2
-    devices="$*"
-    for family in -4 -6; do
-        [ "$family" != -6 ] || [ -n "${CPXY_GEO6_ROUTES:-}" ] || continue
-        icmp=icmp; [ "$family" != -6 ] || icmp=ipv6-icmp
-        if [ "$family" = -6 ]; then routes="$CPXY_GEO6_ROUTES"; wan="$CPXY_GEO6_WAN"; fi
-        copies=1; [ "$wan" = - ] || copies=2
-        active="$(ip "$family" rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
-        case "$active" in "$CPXY_TABLE" | "$((CPXY_TABLE + 10000))") ;; *) return 1 ;; esac
-        expected="$(wc -l <"$routes")"
-        actual="$(ip "$family" route show table "$active" | wc -l)"
-        [ "$actual" -eq "$((expected * copies + 2))" ] || return 1
-        ip "$family" route show table "$active" default | grep -q 'unreachable default' || return 1
-        ip "$family" route show table "$active" default | grep -q "default dev $CPXY_TUN " || return 1
-        for dev in $devices; do
-            ip "$family" rule show priority "$CPXY_PRIO_TUN" | grep -qF "iif $dev ipproto tcp lookup $active" || return 1
-            ip "$family" rule show priority "$CPXY_PRIO_MAIN" | grep -qF "iif $dev ipproto udp dport 443 prohibit" || return 1
-            ip "$family" rule show priority "$CPXY_PRIO_UDP" | grep -qF "iif $dev ipproto udp lookup main" || return 1
-            ip "$family" rule show priority "$CPXY_PRIO_UDP" | grep -qF "iif $dev ipproto $icmp lookup main" || return 1
-        done
+    active="$(ip -4 rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
+    case "$active" in "$CPXY_TABLE" | "$((CPXY_TABLE + 10000))") ;; *) return 1 ;; esac
+    [ "$wan" = - ] || copies=2
+    expected="$(wc -l <"$routes")"
+    actual="$(ip -4 route show table "$active" | wc -l)"
+    [ "$actual" -eq "$((expected * copies + 2))" ] || return 1
+    ip -4 route show table "$active" default | grep -q 'unreachable default' || return 1
+    ip -4 route show table "$active" default | grep -q "default dev $CPXY_TUN " || return 1
+    for dev in "$@"; do
+        ip -4 rule show priority "$CPXY_PRIO_TUN" | grep -qF "iif $dev ipproto tcp lookup $active" || return 1
+        ip -4 rule show priority "$CPXY_PRIO_MAIN" | grep -qF "iif $dev ipproto udp dport 443 prohibit" || return 1
+        ip -4 rule show priority "$CPXY_PRIO_UDP" | grep -qF "iif $dev ipproto udp lookup main" || return 1
+        ip -4 rule show priority "$CPXY_PRIO_UDP" | grep -qF "iif $dev ipproto icmp lookup main" || return 1
     done
-    for dev in "$CPXY_TUN" $devices; do
+    for prio in "$CPXY_PRIO_MAIN" "$CPXY_PRIO_QUIC" "$CPXY_PRIO_UDP" "$CPXY_PRIO_TUN"; do
+        [ -z "$(ip -6 rule show priority "$prio")" ] || return 1
+    done
+    for table in "$CPXY_TABLE" "$((CPXY_TABLE + 10000))"; do
+        [ -z "$(ip -6 route show table "$table" 2>/dev/null)" ] || return 1
+    done
+    for dev in "$CPXY_TUN" "$@"; do
         for family in -4 -6; do
             ip "$family" rule show priority "$((CPXY_PRIO_MAIN + 4))" | grep -qF "iif $dev " || return 1
         done
@@ -92,58 +93,42 @@ _cpxy_geo_stage() {
 
 # cpxy_geo_up <IPv4 CIDR file> <IPv4 gateway or -> <IPv4 WAN or -> <LAN devices...>
 cpxy_geo_up() (
-    local prefixes="$1" gateway="$2" wan="$3" dev fam active stage work active6 icmp families=-4
+    local prefixes="$1" gateway="$2" wan="$3" dev fam active stage work
     shift 3
     cpxy_geo_guard "$CPXY_TUN" "$@" || return 1
     active="$(ip -4 rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
     case "$active" in '' | "$CPXY_TABLE" | "$((CPXY_TABLE + 10000))") ;; *) return 1 ;; esac
-    if [ -n "${CPXY_GEO6_ROUTES:-}" ]; then
-        active6="$(ip -6 rule show priority "$CPXY_PRIO_TUN" | awk '/lookup/ {print $NF; exit}')"
-        case "$active6" in '' | "$CPXY_TABLE" | "$((CPXY_TABLE + 10000))") ;; *) return 1 ;; esac
-        if [ "$active6" != "$active" ]; then
-            # Recover an interrupted family switch under the terminal guards. Neither
-            # selected table may be overwritten while it can still receive traffic.
-            for fam in -4 -6; do
-                _cpxy_flush_rules "$fam" "$CPXY_PRIO_MAIN"
-                _cpxy_flush_rules "$fam" "$CPXY_PRIO_QUIC"
-                _cpxy_flush_rules "$fam" "$CPXY_PRIO_UDP"
-                _cpxy_flush_rules "$fam" "$CPXY_PRIO_TUN"
-            done
-            active=''
-        fi
-    fi
     stage="$CPXY_TABLE"; [ "$active" != "$CPXY_TABLE" ] || stage="$((CPXY_TABLE + 10000))"
     work="$(mktemp -d /tmp/cpxy-geo.XXXXXX)" || return 1
     trap 'rm -rf "$work"' EXIT
     ip link show "$CPXY_TUN" >/dev/null 2>&1 || ip tuntap add dev "$CPXY_TUN" mode tun || return 1
     ip link set "$CPXY_TUN" up || return 1
     _cpxy_geo_stage -4 "$prefixes" "$gateway" "$wan" "$stage" "$work" || return 1
-    if [ -n "${CPXY_GEO6_ROUTES:-}" ]; then
-        _cpxy_geo_stage -6 "$CPXY_GEO6_ROUTES" "$CPXY_GEO6_GATEWAY" "$CPXY_GEO6_WAN" "$stage" "$work" || return 1
-        families="-4 -6"
-    fi
     for fam in -4 -6; do
         _cpxy_flush_rules "$fam" "$CPXY_PRIO_MAIN"
         _cpxy_flush_rules "$fam" "$CPXY_PRIO_QUIC"
         _cpxy_flush_rules "$fam" "$CPXY_PRIO_UDP"
         _cpxy_flush_rules "$fam" "$CPXY_PRIO_TUN"
     done
-    for fam in $families; do
-        icmp=1; [ "$fam" != -6 ] || icmp=58
-        for dev in "$@"; do
-            # Block QUIC even when a connected route would bypass the split table.
-            ip "$fam" rule add priority "$CPXY_PRIO_MAIN" iif "$dev" ipproto udp dport 443 prohibit || return 1
-            ip "$fam" rule add priority "$CPXY_PRIO_QUIC" iif "$dev" lookup main suppress_prefixlength 0 || return 1
-            ip "$fam" rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
-            # ICMP cannot use SOCKS5; ping and network control traffic use the WAN.
-            ip "$fam" rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto "$icmp" lookup main || return 1
-            ip "$fam" rule add priority "$CPXY_PRIO_TUN" iif "$dev" ipproto tcp lookup "$stage" || return 1
-        done
-        # TUN writes are replies; never reclassify them through the proxy.
-        ip "$fam" rule add priority "$CPXY_PRIO_MAIN" iif "$CPXY_TUN" lookup main suppress_prefixlength 0 || return 1
-        active="$CPXY_TABLE"; [ "$stage" != "$CPXY_TABLE" ] || active="$((CPXY_TABLE + 10000))"
-        ip "$fam" route flush table "$active" 2>/dev/null ||
-            [ -z "$(ip "$fam" route show table "$active" 2>/dev/null)" ] || return 1
+    for dev in "$@"; do
+        # Block QUIC even when a connected route would bypass the split table.
+        ip -4 rule add priority "$CPXY_PRIO_MAIN" iif "$dev" ipproto udp dport 443 prohibit || return 1
+        ip -4 rule add priority "$CPXY_PRIO_QUIC" iif "$dev" lookup main suppress_prefixlength 0 || return 1
+        ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto udp lookup main || return 1
+        # ICMP cannot use SOCKS5; ping and network control traffic use the WAN.
+        ip -4 rule add priority "$CPXY_PRIO_UDP" iif "$dev" ipproto icmp lookup main || return 1
+        ip -4 rule add priority "$CPXY_PRIO_TUN" iif "$dev" ipproto tcp lookup "$stage" || return 1
+    done
+    # TUN writes are replies; never reclassify them through the proxy.
+    ip -4 rule add priority "$CPXY_PRIO_MAIN" iif "$CPXY_TUN" lookup main suppress_prefixlength 0 || return 1
+    active="$CPXY_TABLE"; [ "$stage" != "$CPXY_TABLE" ] || active="$((CPXY_TABLE + 10000))"
+    ip -4 route flush table "$active" 2>/dev/null ||
+        [ -z "$(ip -4 route show table "$active" 2>/dev/null)" ] || return 1
+    # Retire both old IPv6 generations after removing their selectors. The terminal
+    # IPv6 guards stay installed, including while staging and when the worker dies.
+    for active in "$CPXY_TABLE" "$((CPXY_TABLE + 10000))"; do
+        ip -6 route flush table "$active" 2>/dev/null ||
+            [ -z "$(ip -6 route show table "$active" 2>/dev/null)" ] || return 1
     done
     for fam in -4 -6; do
         for dev in $(ip "$fam" rule show priority "$((CPXY_PRIO_MAIN + 4))" | awk '{for(i=1;i<NF;i++) if($i=="iif") print $(i+1)}'); do

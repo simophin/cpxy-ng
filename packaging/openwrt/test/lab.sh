@@ -98,7 +98,7 @@ check "router firewall loads" in_router nft -f "$WORK/fw.nft"
 
 # --- Internet side ---
 mkdir "$WORK/www" && echo hello >"$WORK/www/index.html"
-bg ip netns exec inet "$BIN/cpxy-server" --key lab 192.0.2.1:8443 >"$WORK/server.log" 2>&1
+bg ip netns exec inet "$BIN/cpxy-server" --key lab '[2001:db8:2::1]:8443' >"$WORK/server.log" 2>&1
 SERVER_PID=$!
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 93.184.216.34 2>>"$WORK/web.log")
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 2001:db8:100::34 2>>"$WORK/web.log")
@@ -139,14 +139,13 @@ expect_seen "baseline: request arrives from the router's WAN address" 192.0.2.2
 mark; check "baseline: LAN reaches the web server directly over IPv6" fetch "$URL_V6"
 expect_seen "baseline: IPv6 request arrives from the LAN address" 2001:db8:8::50
 
-# The production router uses both family exports and an independent SOCKS5 process.
+# The production router exports IPv4 routes and uses an independent SOCKS5 process.
 "$BIN/cpxy-router" --export-direct-routes >"$WORK/direct.cidrs"
-"$BIN/cpxy-router" --export-direct-routes-v6 >"$WORK/direct6.cidrs"
 GEO="$(dirname "$NET")/geo.sh"
 kernel_up() {
-    in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select '$1' '$2' '$3'; CPXY_GEO6_ROUTES='$WORK/direct6.cidrs'; CPXY_GEO6_GATEWAY=2001:db8:2::1; CPXY_GEO6_WAN=wan0r; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r '$4'"
+    in_router sh -c ". '$NET'; . '$GEO'; cpxy_net_select '$1' '$2' '$3'; cpxy_geo_up '$WORK/direct.cidrs' 192.0.2.1 wan0r '$4'"
 }
-bg ip netns exec router env CONFIG=http://:lab@192.0.2.1:8443 SOCKS5_PROXY_LISTEN=127.0.0.1:1080 "$BIN/cpxy-client" >"$WORK/socks.log" 2>&1
+bg ip netns exec router env CONFIG='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 "$BIN/cpxy-client" >"$WORK/socks.log" 2>&1
 SOCKS_PID=$!
 # --- Start the service pieces exactly as the init script does ---
 kernel_up cpxy0 100 9100 lan0r
@@ -174,7 +173,7 @@ mark; check "router's own traffic still goes out WAN" in_router curl -sS --max-t
 expect_seen "router traffic is not captured" 192.0.2.2
 check "LAN can still reach the router itself" in_lan ping -c1 -W2 192.168.8.1
 check "LAN IPv4 ping goes directly to the internet" in_lan ping -c1 -W2 93.184.216.34
-check "LAN IPv6 ping goes directly to the internet" in_lan ping -6 -c1 -W2 2001:db8:100::34
+check_not "LAN IPv6 ping is refused" in_lan ping -6 -c1 -W2 2001:db8:100::34
 # udp_probe <port> [host]: prints what a UDP datagram from the LAN to the internet echo server got back
 udp_probe() {
 	in_lan sh -c "timeout 3 python3 - $1 ${2:-93.184.216.34} <<'PY'
@@ -200,21 +199,16 @@ got="$(udp_probe 9999)"
 check "local-region TCP is reachable" in_lan curl -sS --max-time 5 --noproxy '*' http://114.114.114.114:8000/index.html
 grep -q '^192.0.2.2 ' "$WORK/direct.log" && pass "local-region TCP goes direct" || fail "local-region TCP was not direct"
 
-# IPv6 takes the same paths, without NAT
-mark; check "LAN reaches the web server through the proxy over IPv6" fetch "$URL_V6"
-got="$(seen)"
-case "$got" in
-'' | *2001:db8:2::2* | *2001:db8:8::50*) fail "IPv6 request did not go through the proxy (web server saw: '${got}')" ;;
-*) pass "IPv6 request came through cpxy (web server saw: $got)" ;;
-esac
-check "local-region TCP over IPv6 is reachable" in_lan curl -gsS --max-time 5 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
-grep -q '^2001:db8:8::50 ' "$WORK/direct.log" && pass "local-region TCP over IPv6 is forwarded natively" ||
-	fail "local-region TCP over IPv6 was not direct"
-got="$(udp_probe 443 2001:db8:100::34)"
-[ "$got" = refused ] && pass "QUIC over IPv6 gets an immediate ICMPv6 refusal" || fail "IPv6 UDP 443 was not refused (got: $got)"
-got="$(udp_probe 9999 2001:db8:100::34)"
-[ "$got" = "reply from 2001:db8:8::50" ] && pass "other UDP over IPv6 is forwarded directly ($got)" ||
-	fail "IPv6 UDP 9999 was not forwarded directly (got: $got)"
+# IPv6 clients cannot forward, including literal/cached destinations, while the
+# router's own IPv6 transport remains available. No IPv6 policy tables are needed.
+check_not "overseas IPv6 TCP is refused" fetch "$URL_V6"
+check_not "regional IPv6 TCP is refused" in_lan curl -gfsS --max-time 3 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
+for port in 443 9999; do
+    got="$(udp_probe "$port" 2001:db8:100::34)"
+    [ "$got" = refused ] && pass "IPv6 UDP $port is refused" || fail "IPv6 UDP $port was not refused: $got"
+done
+check "router-originated IPv6 still works" in_router curl -gfsS --max-time 3 --noproxy '*' "$URL_V6"
+check "no IPv6 policy tables installed" in_router sh -c '[ -z "$(ip -6 route show table 100 2>/dev/null)$(ip -6 route show table 10100 2>/dev/null)" ]'
 
 # --- A second network selects a genuinely different upstream server. ---
 bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
@@ -249,7 +243,7 @@ kill "$TUN_PID"; sleep 1
 mark; check_not "native worker down: LAN traffic is refused" fetch
 expect_not_direct "native worker down: nothing leaked via the WAN"
 check "worker down: IPv4 ping stays direct" in_lan ping -c1 -W2 93.184.216.34
-check "worker down: IPv6 ping stays direct" in_lan ping -6 -c1 -W2 2001:db8:100::34
+check_not "worker down: IPv6 ping stays refused" in_lan ping -6 -c1 -W2 2001:db8:100::34
 
 # The persistent TUN survives worker exit and can be attached again without redoing routes.
 check "worker exit preserves the TUN device" in_router ip link show cpxy0
@@ -262,8 +256,8 @@ expect_not_direct "worker restart still uses cpxy"
 kill "$SOCKS_PID"; sleep 0.5
 mark; check_not "SOCKS5 down: overseas TCP fails closed" fetch
 expect_not_direct "SOCKS5 down: no direct fallback"
-check "SOCKS5 down: regional IPv6 stays native" in_lan curl -gfsS --max-time 3 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
-bg ip netns exec router env CONFIG=http://:lab@192.0.2.1:8443 SOCKS5_PROXY_LISTEN=127.0.0.1:1080 "$BIN/cpxy-client" >>"$WORK/socks.log" 2>&1
+check_not "SOCKS5 down: regional IPv6 stays refused" in_lan curl -gfsS --max-time 3 --noproxy '*' 'http://[2400:3200::114]:8000/index.html'
+bg ip netns exec router env CONFIG='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 "$BIN/cpxy-client" >>"$WORK/socks.log" 2>&1
 SOCKS_PID=$!
 sleep 0.5
 kill "$SERVER_PID"; sleep 0.5
@@ -286,7 +280,7 @@ TUN_PID=$!
 sleep 1
 mark; check "external SOCKS5 without cpxy server relays IPv4" fetch
 expect_seen "external SOCKS5 uses proxy exit" 93.184.216.34
-check "external SOCKS5 relays IPv6" fetch "$URL_V6"
+check_not "IPv6 transport does not enable client IPv6" fetch "$URL_V6"
 check "DNS redirect installs for both address families" in_router nft -f - <<'NFT'
 table inet cpxy_test_dns {
     chain prerouting {
@@ -297,9 +291,11 @@ table inet cpxy_test_dns {
 }
 NFT
 dns_query() { in_lan python3 "$DNS_FIXTURE" query "$@"; }
+[ "$(dns_query 8.8.4.4 overseas.test udp AAAA)" = NOERROR ] && pass "AAAA over IPv4 UDP is empty" || fail "AAAA over IPv4 UDP"
+[ "$(dns_query 8.8.4.4 overseas.test tcp AAAA)" = NOERROR ] && pass "AAAA over IPv4 TCP is empty" || fail "AAAA over IPv4 TCP"
 [ "$(dns_query 8.8.4.4 cn.test)" = 'NOERROR 114.114.114.114' ] && pass "Chinese DNS answer via direct UDP" || fail "Chinese DNS answer"
 [ "$(dns_query 8.8.4.4 overseas.test tcp)" = 'NOERROR 93.184.216.34' ] && pass "IPv4 TCP DNS redirected and proxied" || fail "IPv4 TCP DNS"
-[ "$(dns_query 2001:4860:4860::8844 overseas.test udp AAAA)" = 'NOERROR 2001:db8:100::34' ] && pass "IPv6 UDP DNS redirected, AAAA retained" || fail "IPv6 UDP DNS"
+[ "$(dns_query 2001:4860:4860::8844 overseas.test udp AAAA)" = 'NOERROR' ] && pass "IPv6 UDP DNS redirected, AAAA suppressed" || fail "IPv6 UDP DNS"
 [ "$(dns_query 2001:4860:4860::8844 overseas.test tcp)" = 'NOERROR 93.184.216.34' ] && pass "IPv6 TCP DNS redirected" || fail "IPv6 TCP DNS"
 check "overseas UDP DNS specification used SOCKS5 TCP" grep -q 'CONNECT 8.8.8.8 53' "$WORK/external-socks.log"
 check_not "Chinese DNS never enters SOCKS5" grep -q 'CONNECT 114.114.114.114 53' "$WORK/external-socks.log"

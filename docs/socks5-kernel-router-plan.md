@@ -2,6 +2,11 @@
 
 Status: complete. PR: https://github.com/simophin/cpxy-ng/pull/158. Branch: `feat/socks5-kernel-router`.
 
+Current router policy is IPv4-only for routed network clients: AAAA replies are
+empty, IPv6 forwarding is refused, and IPv6 policy tables are removed on reload.
+Router-originated IPv6 proxy transport is retained. The dual-family behavior and
+validation below describe the original implementation before this simplification.
+
 ## Agreed behavior
 
 - Kernel routing forwards CN/private TCP directly for IPv4 and IPv6. Other TCP

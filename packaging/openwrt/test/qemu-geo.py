@@ -275,8 +275,14 @@ def main():
             console.command('ip -6 addr add 2001:db8:8::1/64 dev br-lan nodad; ip -6 addr add 2001:db8:2::2/64 dev eth1 nodad; ip -6 route add default via 2001:db8:2::1')
             ns('lan', 'ping', '-6', '-c1', '-W3', '2001:db8:8::1')
             console.command('/etc/init.d/cpxy-router reload; sleep 3', 120)
-            assert fetch('[2001:db8:100::34]') == '2001:db8:100::34'
-            print('PASS: VM local IPv6 stays reachable; overseas IPv6 uses SOCKS5', flush=True)
+            try:
+                fetch('[2001:db8:100::34]')
+            except subprocess.CalledProcessError:
+                pass
+            else:
+                raise AssertionError('Router forwarded client IPv6')
+            console.command('test -z "$(ip -6 route show table 100 2>/dev/null)$(ip -6 route show table 10100 2>/dev/null)"')
+            print('PASS: VM local IPv6 stays reachable; client IPv6 forwarding refused without tables', flush=True)
             assert ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@2001:db8:8::1', 'proxy.test', 'A') == '93.184.216.34'
             assert ns('lan', 'dig', '+tcp', '+short', '+time=3', '+tries=1', '@2001:db8:8::1', 'proxy.test', 'A') == '93.184.216.34'
             print('PASS: VM IPv6 UDP/TCP DNS redirection', flush=True)
