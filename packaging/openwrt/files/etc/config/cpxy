@@ -11,9 +11,8 @@ config defaults 'defaults'
 	# Force matching TCP destinations through the proxy (repeatable, IPv4 or IPv6).
 	# list proxy_route '223.5.5.5/32'
 
-	# IPv6 from the networks and Tailscale clients: 'full' routes it like IPv4, which needs a
-	# server that reaches IPv6; 'direct' only what goes direct (local-region and private
-	# addresses), for a server that does not; 'off' refuses it, so clients use IPv4.
+	# IPv6 for Tailscale clients only: full, direct, or off. Router-network clients
+	# always use IPv4. This does not restrict cpxy-client's upstream transport.
 	option ipv6 'full'
 
 	# The components every instance runs (1) or not (0)
@@ -48,11 +47,10 @@ config defaults 'defaults'
 
 	# cpxy-router: 1 answers IPv4/IPv6 DNS from the instance's networks with its dns_split
 	option router_dns '1'
-	# Kernel IPv4/IPv6 regional TCP forwarding (required).
+	# Kernel IPv4 regional TCP forwarding (required).
 	# Disable firewall software/hardware flow offloading before enabling.
-	# IPv6 uses the same policy as IPv4. The shared ipv6 option still serves tsgw.
+	# IPv6 forwarding is refused; no IPv6 policy tables are installed.
 	option router_geoip '1'
-	option router_ipv6 'full'
 
 
 	# cpxy-tsgw: log in with the link in `logread -e cpxy-tsgw`, or once with an auth key

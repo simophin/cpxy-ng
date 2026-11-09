@@ -116,7 +116,6 @@ cpxy_instance() {
 	cpxy_get_bool CPXY_TSGW "$name" tsgw 1
 	cpxy_get CPXY_IPV6 "$name" ipv6 full
 	cpxy_get_bool CPXY_GEOIP "$name" router_geoip 1
-	cpxy_get CPXY_ROUTER_IPV6 "$name" router_ipv6 full
 
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
 	cpxy_get_bool CPXY_SOCKS5 "$name" client_socks5 0
@@ -227,7 +226,6 @@ _cpxy_validate_instance() {
 	fi
 	if [ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ]; then
 		[ "$CPXY_GEOIP" = 1 ] || _cpxy_invalid "$1: router_geoip must be 1; stop the old router before migration"
-		[ "$CPXY_ROUTER_IPV6" = full ] || _cpxy_invalid "$1: router_ipv6 must be full"
 		_cpxy_socket_address "$CPXY_ROUTER_SOCKS5" || _cpxy_invalid "$1: router_socks5_proxy must be IPv4:port or [IPv6]:port"
 		config_get entry "$1" router_socks5_proxy
 		[ -n "$entry" ] || config_get entry defaults router_socks5_proxy

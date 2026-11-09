@@ -7,7 +7,7 @@ what it changes on the router and how it is built and tested.
 | Installed as | Built from | Role, per instance |
 |---|---|---|
 | `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP and SOCKS5 proxy through the instance's cpxy server |
-| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | Overseas TCP from `cpxy<i>` through SOCKS5, native CN IPv4/IPv6 routing, and split DNS |
+| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | Overseas TCP from `cpxy<i>` through SOCKS5, native CN IPv4 routing, and split DNS |
 | `/usr/bin/cpxy-tsgw` | `tsgw/` (tailscale-rs, with the shared packet engine) | Tailscale exit node |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
@@ -20,9 +20,10 @@ fails, leaving what runs untouched. Each subscribes to changes of `cpxy`, and pr
 the instances whose command or environment changed.
 
 ```text
-LAN TCP (IPv4/IPv6) -> kernel CN/private routes -> WAN
+LAN TCP (IPv4) -> kernel CN/private routes -> WAN
                    -> otherwise TUN -> cpxy-router -> SOCKS5 -> cpxy-client or external proxy
-LAN UDP (IPv4/IPv6) -> WAN, except UDP/443 rejected
+LAN UDP (IPv4) -> WAN, except UDP/443 rejected
+LAN IPv6 forwarding -> refused (no IPv6 policy tables)
 LAN DNS (UDP/TCP 53, both families) -> redirect -> split DNS
     -> CN/private resolver direct; overseas resolver through SOCKS5 over TCP/DoT/DoH
 ```
@@ -42,7 +43,7 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 |---|---|---|
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
 | `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` IPv4/IPv6 DNS redirects per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
-| Kernel | per routed instance: a persistent TUN, five rule priorities and two routing tables in both families | reload, `stop`, `opkg remove` |
+| Kernel | per routed instance: a persistent TUN, five IPv4 rule priorities and two IPv4 routing tables, plus IPv6 ingress reject rules | reload, `stop`, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
 | `/etc/cpxy/tsgw/<name>` | each exit node's Tailscale identity, kept across sysupgrade | deleted by hand |
 
@@ -124,14 +125,16 @@ dnsmasq, so the redirect, the services and local names are verified on a router.
 
 ## Fixed proxy routes
 
-Kernel routing is the normal router path: `router_geoip=1`, `router_ipv6=full`.
-Both families reserve two table generations and five priorities. The router requires
+Kernel routing is the normal router path: `router_geoip=1`.
+IPv4 reserves two table generations and five priorities; IPv6 ingress is refused.
+AAAA queries return empty answers locally. The router host, including cpxy-client,
+retains IPv6 transport connectivity. Old `router_ipv6` settings are ignored. The router requires
 SOCKS5; by default the sibling cpxy-client listener is enabled automatically. An
 external-only instance can disable client/tsgw and omit cpxy server credentials.
 See the [operator guide](../../docs/openwrt.md#socks5-kernel-router) for migration.
 
 `test/lab.sh` requires `cpxy-router`, `cpxy-client` (standalone), and `cpxy-server`.
-It runs both-family forwarding, proxy chains, overrides and failure guards with real
+It runs IPv4 forwarding, IPv6 refusals, IPv6 proxy transport, overrides and failure guards with real
 binaries. `test/init-dryrun.sh` uses stand-ins for procd and the binaries with real
 OpenWrt UCI; package install/removal has separate fixtures. Historical validation
 reports describe their original revisions; current results live in the

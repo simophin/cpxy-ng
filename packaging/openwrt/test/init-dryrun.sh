@@ -143,7 +143,7 @@ grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.
 want 'geo_up cpxy0 100'
 want 'geo_up cpxy1 101'
 want 'geo_up cpxy2 102'
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full'
+want 'set command /usr/bin/cpxy-router --tun cpxy1'
 want 'set env NO_COLOR=1'
 absent '_dns'
 absent 'cpxy-dns-split'
@@ -152,7 +152,7 @@ want 'append command --dns-alternative tcp://1.1.1.1?via=cpxy'
 absent 'append command --dns-alternative tcp://8.8.8.8'
 # The worker asks those through its instance's server, whose key stays out of the process list
 if grep -q SERVER /tmp/cpxy/router-guest.env; then fail 'router has cpxy credentials'; fi
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full --socks5-proxy 127.0.0.1:1081'
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --socks5-proxy 127.0.0.1:1081'
 absent 'append command --server'
 want 'append command --dns-local-server 127.0.0.1:53'
 want 'append command --dns-local-domain lan'
@@ -221,12 +221,12 @@ absent 'PROXY_ROUTES'
 if grep -q '^PROXY_ROUTES' /tmp/cpxy/client-main.env; then fail 'client routes not cleared'; fi
 if grep -q '^PROXY_ROUTES' /tmp/cpxy/tsgw-guest.env; then fail 'tsgw routes not cleared'; fi
 
-# The shared IPv6 setting belongs to mobile/tsgw; router always splits both families.
+# The shared IPv6 setting belongs to mobile/tsgw; router always refuses IPv6.
 uci set cpxy.guest.ipv6=direct
 : >"$LOG"
 router reload_service
 absent 'geo_up '
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full'
+want 'set command /usr/bin/cpxy-router --tun cpxy1'
 uci set cpxy.guest.ipv6=on
 invalid "guest: option 'ipv6' must be off, direct or full"
 uci delete cpxy.guest.ipv6
@@ -325,13 +325,13 @@ router stop_service
 [ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
 if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
 
-# Kernel GeoIP protects both families independently of the Tailscale setting.
+# Kernel GeoIP routes IPv4 and prohibits IPv6 independently of the Tailscale setting.
 uci set cpxy.main.router_geoip=1
 : >"$LOG"
 router start_service
 want 'guard cpxy0 br-lan br-extra'
 want 'geo_up cpxy0 100'
-want 'set command /usr/bin/cpxy-router --tun cpxy0 --ipv6 full'
+want 'set command /usr/bin/cpxy-router --tun cpxy0'
 absent 'append command --proxy-route 0.0.0.0/0'
 want 'append file /usr/bin/cpxy-router'
 [ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
@@ -339,9 +339,17 @@ touch /tmp/no-lan
 if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP activated with an unresolved LAN'; fi
 grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
 rm /tmp/no-lan
-uci set cpxy.main.router_ipv6=off
-invalid 'router_ipv6 must be full'
+# Obsolete router_ipv6 values are ignored on upgrade; neither enables IPv6.
 uci set cpxy.main.router_ipv6=full
+: >"$LOG"
+router reload_service
+absent '--ipv6'
+absent '--export-direct-routes-v6'
+uci set cpxy.main.router_ipv6=off
+: >"$LOG"
+router reload_service
+absent '--ipv6'
+uci delete cpxy.main.router_ipv6
 uci set firewall.@defaults[0].flow_offloading=1
 if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP offloading accepted'; fi
 grep -q 'disable flow_offloading' /tmp/err || fail 'missing GeoIP offloading error'
@@ -370,7 +378,7 @@ uci delete cpxy.defaults.server
 uci set cpxy.guest.router_dns=1
 : >"$LOG"
 everything start_service
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --ipv6 full --socks5-proxy [2001:db8::1]:1080'
+want 'set command /usr/bin/cpxy-router --tun cpxy1 --socks5-proxy [2001:db8::1]:1080'
 absent 'set command /usr/bin/cpxy-client'
 absent 'set command /usr/bin/cpxy-tsgw'
 absent 'SERVER='

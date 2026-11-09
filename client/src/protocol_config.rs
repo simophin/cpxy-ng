@@ -38,10 +38,12 @@ impl TryFrom<Url> for Config {
     type Error = anyhow::Error;
 
     fn try_from(value: Url) -> Result<Self, Self::Error> {
-        let host = value
-            .host_str()
-            .context("Expected host in URL but got none")?
-            .to_string();
+        // URL IPv6 literals include brackets, but socket lookup and TLS names take
+        // the bare address. Keep upstream transport independent of router-client IPv6.
+        let host = match value.host().context("Expected host in URL but got none")? {
+            url::Host::Ipv6(address) => address.to_string(),
+            host => host.to_string(),
+        };
         let port = value
             .port_or_known_default()
             .context("Expected port in URL")?;
@@ -61,5 +63,23 @@ impl TryFrom<Url> for Config {
             key: key.into(),
             tls,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upstream_hosts_are_ready_for_socket_lookup() {
+        for (authority, expected) in [
+            ("proxy.example", "proxy.example"),
+            ("192.0.2.1", "192.0.2.1"),
+            ("[2001:db8::1]", "2001:db8::1"),
+        ] {
+            let config: Config = format!("http://:test@{authority}:8443").parse().unwrap();
+            assert_eq!(config.host, expected);
+            assert_eq!(config.port, 8443);
+        }
     }
 }
