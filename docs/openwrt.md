@@ -15,7 +15,10 @@ LAN DNS (UDP/TCP 53, both families) -> redirect -> split DNS in cpxy-router
 ```
 
 The direct set is the bundled CN dataset plus private ranges, minus `proxy_route`, plus the
-routes of the router's main table other than the default (connected and static subnets). Each
+routes of the router's main table other than the default (connected and static subnets). TCP
+whose route leaves through a device other than an uplink (for example `tailscale0`, or another
+LAN) also goes there directly; uplinks are the default route's devices and those of masquerading
+firewall zones such as `wan`. Each
 instance has its own set, redirect and guard rules, matched by its networks' devices. Traffic to
 the router's own addresses and everything the router originates (dnsmasq, cpxy-client itself,
 opkg) is never redirected. TCP/853 follows ordinary TCP splitting.

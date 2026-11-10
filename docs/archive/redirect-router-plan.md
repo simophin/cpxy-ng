@@ -174,6 +174,13 @@ Differences from the design above:
   boot barrier checks.
 - The direct set also holds the main table's non-default IPv4 routes, which the TUN design sent
   direct through `lookup main suppress_prefixlength 0`. The interface trigger refreshes them.
+- Routes through any non-uplink device also win over the proxy, as they did under the TUN
+  design's policy rules: the redirect and the guard skip TCP whose `fib daddr oif` (forward:
+  `oif`) is in an `exempt` set of interface indexes. The set holds every device except loopback,
+  the main table's default-route devices and the devices of masquerading firewall zones. This keeps
+  Tailscale's per-peer table-52 routes direct on the TR3600; a prefix snapshot cannot follow them.
+  A device created after an apply is not exempt, so a new path fails closed until the next reload.
+  (`fib … oifname` against an `ifname` set fails to load on OpenWrt 24.10's nft, hence indexes.)
 - cpxy-router lost `--tun` and `--mtu`, and `mobile_engine::start_router` is gone; it now calls
   `serve_router_dns`.
 - The package depends on `firewall4` and `kmod-nft-nat` instead of `ip-full` and `kmod-tun`; fw3
