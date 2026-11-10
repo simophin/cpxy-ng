@@ -1,4 +1,4 @@
-//! Linux TUN attachment shared by the router and mobile integration harness.
+//! Linux TUN attachment for the mobile engine's Linux integration harness.
 use anyhow::{Context, ensure};
 use std::fs::OpenOptions;
 use std::os::fd::{AsRawFd, OwnedFd};

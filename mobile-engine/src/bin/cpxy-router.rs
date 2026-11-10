@@ -1,4 +1,6 @@
-//! Native OpenWrt TUN client; routing and device persistence belong to the init script.
+//! Native OpenWrt worker: answers split DNS for a router's networks, and exports the IPv4 direct
+//! prefixes the init script loads into nftables. The kernel forwards direct TCP and redirects
+//! the rest to cpxy-client; this binary carries no LAN traffic.
 #[cfg(any(target_os = "linux", test))]
 mod cli {
     use clap::Parser;
@@ -17,15 +19,12 @@ mod cli {
         /// CIDRs forced through the proxy (repeatable or comma-separated).
         #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = client::outbound::ProxyRoutes::parse_network)]
         pub proxy_route: Vec<ipnet::IpNet>,
-        #[arg(long, default_value = "cpxy0")]
-        pub tun: String,
-        /// The engine sizes TCP segments to this and ignores the peer's MSS, so it must not
-        /// exceed the smallest MTU on the path back to clients (1280 behind tailscale0).
-        #[arg(long, default_value_t = mobile_engine::DEFAULT_MTU)]
-        pub mtu: u16,
-        /// Answer DNS with dns_split on this address, for both UDP and TCP. The other --dns
-        /// options need it.
-        #[arg(long, requires_all = ["dns_upstream", "dns_alternative"])]
+        /// Answer DNS with dns_split on this address, for both UDP and TCP.
+        #[arg(
+            long,
+            requires_all = ["dns_upstream", "dns_alternative"],
+            required_unless_present_any = ["export_direct_routes", "geoip_version"]
+        )]
         pub dns_listen: Option<std::net::SocketAddr>,
         /// Upstream DNS server: an IP, udp://, tcp://, tls:// or https:// URL. Repeatable.
         #[arg(long, value_delimiter = ',', requires = "dns_listen")]
@@ -118,6 +117,37 @@ mod cli {
                 .is_err()
             );
         }
+
+        #[test]
+        fn runs_dns() {
+            Options::try_parse_from([
+                "cpxy-router",
+                "--socks5-proxy",
+                "127.0.0.1:1080",
+                "--dns-listen",
+                "[::]:5335",
+                "--dns-upstream",
+                "223.5.5.5",
+                "--dns-alternative",
+                "tcp://1.1.1.1?via=cpxy",
+            ])
+            .unwrap();
+            // Without DNS there is nothing to run; the TUN path is gone
+            assert!(
+                Options::try_parse_from([
+                    "cpxy-router",
+                    "--socks5-proxy",
+                    "127.0.0.1:1080",
+                    "--tun",
+                    "cpxy0"
+                ])
+                .is_err()
+            );
+            assert!(
+                Options::try_parse_from(["cpxy-router", "--socks5-proxy", "127.0.0.1:1080"])
+                    .is_err()
+            );
+        }
     }
 }
 #[cfg(target_os = "linux")]
@@ -152,41 +182,28 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let proxy = options.socks5_proxy.context("--socks5-proxy is required")?;
-    let dns = options.dns_listen.map(|listen| mobile_engine::RouterDns {
-        listen,
+    let proxy_routes = client::outbound::ProxyRoutes(options.proxy_route);
+    let dns = mobile_engine::RouterDns {
+        listen: options.dns_listen.context("--dns-listen is required")?,
         upstream: options.dns_upstream,
         alternative: options.dns_alternative,
         search_domains: options.dns_search_domain,
         local_server: options.dns_local_server,
         local_domains: options.dns_local_domain,
         cache: !options.no_dns_cache,
-    });
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    };
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?;
-    let tun = mobile_engine::linux::create_tun(&options.tun)?;
-    let engine = mobile_engine::start_router(
-        tun,
-        proxy,
-        client::outbound::ProxyRoutes(options.proxy_route),
-        options.mtu,
-        dns,
-    )?;
-    let result = runtime.block_on(async {
-        use tokio::signal::unix::{SignalKind, signal};
-        let mut term = signal(SignalKind::terminate())?;
-        loop {
+        .build()?
+        .block_on(async {
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut term = signal(SignalKind::terminate())?;
             tokio::select! {
-                _ = term.recv() => return anyhow::Ok(()),
-                _ = tokio::signal::ctrl_c() => return Ok(()),
-                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                    anyhow::ensure!(engine.is_running(), "Packet engine stopped");
-                }
+                result = mobile_engine::serve_router_dns(proxy, proxy_routes, dns) => result,
+                _ = term.recv() => Ok(()),
+                _ = tokio::signal::ctrl_c() => Ok(()),
             }
-        }
-    });
-    engine.stop();
-    result
+        })
 }
 
 #[cfg(not(target_os = "linux"))]

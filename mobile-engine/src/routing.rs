@@ -8,12 +8,11 @@ use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use std::net::{IpAddr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// Split routing is retained for legacy consumers and Android's conservative capture fallback.
-/// OpenWrt's exact kernel routes use unconditional SOCKS forwarding instead.
+/// Sends private and CN destinations direct and the rest through the cpxy server or a SOCKS5
+/// proxy.
 pub struct Router {
     direct: DirectOutbound,
     proxy: EitherOutbound<ProtocolOutbound, Socks5Outbound>,
-    always_proxy: bool,
     proxy_routes: ProxyRoutes,
 }
 
@@ -28,34 +27,20 @@ impl Router {
         Self {
             direct: DirectOutbound::default(),
             proxy: EitherOutbound::Left(ProtocolOutbound(server)),
-            always_proxy: false,
             proxy_routes,
-        }
-    }
-
-    pub fn socks5(address: SocketAddr) -> Self {
-        Self {
-            direct: DirectOutbound::default(),
-            proxy: EitherOutbound::Right(Socks5Outbound(address)),
-            always_proxy: true,
-            proxy_routes: ProxyRoutes::default(),
         }
     }
 
     pub fn split_socks5(address: SocketAddr, proxy_routes: ProxyRoutes) -> Self {
         Self {
+            direct: DirectOutbound::default(),
+            proxy: EitherOutbound::Right(Socks5Outbound(address)),
             proxy_routes,
-            always_proxy: false,
-            ..Self::socks5(address)
         }
     }
 
     fn route(&self, ip: Option<IpAddr>) -> Route {
-        if self.always_proxy {
-            Route::Proxy
-        } else {
-            route(&self.proxy_routes, ip)
-        }
+        route(&self.proxy_routes, ip)
     }
 }
 
@@ -108,14 +93,6 @@ mod tests {
             router.route(Some("192.168.1.1".parse().unwrap())),
             Route::Direct
         );
-    }
-
-    #[test]
-    fn router_tun_never_reclassifies_a_private_destination_as_direct() {
-        let router = Router::socks5("127.0.0.1:1080".parse().unwrap());
-        for ip in ["127.0.0.1", "10.1.2.3", "::1"] {
-            assert_eq!(router.route(Some(ip.parse().unwrap())), Route::Proxy);
-        }
     }
 
     #[test]
