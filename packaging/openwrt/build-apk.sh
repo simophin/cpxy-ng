@@ -30,7 +30,7 @@ mkdir -p "$work/data/usr/bin" "$work/data/lib/apk/packages" "$work/scripts"
 cp -R "$here/files/." "$work/data/"
 cp "$here/../common/net.sh" "$work/data/usr/libexec/cpxy/net.sh"
 cp "$here/../common/geo.sh" "$work/data/usr/libexec/cpxy/geo.sh"
-for bin in cpxy-router cpxy-client cpxy-tsgw; do
+for bin in cpxy-router cpxy-client; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
 chmod 0755 "$work/data/etc/init.d/"*
@@ -54,7 +54,7 @@ for action in install remove; do
 done
 set -- "$apk" mkpkg --compat 3.0.0 --no-xattrs \
 	--info name:cpxy --info "version:$version" --info "arch:$arch" \
-	--info 'description:cpxy proxy, split DNS, LAN routing and Tailscale exit node' \
+	--info 'description:cpxy proxy, split DNS and LAN routing' \
 	--info origin:cpxy-ng --info maintainer:cpxy-ng \
 	--info url:https://github.com/simophin/cpxy-ng \
 	--info 'depends:ip-full kmod-tun !cpxy-router' \

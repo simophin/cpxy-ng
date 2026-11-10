@@ -1,40 +1,34 @@
 # cpxy: one instance per set of networks. Each instance runs, for its own cpxy server:
-#   cpxy-client    an HTTP proxy, which tsgw also uses
+#   cpxy-client    an HTTP proxy
 #   cpxy-router    kernel CN TCP, overseas TCP through SOCKS5, and split DNS
-#   cpxy-tsgw      a Tailscale exit node with the same routing and DNS
 # Every option in 'defaults' can also be set in an instance, which then wins.
 # After editing: uci commit cpxy, then each service reloads by itself.
 
 config defaults 'defaults'
-	# Required for client/tsgw (external-only routers need no server): https://:<key>@<host>:<port> (or http://)
+	# Required for client (external-only routers need no server): https://:<key>@<host>:<port> (or http://)
 	option server ''
 	# Force matching TCP destinations through the proxy (repeatable, IPv4 or IPv6).
 	# list proxy_route '223.5.5.5/32'
 
-	# IPv6 for Tailscale clients only: full, direct, or off. Router-network clients
-	# always use IPv4. This does not restrict cpxy-client's upstream transport.
-	option ipv6 'full'
-
 	# The components every instance runs (1) or not (0)
 	option client '1'
 	option router '1'
-	option tsgw '1'
 
 	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index.
 	option client_socks5 '0'
 	# Router automatically enables the sibling SOCKS5 listener unless an external
-	# plaintext no-auth endpoint is supplied. External-only: set client=0 and tsgw=0.
+	# plaintext no-auth endpoint is supplied. External-only: set client=0.
 	# option router_socks5_proxy '127.0.0.1:1080'
 
-	# Optional ordered suffixes for short DNS names, for router and Tailscale clients.
+	# Optional ordered suffixes for short DNS names, for router clients.
 	# list dns_search_domain 'home.arpa'
 	# list dns_search_domain 'corp.example'
 
-	# Split DNS, for the networks (dns_split, in cpxy-router) and for cpxy-tsgw's clients.
+	# Split DNS, for the networks (dns_split, in cpxy-router).
 	# A dns_upstream answer with regional addresses wins (nonregional addresses removed),
 	# otherwise prefer dns_alternative. Each entry is an IP, or a udp://, tcp://, tls:// or
 	# https:// URL (tls:// and https:// accept ?ip=<addr>). tcp://, tls:// and https:// accept
-	# ?via=cpxy as an explicit proxy override (router: SOCKS5; tsgw: cpxy).
+	# ?via=cpxy as an explicit proxy override (through the router's SOCKS5 endpoint).
 	# Router specs otherwise follow destination routing; proxied UDP specs use TCP.
 	list dns_upstream '223.5.5.5'
 	# Unset: tcp://1.1.1.1?via=cpxy
@@ -52,34 +46,21 @@ config defaults 'defaults'
 	# IPv6 forwarding is refused; no IPv6 policy tables are installed.
 	option router_geoip '1'
 
-
-	# cpxy-tsgw: log in with the link in `logread -e cpxy-tsgw`, or once with an auth key
-	option tsgw_authkey ''
-	# A different coordination server, e.g. Headscale, with a certificate from a public CA
-	option tsgw_control_url ''
-	option tsgw_mtu '1280'
-	# 1 reaches Tailscale's coordination and relay (DERP) servers through the instance's proxy
-	option tsgw_proxy '1'
-	option tsgw_verbose '0'
-
 config instance 'main'
 	option enabled '1'
 	# 0..9, unique. Everything below defaults to a value derived from it; set one only if it
 	# clashes with something else on the router.
 	option index '0'
-	# The OpenWrt networks whose devices use this instance (none: client and tsgw only)
+	# The OpenWrt networks whose devices use this instance (none: client only)
 	list network 'lan'
 	# Derived from index (i):
 	#   tun 'cpxy<i>'                          routing_table '100+i'
 	#   rule_priority '9100+10i' (uses 5)      client_http_listen '[::]:5000+i'
 	#   client_socks5_listen '[::]:1080+i'     dns_listen '[::]:5335+10i'
-	#   tsgw_port '41700+i'                    tsgw_hostname 'cpxy-<name>'
-	#   tsgw_state_dir '/etc/cpxy/tsgw/<name>'
 
-# Another network on its own server, without a Tailscale exit node:
+# Another network on its own server:
 # config instance 'guest'
 #	option enabled '1'
 #	option index '1'
 #	list network 'guest'
 #	option server 'https://:<key>@<host>:443'
-#	option tsgw '0'

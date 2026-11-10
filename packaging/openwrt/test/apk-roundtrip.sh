@@ -11,7 +11,7 @@ trap 'rm -rf "$work"' EXIT
 "$engine" run --rm -v "$here:/src:ro" -v "$work:/out" -w /src alpine:3.23 sh -ec '
   apk add --no-cache openssl
   mkdir /tmp/bins
-  for b in cpxy-router cpxy-client cpxy-tsgw; do
+  for b in cpxy-router cpxy-client; do
     printf "#!/bin/sh\nexit 0\n" >/tmp/bins/$b
   done
   packaging/openwrt/build-apk.sh x86_64 1.0.0-r9 /tmp/bins /out
@@ -32,21 +32,21 @@ trap 'rm -rf "$work"' EXIT
   apk --no-network --repositories-file /dev/null --allow-untrusted add /packages/ip-full.apk /packages/kmod-tun.apk
   snapshot >/tmp/system.before
   apk --no-network --repositories-file /dev/null --allow-untrusted add /packages/cpxy-1.0.0-r9.apk
-  for service in cpxy-client cpxy-router cpxy-tsgw; do
+  for service in cpxy-client cpxy-router; do
     /etc/init.d/$service enabled
   done
   # An upgrade must preserve both modified configuration and disabled services.
-  /etc/init.d/cpxy-tsgw disable
-  uci set cpxy.defaults.tsgw=0
+  /etc/init.d/cpxy-client disable
+  uci set cpxy.defaults.client_socks5=1
   uci commit cpxy
   uci export cpxy >/tmp/cpxy.before
   apk --no-network --repositories-file /dev/null --allow-untrusted add /packages/cpxy-1.0.0-r10.apk
   apk info -e cpxy=1.0.0-r10
   uci export cpxy >/tmp/cpxy.after
   cmp /tmp/cpxy.before /tmp/cpxy.after
-  if /etc/init.d/cpxy-tsgw enabled; then echo "FAIL: upgrade enabled disabled service"; exit 1; fi
+  if /etc/init.d/cpxy-client enabled; then echo "FAIL: upgrade enabled disabled service"; exit 1; fi
   apk --no-network --repositories-file /dev/null del cpxy
-  for service in cpxy-client cpxy-router cpxy-tsgw; do
+  for service in cpxy-client cpxy-router; do
     [ ! -e /etc/init.d/$service ]
     [ ! -e /usr/bin/$service ]
     for link in /etc/rc.d/*$service; do [ ! -e "$link" ]; done

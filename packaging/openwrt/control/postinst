@@ -8,6 +8,10 @@ rm -f "${IPKG_INSTROOT}"/etc/rc.d/[SK][0-9][0-9]cpxy-smartdns
 # cpxy-router answers DNS itself now; the separate cpxy-dns-split's settings held the server key
 [ -n "${IPKG_INSTROOT}" ] || rm -f /tmp/cpxy/dns-*.env
 rmdir "${IPKG_INSTROOT}/usr/share/doc/cpxy" 2>/dev/null
+# Likewise for cpxy-tsgw (the Tailscale exit node, since removed). Its generated files held the
+# server key. Each exit node's Tailscale identity in /etc/cpxy/tsgw is left for the user to delete.
+rm -f "${IPKG_INSTROOT}"/etc/rc.d/[SK][0-9][0-9]cpxy-tsgw
+[ -n "${IPKG_INSTROOT}" ] || rm -f /tmp/cpxy/tsgw-*.env
 # Enables and starts the cpxy-* services; they wait until a server is configured
 default_postinst "$0" "$@"
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
@@ -15,7 +19,6 @@ if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
 cpxy installed. Set the server (/etc/config/cpxy lists every option) and the services start:
   uci set cpxy.defaults.server='https://:<key>@<host>:<port>'
   uci commit cpxy
-Then log the Tailscale exit node in with the link in: logread -e cpxy-tsgw
 MSG
 fi
 exit 0

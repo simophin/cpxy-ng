@@ -1,10 +1,5 @@
 //! The TUN file descriptor from the platform, as the device the IP stack reads and writes.
 //! Each read and write moves exactly one IP packet.
-//!
-//! On Linux the descriptor may instead be a datagram or seqpacket socket (cpxy-tsgw's socketpair
-//! to tsnet). There packets move in batches, as tsnet does on its side: a read takes every queued
-//! packet with one `recvmmsg`, and writes are queued for a task that sends them with `sendmmsg`.
-//! A burst then costs a few system calls and wake-ups on each side instead of several per packet.
 
 use crate::filter::{Filter, Verdict};
 use std::io;
@@ -16,9 +11,6 @@ use std::task::{Context, Poll, ready};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Notify, oneshot};
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-mod batch;
 
 /// iOS and macOS utun devices prefix every packet with the address family.
 const PACKET_INFO: bool = cfg!(any(target_os = "ios", target_os = "macos"));
@@ -36,17 +28,13 @@ pub struct Traffic {
 /// Applies a [`Filter`] to every packet before the IP stack sees it, and answers refused packets
 /// itself.
 pub struct TunDevice {
-    shared: Arc<Shared>,
+    shared: Shared,
     filter: Filter,
     buf: Vec<u8>,
     /// Notified when the other end of a socket closes; a TUN never does.
     eof: Arc<Notify>,
-    /// Set when the descriptor is a socket that moves packets in batches.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    batch: Option<batch::Batch>,
 }
 
-/// What the device shares with its send task.
 struct Shared {
     fd: AsyncFd<OwnedFd>,
     traffic: Arc<Traffic>,
@@ -55,7 +43,7 @@ struct Shared {
 }
 
 impl TunDevice {
-    /// Must be called within a Tokio runtime, which runs the send task of a socket.
+    /// Must be called within a Tokio runtime.
     pub fn new(
         fd: OwnedFd,
         mtu: u16,
@@ -65,16 +53,12 @@ impl TunDevice {
         closed: oneshot::Sender<()>,
     ) -> io::Result<Self> {
         set_nonblocking(&fd)?;
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        let is_socket = batch::is_message_socket(&fd);
-        let shared = Arc::new(Shared {
+        let shared = Shared {
             fd: AsyncFd::new(fd)?,
             traffic,
             _closed: closed,
-        });
+        };
         Ok(Self {
-            #[cfg(any(target_os = "linux", target_os = "android"))]
-            batch: is_socket.then(|| batch::Batch::new(shared.clone(), mtu)),
             shared,
             filter,
             buf: vec![0; usize::from(mtu) + PACKET_INFO_LEN],
@@ -137,12 +121,6 @@ impl AsyncRead for TunDevice {
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         loop {
-            #[cfg(any(target_os = "linux", target_os = "android"))]
-            let received = match this.batch.as_mut() {
-                Some(batch) => ready!(batch.poll_next(cx))?,
-                None => ready!(poll_read_one(&this.shared, &mut this.buf, cx))?,
-            };
-            #[cfg(not(any(target_os = "linux", target_os = "android")))]
             let received = ready!(poll_read_one(&this.shared, &mut this.buf, cx))?;
             let packet = match received {
                 Received::Packet(packet) => packet,
@@ -219,12 +197,7 @@ impl AsyncWrite for TunDevice {
         cx: &mut Context<'_>,
         packet: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        if let Some(batch) = this.batch.as_mut() {
-            return batch.poll_queue(cx, packet);
-        }
-        let shared = &this.shared;
+        let shared = &self.get_mut().shared;
         loop {
             let mut guard = ready!(shared.fd.poll_write_ready(cx))?;
             match guard.try_io(|_| shared.send_now(packet)) {

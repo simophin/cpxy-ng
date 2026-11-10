@@ -113,8 +113,6 @@ cpxy_instance() {
 	cpxy_get CPXY_NETWORKS "$name" network
 	cpxy_get_bool CPXY_CLIENT "$name" client 1
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
-	cpxy_get_bool CPXY_TSGW "$name" tsgw 1
-	cpxy_get CPXY_IPV6 "$name" ipv6 full
 	cpxy_get_bool CPXY_GEOIP "$name" router_geoip 1
 
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
@@ -150,16 +148,6 @@ cpxy_instance() {
 	_cpxy_own CPXY_TABLE "$name" routing_table "$((100 + i))"
 	_cpxy_own CPXY_PRIORITY "$name" rule_priority "$((9100 + 10 * i))"
 	_cpxy_own CPXY_DNS_LISTEN "$name" dns_listen "[::]:$((5335 + 10 * i))"
-
-	_cpxy_own CPXY_TSGW_HOSTNAME "$name" tsgw_hostname "cpxy-$(echo "$name" | tr 'A-Z_' 'a-z-')"
-	# Not tailscaled's 41641: the router may run Tailscale too
-	_cpxy_own CPXY_TSGW_PORT "$name" tsgw_port "$((41700 + i))"
-	_cpxy_own CPXY_TSGW_STATE_DIR "$name" tsgw_state_dir "/etc/cpxy/tsgw/$name"
-	cpxy_get CPXY_TSGW_AUTHKEY "$name" tsgw_authkey
-	cpxy_get CPXY_TSGW_CONTROL_URL "$name" tsgw_control_url
-	cpxy_get CPXY_TSGW_MTU "$name" tsgw_mtu 1280
-	cpxy_get_bool CPXY_TSGW_PROXY "$name" tsgw_proxy 1
-	cpxy_get_bool CPXY_TSGW_VERBOSE "$name" tsgw_verbose 0
 }
 
 # cpxy_procd_env <name> <VAR=value>...: the procd instance's environment, which restarts it when
@@ -216,12 +204,8 @@ _cpxy_validate_instance() {
 	for entry in $CPXY_PROXY_ROUTES; do
 		_cpxy_ipv4_cidr "$entry" || _cpxy_ipv6_cidr "$entry" || _cpxy_invalid "$1: invalid proxy_route '$entry'"
 	done
-	case "$CPXY_IPV6" in
-	off | direct | full) ;;
-	*) _cpxy_invalid "$1: option 'ipv6' must be off, direct or full" ;;
-	esac
 
-	if [ "$CPXY_CLIENT$CPXY_TSGW" != 00 ] && [ -z "$CPXY_SERVER" ]; then
+	if [ "$CPXY_CLIENT" = 1 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"
 	fi
 	if [ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ]; then
@@ -235,7 +219,7 @@ _cpxy_validate_instance() {
 		_cpxy_claim tcp "$(_cpxy_port "$CPXY_HTTP_LISTEN")" "$1 client_http_listen"
 		[ "$CPXY_SOCKS5" = 1 ] && _cpxy_claim tcp "$(_cpxy_port "$CPXY_SOCKS5_LISTEN")" "$1 client_socks5_listen"
 	fi
-	if [ "$CPXY_ROUTER" = 1 ] || [ "$CPXY_TSGW" = 1 ]; then
+	if [ "$CPXY_ROUTER" = 1 ]; then
 		[ -n "$CPXY_DNS_UPSTREAM" ] || _cpxy_invalid "$1: option 'dns_upstream' is required"
 		for entry in $CPXY_DNS_UPSTREAM $CPXY_DNS_ALTERNATIVE; do
 			case "$entry" in
@@ -256,22 +240,13 @@ _cpxy_validate_instance() {
 		esac
 		_cpxy_claim tcp "$(_cpxy_port "$CPXY_DNS_LISTEN")" "$1 dns_listen"
 	fi
-	if [ "$CPXY_TSGW" = 1 ]; then
-		_cpxy_uint "$CPXY_TSGW_PORT" 0 65535 || _cpxy_invalid "$1: tsgw_port must be 0..65535"
-		[ "$CPXY_TSGW_PORT" = 0 ] || _cpxy_claim udp "$CPXY_TSGW_PORT" "$1 tsgw_port"
-		_cpxy_claim hostname "$CPXY_TSGW_HOSTNAME" "$1 tsgw_hostname"
-		_cpxy_claim state "$CPXY_TSGW_STATE_DIR" "$1 tsgw_state_dir"
-		[ "$CPXY_TSGW_PROXY" = 0 ] || [ "$CPXY_CLIENT" = 1 ] ||
-			_cpxy_invalid "$1: tsgw_proxy needs this instance's client"
-	fi
 }
 
 # cpxy_validate: loads /etc/config/cpxy and checks every enabled instance together, so a
 # conflict between two instances stops every service from applying it.
 cpxy_validate() {
 	CPXY_VALID=1
-	_CPXY_CLAIMED_index="" _CPXY_CLAIMED_tcp="" _CPXY_CLAIMED_udp=""
-	_CPXY_CLAIMED_hostname="" _CPXY_CLAIMED_state=""
+	_CPXY_CLAIMED_index="" _CPXY_CLAIMED_tcp=""
 	config_load cpxy
 	config_foreach _cpxy_validate_instance instance
 	[ "$CPXY_VALID" = 1 ]

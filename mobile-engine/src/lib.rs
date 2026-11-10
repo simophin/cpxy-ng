@@ -1,9 +1,8 @@
 //! The packet engine of the mobile VPN app: reads IP packets from the platform's TUN device and
 //! does what `cpxy-router` does on OpenWrt (see `docs/mobile-vpn-plan.md`):
 //!
-//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. As a Tailscale exit node
-//!   ([`start_gateway`]), DNS to any address is answered this way. A router ([`start_router`])
-//!   answers it on its own sockets instead.
+//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. A router ([`start_router`]) answers
+//!   it on its own sockets instead.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - Captured UDP 443 (QUIC) is refused; other UDP is relayed direct. Legacy mode also
@@ -13,8 +12,6 @@
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
 
 mod android_routes;
-#[cfg(target_os = "linux")]
-pub mod capi;
 mod config;
 mod dns;
 mod ffi;
@@ -37,7 +34,6 @@ use client::dns_split::server::DnsSplitHandler;
 use client::dns_split::spec::ServerSpec;
 pub use client::ipv6::Ipv6Mode;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
-use hickory_proto::op::Message;
 use hickory_proto::rr::Name;
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
@@ -73,12 +69,7 @@ const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
 /// round trip between the device's apps and the engine. ipstack's default is 16 KiB.
 ///
 /// On a phone or a router the apps are a millisecond away, and memory is tight.
-const LOCAL_TCP_WINDOW: u32 = 64 << 10;
-/// An exit node's clients are a network away: 256 KiB is 12 MB/s at 20 ms, or 2.5 MB/s at 100 ms.
-/// ipstack has no congestion control, so a window larger than the path's bandwidth-delay product
-/// floods its bottleneck, and loss recovery then costs far more than the window gains: across
-/// China at 54 ms, a 5 MB/s path moved 4-5 MB/s with 256 KiB but 1 MB/s with 1 MiB.
-const GATEWAY_TCP_WINDOW: u32 = 256 << 10;
+const TCP_WINDOW: u32 = 64 << 10;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -92,8 +83,6 @@ pub struct TrafficStats {
 pub struct EngineHandle {
     running: Mutex<Option<Running>>,
     traffic: Arc<Traffic>,
-    /// Answers [`EngineHandle::resolve_dns`]; `None` when the engine leaves DNS alone.
-    dns: Option<Arc<DnsSplitHandler>>,
     local_proxy_port: Option<u16>,
 }
 
@@ -111,35 +100,6 @@ struct Running {
 /// The app reaches the network the way the VPN does through
 /// [`EngineHandle::local_proxy_port`].
 pub fn start(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
-    start_with_dns(
-        tun,
-        config_json,
-        DnsIntercept::VirtualServer,
-        LOCAL_TCP_WINDOW,
-        true,
-    )
-}
-
-/// Starts the engine for a Tailscale exit node (`cpxy-tsgw`), where the device is the exit
-/// node's side of WireGuard rather than a TUN the platform set up. Like [`start`], except that DNS
-/// to any address is answered: the exit node's clients send DNS to whatever servers they have.
-pub fn start_gateway(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
-    start_with_dns(
-        tun,
-        config_json,
-        DnsIntercept::AnyServer,
-        GATEWAY_TCP_WINDOW,
-        false,
-    )
-}
-
-fn start_with_dns(
-    tun: OwnedFd,
-    config_json: &str,
-    intercept: DnsIntercept,
-    tcp_window: u32,
-    local_proxy: bool,
-) -> anyhow::Result<EngineHandle> {
     let settings = Config::from_json(config_json)?.settings()?;
     start_inner(
         tun,
@@ -154,11 +114,10 @@ fn start_with_dns(
         settings.proxy_routes,
         settings.ipv6,
         settings.mtu,
-        settings.tcp_window.unwrap_or(tcp_window),
         proxy::Ports {
             http: settings.http_proxy_port,
             socks: settings.socks_proxy_port,
-            local_http: local_proxy,
+            local_http: true,
         },
         Some(DnsSpecs {
             split: dns::Specs {
@@ -169,7 +128,7 @@ fn start_with_dns(
                 cache: true,
                 ipv6: settings.ipv6,
             },
-            intercept: Some(intercept),
+            intercept: true,
             listen: None,
         }),
     )
@@ -211,7 +170,7 @@ pub fn start_router(
             cache: dns.cache,
             ipv6: Ipv6Mode::Off,
         },
-        intercept: None,
+        intercept: false,
         listen: Some(dns.listen),
     });
     start_inner(
@@ -220,35 +179,15 @@ pub fn start_router(
         proxy_routes,
         Ipv6Mode::Off,
         mtu,
-        LOCAL_TCP_WINDOW,
         proxy::Ports::default(),
         dns_specs,
     )
 }
 
-/// Which DNS packets the engine answers itself rather than relays.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DnsIntercept {
-    /// Only DNS to [`DNS_ADDR`], the virtual server the platform hands to the device.
-    VirtualServer,
-    /// DNS to any address.
-    AnyServer,
-}
-
-impl DnsIntercept {
-    fn matches(self, dst: SocketAddr) -> bool {
-        dst.port() == DNS_PORT
-            && match self {
-                Self::VirtualServer => dst.ip() == DNS_ADDR,
-                Self::AnyServer => true,
-            }
-    }
-}
-
 struct DnsSpecs<'a> {
     split: dns::Specs<'a>,
-    /// The DNS from the TUN that is answered; `None` relays it all.
-    intercept: Option<DnsIntercept>,
+    /// Whether DNS from the TUN to [`DNS_ADDR`] is answered; otherwise it is all relayed.
+    intercept: bool,
     /// Where to answer DNS on the engine's own sockets.
     listen: Option<SocketAddr>,
 }
@@ -257,13 +196,13 @@ struct DnsSpecs<'a> {
 #[derive(Clone)]
 struct DnsService {
     handler: Arc<DnsSplitHandler>,
-    intercept: Option<DnsIntercept>,
+    intercept: bool,
 }
 
 impl DnsService {
     /// The handler to answer a flow to `dst` with, if the engine answers it.
     fn handler_for(dns: Option<Self>, dst: SocketAddr) -> Option<Arc<DnsSplitHandler>> {
-        dns.filter(|dns| dns.intercept.is_some_and(|i| i.matches(dst)))
+        dns.filter(|dns| dns.intercept && dst == SocketAddr::from((DNS_ADDR, DNS_PORT)))
             .map(|dns| dns.handler)
     }
 }
@@ -281,7 +220,6 @@ fn start_inner(
     proxy_routes: client::outbound::ProxyRoutes,
     ipv6: Ipv6Mode,
     mtu: u16,
-    tcp_window: u32,
     proxy_ports: proxy::Ports,
     dns_specs: Option<DnsSpecs>,
 ) -> anyhow::Result<EngineHandle> {
@@ -354,13 +292,11 @@ fn start_inner(
         Backend::AndroidCpxy(_) => unreachable!(),
     });
     let (shutdown, shutdown_rx) = oneshot::channel();
-    let resolver = dns.as_ref().map(|dns| dns.handler.clone());
     let stopped = runtime.spawn(run(
         device,
         device_closed,
         device_eof,
         mtu,
-        tcp_window,
         router,
         dns,
         proxies,
@@ -377,7 +313,6 @@ fn start_inner(
             stopped,
         })),
         traffic,
-        dns: resolver,
         local_proxy_port,
     })
 }
@@ -422,28 +357,6 @@ impl EngineHandle {
             received: self.traffic.received.load(Ordering::Relaxed),
         }
     }
-
-    /// Answers one wire-format DNS query the way the engine answers DNS it intercepts, for DNS
-    /// that reaches the platform some other way (a Tailscale exit node's DNS over the peer API).
-    /// Blocks the calling thread, which must not be an engine thread. May be called from several
-    /// threads at once, but not while the engine is being stopped.
-    pub fn resolve_dns(&self, query: &[u8]) -> anyhow::Result<Vec<u8>> {
-        let handler = self
-            .dns
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("The engine does not answer DNS"))?;
-        // Not held while resolving, so queries run concurrently.
-        let runtime = self
-            .running
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|r| r.runtime.handle().clone())
-            .ok_or_else(|| anyhow::anyhow!("The engine is stopped"))?;
-        let request = Message::from_vec(query)?;
-        let response = runtime.block_on(handler.handle(&request));
-        Ok(response.to_vec()?)
-    }
 }
 
 impl Drop for EngineHandle {
@@ -457,7 +370,6 @@ async fn run(
     device_closed: oneshot::Receiver<()>,
     device_eof: Arc<Notify>,
     mtu: u16,
-    tcp_window: u32,
     router: Arc<Router>,
     dns: Option<DnsService>,
     proxies: proxy::Listeners,
@@ -467,8 +379,8 @@ async fn run(
 ) {
     let mut tcp_config = TcpConfig::default();
     tcp_config.timeout = TCP_IDLE_TIMEOUT;
-    tcp_config.max_unacked_bytes = tcp_window;
-    tcp_config.read_buffer_size = tcp_window as usize;
+    tcp_config.max_unacked_bytes = TCP_WINDOW;
+    tcp_config.read_buffer_size = TCP_WINDOW as usize;
     // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
     tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
     let mut config = IpStackConfig::default();
@@ -665,7 +577,7 @@ mod tests {
         // SAFETY: both descriptors were just created and are owned here.
         let (tun, peer) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
         let config = r#"{"server": "http://:k@127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"]}"#;
-        let engine = start_gateway(tun, config).unwrap();
+        let engine = start(tun, config).unwrap();
         assert!(engine.is_running());
 
         drop(peer);
@@ -677,23 +589,6 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
-    }
-
-    #[test]
-    fn dns_interception_depends_on_the_mode() {
-        let virtual_server = SocketAddr::from((DNS_ADDR, 53));
-        let public = SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 53));
-        let other_port = SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 5353));
-        let public_v6: SocketAddr = "[2001:4860:4860::8888]:53".parse().unwrap();
-
-        assert!(DnsIntercept::VirtualServer.matches(virtual_server));
-        assert!(!DnsIntercept::VirtualServer.matches(public));
-        assert!(DnsIntercept::AnyServer.matches(virtual_server));
-        assert!(DnsIntercept::AnyServer.matches(public));
-        assert!(!DnsIntercept::AnyServer.matches(other_port));
-        assert!(!DnsIntercept::VirtualServer.matches(public_v6));
-        assert!(DnsIntercept::AnyServer.matches(public_v6));
-        assert!(!DnsIntercept::VirtualServer.matches(SocketAddr::from((DNS_ADDR, 80))));
     }
 
     #[test]
@@ -742,7 +637,7 @@ mod tests {
 
     #[test]
     fn router_answers_dns_on_its_listen_address_until_stopped() {
-        use hickory_proto::op::Query;
+        use hickory_proto::op::{Message, Query};
         use hickory_proto::rr::RecordType;
         use std::io::{Read, Write};
         use std::os::unix::net::UnixDatagram;

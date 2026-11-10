@@ -2,10 +2,8 @@
 
 **[Downloads](https://cpxy-download.cloudflare-087.workers.dev/)**: the Android app and the OpenWrt package of every build ([latest](https://cpxy-download.cloudflare-087.workers.dev/latest/), [how publishing works](docs/downloads.md))
 
-- [OpenWrt user guide](docs/openwrt.md): proxy, split DNS, LAN routing and a Tailscale exit node per network, in one package
+- [OpenWrt user guide](docs/openwrt.md): proxy, split DNS and LAN routing per network, in one package
 - [OpenWrt packaging](packaging/openwrt/README.md)
-- [cpxy-tsgw user guide](docs/cpxy-tsgw.md): a Tailscale exit node in one container or static binary, no tailscaled needed
-- [Docker bundle user guide](docs/docker-bundle.md): the proxy and a Tailscale exit node for a Linux server, in one container
 - [Mobile VPN app development](mobile/README.md)
 - [GeoIP data source](geoip-data/SOURCE.md)
 - [OpenWrt router DNS design notes](docs/openwrt-router-dns-handoff.md)
@@ -22,7 +20,6 @@ routing behavior. IPv6 is not supported by the current routing engine.
   `--proxy-route 223.5.5.5/32,10.20.0.0/16`. The equivalent environment variable is
   `PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16`.
 - `standalone` accepts the same option; it already proxies every destination.
-- `cpxy-tsgw`: set `PROXY_ROUTES` in the environment or its KEY=value config file.
 - `mobile-engine-linux` and the mobile engine JSON config: add
   `"proxy_routes": ["223.5.5.5/32", "10.20.0.0/16"]`.
 - Android: **Settings → Routing → Proxy routes**, one CIDR per line. Save and
@@ -43,6 +40,6 @@ behavior. Multi-label queries are unchanged; expanded queries follow the usual s
 local-server routing, caching and blocking policy. Successful expanded replies include a CNAME
 from the original short name to the expanded name.
 
-The shared VPN/gateway engine accepts the same ordered list as `dns_search_domains` in its
-JSON configuration. See [mobile settings](mobile/README.md#dns-search-domains),
-[Tailscale gateway settings](docs/cpxy-tsgw.md) and [OpenWrt settings](docs/openwrt.md).
+The shared VPN engine accepts the same ordered list as `dns_search_domains` in its
+JSON configuration. See [mobile settings](mobile/README.md#dns-search-domains) and
+[OpenWrt settings](docs/openwrt.md).
