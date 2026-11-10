@@ -1,6 +1,8 @@
 # nft redirect router plan
 
-Status: planned. Branch: `feat/redirect-router`.
+Status: implemented on `feat/redirect-router` (PR #173); archived. Physical-router validation on
+the TR3600 is still to do. The user guide is [docs/openwrt.md](../openwrt.md); see
+[Outcome](#outcome) for where the implementation differs from this plan.
 
 Replace the OpenWrt router's TUN path for proxied TCP with an nftables `redirect` into a
 transparent listener in `cpxy-client`. The kernel terminates LAN-side TCP; the userspace TCP
@@ -124,14 +126,16 @@ state in `/var/run/cpxy` or `/etc/cpxy/router-guards`, installing the new guard 
 
 ## Commit stages
 
-- [ ] Plan (this document).
-- [ ] cpxy-client transparent listener and `TRANSPARENT_PROXY_LISTEN`, with unit tests for the
-  loop guard and request mapping, and a Linux namespace test of `SO_ORIGINAL_DST` through a real
-  `redirect` rule where the environment allows it.
-- [ ] cpxy-router DNS-only mode (`--tun` optional).
-- [ ] OpenWrt packaging: nft table generation, guard, boot barrier, client wiring, option
-  migration; remove `net.sh`/`geo.sh` use from the router.
-- [ ] Tests: `init-dryrun.sh`, `lab.sh` and `geo-lab.sh` updated for the nft design; docs.
+- [x] Plan (this document).
+- [x] cpxy-client transparent listener and `TRANSPARENT_PROXY_LISTEN`, with unit tests for the
+  loop guard and request mapping. `SO_ORIGINAL_DST` through a real `redirect` rule is tested in
+  `lab.sh` (namespaces) and the OpenWrt VM.
+- [x] cpxy-router DNS-only. The TUN path was removed from the binary altogether, not made
+  optional: the TUN engine is for Android only.
+- [x] OpenWrt packaging: nft table generation, guard, boot barrier, client wiring, option
+  migration; `net.sh` and `geo.sh` deleted.
+- [x] Tests: `init-dryrun.sh` and `lab.sh` rewritten for the nft design (`geo-lab.sh` folded
+  in), `qemu-geo.py` adapted to it; docs.
 - [ ] Router validation on TR3600, then PR ready for review.
 
 ## Validation
@@ -150,8 +154,51 @@ state in `/var/run/cpxy` or `/etc/cpxy/router-guards`, installing the new guard 
 - TR3600: throughput and CPU against the TUN path (`docs/router-performance.md` method), and
   a day of normal use on FN-V.
 
-## Open questions
+## Open questions (resolved)
 
-- Whether fw4's `ct status dnat accept` covers redirected connections in a REJECT-input zone on
-  every supported fw4 version (affects whether firewall.sh needs an explicit input rule).
-- Whether to keep `router_dns '0'` instances with a TCP-only redirect, or require router DNS.
+- fw4 adds `ct status dnat accept` to a zone's input only when the zone has DNAT redirects, so
+  it cannot be relied on with `router_dns '0'`. firewall.sh always adds an explicit rule
+  (`cpxy_inst_<name>_proxy<n>`) accepting the listener port from each source zone; the VM test
+  runs one zone with input REJECT.
+- `router_dns '0'` instances are kept: the table still splits their TCP, and no DNS worker runs.
+
+## Outcome
+
+Differences from the design above:
+
+- The table is `inet cpxy`, not `ip cpxy`, so the IPv6 forward refusal sits in the same table.
+  Per device, the redirect is `iifname "<dev>" meta nfproto ipv4 tcp dport != 53 fib daddr type
+  != { local, broadcast, multicast } ip daddr != @direct_<instance> redirect to :<port>`; the
+  `fib` clause keeps connections to the router's own addresses (LuCI, a WAN address) local. The
+  guard also carries the QUIC and IPv6 rejects. Rules carry comments (`cpxy guard <dev>`) that the
+  boot barrier checks.
+- The direct set also holds the main table's non-default IPv4 routes, which the TUN design sent
+  direct through `lookup main suppress_prefixlength 0`. The interface trigger refreshes them.
+- cpxy-router lost `--tun` and `--mtu`, and `mobile_engine::start_router` is gone; it now calls
+  `serve_router_dns`.
+- The package depends on `firewall4` and `kmod-nft-nat` instead of `ip-full` and `kmod-tun`; fw3
+  firmware (GL.iNet stock 4.x) is no longer supported, and the boot barrier's iptables branch is
+  gone.
+- The DNS worker's procd instance is `<instance>_dns` (was `<instance>_tun`).
+
+Validation done:
+
+- Rust: `client` and `mobile-engine` test suites, including the transparent handshaker's loop guard
+  and request mapping and `serve_router_dns`.
+- `lab.sh` (namespaces, real binaries): every item in the namespace list above, plus a second
+  instance on its own server, a refused direct connection to the listener, and a flushed redirect
+  chain refused by the guard.
+- `init-dryrun.sh`, `opkg-roundtrip.sh`, `apk-roundtrip.sh`, `apk-package.py`, `feed.sh`, and
+  ShellCheck.
+- `qemu-geo.py` on the official OpenWrt 24.10.8 x86-64 image under KVM, with static musl
+  binaries, two instances on two cpxy servers, one source zone with input REJECT: direct and
+  proxied paths with no TUN or policy rules; refused direct listener connections; split DNS over
+  UDP/TCP and IPv6, empty AAAA; IPv6 forwarding refused; unchanged and firewall reloads; a WAN
+  gateway change; cpxy-client suspended (overseas refused, CN direct); a broad `proxy_route`;
+  binary replacement restarting the DNS workers; reboot (boot barrier, then the table); stop and
+  `opkg remove` restoring the WAN. A continuous probe and a WAN packet capture saw no overseas TCP
+  leave directly at any point, reboot included.
+- The VM showed the boot barrier was lifted only at the end of an apply, after the firewall
+  sync; the init script now also runs the barrier check right after installing the table.
+
+Left for the TR3600: throughput and CPU against the TUN path, and a day of normal use on FN-V.
