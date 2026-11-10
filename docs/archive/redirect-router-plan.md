@@ -208,4 +208,17 @@ Validation done:
 - The VM showed the boot barrier was lifted only at the end of an apply, after the firewall
   sync; the init script now also runs the barrier check right after installing the table.
 
-Left for the TR3600: throughput and CPU against the TUN path, and a day of normal use on FN-V.
+TR3600 (2026-11-11), upgraded in place from the TUN package (1.17.0-r46) with its configuration
+unchanged:
+
+- The upgrade removed `cpxy0`, the policy rules, table 100 and the `cx100` zone, and installed
+  `inet cpxy` (2722 direct-set lines) with `tailscale0` exempt and the uplink `phy0.1-sta0` not.
+- Real FN-V clients: CN destinations forwarded directly (replies from the server itself), Google
+  and other overseas flows redirected (replies from `192.168.20.1:5100`), split DNS answering.
+  The guard reset two packets of flows opened on the TUN path before the upgrade, then none.
+- The kernel has no veth or macvlan, so no namespace test client: an output-hook redirect on the
+  router itself carried a 10 MB proxied download through the transparent listener at 1.3 MB/s
+  with 4% CPU (0.8 MB/s through cpxy-client's HTTP proxy); a direct connection to `:5100` was
+  dropped. A TUN-path throughput baseline could not be taken for the same reason.
+
+Still to do: a day of normal use on FN-V, including tailnet access from a client.
