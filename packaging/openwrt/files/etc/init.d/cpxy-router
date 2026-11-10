@@ -158,6 +158,8 @@ _apply_plan() {
 		cpxy_log "could not install the nftables policy; the previous one stays"
 		rm -rf "$PLAN"; return 1
 	}
+	# The guards are in place: lift the boot barrier from the devices they now cover.
+	/usr/libexec/cpxy/boot-firewall.sh || cpxy_log "could not reconcile boot forwarding barrier"
 	# Only now that the guards are in place, retire the TUN design's devices, tables and rules.
 	for state in "$CPXY_STATE"/*; do
 		[ -f "$state" ] || continue
