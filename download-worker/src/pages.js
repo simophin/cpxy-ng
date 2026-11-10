@@ -31,7 +31,7 @@ const SECTIONS = [
     id: 'openwrt',
     title: 'OpenWrt package',
     about:
-      'Proxy, split DNS, LAN routing and a Tailscale exit node for a router. Use the native .apk on OpenWrt 25.12 or newer, or the .ipk on opkg firmware. The apk is a direct download and adds no repository.',
+      'Proxy, split DNS and LAN routing for a router. Use the native .apk on OpenWrt 25.12 or newer, or the .ipk on opkg firmware. The apk is a direct download and adds no repository.',
     guide: `${REPO}/blob/main/docs/openwrt.md`,
   },
   {

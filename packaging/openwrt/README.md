@@ -8,14 +8,13 @@ what it changes on the router and how it is built and tested.
 |---|---|---|
 | `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP and SOCKS5 proxy through the instance's cpxy server |
 | `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | Overseas TCP from `cpxy<i>` through SOCKS5, native CN IPv4 routing, and split DNS |
-| `/usr/bin/cpxy-tsgw` | `tsgw/` (tailscale-rs, with the shared packet engine) | Tailscale exit node |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
 Each binary is a procd instance named after its cpxy instance, under one init script per program:
-`/etc/init.d/cpxy-client`, `cpxy-router` (packet engine and dns_split) and `cpxy-tsgw`. All three
+`/etc/init.d/cpxy-client` and `cpxy-router` (packet engine and dns_split). Both
 read `/etc/config/cpxy` through `/usr/libexec/cpxy/instance.sh`, which merges an instance with
 `defaults`, derives ports and routing numbers from its `index`, and checks every enabled instance
-together (indexes, ports, servers, DNS servers). Any of the three refuses a configuration that
+together (indexes, ports, servers, DNS servers). Either refuses a configuration that
 fails, leaving what runs untouched. Each subscribes to changes of `cpxy`, and procd restarts only
 the instances whose command or environment changed.
 
@@ -45,7 +44,6 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 | `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` IPv4/IPv6 DNS redirects per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
 | Kernel | per routed instance: a persistent TUN, five IPv4 rule priorities and two IPv4 routing tables, plus IPv6 ingress reject rules | reload, `stop`, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
-| `/etc/cpxy/tsgw/<name>` | each exit node's Tailscale identity, kept across sysupgrade | deleted by hand |
 
 `/etc/config/dhcp` and `/etc/config/network` are never edited. Firewall source zones are found
 from the instances' networks; a zone must belong to exactly one network's instance when its DNS is
@@ -55,8 +53,8 @@ redirected. Firewall UCI commits normalise that file and drop comments, as LuCI 
 
 ```sh
 cross build --release --locked --target aarch64-unknown-linux-musl \
-  -p mobile-engine -p client -p cpxy-tsgw --bin cpxy-router --bin standalone --bin cpxy-tsgw
-# Copy the binaries into bins/ as cpxy-router, cpxy-client and cpxy-tsgw, then:
+  -p mobile-engine -p client --bin cpxy-router --bin standalone
+# Copy the binaries into bins/ as cpxy-router and cpxy-client, then:
 packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container
@@ -130,7 +128,7 @@ IPv4 reserves two table generations and five priorities; IPv6 ingress is refused
 AAAA queries return empty answers locally. The router host, including cpxy-client,
 retains IPv6 transport connectivity. Old `router_ipv6` settings are ignored. The router requires
 SOCKS5; by default the sibling cpxy-client listener is enabled automatically. An
-external-only instance can disable client/tsgw and omit cpxy server credentials.
+external-only instance can disable client and omit cpxy server credentials.
 See the [operator guide](../../docs/openwrt.md#socks5-kernel-router) for migration.
 
 `test/lab.sh` requires `cpxy-router`, `cpxy-client` (standalone), and `cpxy-server`.
@@ -141,7 +139,7 @@ reports describe their original revisions; current results live in the
 [SOCKS5 plan](../../docs/socks5-kernel-router-plan.md).
 
 Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 or IPv6 CIDR) to an instance
-or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` and
-`cpxy-tsgw` to apply. Matching TCP destination IPs always use the main proxy,
+or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` to
+apply. Matching TCP destination IPs always use the main proxy,
 overriding automatic direct/CN routing. An empty list preserves automatic
 routing. The HTTP/SOCKS client already proxies every destination.

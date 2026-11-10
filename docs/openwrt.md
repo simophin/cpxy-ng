@@ -5,7 +5,7 @@
 `cpxy-router` requires a plaintext, unauthenticated SOCKS5 proxy. By default each
 instance uses its sibling `cpxy-client` on loopback; its SOCKS5 listener is enabled
 automatically. Set `router_socks5_proxy 'IP:port'` (or `'[IPv6]:port'`) to use an
-external proxy. For an external-only instance, set `client '0'` and `tsgw '0'`;
+external proxy. For an external-only instance, set `client '0'`;
 no cpxy server or credentials are then required.
 
 For IPv4, CN/private TCP forwards directly in the kernel; overseas
@@ -35,8 +35,8 @@ Stop the old router service before upgrading its routing configuration. Set
 `flow_offloading_hw`, reload the firewall, commit cpxy configuration, then start
 `cpxy-client` and `cpxy-router`. Explicit stop restores ordinary WAN access.
 Existing legacy `router_geoip '0'` and IPv4-only DNS listeners are rejected with
-migration errors. Old `router_ipv6` settings are ignored. The shared `ipv6` setting
-continues to control Tailscale; routed network clients always use IPv4. AAAA
+migration errors. Old `router_ipv6` and `ipv6` settings are ignored; routed network clients
+always use IPv4. AAAA
 queries receive empty answers locally without contacting either resolver. The
 router host and cpxy-client can still use IPv6 to reach upstream servers.
 
@@ -61,8 +61,8 @@ throughput, route memory costs and vendor firmware still need hardware validatio
 The namespace and packaging checks are documented in the
 [implementation plan](socks5-kernel-router-plan.md).
 
-The package also provides an HTTP proxy and a Tailscale exit node. Those components
-retain their existing cpxy configuration and can be disabled independently.
+The package also provides an HTTP proxy. It retains its existing cpxy configuration and can be
+disabled independently.
 
 ## Before you start
 
@@ -72,12 +72,11 @@ retain their existing cpxy configuration and can be disabled independently.
   `aarch64_cortex-a76` or `x86_64`. On older firmware, `opkg print-architecture` must list
   `aarch64_cortex-a53` or `x86_64`.
 - SSH access as `root`.
-- For cpxy-client/tsgw, a running cpxy server per instance (one can serve several), and its URL with the key:
+- For cpxy-client, a running cpxy server per instance (one can serve several), and its URL with the key:
   `https://:<key>@<host>:<port>` (or `http://`).
 - For more than one instance, the networks (and their SSIDs and firewall zones) already set up in
   OpenWrt, each network in a firewall zone of its own.
-- About 60 MB of free flash, and RAM for each instance: about 30 MB, plus about 35 MB for its
-  Tailscale exit node. A GL-MT3000 (512 MB) runs three instances with exit nodes.
+- About 60 MB of free flash, and about 30 MB of RAM for each instance.
 
 ## Install
 
@@ -121,7 +120,7 @@ after checking its HTTPS-published checksum. Builds may optionally use `CPXY_APK
 a trusted signing key then removes the need for `--allow-untrusted`.
 
 Upgrade by repeating the direct download, checksum check, copy and local `apk add` with a
-new version. Modified `/etc/config/cpxy` and Tailscale identities are preserved, and services
+new version. Modified `/etc/config/cpxy` is preserved, and services
 disabled by the administrator stay disabled across upgrades. `apk del cpxy` stops/disables
 the services and removes their routing/firewall state; modified configuration is retained.
 
@@ -154,8 +153,6 @@ uci commit cpxy
 ```
 
 The `main` instance now covers the `lan` network. Check it with `cpxy-show` and `logread -e cpxy`.
-Log the Tailscale exit node in with the link `logread -e cpxy-tsgw` shows (see
-[Tailscale](#tailscale)), or turn it off with `uci set cpxy.defaults.tsgw=0`.
 
 ## Configure
 
@@ -182,7 +179,6 @@ config instance 'guest'
 	option index '1'
 	list network 'guest'
 	option server 'https://:<other-key>@hk.example:443'   # its own server
-	option tsgw '0'                                      # no exit node
 
 config instance 'iot'
 	option index '2'
@@ -201,9 +197,6 @@ The `index` gives each instance its own ports, devices and routing numbers:
 | `tun` | `cpxy<i>` | cpxy0 | cpxy1 | cpxy2 |
 | `routing_table` | `100+i` | 100 | 101 | 102 |
 | `rule_priority` (and the next 4) | `9100+10i` | 9100 | 9110 | 9120 |
-| `tsgw_port` (UDP; not 41641, which `tailscaled` uses) | `41700+i` | 41700 | 41701 | 41702 |
-| `tsgw_hostname` | `cpxy-<name>` | cpxy-main | cpxy-guest | cpxy-iot |
-| `tsgw_state_dir` | `/etc/cpxy/tsgw/<name>` | | | |
 
 Set one of these in an instance only if it clashes with something else on the router; these are
 never taken from `defaults`.
@@ -212,32 +205,26 @@ never taken from `defaults`.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `server` | none; required for client/tsgw | The cpxy server URL with its key. Kept out of the process list. |
+| `server` | none; required for client | The cpxy server URL with its key. Kept out of the process list. |
 | `enabled` (instance) | `1` | `0` stops the whole instance. |
-| `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy and exit node. |
-| `client`, `router`, `tsgw` | `1` | Which services the instance runs. |
+| `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy. |
+| `client`, `router` | `1` | Which services the instance runs. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy; automatically enabled when the router uses the sibling client. |
 | `router_socks5_proxy` | sibling client loopback | External plaintext no-auth SOCKS5 endpoint (`IP:port` or `[IPv6]:port`). |
-| `router_geoip` | `1` | Required kernel IPv4 split. IPv6 forwarding is always refused; obsolete `router_ipv6` settings are ignored. |
-| `ipv6` | `full` | Tailscale client IPv6 mode (`full`, `direct`, `off`). Router-network clients always use IPv4. Does not restrict cpxy-client upstream transport. |
+| `router_geoip` | `1` | Required kernel IPv4 split. IPv6 forwarding is always refused; obsolete `router_ipv6` and `ipv6` settings are ignored. |
 | `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |
 | `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. |
-| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, through the router SOCKS5 endpoint (cpxy for tsgw). |
-| `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, shared by router DNS and Tailscale gateway DNS. Tries each suffix before the bare name. |
+| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, through the router SOCKS5 endpoint. |
+| `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, for router DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |
 | `dns_local_server` | `127.0.0.1:53` | The router's own resolver, dnsmasq. |
 | `router_dns` | `1` | Answer IPv4/IPv6 DNS from the instance's networks with its dns_split. |
-| `tsgw_authkey` | none | A Tailscale auth key, to log in without the link. |
-| `tsgw_control_url` | Tailscale's | A different coordination server, e.g. Headscale. Its certificate must be from a public CA, such as Let's Encrypt: cpxy-tsgw trusts the roots built into it, not the router's. |
-| `tsgw_mtu` | `1280` | The largest packet sent back to Tailscale clients. |
-| `tsgw_proxy` | `1` | Reach Tailscale's coordination and relay (DERP) servers through the instance's proxy. |
-| `tsgw_verbose` | `0` | More logging. |
 
 A DNS server entry (`dns_upstream`, `dns_alternative`) is a plain IP, or a `udp://`, `tcp://`,
 `tls://` or `https://` URL; `tls://` and `https://` accept `?ip=<addr>`. `tcp://`, `tls://` and
-`https://` accept the legacy `?via=cpxy` explicit proxy override: SOCKS5 in the router,
-cpxy in Tailscale. The proxy resolves a hostname without `?ip=` itself, e.g.
+`https://` accept the legacy `?via=cpxy` explicit proxy override, through the router's SOCKS5
+endpoint. The proxy resolves a hostname without `?ip=` itself, e.g.
 `https://dns.google/dns-query?via=cpxy`. Ordinary router specs select their path by IP.
 
 **Upgrading from a package with smartdns:** the `smartdns` and `smartdns_*` options are ignored
@@ -269,30 +256,20 @@ Names dnsmasq answers specially outside those domains (an `address=/name/` entry
 dns_split runs inside the instance's `cpxy-router`, so while that is down or restarting, its
 networks lose proxied TCP and split DNS until procd starts it again; native CN TCP and UDP continue.
 
-### Tailscale
-
-Each instance with `tsgw` on is its own machine on your tailnet, `cpxy-<name>`. To set one up:
-
-1. `logread -e cpxy-tsgw` shows `Log in by opening https://login.tailscale.com/a/...`; open it.
-2. In the [admin console](https://login.tailscale.com/admin/machines), approve it as an exit node
-   (**Edit route settings**, **Use as exit node**) and disable its key expiry.
-
-The login is kept in `/etc/cpxy/tsgw/<name>`, across reboots and firmware upgrades. Phones then
-pick `cpxy-<name>` as exit node in the Tailscale app. [The cpxy-tsgw guide](cpxy-tsgw.md) has
-the details.
-
 ## Day-to-day use
 
 - **What runs:** `cpxy-show`, and `logread -e cpxy` for every service's messages.
 - **Turn one instance off:** `uci set cpxy.guest.enabled=0; uci commit cpxy`. Its networks go
   direct again; the others keep running.
-- **Turn everything off for now:** `for s in cpxy-tsgw cpxy-router cpxy-client; do /etc/init.d/$s stop; done`.
+- **Turn everything off for now:** `for s in cpxy-router cpxy-client; do /etc/init.d/$s stop; done`.
   The networks go direct and use dnsmasq again. `start` (or a reboot) brings them back.
 - **Upgrade:** `opkg update && opkg upgrade cpxy`, or install a newer `.ipk` by hand.
-  `/etc/config/cpxy` and the Tailscale logins are kept.
+  `/etc/config/cpxy` is kept. Upgrading from a package with the Tailscale exit node (cpxy-tsgw)
+  removes it; its logins in `/etc/cpxy/tsgw` stay behind until you delete them and remove the
+  machines from the Tailscale admin console.
 - **Uninstall:** `opkg remove cpxy` stops everything and removes the firewall sections and routing
   it added. A changed `/etc/config/cpxy` and `/etc/cpxy` stay behind; delete them if you do not
-  need them, and remove the machines from the Tailscale admin console.
+  need them.
 
 ## Things to know
 
@@ -313,4 +290,3 @@ the details.
 | A network has no internet | Check the SOCKS5 endpoint with `logread -e cpxy-router`; for the sibling proxy, also check `logread -e cpxy-client`. |
 | Names do not resolve | `logread -e cpxy-router`: it shows each DNS server it uses, and the errors reaching them or the SOCKS5 endpoint. |
 | Local names (`printer.lan`) do not resolve | `dns_local_domain`, and that dnsmasq answers on `dns_local_server`. |
-| The exit node does not appear | It is not logged in or not approved: `logread -e cpxy-tsgw`. |

@@ -1,8 +1,7 @@
 # Downloads and publishing
 
 Every push to `main` publishes the Android app and the OpenWrt packages to the download server.
-There are no GitHub releases. The server, cpxy-tsgw and the client bundle are published as Docker
-images on GHCR instead.
+There are no GitHub releases. The server is published as a Docker image on GHCR instead.
 
 The server is a Cloudflare Worker ([download-worker/](../download-worker)) in front of an R2 bucket.
 It runs at `https://cpxy-download.<account subdomain>.workers.dev`, which is the `DOWNLOAD_URL`

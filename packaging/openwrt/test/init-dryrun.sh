@@ -93,13 +93,13 @@ service() (
 )
 everything() {
 	: >"$LOG"
-	for s in cpxy-client cpxy-router cpxy-tsgw; do service "$s" "$1" 2>>/tmp/err || fail "$s $1"; done
+	for s in cpxy-client cpxy-router; do service "$s" "$1" 2>>/tmp/err || fail "$s $1"; done
 }
 router() { service cpxy-router "$1" 2>>/tmp/err || fail "cpxy-router $1"; }
 # invalid <error>: every service refuses the configuration and changes nothing
 invalid() {
 	: >/tmp/err
-	for s in cpxy-client cpxy-router cpxy-tsgw; do
+	for s in cpxy-client cpxy-router; do
 		: >"$LOG"
 		if service "$s" reload_service 2>>/tmp/err; then fail "$s accepted an invalid configuration"; fi
 		[ ! -s "$LOG" ] || fail "$s: invalid reload changed the running service"
@@ -122,7 +122,6 @@ uci set cpxy.guest.server='https://:guest-key@second.example:443'
 uci set cpxy.iot=instance
 uci set cpxy.iot.index=2
 uci add_list cpxy.iot.network=iot
-uci set cpxy.iot.tsgw=0
 uci set cpxy.iot.client_socks5=1
 uci set cpxy.iot.dns_cache=0
 uci commit cpxy
@@ -158,7 +157,6 @@ want 'append command --dns-local-server 127.0.0.1:53'
 want 'append command --dns-local-domain lan'
 want 'append command --dns-search-domain home.arpa'
 want 'append command --dns-search-domain corp.example'
-grep -qxF 'DNS_SEARCH_DOMAINS=home.arpa,corp.example' /tmp/cpxy/tsgw-guest.env || fail 'tsgw search domains'
 [ "$(grep -c -- '--no-dns-cache' "$LOG")" = 1 ] || fail 'dns_cache off for iot only'
 [ "$(grep -c -- '--dns-local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
 absent 'append command --sinkhole'
@@ -170,17 +168,7 @@ absent 'append command --sinkhole'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.target)" = DNAT ] || fail 'DNS redirect target'
 [ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = DNAT ] || fail 'IPv6 DNS redirect'
 [ "$(uci get firewall.cpxy_inst_iot_dns6_1.family)" = ipv6 ] || fail 'IPv6 DNS redirect family'
-# cpxy-tsgw: main and guest only
-want 'set command /usr/bin/cpxy-tsgw'
-want 'TS_HOSTNAME=cpxy-guest TS_PORT=41701'
-want 'DNS_UPSTREAM=223.5.5.5 DNS_ALTERNATIVE=tcp://1.1.1.1?via=cpxy IPV6=full'
-want 'DNS_SEARCH_DOMAINS=home.arpa,corp.example HTTPS_PROXY=http://127.0.0.1:5001 HTTP_PROXY=http://127.0.0.1:5001'
-want 'set file /tmp/cpxy/tsgw-guest.env'
-grep -qxF 'IPV6=full' /tmp/cpxy/tsgw-guest.env || fail 'tsgw IPv6 mode'
 want 'set file /tmp/cpxy/router-guest.env'
-absent 'TS_HOSTNAME=cpxy-iot'
-[ -d /etc/cpxy/tsgw/guest ] || fail 'tsgw state directory'
-absent 'TS_AUTHKEY'
 
 # Fixed routes inherit defaults, while an instance's list replaces them.
 uci add_list cpxy.defaults.proxy_route=223.5.5.5/32
@@ -200,8 +188,6 @@ for route in 192.0.2.0/24 198.51.100.0/24 2400:3200::/32; do
 done
 grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/client-main.env || fail 'client default routes'
 grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32' /tmp/cpxy/client-guest.env || fail 'client instance routes'
-grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/tsgw-main.env || fail 'tsgw default routes'
-grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32' /tmp/cpxy/tsgw-guest.env || fail 'tsgw instance routes'
 absent 'firewall reload'
 absent 'down '
 absent 'up '
@@ -219,16 +205,13 @@ everything reload_service
 absent 'append command --proxy-route'
 absent 'PROXY_ROUTES'
 if grep -q '^PROXY_ROUTES' /tmp/cpxy/client-main.env; then fail 'client routes not cleared'; fi
-if grep -q '^PROXY_ROUTES' /tmp/cpxy/tsgw-guest.env; then fail 'tsgw routes not cleared'; fi
 
-# The shared IPv6 setting belongs to mobile/tsgw; router always refuses IPv6.
-uci set cpxy.guest.ipv6=direct
+# The obsolete ipv6 option (it was the Tailscale exit node's) is ignored; router refuses IPv6.
+uci set cpxy.guest.ipv6=on
 : >"$LOG"
 router reload_service
 absent 'geo_up '
 want 'set command /usr/bin/cpxy-router --tun cpxy1'
-uci set cpxy.guest.ipv6=on
-invalid "guest: option 'ipv6' must be off, direct or full"
 uci delete cpxy.guest.ipv6
 router reload_service
 
@@ -325,7 +308,7 @@ router stop_service
 [ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
 if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
 
-# Kernel GeoIP routes IPv4 and prohibits IPv6 independently of the Tailscale setting.
+# Kernel GeoIP routes IPv4 and prohibits IPv6.
 uci set cpxy.main.router_geoip=1
 : >"$LOG"
 router start_service
@@ -366,12 +349,11 @@ uci set cpxy.main.router_geoip=0
 invalid 'router_geoip must be 1'
 uci set cpxy.main.router_geoip=1
 
-# External SOCKS5 requires no cpxy client, server credentials or Tailscale process.
+# External SOCKS5 requires no cpxy client or server credentials.
 uci set cpxy.main.enabled=0
 uci set cpxy.iot.enabled=0
 uci set cpxy.guest.enabled=1
 uci set cpxy.guest.client=0
-uci set cpxy.guest.tsgw=0
 uci set cpxy.guest.router_socks5_proxy='[2001:db8::1]:1080'
 uci delete cpxy.guest.server
 uci delete cpxy.defaults.server
@@ -380,7 +362,6 @@ uci set cpxy.guest.router_dns=1
 everything start_service
 want 'set command /usr/bin/cpxy-router --tun cpxy1 --socks5-proxy [2001:db8::1]:1080'
 absent 'set command /usr/bin/cpxy-client'
-absent 'set command /usr/bin/cpxy-tsgw'
 absent 'SERVER='
 uci delete cpxy.guest.router_socks5_proxy
 invalid 'enable client or set router_socks5_proxy'
