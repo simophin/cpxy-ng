@@ -89,7 +89,7 @@ pub async fn handle_connection(
             );
 
             tracing::info!("Server: tunnel established, starting bidirectional copy");
-            let _ = tokio::io::copy_bidirectional(&mut upstream, &mut conn).await;
+            let _ = cpxy_ng::relay::relay(&mut upstream, &mut conn, cpxy_ng::relay::DEFAULT_LINGER).await;
             anyhow::Ok(())
         }
 
