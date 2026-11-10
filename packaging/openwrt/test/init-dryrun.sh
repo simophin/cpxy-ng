@@ -36,6 +36,12 @@ uci set firewall.visitors_dns.dest_port=53
 uci set firewall.visitors_dns.target=ACCEPT
 uci reorder firewall.visitors_dns=0 || { echo "FAIL: reorder"; exit 1; }
 uci commit firewall
+# A masquerading zone's devices are uplinks even while down
+uci set firewall.uplink=zone
+uci set firewall.uplink.name=uplink
+uci set firewall.uplink.masq=1
+uci add_list firewall.uplink.device=wwan9
+uci commit firewall
 uci set dhcp.@dnsmasq[0].domain=lan
 uci set dhcp.@dnsmasq[0].local=/lan/
 uci commit dhcp
@@ -80,6 +86,8 @@ service() (
 		cpxy_nft_clear() { rm -f /tmp/applied.nft; echo "nft_clear" >>"$LOG"; }
 		cpxy_nft_main_routes() { echo 198.18.0.0/15; }
 		cpxy_legacy_down() { echo "legacy_down $*" >>"$LOG"; }
+		# The uplinks it is given are checked; the router's devices are those of the stubs.
+		cpxy_nft_exempt() { echo "exempt_args $*" >>"$LOG"; echo tailscale0; echo br-lan; }
 	fi
 	"$2"
 )
@@ -155,11 +163,15 @@ want 'nft_apply'
 nft_has 'table inet cpxy {'
 nft_has 'set direct_main {'
 nft_has '198.18.0.0/15'
-nft_has 'iifname "br-lan" meta nfproto ipv4 tcp dport != 53 fib daddr type != { local, broadcast, multicast } ip daddr != @direct_main counter redirect to :5100'
+nft_has 'iifname "br-lan" meta nfproto ipv4 tcp dport != 53 fib daddr type != { local, broadcast, multicast } ip daddr != @direct_main fib daddr oif != @exempt counter redirect to :5100'
+# Routes through other devices (tailscale0) win over the proxy; uplinks are never exempt
+nft_has 'elements = { "tailscale0", "br-lan" }'
+nft_has 'ip daddr != @direct_guest oif != @exempt counter reject with tcp reset'
+grep 'exempt_args' "$LOG" | grep -qw wwan9 || fail 'masquerading zone device not an uplink'
 nft_has 'iifname "br-extra" meta nfproto ipv4 tcp dport != 53'
-nft_has 'ip daddr != @direct_guest counter redirect to :5101'
-nft_has 'ip daddr != @direct_iot counter redirect to :5102'
-nft_has 'iifname "br-guest" meta nfproto ipv4 meta l4proto tcp ip daddr != @direct_guest counter reject with tcp reset comment "cpxy guard br-guest"'
+nft_has 'ip daddr != @direct_guest fib daddr oif != @exempt counter redirect to :5101'
+nft_has 'ip daddr != @direct_iot fib daddr oif != @exempt counter redirect to :5102'
+nft_has 'iifname "br-guest" meta nfproto ipv4 meta l4proto tcp ip daddr != @direct_guest oif != @exempt counter reject with tcp reset comment "cpxy guard br-guest"'
 nft_has 'iifname "br-iot" meta nfproto ipv4 udp dport 443 counter reject'
 nft_has 'iifname "br-lan" meta nfproto ipv6 counter reject'
 [ "$(head -n 1 /etc/cpxy/router-guards/main)" = nft ] || fail 'boot snapshot format'

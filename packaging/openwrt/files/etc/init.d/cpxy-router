@@ -121,6 +121,27 @@ _start_instance() {
 	[ "$DNS_PORT" = - ] || _start_worker "$1"
 }
 
+_masq_zone_devices() {
+	local masq networks network dev
+	config_get_bool masq "$1" masq 0
+	[ "$masq" = 1 ] || return 0
+	config_get networks "$1" network
+	for network in $networks; do
+		network_get_device dev "$network" && [ -n "$dev" ] && echo "$dev"
+		network_get_physdev dev "$network" && [ -n "$dev" ] && echo "$dev"
+	done
+	config_get dev "$1" device
+	[ -z "$dev" ] || echo $dev
+}
+
+# Where the internet is: the devices of the main table's default routes and of every
+# masquerading firewall zone (down or not). Proxied TCP is redirected and guarded towards these,
+# and towards any device that appears later; other devices' routes win over the proxy.
+_uplinks() {
+	ip -4 route show table main default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1) }'
+	(config_load firewall; config_foreach _masq_zone_devices zone)
+}
+
 # Removes what an instance of the TUN design left in the kernel, given its saved state.
 _legacy_down() {
 	local tun table priority
@@ -154,7 +175,9 @@ _apply_plan() {
 	done
 	# One transaction replaces every instance's sets and rules: established connections keep
 	# their NAT, and no packet sees a partial policy.
-	cpxy_nft_render "$PLAN" >"$PLAN/routes/.ruleset" && cpxy_nft_apply "$PLAN/routes/.ruleset" || {
+	# shellcheck disable=SC2046
+	cpxy_nft_render "$PLAN" $(cpxy_nft_exempt $(_uplinks)) >"$PLAN/routes/.ruleset" &&
+		cpxy_nft_apply "$PLAN/routes/.ruleset" || {
 		cpxy_log "could not install the nftables policy; the previous one stays"
 		rm -rf "$PLAN"; return 1
 	}

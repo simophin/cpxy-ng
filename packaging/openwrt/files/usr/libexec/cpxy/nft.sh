@@ -48,15 +48,27 @@ _cpxy_nft_dev_ok() {
 	case "$1" in '' | *[!A-Za-z0-9_.:@-]*) return 1 ;; esac
 }
 
-# cpxy_nft_render <plan dir>: prints the ruleset that replaces the table, or deletes it when the
-# plan has no routed instance.
+# cpxy_nft_render <plan dir> [exempt devices...]: prints the ruleset that replaces the table, or
+# deletes it when the plan has no routed instance. TCP whose route leaves through an exempt device
+# (a tunnel such as tailscale0, another LAN) is neither redirected nor guarded: like the TUN
+# design's `lookup main suppress_prefixlength 0`, such routes win over the proxy.
 cpxy_nft_render() (
-	local plan="$1" state section dev set any=0
+	local plan="$1" state section dev set any=0 exempt="" via="" out=""
+	shift
+	for dev in "$@"; do
+		_cpxy_nft_dev_ok "$dev" || return 1
+		exempt="${exempt:+$exempt, }\"$dev\""
+	done
+	if [ -n "$exempt" ]; then
+		via=" fib daddr oif != @exempt"
+		out=" oif != @exempt"
+	fi
 	echo "table $CPXY_NFT_TABLE"
 	echo "delete table $CPXY_NFT_TABLE"
 	for state in "$plan"/*; do [ ! -f "$state" ] || any=1; done
 	[ "$any" = 1 ] || return 0
 	echo "table $CPXY_NFT_TABLE {"
+	[ -z "$exempt" ] || printf '\tset exempt {\n\t\ttype iface_index\n\t\telements = { %s }\n\t}\n' "$exempt"
 	for state in "$plan"/*; do
 		[ -f "$state" ] || continue
 		section="${state##*/}"
@@ -78,8 +90,8 @@ cpxy_nft_render() (
 		for dev in $LAN_DEVS; do
 			_cpxy_nft_dev_ok "$dev" || return 1
 			# After fw4's DNAT (priority dstnat), so its DNS redirect wins for TCP/53
-			printf '\t\tiifname "%s" meta nfproto ipv4 tcp dport != 53 fib daddr type != { local, broadcast, multicast } ip daddr != %s counter redirect to :%s comment "cpxy redirect %s"\n' \
-				"$dev" "$set" "$PORT" "$dev"
+			printf '\t\tiifname "%s" meta nfproto ipv4 tcp dport != 53 fib daddr type != { local, broadcast, multicast } ip daddr != %s%s counter redirect to :%s comment "cpxy redirect %s"\n' \
+				"$dev" "$set" "$via" "$PORT" "$dev"
 		done
 	done
 	printf '\t}\n'
@@ -92,8 +104,8 @@ cpxy_nft_render() (
 		for dev in $LAN_DEVS; do
 			printf '\t\tiifname "%s" meta nfproto ipv6 counter reject comment "cpxy ipv6 %s"\n' "$dev" "$dev"
 			printf '\t\tiifname "%s" meta nfproto ipv4 udp dport 443 counter reject comment "cpxy quic %s"\n' "$dev" "$dev"
-			printf '\t\tiifname "%s" meta nfproto ipv4 meta l4proto tcp ip daddr != %s counter reject with tcp reset comment "cpxy guard %s"\n' \
-				"$dev" "$set" "$dev"
+			printf '\t\tiifname "%s" meta nfproto ipv4 meta l4proto tcp ip daddr != %s%s counter reject with tcp reset comment "cpxy guard %s"\n' \
+				"$dev" "$set" "$out" "$dev"
 		done
 	done
 	printf '\t}\n}\n'
@@ -120,6 +132,19 @@ cpxy_nft_main_routes() {
 	ip -4 route show table main 2>/dev/null | awk '
 		$1 == "default" || $1 == "unreachable" || $1 == "blackhole" || $1 == "prohibit" || $1 == "throw" { next }
 		$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(\/[0-9]+)?$/ { print $1 }'
+}
+
+# cpxy_nft_exempt <uplink devices...>: every network device of the router except loopback and the
+# uplinks (where the internet is). The set holds interface indexes: a device created (or
+# recreated) after this is not exempt, so new paths fail closed until the next apply.
+cpxy_nft_exempt() {
+	local dev
+	for dev in /sys/class/net/*; do
+		dev="${dev##*/}"
+		case " lo $* " in *" $dev "*) continue ;; esac
+		_cpxy_nft_dev_ok "$dev" && echo "$dev"
+	done
+	return 0
 }
 
 # cpxy_legacy_down <tun> <table> <priority>: removes what an instance of the TUN design left in

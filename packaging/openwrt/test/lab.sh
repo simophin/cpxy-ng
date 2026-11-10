@@ -32,7 +32,7 @@ FAILED=0
 PIDS=""
 # $PIDS can be wrapper subshells, so also kill whatever still runs inside the lab's namespaces
 cleanup() {
-	for p in $PIDS $(for ns in inet router lan guest upstream; do ip netns pids "$ns" 2>/dev/null; done); do kill "$p" 2>/dev/null; done
+	for p in $PIDS $(for ns in inet router lan guest upstream tail; do ip netns pids "$ns" 2>/dev/null; done); do kill "$p" 2>/dev/null; done
 	rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -50,7 +50,7 @@ check_not() {
 bg() { "$@" & PIDS="$PIDS $!"; }
 
 mount -t tmpfs tmpfs /run && mkdir -p /run/netns
-for ns in inet router lan guest upstream; do ip netns add "$ns"; done
+for ns in inet router lan guest upstream tail; do ip netns add "$ns"; done
 ip link add wan0 type veth peer name wan0r
 ip link set wan0 netns inet; ip link set wan0r netns router
 ip link add lan0r type veth peer name lan0
@@ -82,6 +82,14 @@ in_inet sh -c 'ip addr add 192.0.3.2/24 dev up0i; ip link set up0i up; sysctl -q
 ip netns exec upstream sh -c 'ip link set lo up; ip addr add 192.0.3.1/24 dev up0; ip link set up0 up; ip route add default via 192.0.3.2'
 in_router sh -c 'ip addr add 192.168.9.1/24 dev guest0r; ip link set guest0r up; ip route add 192.0.3.0/24 via 192.0.2.1'
 in_guest sh -c 'ip link set lo up; ip addr add 192.168.9.50/24 dev guest0; ip link set guest0 up; ip route add default via 192.168.9.1'
+# A tailnet-like path, as Tailscale sets up: a peer at a non-private address reached through its
+# own device by a policy-routing table. Its TCP must go there directly, not through the proxy.
+ip link add tail0r type veth peer name tail0
+ip link set tail0r netns router; ip link set tail0 netns tail
+in_router sh -c 'ip addr add 100.64.0.1/24 dev tail0r; ip link set tail0r up
+	ip rule add priority 5270 lookup 52; ip route add 100.100.1.1/32 via 100.64.0.2 dev tail0r table 52'
+ip netns exec tail sh -c 'ip link set lo up; ip addr add 100.100.1.1/32 dev lo; ip addr add 100.64.0.2/24 dev tail0
+	ip link set tail0 up; ip route add default via 100.64.0.1'
 
 # Router firewall, shaped like fw4: forward drops by default, the LANs may go to the WAN, and
 # their DNS is redirected to their instance's split resolver (fw4's DNAT runs at dstnat).
@@ -90,7 +98,7 @@ table inet fw4 {
 	chain forward {
 		type filter hook forward priority filter; policy drop;
 		ct state established,related accept
-		iifname { "lan0r", "guest0r" } oifname "wan0r" accept
+		iifname { "lan0r", "guest0r" } oifname { "wan0r", "tail0r" } accept
 	}
 	chain dstnat {
 		type nat hook prerouting priority dstnat; policy accept;
@@ -115,6 +123,7 @@ bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WO
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 114.114.114.114 2>>"$WORK/direct.log")
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 2400:3200::114 2>>"$WORK/direct.log")
 (cd "$WORK/www" && bg in_router python3 -m http.server 8080 --bind 192.168.8.1 2>>"$WORK/router-web.log")
+(cd "$WORK/www" && bg ip netns exec tail python3 -m http.server 8000 --bind 100.100.1.1 2>>"$WORK/tail.log")
 # UDP echo on 443 and 9999, and a TCP echo on 7000: each replies with the source address it saw
 bg in_inet python3 -c '
 import selectors, socket
@@ -196,10 +205,13 @@ instance() {
 	(. "$NFT"; cpxy_nft_state "$PLAN/$inst" "$port" "$dns" "$(sha256sum <"$PLAN/routes/$inst" | cut -d ' ' -f 1)" zone "$dev")
 }
 reinstall() { instance "$@" && apply; }
-apply() { in_router sh -c ". '$NFT'; cpxy_nft_render '$PLAN' >'$WORK/ruleset' && cpxy_nft_apply '$WORK/ruleset'"; }
+# wan0r is the uplink; the router's other devices are exempt, as the init script computes them.
+apply() { in_router sh -c ". '$NFT'; cpxy_nft_render '$PLAN' \$(cpxy_nft_exempt wan0r) >'$WORK/ruleset' && cpxy_nft_apply '$WORK/ruleset'"; }
 check "main instance policy renders" instance main 5100 5335 lan0r
 check "policy installs in one transaction" apply
 check "the main table's subnets are direct" in_router nft get element inet cpxy direct_main '{ 192.0.2.7 }'
+check "other devices are exempt" in_router nft get element inet cpxy exempt '{ "tail0r" }'
+check_not "the uplink is not exempt" in_router nft get element inet cpxy exempt '{ "wan0r" }'
 
 bg ip netns exec router env CONFIG='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 \
 	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100 "$BIN/cpxy-client" >"$WORK/client.log" 2>&1
@@ -216,6 +228,8 @@ check "the transparent listener accepted the LAN connection" grep -q "Accepted c
 mark; check "CN TCP reaches the web server" fetch "$CN_URL"
 expect_seen_direct "CN TCP is forwarded directly by the kernel" 192.0.2.2
 check "the router itself is reachable, not redirected" in_lan curl -fsS --max-time 3 http://192.168.8.1:8080/index.html
+check "a tailnet-like peer is reachable" in_lan curl -fsS --max-time 3 http://100.100.1.1:8000/index.html
+check "a tailnet-like peer is reached directly through its device" grep -q '^192.168.8.50 ' "$WORK/tail.log"
 check_not "a direct connection to the transparent listener is refused" in_lan curl -fsS --max-time 3 http://192.168.8.1:5100/
 check "cpxy-client survives the refused connection" kill -0 "$CLIENT_PID"
 mark; check "router's own traffic still goes out WAN" in_router curl -sS --max-time 5 --noproxy '*' "$URL"
