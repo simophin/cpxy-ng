@@ -1,6 +1,7 @@
 #!/bin/sh
-# Exercise the three init scripts with three instances, and real UCI firewall generation, in an
-# OpenWrt rootfs. procd, ip and the routing helpers are stubbed: commands are logged, not run.
+# Exercise both init scripts with three instances, and real UCI firewall generation, in an
+# OpenWrt rootfs. procd and loading the nftables ruleset are stubbed: commands are logged, not run;
+# the ruleset itself is rendered for real.
 #
 # usage: init-dryrun.sh <ipk> [image]    (needs podman or docker)
 set -eu
@@ -10,9 +11,9 @@ engine="$(command -v podman || command -v docker)"
 script="$(cat <<'SCRIPT'
 set -e
 mkdir -p /var/lock /tmp
-for dep in ip-full kmod-tun; do
-	printf 'Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n' "$dep" >>/usr/lib/opkg/status
-	: >"/usr/lib/opkg/info/$dep.list"
+for dep in firewall4 kmod-nft-nat; do
+	opkg status "$dep" | grep -q '^Status: .* installed' || printf 'Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n' "$dep" >>/usr/lib/opkg/status
+	[ -e "/usr/lib/opkg/info/$dep.list" ] || : >"/usr/lib/opkg/info/$dep.list"
 done
 opkg install /pkg.ipk >/dev/null 2>&1
 uci -q delete firewall.@zone[0].network
@@ -59,18 +60,12 @@ procd_append_param() { echo "append $*" >>"$LOG"; }
 procd_kill() { echo "FAIL: procd_kill would destroy the current service update"; exit 1; }
 rc_procd() { "$@"; }
 logger() { :; }
-mkdir /tmp/tuns
-ip() {
-	case "$1 $2" in
-		'link show') [ -f "/tmp/tuns/$3" ] ;;
-		'tuntap show') echo "$4: tun" ;;
-		'-4 route') echo "route $*" >>"$LOG" ;;
-		*) command ip "$@" ;;
-	esac
-}
 fail() { echo "FAIL: $*"; cat "$LOG"; cat /tmp/err 2>/dev/null; exit 1; }
 want() { grep -qF -- "$1" "$LOG" || fail "expected: $1"; }
 absent() { if grep -qF -- "$1" "$LOG"; then fail "unexpected: $1"; fi; }
+# The ruleset the last apply installed
+nft_has() { grep -qF -- "$1" /tmp/applied.nft || { cat /tmp/applied.nft | grep -v '^\t\t\t'; fail "ruleset lacks: $1"; }; }
+nft_lacks() { if grep -qF -- "$1" /tmp/applied.nft; then fail "ruleset has: $1"; fi; }
 # service <name> <function>: runs one init script's function in a shell of its own
 service() (
 	. "/etc/init.d/$1"
@@ -80,14 +75,11 @@ service() (
 			[ "$2" != lan ] || [ ! -f /tmp/no-lan ] || return 1
 			case "$2" in lan) eval "$1=br-lan" ;; extra) eval "$1=br-extra" ;; guest|alias) eval "$1=br-guest" ;; iot) eval "$1=br-iot" ;; esac
 		}
-		cpxy_net_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
-		cpxy_net_down_routing() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
-		_cpxy_net_down_rules() { echo "rules_down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
-		cpxy_geo_uplink() { echo '192.0.2.1 wan'; }
-		cpxy_geo_guard() { echo "guard $*" >>"$LOG"; }
-		cpxy_geo_healthy() { return 0; }
-		cpxy_geo_up() { touch "/tmp/tuns/$CPXY_TUN"; echo "geo_up $CPXY_TUN $CPXY_TABLE" >>"$LOG"; echo "up $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN $*" >>"$LOG"; }
-		cpxy_geo_down() { rm -f "/tmp/tuns/$CPXY_TUN"; echo "geo_down $CPXY_TUN" >>"$LOG"; echo "down $CPXY_TUN $CPXY_TABLE $CPXY_PRIO_MAIN" >>"$LOG"; }
+		# The real ruleset is rendered; only loading it is stubbed.
+		cpxy_nft_apply() { [ ! -f /tmp/nft-fails ] || return 1; cp "$1" /tmp/applied.nft; echo "nft_apply" >>"$LOG"; }
+		cpxy_nft_clear() { rm -f /tmp/applied.nft; echo "nft_clear" >>"$LOG"; }
+		cpxy_nft_main_routes() { echo 198.18.0.0/15; }
+		cpxy_legacy_down() { echo "legacy_down $*" >>"$LOG"; }
 	fi
 	"$2"
 )
@@ -127,31 +119,28 @@ uci set cpxy.iot.dns_cache=0
 uci commit cpxy
 
 everything start_service
-# cpxy-client
+# cpxy-client: the HTTP proxy, the SOCKS5 listener the DNS worker uses, and the transparent
+# listener the networks' TCP is redirected to
 want 'set command /usr/bin/cpxy-client'
-want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1'
-want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1'
-want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082'
+want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1080 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100'
+want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1081 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101'
+want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5102'
 # Without routes, PROXY_ROUTES is left unset: cpxy-client rejects an empty one
 absent 'PROXY_ROUTES'
 # procd restarts an instance when this file changes, not when only its environment does
 want 'set file /tmp/cpxy/client-guest.env'
 grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
-# cpxy-router: one worker per instance, which also answers its DNS
-want 'geo_up cpxy0 100'
-want 'geo_up cpxy1 101'
-want 'geo_up cpxy2 102'
-want 'set command /usr/bin/cpxy-router --tun cpxy1'
+# cpxy-router: one DNS worker per instance, no TUN
+want 'instance guest_dns'
+want 'set command /usr/bin/cpxy-router --socks5-proxy 127.0.0.1:1081'
+absent '--tun'
 want 'set env NO_COLOR=1'
-absent '_dns'
-absent 'cpxy-dns-split'
 want 'append command --dns-listen [::]:5345'
 want 'append command --dns-alternative tcp://1.1.1.1?via=cpxy'
 absent 'append command --dns-alternative tcp://8.8.8.8'
-# The worker asks those through its instance's server, whose key stays out of the process list
+# The worker asks those through its instance's client, whose key stays out of the process list
 if grep -q SERVER /tmp/cpxy/router-guest.env; then fail 'router has cpxy credentials'; fi
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --socks5-proxy 127.0.0.1:1081'
 absent 'append command --server'
 want 'append command --dns-local-server 127.0.0.1:53'
 want 'append command --dns-local-domain lan'
@@ -159,16 +148,34 @@ want 'append command --dns-search-domain home.arpa'
 want 'append command --dns-search-domain corp.example'
 [ "$(grep -c -- '--no-dns-cache' "$LOG")" = 1 ] || fail 'dns_cache off for iot only'
 [ "$(grep -c -- '--dns-local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
-absent 'append command --sinkhole'
-[ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'source zone lookup'
-[ "$(uci get firewall.cpxy_inst_guest_zone.device)" = cpxy1 ] || fail 'TUN zone'
-[ "$(uci get firewall.cpxy_inst_guest_udp.target)" = REJECT ] || fail 'UDP rejection'
+want 'set file /tmp/cpxy/router-guest.env'
+want 'append file /usr/bin/cpxy-router'
+# The kernel policy: one table, per instance a direct set, redirects and guards per device
+want 'nft_apply'
+nft_has 'table inet cpxy {'
+nft_has 'set direct_main {'
+nft_has '198.18.0.0/15'
+nft_has 'iifname "br-lan" meta nfproto ipv4 tcp dport != 53 fib daddr type != { local, broadcast, multicast } ip daddr != @direct_main counter redirect to :5100'
+nft_has 'iifname "br-extra" meta nfproto ipv4 tcp dport != 53'
+nft_has 'ip daddr != @direct_guest counter redirect to :5101'
+nft_has 'ip daddr != @direct_iot counter redirect to :5102'
+nft_has 'iifname "br-guest" meta nfproto ipv4 meta l4proto tcp ip daddr != @direct_guest counter reject with tcp reset comment "cpxy guard br-guest"'
+nft_has 'iifname "br-iot" meta nfproto ipv4 udp dport 443 counter reject'
+nft_has 'iifname "br-lan" meta nfproto ipv6 counter reject'
+[ "$(head -n 1 /etc/cpxy/router-guards/main)" = nft ] || fail 'boot snapshot format'
+[ "$(sed -n 2p /etc/cpxy/router-guards/main)" = 'br-lan br-extra' ] || fail 'boot snapshot devices'
+# The firewall: the listener reachable from each source zone, and DNS redirects
+[ "$(uci get firewall.cpxy_inst_main_proxy1.src)" = trusted ] || fail 'source zone lookup'
+[ "$(uci get firewall.cpxy_inst_main_proxy1.dest_port)" = 5100 ] || fail 'listener port rule'
+[ "$(uci get firewall.cpxy_inst_guest_proxy1.target)" = ACCEPT ] || fail 'listener rule target'
+[ "$(uci get firewall.cpxy_inst_guest_proxy1.family)" = ipv4 ] || fail 'listener rule family'
+if uci -q get firewall.cpxy_inst_guest_zone; then fail 'TUN zone remains'; fi
 [ "$(uci get firewall.cpxy_inst_guest_dns1.src)" = visitors ] || fail 'DNS redirect zone'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.dest_port)" = 5345 ] || fail 'DNS redirect port'
 [ "$(uci get firewall.cpxy_inst_guest_dns1.target)" = DNAT ] || fail 'DNS redirect target'
 [ "$(uci get firewall.cpxy_inst_iot_dns6_1.target)" = DNAT ] || fail 'IPv6 DNS redirect'
 [ "$(uci get firewall.cpxy_inst_iot_dns6_1.family)" = ipv6 ] || fail 'IPv6 DNS redirect family'
-want 'set file /tmp/cpxy/router-guest.env'
+[ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
 
 # Fixed routes inherit defaults, while an instance's list replaces them.
 uci add_list cpxy.defaults.proxy_route=223.5.5.5/32
@@ -189,8 +196,7 @@ done
 grep -qxF 'PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16' /tmp/cpxy/client-main.env || fail 'client default routes'
 grep -qxF 'PROXY_ROUTES=192.0.2.0/24,198.51.100.0/24,2400:3200::/32' /tmp/cpxy/client-guest.env || fail 'client instance routes'
 absent 'firewall reload'
-absent 'down '
-absent 'up '
+absent 'legacy_down'
 
 # Invalid route reloads preserve the running services and kernel configuration.
 for route in 10.0.0.0/33 256.0.0.0/8 1.2.3.4 example.com/24 1::2::3/64 2001:db8::/129 ::1; do
@@ -206,32 +212,54 @@ absent 'append command --proxy-route'
 absent 'PROXY_ROUTES'
 if grep -q '^PROXY_ROUTES' /tmp/cpxy/client-main.env; then fail 'client routes not cleared'; fi
 
-# The obsolete ipv6 option (it was the Tailscale exit node's) is ignored; router refuses IPv6.
+# Obsolete options are ignored with a log line; the instance keeps running.
+uci set cpxy.guest.tun=cpxy7
+uci set cpxy.guest.routing_table=150
+uci set cpxy.guest.rule_priority=9300
 uci set cpxy.guest.ipv6=on
+uci set cpxy.guest.router_ipv6=full
+: >/tmp/err
 : >"$LOG"
 router reload_service
-absent 'geo_up '
-want 'set command /usr/bin/cpxy-router --tun cpxy1'
-uci delete cpxy.guest.ipv6
+grep -qF "guest: option 'tun' is obsolete and ignored" /tmp/err || fail 'obsolete tun not reported'
+grep -qF "guest: option 'rule_priority' is obsolete and ignored" /tmp/err || fail 'obsolete rule_priority not reported'
+want 'instance guest_dns'
+absent 'cpxy7'
+nft_lacks 'cpxy7'
+for option in tun routing_table rule_priority ipv6 router_ipv6; do uci delete "cpxy.guest.$option"; done
 router reload_service
 
-# Idempotent reload preserves resource ownership and avoids firewall reloads.
+# Idempotent reload keeps the firewall unchanged.
 : >"$LOG"
 router reload_service
 absent 'firewall reload'
-absent 'down '
-absent 'up '
 [ -z "$(uci -q changes firewall)" ] || fail 'idempotent reload staged firewall changes'
+
+# A failed table load changes nothing else and keeps the old policy.
+cp /tmp/applied.nft /tmp/applied.before
+touch /tmp/nft-fails
+uci set cpxy.guest.client_transparent_listen=0.0.0.0:5200
+: >"$LOG"
+if service cpxy-router reload_service 2>/tmp/err; then fail 'reload succeeded without its table'; fi
+rm /tmp/nft-fails
+cmp -s /tmp/applied.nft /tmp/applied.before || fail 'failed load replaced the policy'
+absent 'firewall reload'
+absent 'instance '
+[ "$(uci get firewall.cpxy_inst_guest_proxy1.dest_port)" = 5101 ] || fail 'failed load changed the firewall'
+uci delete cpxy.guest.client_transparent_listen
 
 # Conflicts between instances
 uci set cpxy.guest.index=0
 invalid 'index 0 is already used'
 uci set cpxy.guest.index=1
-uci add_list cpxy.guest.dns_search_domain=home.arpa
-uci add_list cpxy.guest.dns_search_domain=corp.example
 uci set cpxy.guest.client_http_listen='[::]:5000'
 invalid 'tcp 5000 is already used'
 uci delete cpxy.guest.client_http_listen
+uci set cpxy.guest.client_transparent_listen=0.0.0.0:5100
+invalid 'tcp 5100 is already used'
+uci set cpxy.guest.client_transparent_listen='[::]:5101'
+invalid 'client_transparent_listen must bind 0.0.0.0:port'
+uci delete cpxy.guest.client_transparent_listen
 uci set cpxy.guest.dns_listen=0.0.0.0:53
 invalid 'must not use port 53'
 uci delete cpxy.guest.dns_listen
@@ -241,6 +269,16 @@ uci delete cpxy.guest.dns_alternative
 uci add_list cpxy.guest.dns_alternative='8.8.8.8?via=cpxy'
 invalid "DNS server '8.8.8.8?via=cpxy' goes through the cpxy server"
 uci delete cpxy.guest.dns_alternative
+# Routed TCP needs the instance's own client
+uci set cpxy.guest.router_socks5_proxy='[2001:db8::1]:1080'
+invalid 'router_socks5_proxy is no longer supported'
+uci delete cpxy.guest.router_socks5_proxy
+uci set cpxy.guest.client=0
+invalid "guest: a routed network needs client '1'"
+uci set cpxy.guest.client=1
+uci set cpxy.main.router_geoip=0
+invalid 'router_geoip must be 1'
+uci set cpxy.main.router_geoip=1
 # Settings of the smartdns this package no longer has are ignored
 uci set cpxy.guest.smartdns=1
 uci add_list cpxy.guest.smartdns_server=tcp://1.1.1.1
@@ -248,21 +286,21 @@ uci commit cpxy
 router reload_service
 uci delete cpxy.guest.smartdns
 uci delete cpxy.guest.smartdns_server
-uci set cpxy.guest.tun=cpxy0
-: >/tmp/err
-if service cpxy-router reload_service 2>/tmp/err; then fail 'duplicate tun accepted'; fi
-grep -qF 'stop cpxy-router' /tmp/err || fail 'missing live resource migration error'
-uci delete cpxy.guest.tun
 uci delete cpxy.main.network
 uci add_list cpxy.main.network=lan
 : >/tmp/err
 if service cpxy-router reload_service 2>/tmp/err; then fail 'zone shared with an unmanaged network accepted'; fi
 grep -qF "also holds network 'extra'" /tmp/err || fail 'missing error: zone holds another network'
+# Without router DNS the table still redirects the networks' TCP, and no worker runs.
 uci set cpxy.main.router_dns=0
 : >"$LOG"
 router reload_service
-want 'set command /usr/bin/cpxy-router --tun cpxy0'
-[ "$(grep -c -- '--dns-listen' "$LOG")" = 2 ] || fail 'router_dns 0 still answers DNS'
+absent 'instance main_dns'
+want 'instance guest_dns'
+nft_has 'iifname "br-lan" meta nfproto ipv4 tcp dport != 53'
+nft_lacks 'br-extra'
+if uci -q get firewall.cpxy_inst_main_dns1; then fail 'router_dns 0 still redirects DNS'; fi
+[ "$(uci get firewall.cpxy_inst_main_proxy1.dest_port)" = 5100 ] || fail 'router_dns 0 lost the listener rule'
 uci set cpxy.main.router_dns=1
 uci add_list cpxy.main.network=extra
 uci add_list cpxy.guest.network=extra
@@ -282,17 +320,27 @@ uci delete cpxy.iot.network
 uci add_list cpxy.iot.network=iot
 uci delete firewall.aliases
 router reload_service
+uci set firewall.@defaults[0].flow_offloading=1
+if service cpxy-router reload_service 2>/tmp/err; then fail 'flow offloading accepted'; fi
+grep -q 'disable flow_offloading' /tmp/err || fail 'missing offloading error'
+uci set firewall.@defaults[0].flow_offloading=0
+touch /tmp/no-lan
+if service cpxy-router reload_service 2>/tmp/err; then fail 'activated with an unresolved LAN'; fi
+grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
+rm /tmp/no-lan
 
 # Disable guest without touching the others
 uci set cpxy.guest.enabled=0
 everything reload_service
-want 'down cpxy1 101 9110'
-absent 'down cpxy0'
 absent 'instance guest'
-want 'instance main'
-if uci -q get firewall.cpxy_inst_guest_zone; then fail 'disabled guest zone remains'; fi
+want 'instance main_dns'
+nft_lacks 'br-guest'
+nft_lacks 'direct_guest'
+nft_has 'cpxy guard br-lan'
+[ ! -f /etc/cpxy/router-guards/guest ] || fail 'disabled guest keeps its boot snapshot'
+if uci -q get firewall.cpxy_inst_guest_proxy1; then fail 'disabled guest listener rule remains'; fi
 if uci -q get firewall.cpxy_inst_guest_dns1; then fail 'disabled guest DNS redirect remains'; fi
-[ "$(uci get firewall.cpxy_inst_main_fwd1.src)" = trusted ] || fail 'main forwarding removed'
+[ "$(uci get firewall.cpxy_inst_main_proxy1.src)" = trusted ] || fail 'main listener rule removed'
 # Interface triggers for every routed network
 procd_add_reload_trigger() { :; }
 procd_add_interface_trigger() { echo "trigger $*" >>"$LOG"; }
@@ -304,79 +352,51 @@ want 'trigger interface.* iot /etc/init.d/cpxy-router reload'
 want 'raw_trigger interface.* 1000 /etc/init.d/cpxy-router reload'
 absent 'trigger interface.* guest'
 
+: >"$LOG"
 router stop_service
+want 'nft_clear'
+want 'boot_fw clear'
 [ ! -d /tmp/cpxy/instances ] || fail 'runtime state remains'
+[ -f /tmp/cpxy/router-stopped ] || fail 'stop marker missing'
 if uci show firewall | grep -q cpxy_inst_; then fail 'firewall sections remain after stop'; fi
+[ -f /etc/cpxy/router-guards/main ] || fail 'stop lost next-boot assignments'
 
-# Kernel GeoIP routes IPv4 and prohibits IPv6.
-uci set cpxy.main.router_geoip=1
+# Upgrade from the TUN design: the new table goes in first, then the old instance's device,
+# tables and rules are removed. Its boot snapshot is rewritten in the new format.
+mkdir -p /tmp/cpxy/instances
+printf '%s\n' cpxy0 100 9100 'br-lan br-extra' trusted 5335 off 1 '192.0.2.1 wan' abc >/tmp/cpxy/instances/main
+printf '%s\n' cpxy1 101 9110 br-guest visitors 5345 off 1 >/etc/cpxy/router-guards/guest
+printf '%s\n' cpxy0 100 9100 'br-lan br-extra' trusted 5335 off 1 >/etc/cpxy/router-guards/main
 : >"$LOG"
 router start_service
-want 'guard cpxy0 br-lan br-extra'
-want 'geo_up cpxy0 100'
-want 'set command /usr/bin/cpxy-router --tun cpxy0'
-absent 'append command --proxy-route 0.0.0.0/0'
-want 'append file /usr/bin/cpxy-router'
-[ "$(uci get firewall.cpxy_boot_guard.path)" = /usr/libexec/cpxy/boot-firewall.sh ] || fail 'missing boot firewall include'
-touch /tmp/no-lan
-if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP activated with an unresolved LAN'; fi
-grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
-rm /tmp/no-lan
-# Obsolete router_ipv6 values are ignored on upgrade; neither enables IPv6.
-uci set cpxy.main.router_ipv6=full
+want 'legacy_down cpxy0 100 9100'
+[ "$(grep -n nft_apply "$LOG" | cut -d: -f1)" -lt "$(grep -n legacy_down "$LOG" | cut -d: -f1)" ] || fail 'legacy state removed before the new guards'
+[ "$(head -n 1 /etc/cpxy/router-guards/main)" = nft ] || fail 'TUN-era boot snapshot kept'
+[ ! -f /etc/cpxy/router-guards/guest ] || fail 'disabled instance keeps its TUN-era snapshot'
+[ "$(head -n 1 /tmp/cpxy/instances/main)" = nft ] || fail 'state not migrated'
 : >"$LOG"
 router reload_service
-absent '--ipv6'
-absent '--export-direct-routes-v6'
-uci set cpxy.main.router_ipv6=off
-: >"$LOG"
-router reload_service
-absent '--ipv6'
-uci delete cpxy.main.router_ipv6
-uci set firewall.@defaults[0].flow_offloading=1
-if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP offloading accepted'; fi
-grep -q 'disable flow_offloading' /tmp/err || fail 'missing GeoIP offloading error'
-uci set firewall.@defaults[0].flow_offloading=0
-uci set cpxy.main.routing_table=110
-if service cpxy-router reload_service 2>/tmp/err; then fail 'GeoIP live table reassignment accepted'; fi
-grep -q 'stop cpxy-router' /tmp/err || fail 'missing GeoIP migration error'
-uci delete cpxy.main.routing_table
+absent 'legacy_down'
+# Stopping during an upgrade also removes TUN-era kernel state
+printf '%s\n' cpxy2 102 9120 br-iot things 5355 off 1 >/tmp/cpxy/instances/iot
 : >"$LOG"
 router stop_service
-want 'geo_down cpxy0'
-[ -f /etc/cpxy/router-guards/main ] || fail 'stop lost next-boot assignments'
-uci set cpxy.main.router_geoip=0
-invalid 'router_geoip must be 1'
-uci set cpxy.main.router_geoip=1
+want 'legacy_down cpxy2 102 9120'
 
-# External SOCKS5 requires no cpxy client or server credentials.
+# Instances without routed networks: client only, no transparent or SOCKS5 listener.
 uci set cpxy.main.enabled=0
 uci set cpxy.iot.enabled=0
 uci set cpxy.guest.enabled=1
-uci set cpxy.guest.client=0
-uci set cpxy.guest.router_socks5_proxy='[2001:db8::1]:1080'
-uci delete cpxy.guest.server
-uci delete cpxy.defaults.server
-uci set cpxy.guest.router_dns=1
-: >"$LOG"
-everything start_service
-want 'set command /usr/bin/cpxy-router --tun cpxy1 --socks5-proxy [2001:db8::1]:1080'
-absent 'set command /usr/bin/cpxy-client'
-absent 'SERVER='
-uci delete cpxy.guest.router_socks5_proxy
-invalid 'enable client or set router_socks5_proxy'
-# Instances without routed networks retain client-only configuration behavior.
-uci set cpxy.guest.client=1
-uci set cpxy.guest.server='https://:client-key@proxy.example:443'
 uci delete cpxy.guest.network
-uci set cpxy.guest.router_geoip=0
-uci set cpxy.guest.router_ipv6=off
 uci set cpxy.guest.dns_listen=0.0.0.0:5345
 : >"$LOG"
 everything start_service
 want 'set command /usr/bin/cpxy-client'
 absent 'set command /usr/bin/cpxy-router'
 absent 'SOCKS5_PROXY_LISTEN='
+absent 'TRANSPARENT_PROXY_LISTEN='
+want 'nft_apply'
+nft_lacks 'table inet cpxy {'
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

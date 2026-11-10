@@ -1,11 +1,13 @@
 # cpxy: one instance per set of networks. Each instance runs, for its own cpxy server:
-#   cpxy-client    an HTTP proxy
-#   cpxy-router    kernel CN TCP, overseas TCP through SOCKS5, and split DNS
+#   cpxy-client    an HTTP proxy, and for routed networks the transparent proxy their overseas
+#                  TCP is redirected to
+#   cpxy-router    the kernel policy (nftables: CN/private TCP direct, the rest redirected to
+#                  cpxy-client) and split DNS
 # Every option in 'defaults' can also be set in an instance, which then wins.
 # After editing: uci commit cpxy, then each service reloads by itself.
 
 config defaults 'defaults'
-	# Required for client (external-only routers need no server): https://:<key>@<host>:<port> (or http://)
+	# Required: https://:<key>@<host>:<port> (or http://)
 	option server ''
 	# Force matching TCP destinations through the proxy (repeatable, IPv4 or IPv6).
 	# list proxy_route '223.5.5.5/32'
@@ -14,11 +16,9 @@ config defaults 'defaults'
 	option client '1'
 	option router '1'
 
-	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index.
+	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index,
+	# which an instance with networks always has: its DNS worker asks proxied resolvers through it.
 	option client_socks5 '0'
-	# Router automatically enables the sibling SOCKS5 listener unless an external
-	# plaintext no-auth endpoint is supplied. External-only: set client=0.
-	# option router_socks5_proxy '127.0.0.1:1080'
 
 	# Optional ordered suffixes for short DNS names, for router clients.
 	# list dns_search_domain 'home.arpa'
@@ -42,8 +42,8 @@ config defaults 'defaults'
 	# cpxy-router: 1 answers IPv4/IPv6 DNS from the instance's networks with its dns_split
 	option router_dns '1'
 	# Kernel IPv4 regional TCP forwarding (required).
-	# Disable firewall software/hardware flow offloading before enabling.
-	# IPv6 forwarding is refused; no IPv6 policy tables are installed.
+	# Disable firewall software/hardware flow offloading, which bypasses the redirect.
+	# IPv6 forwarding from the networks is refused.
 	option router_geoip '1'
 
 config instance 'main'
@@ -54,9 +54,8 @@ config instance 'main'
 	# The OpenWrt networks whose devices use this instance (none: client only)
 	list network 'lan'
 	# Derived from index (i):
-	#   tun 'cpxy<i>'                          routing_table '100+i'
-	#   rule_priority '9100+10i' (uses 5)      client_http_listen '[::]:5000+i'
-	#   client_socks5_listen '[::]:1080+i'     dns_listen '[::]:5335+10i'
+	#   client_http_listen '[::]:5000+i'       client_socks5_listen '[::]:1080+i'
+	#   client_transparent_listen '0.0.0.0:5100+i'  dns_listen '[::]:5335+10i'
 
 # Another network on its own server:
 # config instance 'guest'

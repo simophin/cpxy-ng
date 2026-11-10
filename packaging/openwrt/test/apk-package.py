@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     data = metadata(packages[0])
     assert data["info"]["name"] == "cpxy"
     assert data["info"]["arch"] == "x86_64"
-    assert {"ip-full", "kmod-tun", "!cpxy-router"} <= set(data["info"]["depends"])
+    assert {"firewall4", "kmod-nft-nat", "!cpxy-router"} <= set(data["info"]["depends"])
     assert {"post-install", "pre-upgrade", "post-upgrade", "pre-deinstall", "post-deinstall"} <= data["scripts"].keys()
     paths = {entry.get("name", ""): entry for entry in data["paths"]}
     for entry in paths.values():
@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     (armroot / "etc/apk").mkdir(parents=True)
     (armroot / "etc/apk/arch").write_text("aarch64_cortex-a53\n")
     armdeps = []
-    for name in ("ip-full", "kmod-tun"):
+    for name in ("firewall4", "kmod-nft-nat"):
         package = work / f"arm-{name}.apk"
         run(APK, "mkpkg", "--info", f"name:{name}", "--info", "version:1-r0", "--info", "arch:aarch64_cortex-a53", "--output", package)
         armdeps.append(package)
@@ -124,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     # Dummy dependencies allow a fully offline package-manager test without
     # installing firmware-specific kernel modules into this isolated root.
     deps = []
-    for name in ("ip-full", "kmod-tun"):
+    for name in ("firewall4", "kmod-nft-nat"):
         package = work / f"{name}.apk"
         run(APK, "mkpkg", "--info", f"name:{name}", "--info", "version:1-r0", "--info", "arch:x86_64", "--output", package)
         deps.append(package)

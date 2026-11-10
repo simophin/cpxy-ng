@@ -1,10 +1,10 @@
 Package: cpxy
 Version: @VERSION@
-Depends: ip-full, kmod-tun
+Depends: firewall4, kmod-nft-nat
 Conflicts: cpxy-router
 Section: net
 Architecture: @ARCH@
 Maintainer: cpxy-ng
 Description: cpxy for OpenWrt: per network, an HTTP proxy and LAN routing with split DNS
  One instance per set of networks, using cpxy or an external SOCKS5 proxy: cpxy-client (HTTP proxy)
- and cpxy-router (kernel IPv4 split, overseas TCP/DNS through SOCKS5). Configure /etc/config/cpxy.
+ and cpxy-router (kernel IPv4 split with nftables, overseas TCP redirected to cpxy-client, split DNS). Configure /etc/config/cpxy.
