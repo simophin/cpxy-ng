@@ -9,6 +9,7 @@ pub mod http_util;
 pub mod key_util;
 pub mod outbound;
 pub mod protocol;
+pub mod relay;
 pub mod time_util;
 pub mod tls_stream;
 pub mod ws_stream;

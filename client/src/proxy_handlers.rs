@@ -1,7 +1,7 @@
 use crate::handshaker::Handshaker;
 use anyhow::Context;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
-use tokio::io::copy_bidirectional;
+use cpxy_ng::relay::{DEFAULT_LINGER, relay};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
@@ -37,7 +37,7 @@ where
         }
     }
 
-    let _ = copy_bidirectional(&mut conn, &mut upstream).await;
+    let _ = relay(&mut conn, &mut upstream, DEFAULT_LINGER).await;
     Ok(())
 }
 
@@ -50,8 +50,19 @@ where
 {
     let mut js = JoinSet::new();
     loop {
-        let (stream, addr) = listener.accept().await?;
-        tracing::info!(?addr, "Accepted connection");
-        js.spawn(serve::<HS, _, _>(stream, outbound.clone()));
+        tokio::select! {
+            accepted = listener.accept() => {
+                let (stream, addr) = accepted?;
+                tracing::info!(?addr, "Accepted connection");
+                js.spawn(serve::<HS, _, _>(stream, outbound.clone()));
+            }
+            // A JoinSet keeps every finished task until it is joined: reap them, or each
+            // connection ever served stays allocated.
+            Some(result) = js.join_next() => {
+                if !matches!(result, Ok(Ok(()))) {
+                    tracing::debug!(?result, "Proxy connection ended");
+                }
+            }
+        }
     }
 }

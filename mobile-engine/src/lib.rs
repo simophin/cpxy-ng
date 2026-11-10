@@ -555,7 +555,7 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
             return;
         }
     };
-    if let Err(error) = tokio::io::copy_bidirectional(&mut flow, &mut upstream).await {
+    if let Err(error) = cpxy_ng::relay::relay(&mut flow, &mut upstream, cpxy_ng::relay::DEFAULT_LINGER).await {
         tracing::debug!(%dst, %error, "TCP flow ended");
     }
 }
