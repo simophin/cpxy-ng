@@ -25,6 +25,10 @@ rustls = { version = "0.23", optional = true, default-features = false, features
 webpki-roots = { version = "1", optional = true }
 sqlx = { version = "0.8", optional = true, default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# SO_ORIGINAL_DST, for the transparent proxy listener
+socket2 = { version = "0.6", features = ["all"] }
+
 [features]
 dns-split = ["dep:hickory-proto", "dep:rustls", "dep:webpki-roots", "dep:sqlx"]
 

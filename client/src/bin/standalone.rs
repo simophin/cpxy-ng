@@ -25,6 +25,11 @@ struct CliOptions {
     #[clap(long, env)]
     socks5_proxy_listen: Option<SocketAddr>,
 
+    /// The address to listen on for connections redirected by the kernel (an nftables
+    /// `redirect`), proxied to their original destination. Linux only.
+    #[clap(long, env)]
+    transparent_proxy_listen: Option<SocketAddr>,
+
     /// The server configuration
     #[clap(env)]
     config: Config,
@@ -39,8 +44,15 @@ async fn main() {
         config,
         http_proxy_listen,
         socks5_proxy_listen,
+        transparent_proxy_listen,
         proxy_route,
     } = CliOptions::parse();
+
+    #[cfg(not(target_os = "linux"))]
+    if transparent_proxy_listen.is_some() {
+        eprintln!("--transparent-proxy-listen is only supported on Linux");
+        std::process::exit(2);
+    }
 
     // This binary already sends every destination through the proxy. Parse the same route
     // option for configuration compatibility with the split-routing binaries.
@@ -74,5 +86,27 @@ async fn main() {
         serve_listener::<SocksProxyHandshaker<_>, _>(listener, outbound.clone()).await
     };
 
-    try_join!(run_http_proxy, run_socks5_proxy).unwrap();
+    let run_transparent_proxy = async {
+        let Some(listen) = transparent_proxy_listen else {
+            return Ok(());
+        };
+
+        #[cfg(target_os = "linux")]
+        {
+            let listener = TcpListener::bind(listen)
+                .await
+                .context("Error binding transparent proxy listen address")?;
+
+            tracing::info!("Transparent proxy listening on {}", listener.local_addr()?);
+            serve_listener::<client::transparent_proxy_server::TransparentHandshaker, _>(
+                listener,
+                outbound.clone(),
+            )
+            .await
+        }
+        #[cfg(not(target_os = "linux"))]
+        unreachable!("{listen}")
+    };
+
+    try_join!(run_http_proxy, run_socks5_proxy, run_transparent_proxy).unwrap();
 }
