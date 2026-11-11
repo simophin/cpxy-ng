@@ -10,18 +10,11 @@ pub struct Config {
     pub host: String,
     pub port: u16,
     pub key: Key,
-    pub tls: bool,
 }
 
 impl Debug for Config {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}://{}:{}",
-            if self.tls { "https" } else { "http" },
-            self.host,
-            self.port
-        )
+        write!(f, "http://{}:{}", self.host, self.port)
     }
 }
 
@@ -38,8 +31,17 @@ impl TryFrom<Url> for Config {
     type Error = anyhow::Error;
 
     fn try_from(value: Url) -> Result<Self, Self::Error> {
-        // URL IPv6 literals include brackets, but socket lookup and TLS names take
-        // the bare address. Keep upstream transport independent of router-client IPv6.
+        // The cpxy protocol runs over plain TCP by design: the request and tunnel are
+        // encrypted by the protocol itself, and TLS would only add a round trip.
+        anyhow::ensure!(
+            value.scheme() == "http",
+            "Unsupported cpxy server URL scheme {:?}: use http://:<key>@<host>:<port> \
+             (the cpxy protocol doesn't run over TLS)",
+            value.scheme()
+        );
+
+        // URL IPv6 literals include brackets, but socket lookup takes the bare address.
+        // Keep upstream transport independent of router-client IPv6.
         let host = match value.host().context("Expected host in URL but got none")? {
             url::Host::Ipv6(address) => address.to_string(),
             host => host.to_string(),
@@ -51,17 +53,10 @@ impl TryFrom<Url> for Config {
             .password()
             .context("Expected password (pre-shared key) in URL")?;
         let key = derive_password(key);
-        let tls = match value.scheme() {
-            "http" => false,
-            "https" => true,
-            scheme => anyhow::bail!("Unsupported URL scheme: {scheme}"),
-        };
-
         Ok(Config {
             host,
             port,
             key: key.into(),
-            tls,
         })
     }
 }
@@ -81,5 +76,11 @@ mod tests {
             assert_eq!(config.host, expected);
             assert_eq!(config.port, 8443);
         }
+    }
+
+    #[test]
+    fn rejects_tls_urls() {
+        let err = "https://:test@proxy.example".parse::<Config>().unwrap_err();
+        assert!(err.to_string().contains("http://"), "{err}");
     }
 }

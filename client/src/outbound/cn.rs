@@ -23,14 +23,16 @@ pub fn cn_outbound(
     proxy_routes: ProxyRoutes,
     events_tx: broadcast::Sender<OutboundEvent>,
 ) -> impl Outbound {
+    // One outbound, so both routes share its pre-connected sockets.
+    let proxy = ProtocolOutbound::new(main_server);
     let fixed_outbound = StatReportingOutbound {
         name: Cow::Borrowed("global"),
-        inner: ProtocolOutbound(main_server.clone()),
+        inner: proxy.clone(),
         events_tx: events_tx.clone(),
     };
     let global_outbound = StatReportingOutbound {
         name: Cow::Borrowed("global"),
-        inner: ProtocolOutbound(main_server),
+        inner: proxy,
         events_tx: events_tx.clone(),
     };
 

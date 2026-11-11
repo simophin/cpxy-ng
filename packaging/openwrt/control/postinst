@@ -17,7 +17,7 @@ default_postinst "$0" "$@"
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then
 	cat <<MSG
 cpxy installed. Set the server (/etc/config/cpxy lists every option) and the services start:
-  uci set cpxy.defaults.server='https://:<key>@<host>:<port>'
+  uci set cpxy.defaults.server='http://:<key>@<host>:<port>'
   uci commit cpxy
 MSG
 fi

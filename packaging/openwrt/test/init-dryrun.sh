@@ -111,14 +111,14 @@ reload_service() { start_service; }
 # The default configuration waits for a server
 invalid "main: option 'server' is not set"
 
-uci set cpxy.defaults.server='https://:test-key@proxy.example:443'
+uci set cpxy.defaults.server='http://:test-key@proxy.example:8080'
 uci add_list cpxy.main.network=extra
 uci set cpxy.guest=instance
 uci set cpxy.guest.index=1
 uci add_list cpxy.guest.dns_search_domain=home.arpa
 uci add_list cpxy.guest.dns_search_domain=corp.example
 uci add_list cpxy.guest.network=guest
-uci set cpxy.guest.server='https://:guest-key@second.example:443'
+uci set cpxy.guest.server='http://:guest-key@second.example:8080'
 uci set cpxy.iot=instance
 uci set cpxy.iot.index=2
 uci add_list cpxy.iot.network=iot
@@ -130,14 +130,14 @@ everything start_service
 # cpxy-client: the HTTP proxy, the SOCKS5 listener the DNS worker uses, and the transparent
 # listener the networks' TCP is redirected to
 want 'set command /usr/bin/cpxy client'
-want 'set env SERVER=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1080 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100'
-want 'set env SERVER=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1081 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101'
+want 'set env SERVER=http://:test-key@proxy.example:8080 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1080 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100'
+want 'set env SERVER=http://:guest-key@second.example:8080 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1081 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101'
 want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5102'
 # Without routes, PROXY_ROUTES is left unset: cpxy-client rejects an empty one
 absent 'PROXY_ROUTES'
 # procd restarts an instance when this file changes, not when only its environment does
 want 'set file /tmp/cpxy/client-guest.env'
-grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
+grep -qxF 'SERVER=http://:guest-key@second.example:8080' /tmp/cpxy/client-guest.env || fail 'client settings file'
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
 # cpxy-router: one DNS worker per instance, no TUN
 want 'instance guest_dns'

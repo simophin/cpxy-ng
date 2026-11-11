@@ -11,7 +11,7 @@ class ProfileTest {
     private val profile = Profile(
         id = "1",
         name = "Home",
-        server = " https://:key@example.com ",
+        server = " http://:key@example.com ",
         dnsUpstream = listOf("223.5.5.5", "tcp://119.29.29.29"),
         dnsAlternative = listOf("https://dns.google/dns-query?ip=8.8.8.8"),
     )
@@ -47,7 +47,7 @@ class ProfileTest {
             Json.parseToJsonElement(
                 """
                 {
-                    "server": "https://:key@example.com",
+                    "server": "http://:key@example.com",
                     "dns_upstream": ["223.5.5.5", "tcp://119.29.29.29"],
                     "dns_alternative": ["https://dns.google/dns-query?ip=8.8.8.8"],
                     "mtu": 1500

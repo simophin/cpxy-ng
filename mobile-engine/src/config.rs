@@ -20,7 +20,7 @@ pub const DEFAULT_MTU: u16 = 1500;
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// The cpxy server URL with its key, e.g. `https://:key@example.com`.
+    /// The cpxy server URL with its key, e.g. `http://:key@example.com`.
     #[serde(default)]
     pub server: String,
     /// Plain no-auth SOCKS endpoint, as host:port (IPv6 bracketed).
@@ -202,7 +202,7 @@ mod tests {
     fn parses_a_full_config() {
         let config = Config::from_json(
             r#"{
-                "server": "https://:secret@proxy.example.com",
+                "server": "http://:secret@proxy.example.com",
                 "dns_upstream": ["223.5.5.5", "tcp://119.29.29.29"],
                 "dns_alternative": ["https://dns.google/dns-query?ip=8.8.8.8"],
                 "mtu": 1400
@@ -211,8 +211,7 @@ mod tests {
         .unwrap();
         let settings = config.settings().unwrap();
         assert_eq!(settings.server.as_ref().unwrap().host, "proxy.example.com");
-        assert_eq!(settings.server.as_ref().unwrap().port, 443);
-        assert!(settings.server.as_ref().unwrap().tls);
+        assert_eq!(settings.server.as_ref().unwrap().port, 80);
         assert_eq!(settings.dns_upstream.len(), 2);
         assert!(matches!(
             settings.dns_alternative[0].endpoint,

@@ -83,7 +83,7 @@ disabled independently.
   `aarch64_cortex-a53` or `x86_64`.
 - SSH access as `root`.
 - For cpxy-client, a running cpxy server per instance (one can serve several), and its URL with the key:
-  `https://:<key>@<host>:<port>` (or `http://`).
+  `http://:<key>@<host>:<port>`.
 - For more than one instance, the networks (and their SSIDs and firewall zones) already set up in
   OpenWrt, each network in a firewall zone of its own.
 - About 60 MB of free flash, and about 30 MB of RAM for each instance.
@@ -158,7 +158,7 @@ settings do not carry over. A `smartdns` package, if installed, is neither used 
 The services are enabled, but wait for a server. Set one, and everything starts:
 
 ```sh
-uci set cpxy.defaults.server='https://:<key>@<host>:<port>'
+uci set cpxy.defaults.server='http://:<key>@<host>:<port>'
 uci commit cpxy
 ```
 
@@ -178,7 +178,7 @@ instance needs only an `index` (0 to 9, unique) and its networks:
 
 ```uci
 config defaults 'defaults'
-	option server 'https://:<key>@home.example:443'
+	option server 'http://:<key>@home.example:8080'
 	...
 
 config instance 'main'
@@ -188,7 +188,7 @@ config instance 'main'
 config instance 'guest'
 	option index '1'
 	list network 'guest'
-	option server 'https://:<other-key>@hk.example:443'   # its own server
+	option server 'http://:<other-key>@hk.example:8080'   # its own server
 
 config instance 'iot'
 	option index '2'

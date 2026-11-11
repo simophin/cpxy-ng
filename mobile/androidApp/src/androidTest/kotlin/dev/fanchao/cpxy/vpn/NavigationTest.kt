@@ -28,7 +28,7 @@ class NavigationTest {
     private val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "navigation-${System.nanoTime()}")
     private val repository = ProfileRepository.create(File(directory, "profiles.preferences_pb").toOkioPath(), scope)
     private val settings = SettingsRepository.create(File(directory, "settings.preferences_pb").toOkioPath(), scope)
-    private val original = Profile("original", "Home", "https://:key@example.com", listOf("223.5.5.5"), listOf("tcp://1.1.1.1?via=cpxy"))
+    private val original = Profile("original", "Home", "http://:key@example.com", listOf("223.5.5.5"), listOf("tcp://1.1.1.1?via=cpxy"))
     private var alwaysOnOpened = false
     private val platform = object : Platform {
         override val openAlwaysOnSettings: () -> Unit = { alwaysOnOpened = true }

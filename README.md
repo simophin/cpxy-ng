@@ -16,7 +16,7 @@ One static binary holds the server, the client and the split DNS server:
 | Command | Does |
 |---|---|
 | `cpxy server --key <key> --listen 0.0.0.0:3000` | Accepts tunnels from cpxy clients and connects them to their destinations |
-| `cpxy client --server https://:<key>@<host>:<port> --http-proxy-listen 127.0.0.1:8080` | Local HTTP, SOCKS5 (`--socks5-proxy-listen`) and transparent (`--transparent-proxy-listen`, Linux) proxies. `--routing global` (the default) sends everything through the server; `--routing cn_split` connects to Chinese, private and tailnet addresses directly |
+| `cpxy client --server http://:<key>@<host>:<port> --http-proxy-listen 127.0.0.1:8080` | Local HTTP, SOCKS5 (`--socks5-proxy-listen`) and transparent (`--transparent-proxy-listen`, Linux) proxies. `--routing global` (the default) sends everything through the server; `--routing cn_split` connects to Chinese, private and tailnet addresses directly |
 | `cpxy dns --upstream 223.5.5.5 --alternative tls://1.1.1.1` | Split DNS: local-region answers from the upstreams, the rest from the alternatives. `--resolver-routing cn_split --socks5-proxy <addr>` reaches overseas resolvers through a proxy, as the OpenWrt package does |
 | `cpxy routes cn-direct [--family ipv6]` | Prints the prefixes `cn_split` connects to directly, e.g. for nftables sets |
 
@@ -28,7 +28,7 @@ on port 3000 by default; give another command to run that instead:
 
 ```sh
 docker run -e KEY=... -p 3000:3000 ghcr.io/simophin/cpxy-ng:main
-docker run -e SERVER=https://:<key>@<host>:443 -p 8080:8080 ghcr.io/simophin/cpxy-ng:main \
+docker run -e SERVER=http://:<key>@<host>:<port> -p 8080:8080 ghcr.io/simophin/cpxy-ng:main \
   client --http-proxy-listen 0.0.0.0:8080 --routing cn_split
 ```
 

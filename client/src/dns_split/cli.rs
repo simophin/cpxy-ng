@@ -75,7 +75,7 @@ pub struct Args {
     #[arg(long, env = "ALTERNATIVE", required = true, value_delimiter = ',')]
     alternative: Vec<ServerSpec>,
 
-    /// The cpxy server URL with its key, `https://:<key>@<host>:<port>`, that the servers given
+    /// The cpxy server URL with its key, `http://:<key>@<host>:<port>`, that the servers given
     /// with `?via=cpxy` are reached through
     #[arg(long, env = "SERVER", hide_env_values = true)]
     server: Option<ServerConfig>,
@@ -154,7 +154,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let cpxy: Option<Arc<dyn Dialer>> = match (&args.server, args.socks5_proxy) {
         (Some(server), _) => {
             tracing::info!("Using cpxy server {server:?} for the servers via cpxy");
-            Some(Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(
+            Some(Arc::new(OutboundDialer(Arc::new(ProtocolOutbound::new(
                 server.clone(),
             )))))
         }
