@@ -50,7 +50,7 @@ pub struct Specs<'a> {
 pub async fn handler(specs: &Specs<'_>, server: &ServerConfig) -> anyhow::Result<DnsSplitHandler> {
     build_handler(
         specs,
-        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound(server.clone())))),
+        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound::new(server.clone())))),
         None,
     )
     .await

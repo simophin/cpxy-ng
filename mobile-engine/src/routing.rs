@@ -26,7 +26,7 @@ impl Router {
     pub fn new(server: ServerConfig, proxy_routes: ProxyRoutes) -> Self {
         Self {
             direct: DirectOutbound::default(),
-            proxy: EitherOutbound::Left(ProtocolOutbound(server)),
+            proxy: EitherOutbound::Left(ProtocolOutbound::new(server)),
             proxy_routes,
         }
     }

@@ -180,7 +180,7 @@ private fun EditProfileForm(
                 onValueChange = { if (backend == ProfileBackend.Cpxy) server = it else socks5 = it },
                 error = errors[ProfileField.Server],
                 onNext = next,
-                hint = if (backend == ProfileBackend.Cpxy) "https://:key@example.com" else "proxy.example.com:1080 (plaintext, no authentication)",
+                hint = if (backend == ProfileBackend.Cpxy) "http://:key@example.com" else "proxy.example.com:1080 (plaintext, no authentication)",
                 keyboardType = KeyboardType.Uri,
             )
             Field(

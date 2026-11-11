@@ -40,7 +40,7 @@ done
 uci show firewall | grep -q cpxy_inst_ && { echo "FAIL: firewall changed before configuration"; exit 1; }
 cpxy-show 2>/dev/null && { echo "FAIL: the default configuration must ask for a server"; exit 1; }
 cpxy-show 2>&1 | grep -q "server" || { echo "FAIL: missing server not reported"; exit 1; }
-uci set cpxy.defaults.server=https://:key@proxy.example:443
+uci set cpxy.defaults.server=http://:key@proxy.example:8080
 cpxy-show main | grep -q "HTTP \[::\]:5000" || { echo "FAIL: cpxy-show"; cpxy-show main; exit 1; }
 uci revert cpxy
 echo "install ok"

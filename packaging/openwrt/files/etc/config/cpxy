@@ -7,7 +7,7 @@
 # After editing: uci commit cpxy, then each service reloads by itself.
 
 config defaults 'defaults'
-	# Required: https://:<key>@<host>:<port> (or http://)
+	# Required: http://:<key>@<host>:<port>
 	option server ''
 	# Force matching TCP destinations through the proxy (repeatable, IPv4 or IPv6).
 	# list proxy_route '223.5.5.5/32'
@@ -62,4 +62,4 @@ config instance 'main'
 #	option enabled '1'
 #	option index '1'
 #	list network 'guest'
-#	option server 'https://:<key>@<host>:443'
+#	option server 'http://:<key>@<host>:8080'

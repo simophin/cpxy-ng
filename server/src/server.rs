@@ -148,9 +148,12 @@ mod tests {
         let cpxy_addr = cpxy_listener.local_addr().unwrap();
         let key: Key = derive_password("integration_test_key").into();
         let router = Arc::new(router);
+        // Accept every connection: the outbound's warm pool connects alongside the request.
         tokio::spawn(async move {
-            let (conn, addr) = cpxy_listener.accept().await.unwrap();
-            let _ = handle_connection(conn, addr, key, router).await;
+            loop {
+                let (conn, addr) = cpxy_listener.accept().await.unwrap();
+                tokio::spawn(handle_connection(conn, addr, key, router.clone()));
+            }
         });
 
         // ProtocolOutbound mirrors what client_cn does for each connection.
@@ -158,11 +161,10 @@ mod tests {
             host: server_host.to_string(),
             port: cpxy_addr.port(),
             key: derive_password("integration_test_key").into(),
-            tls: false,
         };
         let stream = timeout(
             Duration::from_millis(300),
-            ProtocolOutbound(config).send(OutboundRequest {
+            ProtocolOutbound::new(config).send(OutboundRequest {
                 host: OutboundHost::Domain("127.0.0.1".to_string()),
                 port: destination.port(),
                 tls: false,
@@ -293,6 +295,144 @@ mod tests {
             requested.await.unwrap(),
             ("127.0.0.1".to_string(), echo_addr.port())
         );
+    }
+
+    /// An echo server that serves any number of connections.
+    async fn spawn_multi_echo_server() -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let (mut r, mut w) = tokio::io::split(stream);
+                    let _ = tokio::io::copy(&mut r, &mut w).await;
+                });
+            }
+        });
+        addr
+    }
+
+    /// Runs a cpxy server behind a front that counts connections and, while `kill` is above
+    /// zero, drops a connection as soon as its request arrives, like a NAT that forgot an idle
+    /// connection.
+    async fn spawn_cpxy_behind_front(
+        kill: Arc<std::sync::atomic::AtomicUsize>,
+        accepted: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> SocketAddr {
+        use std::sync::atomic::Ordering;
+        let cpxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cpxy_addr = cpxy.local_addr().unwrap();
+        tokio::spawn(async move {
+            let router = Arc::new(Router::default());
+            loop {
+                let (conn, addr) = cpxy.accept().await.unwrap();
+                let key: Key = derive_password("integration_test_key").into();
+                tokio::spawn(handle_connection(conn, addr, key, router.clone()));
+            }
+        });
+
+        let front = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let front_addr = front.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut conn, _) = front.accept().await.unwrap();
+                accepted.fetch_add(1, Ordering::SeqCst);
+                let kill = kill.clone();
+                tokio::spawn(async move {
+                    let mut first = [0u8; 1];
+                    if conn.read_exact(&mut first).await.is_err() {
+                        return;
+                    }
+                    if kill
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok()
+                    {
+                        return;
+                    }
+                    let mut upstream = tokio::net::TcpStream::connect(cpxy_addr).await.unwrap();
+                    upstream.write_all(&first).await.unwrap();
+                    let _ = tokio::io::copy_bidirectional(&mut conn, &mut upstream).await;
+                });
+            }
+        });
+        front_addr
+    }
+
+    async fn send_echo(outbound: &ProtocolOutbound, echo_addr: SocketAddr, msg: &[u8]) {
+        let mut stream = timeout(
+            Duration::from_secs(5),
+            outbound.send(OutboundRequest {
+                host: OutboundHost::Domain("127.0.0.1".to_string()),
+                port: echo_addr.port(),
+                tls: false,
+                initial_plaintext: msg.to_vec(),
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut reply = vec![0; msg.len()];
+        timeout(Duration::from_secs(5), stream.read_exact(&mut reply))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reply, msg);
+    }
+
+    async fn wait_for_accepted(accepted: &std::sync::atomic::AtomicUsize, n: usize) {
+        timeout(Duration::from_secs(5), async {
+            while accepted.load(std::sync::atomic::Ordering::SeqCst) < n {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("pool didn't pre-connect");
+    }
+
+    #[tokio::test]
+    async fn requests_reuse_preconnected_sockets() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let echo_addr = spawn_multi_echo_server().await;
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let front = spawn_cpxy_behind_front(Arc::new(AtomicUsize::new(0)), accepted.clone()).await;
+        let outbound = ProtocolOutbound::new(
+            format!("http://:integration_test_key@127.0.0.1:{}", front.port())
+                .parse()
+                .unwrap(),
+        );
+
+        // The first request connects fresh and starts warming two more.
+        send_echo(&outbound, echo_addr, b"first").await;
+        wait_for_accepted(&accepted, 3).await;
+
+        // The second takes a warm socket, and the pool replaces it.
+        send_echo(&outbound, echo_addr, b"second").await;
+        wait_for_accepted(&accepted, 4).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(accepted.load(Ordering::SeqCst), 4);
+    }
+
+    #[tokio::test]
+    async fn dead_preconnected_socket_retries_on_a_fresh_one() {
+        use std::sync::atomic::AtomicUsize;
+        let echo_addr = spawn_multi_echo_server().await;
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let kill = Arc::new(AtomicUsize::new(0));
+        let front = spawn_cpxy_behind_front(kill.clone(), accepted.clone()).await;
+        let outbound = ProtocolOutbound::new(
+            format!("http://:integration_test_key@127.0.0.1:{}", front.port())
+                .parse()
+                .unwrap(),
+        );
+
+        send_echo(&outbound, echo_addr, b"warm up").await;
+        wait_for_accepted(&accepted, 3).await;
+
+        // The warm socket looks open but dies once the request is sent.
+        kill.store(1, std::sync::atomic::Ordering::SeqCst);
+        send_echo(&outbound, echo_addr, b"after retry").await;
+        assert_eq!(kill.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

@@ -108,7 +108,7 @@ pub(crate) async fn embedded(
     let address = listener.local_addr()?;
     let task = tokio::spawn(serve_listener::<SocksProxyHandshaker<_>, _>(
         listener,
-        Arc::new(client::outbound::ProtocolOutbound(server)),
+        Arc::new(client::outbound::ProtocolOutbound::new(server)),
     ));
     Ok((address, task))
 }

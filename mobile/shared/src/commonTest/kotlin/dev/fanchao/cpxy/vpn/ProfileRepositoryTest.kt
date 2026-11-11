@@ -27,14 +27,14 @@ class ProfileRepositoryTest {
         FileSystem.SYSTEM.deleteRecursively(directory)
     }
 
-    private fun profile(id: String) = Profile(id, "Profile $id", "https://:k@$id.example.com", listOf("223.5.5.5"), listOf("8.8.8.8"))
+    private fun profile(id: String) = Profile(id, "Profile $id", "http://:k@$id.example.com", listOf("223.5.5.5"), listOf("8.8.8.8"))
 
     @Test
     fun profilesSavedWithAnIpv6ModeStillLoad() = runTest {
         val dataStore = PreferenceDataStoreFactory.createWithPath(scope = scope, produceFile = { directory / "old.preferences_pb" })
         dataStore.edit {
             it[stringPreferencesKey("profiles_json")] =
-                """{"selectedId":"a","profiles":[{"id":"a","name":"Profile a","server":"https://:k@a.example.com","dnsUpstream":["223.5.5.5"],"dnsAlternative":["8.8.8.8"],"ipv6":"direct"}]}"""
+                """{"selectedId":"a","profiles":[{"id":"a","name":"Profile a","server":"http://:k@a.example.com","dnsUpstream":["223.5.5.5"],"dnsAlternative":["8.8.8.8"],"ipv6":"direct"}]}"""
         }
         assertEquals(StoredProfiles(listOf(profile("a")), "a"), ProfileRepository(dataStore).profiles.first())
     }

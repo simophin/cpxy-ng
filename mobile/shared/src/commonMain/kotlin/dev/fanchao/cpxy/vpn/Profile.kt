@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
 data class Profile(
     val id: String,
     val name: String,
-    /** The cpxy server URL with its key, e.g. `https://:key@example.com`. */
+    /** The cpxy server URL with its key, e.g. `http://:key@example.com`. */
     val server: String = "",
     /** DNS servers whose answer is used when all its addresses are in CN. */
     val dnsUpstream: List<String>,

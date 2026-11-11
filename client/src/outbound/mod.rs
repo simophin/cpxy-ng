@@ -7,6 +7,7 @@ mod protocol;
 mod proxy_routes;
 mod resolving_ip;
 mod socks5;
+mod warm_pool;
 mod stat_reporting;
 
 pub use direct::*;

@@ -30,7 +30,7 @@ pub enum Routing {
 #[derive(Debug, clap::Args)]
 #[command(group = clap::ArgGroup::new("listeners").multiple(true).required(true))]
 pub struct Args {
-    /// The cpxy server URL with its key, `https://:<key>@<host>:<port>`
+    /// The cpxy server URL with its key, `http://:<key>@<host>:<port>`
     #[arg(long, env = "SERVER", hide_env_values = true)]
     server: Config,
 
@@ -79,7 +79,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         Routing::Global => {
             let outbound = StatReportingOutbound {
                 name: Cow::Borrowed("global"),
-                inner: ProtocolOutbound(args.server.clone()),
+                inner: ProtocolOutbound::new(args.server.clone()),
                 events_tx,
             };
             serve(&args, Arc::new(outbound), events_rx).await
