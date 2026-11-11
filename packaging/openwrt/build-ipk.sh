@@ -20,9 +20,7 @@ mkdir -p "$work/data/usr/bin" "$work/control" "$outdir"
 bindir="$(cd "$bindir" && pwd)"
 outdir="$(cd "$outdir" && pwd)"
 cp -R "$here/files/." "$work/data/"
-for bin in cpxy; do
-	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
-done
+install -m 0755 "$bindir/cpxy" "$work/data/usr/bin/cpxy"
 chmod 0755 "$work/data/etc/init.d/"*
 # The key the feed's Packages.sig is checked with, named by its fingerprint as opkg expects
 mkdir -p "$work/data/etc/opkg/keys"
