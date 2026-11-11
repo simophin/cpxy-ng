@@ -141,23 +141,23 @@ grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
 # cpxy-router: one DNS worker per instance, no TUN
 want 'instance guest_dns'
-want 'set command /usr/bin/cpxy-router --socks5-proxy 127.0.0.1:1081'
+want 'set command /usr/bin/cpxy dns --resolver-routing cn_split --socks5-proxy 127.0.0.1:1081'
 absent '--tun'
 want 'set env NO_COLOR=1'
-want 'append command --dns-listen [::]:5345'
-want 'append command --dns-alternative tcp://1.1.1.1?via=cpxy'
-absent 'append command --dns-alternative tcp://8.8.8.8'
+want 'append command --listen [::]:5345'
+want 'append command --alternative tcp://1.1.1.1?via=cpxy'
+absent 'append command --alternative tcp://8.8.8.8'
 # The worker asks those through its instance's client, whose key stays out of the process list
 if grep -q SERVER /tmp/cpxy/router-guest.env; then fail 'router has cpxy credentials'; fi
 absent 'append command --server'
-want 'append command --dns-local-server 127.0.0.1:53'
-want 'append command --dns-local-domain lan'
-want 'append command --dns-search-domain home.arpa'
-want 'append command --dns-search-domain corp.example'
-[ "$(grep -c -- '--no-dns-cache' "$LOG")" = 1 ] || fail 'dns_cache off for iot only'
-[ "$(grep -c -- '--dns-local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
+want 'append command --local-server 127.0.0.1:53'
+want 'append command --local-domain lan'
+want 'append command --search-domain home.arpa'
+want 'append command --search-domain corp.example'
+[ "$(grep -c -- '--cache off' "$LOG")" = 1 ] || fail 'dns_cache off for iot only'
+[ "$(grep -c -- '--local-domain lan' "$LOG")" = 3 ] || fail 'local domains repeated'
 want 'set file /tmp/cpxy/router-guest.env'
-want 'append file /usr/bin/cpxy-router'
+want 'append file /usr/bin/cpxy'
 # The kernel policy: one table, per instance a direct set, redirects and guards per device
 want 'nft_apply'
 nft_has 'table inet cpxy {'
@@ -404,7 +404,7 @@ uci set cpxy.guest.dns_listen=0.0.0.0:5345
 : >"$LOG"
 everything start_service
 want 'set command /usr/bin/cpxy client'
-absent 'set command /usr/bin/cpxy-router'
+absent 'set command /usr/bin/cpxy dns'
 absent 'SOCKS5_PROXY_LISTEN='
 absent 'TRANSPARENT_PROXY_LISTEN='
 want 'nft_apply'

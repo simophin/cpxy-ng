@@ -17,8 +17,8 @@ One static binary holds the server, the client and the split DNS server:
 |---|---|
 | `cpxy server --key <key> --listen 0.0.0.0:3000` | Accepts tunnels from cpxy clients and connects them to their destinations |
 | `cpxy client --server https://:<key>@<host>:<port> --http-proxy-listen 127.0.0.1:8080` | Local HTTP, SOCKS5 (`--socks5-proxy-listen`) and transparent (`--transparent-proxy-listen`, Linux) proxies. `--routing global` (the default) sends everything through the server; `--routing cn_split` connects to Chinese, private and tailnet addresses directly |
-| `cpxy dns --upstream 223.5.5.5 --alternative tls://1.1.1.1` | Split DNS: local-region answers from the upstreams, the rest from the alternatives |
-| `cpxy routes cn-direct [--ipv6]` | Prints the prefixes `cn_split` connects to directly, e.g. for nftables sets |
+| `cpxy dns --upstream 223.5.5.5 --alternative tls://1.1.1.1` | Split DNS: local-region answers from the upstreams, the rest from the alternatives. `--resolver-routing cn_split --socks5-proxy <addr>` reaches overseas resolvers through a proxy, as the OpenWrt package does |
+| `cpxy routes cn-direct [--family ipv6]` | Prints the prefixes `cn_split` connects to directly, e.g. for nftables sets |
 
 Every option can also be set in the environment variable that `cpxy <command> --help` names, or in
 a `.env` file in the working directory.
@@ -39,7 +39,8 @@ routing rules. Rules match the destination IP after DNS resolution;
 IP destinations are matched directly. Unmatched destinations keep the existing
 routing behavior. IPv6 is not supported by the current routing engine.
 
-- `cpxy client --routing cn_split`, `cpxy routes cn-direct` and `cpxy-router`: repeat
+- `cpxy client --routing cn_split`, `cpxy routes cn-direct` and
+  `cpxy dns --resolver-routing cn_split`: repeat
   `--proxy-route 223.5.5.5/32`, or use `--proxy-route 223.5.5.5/32,10.20.0.0/16`. The equivalent
   environment variable is `PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16`. `--routing global` already
   proxies every destination.

@@ -4,7 +4,7 @@
 Usage: unshare -Urmn python3 qemu-geo.py IMAGE IPK DEPS_DIR SERVER RESULTS_DIR
 IMAGE is an official x86-64 combined ext4 image; DEPS_DIR contains matching dependency ipks (may be
 empty: the image already has firewall4 and kmod-nft-nat). Requires iproute2, QEMU and curl; uses
-KVM when /dev/kvm is usable. The package must include real static cpxy and cpxy-router binaries.
+KVM when /dev/kvm is usable. The package must include a real static cpxy binary.
 No third-party Python packages or host bridges needed.
 """
 import contextlib
@@ -29,6 +29,13 @@ def dns(server, name, transport='udp', qtype='A', source='lan'):
     reply = ns(source, sys.executable, str(DNS_CLIENT), 'query', server, name, transport, qtype).split()
     assert reply[0] == 'NOERROR', f'DNS {name} {qtype} via {server}/{transport}: {reply}'
     return ' '.join(reply[1:])
+
+
+def pids(service):
+    """A guest shell expression for the PIDs of an init script's procd instances. The client and
+    the DNS workers are all `cpxy`, so pidof cannot tell them apart."""
+    return (f"$(ubus call service list '{{\"name\":\"{service}\"}}' "
+            f"| jsonfilter -e '@[*].instances[*].pid' | sort)")
 
 
 def run(*args, **kwargs):
@@ -308,7 +315,7 @@ def main():
             assert dns('2001:db8:8::1', 'proxy.test') == '93.184.216.34'
             assert dns('2001:db8:8::1', 'proxy.test', 'tcp') == '93.184.216.34'
             print('PASS: VM IPv6 UDP/TCP DNS redirection', flush=True)
-            console.command("before=$(pidof cpxy-router); /etc/init.d/cpxy-router reload; sleep 2; test \"$before\" = \"$(pidof cpxy-router)\"")
+            console.command(f'before="{pids("cpxy-router")}"; test -n "$before"; /etc/init.d/cpxy-router reload; sleep 2; test "$before" = "{pids("cpxy-router")}"')
             paths()
             console.command('/etc/init.d/firewall reload; sleep 2')
             paths()
@@ -319,7 +326,7 @@ def main():
             console.command("for n in $(seq 1 60); do ip -4 route get 114.114.114.114 2>/dev/null | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route get 114.114.114.114 | grep -q 'via 192.0.2.254'", 150)
             wait_paths()
             print('PASS: VM netifd gateway change keeps direct and proxied paths', flush=True)
-            console.command('kill -STOP $(pidof cpxy)')
+            console.command(f'kill -STOP {pids("cpxy-client")}')
             assert fetch('114.114.114.114') == '192.0.2.2'
             try:
                 fetch('93.184.216.34')
@@ -327,12 +334,12 @@ def main():
                 pass
             else:
                 raise AssertionError('proxy escaped while cpxy-client suspended')
-            console.command('kill -CONT $(pidof cpxy)')
+            console.command(f'kill -CONT {pids("cpxy-client")}')
             paths()
             console.command("uci add_list cpxy.main.proxy_route=114.0.0.0/8; uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 2", 120)
             assert fetch('114.114.114.114') == '114.114.114.114'
             print('PASS: VM cpxy-client failure and broad proxy override', flush=True)
-            console.command("before=$(pidof cpxy-router); cp /usr/bin/cpxy-router /tmp/router-next; printf '\\n' >>/tmp/router-next; chmod 755 /tmp/router-next; mv /tmp/router-next /usr/bin/cpxy-router; /etc/init.d/cpxy-router reload; sleep 3; test \"$before\" != \"$(pidof cpxy-router)\"", 120)
+            console.command(f'before="{pids("cpxy-router")}"; test -n "$before"; cp /usr/bin/cpxy /tmp/cpxy-next; printf "\\n" >>/tmp/cpxy-next; chmod 755 /tmp/cpxy-next; mv /tmp/cpxy-next /usr/bin/cpxy; /etc/init.d/cpxy-router reload; sleep 3; test "$before" != "{pids("cpxy-router")}"', 120)
             assert fetch('93.184.216.34') == '93.184.216.34'
             print('PASS: VM binary/data replacement restarts the DNS workers', flush=True)
             console.send('reboot')

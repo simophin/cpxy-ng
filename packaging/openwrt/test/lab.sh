@@ -12,9 +12,9 @@
 #
 # The router mimics OpenWrt: strict rp_filter, forward policy drop, LAN-to-WAN forwarding, a
 # DNS redirect like fw4's, and the package's real nftables policy (nft.sh), cpxy-client
-# transparent listeners and cpxy-router DNS workers. It does not run fw4 or dnsmasq.
+# transparent listeners and cpxy-router's `cpxy dns` workers. It does not run fw4 or dnsmasq.
 #
-# usage: lab.sh <dir with cpxy-router and cpxy>
+# usage: lab.sh <dir with cpxy>
 set -u
 
 if [ -z "${CPXY_LAB_INNER:-}" ]; then
@@ -200,7 +200,7 @@ instance() {
 	inst="$1" port="$2" dns="$3" dev="$4"
 	shift 4
 	for route in "$@"; do set -- "$@" --proxy-route "$route"; shift; done
-	{ "$BIN/cpxy-router" --export-direct-routes "$@" && in_router sh -c ". '$NFT'; cpxy_nft_main_routes"; } >"$PLAN/routes/$inst" || return 1
+	{ "$BIN/cpxy" routes cn-direct "$@" && in_router sh -c ". '$NFT'; cpxy_nft_main_routes"; } >"$PLAN/routes/$inst" || return 1
 	# shellcheck source=packaging/openwrt/files/usr/libexec/cpxy/nft.sh
 	(. "$NFT"; cpxy_nft_state "$PLAN/$inst" "$port" "$dns" "$(sha256sum <"$PLAN/routes/$inst" | cut -d ' ' -f 1)" zone "$dev")
 }
@@ -216,8 +216,8 @@ check_not "the uplink is not exempt" in_router nft get element inet cpxy exempt 
 bg ip netns exec router env SERVER='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 \
 	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100 "$BIN/cpxy" client >"$WORK/client.log" 2>&1
 CLIENT_PID=$!
-bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --dns-listen '[::]:5335' \
-	--dns-upstream 114.114.114.114 --dns-alternative 8.8.8.8 >"$WORK/dns.log" 2>&1
+bg ip netns exec router "$BIN/cpxy" dns --resolver-routing cn_split --socks5-proxy 127.0.0.1:1080 \
+	--listen '[::]:5335' --upstream 114.114.114.114 --alternative 8.8.8.8 >"$WORK/dns.log" 2>&1
 DNS_PID=$!
 sleep 1
 

@@ -3,7 +3,7 @@
 #
 # usage: build-ipk.sh <opkg arch> <version> <bin dir> <out dir>
 #   <opkg arch>  what `opkg print-architecture` shows on the router, e.g. aarch64_cortex-a53
-#   <bin dir>    holds, for that architecture: cpxy-router and cpxy
+#   <bin dir>    holds cpxy, built for that architecture
 # CPXY_FEED_URL  optional: the feed's base URL (https://<host>), which the package then lists in
 #                /etc/opkg/cpxy.conf so `opkg update && opkg upgrade cpxy` finds newer versions
 set -eu
@@ -20,7 +20,7 @@ mkdir -p "$work/data/usr/bin" "$work/control" "$outdir"
 bindir="$(cd "$bindir" && pwd)"
 outdir="$(cd "$outdir" && pwd)"
 cp -R "$here/files/." "$work/data/"
-for bin in cpxy-router cpxy; do
+for bin in cpxy; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
 chmod 0755 "$work/data/etc/init.d/"*

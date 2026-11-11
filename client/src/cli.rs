@@ -43,15 +43,10 @@ pub struct Args {
     #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = ProxyRoutes::parse_network)]
     proxy_route: Vec<ipnet::IpNet>,
 
-    /// With `--routing cn_split`: the DNS servers that resolve domains to decide their route.
-    /// Repeatable or comma-separated.
-    #[arg(
-        long,
-        env = "DNS_SERVER",
-        value_delimiter = ',',
-        default_value = "8.8.8.8"
-    )]
-    dns_server: Vec<IpAddr>,
+    /// With `--routing cn_split`: the DNS servers that resolve domains to decide their route, as
+    /// `<ip>` (port 53) or `<ip>:<port>`. Repeatable or comma-separated.
+    #[arg(long, env = "DNS_SERVER", value_delimiter = ',', default_value = "8.8.8.8", value_parser = parse_dns_server)]
+    dns_server: Vec<SocketAddr>,
 
     /// The address to listen on for the HTTP proxy
     #[arg(long, env = "HTTP_PROXY_LISTEN", group = "listeners")]
@@ -91,10 +86,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         }
         Routing::CnSplit => {
             let outbound = cn::cn_outbound(
-                args.dns_server
-                    .iter()
-                    .map(|ip| SocketAddr::new(*ip, 53))
-                    .collect(),
+                args.dns_server.clone(),
                 args.server.clone(),
                 ProxyRoutes(args.proxy_route.clone()),
                 events_tx,
@@ -102,6 +94,12 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             serve(&args, Arc::new(outbound), events_rx).await
         }
     }
+}
+
+fn parse_dns_server(s: &str) -> Result<SocketAddr, std::net::AddrParseError> {
+    s.parse::<IpAddr>()
+        .map(|ip| SocketAddr::new(ip, 53))
+        .or_else(|_| s.parse())
 }
 
 async fn serve<O>(
@@ -175,5 +173,27 @@ where
         r = socks5 => r,
         r = transparent => r,
         r = api => r,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dns_server_defaults_to_port_53() {
+        assert_eq!(
+            parse_dns_server("1.1.1.1").unwrap(),
+            "1.1.1.1:53".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            parse_dns_server("::1").unwrap(),
+            "[::1]:53".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            parse_dns_server("[::1]:5353").unwrap(),
+            "[::1]:5353".parse::<SocketAddr>().unwrap()
+        );
+        assert!(parse_dns_server("dns.google").is_err());
     }
 }

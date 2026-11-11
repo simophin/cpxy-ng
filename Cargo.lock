@@ -1625,7 +1625,6 @@ name = "mobile-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "client",
  "cpxy-ng",
  "etherparse 0.21.0",

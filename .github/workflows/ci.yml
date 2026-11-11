@@ -155,7 +155,7 @@ jobs:
       - name: Test engine
         run: cargo test --locked -p mobile-engine
       - name: Build Linux lab executables
-        run: cargo build --release --locked -p cpxy -p mobile-engine --bin cpxy --bin cpxy-router --bin mobile-engine-linux
+        run: cargo build --release --locked -p cpxy -p mobile-engine --bin cpxy --bin mobile-engine-linux
       - name: Prepare namespace lab
         run: |
           sudo apt-get install -y --no-install-recommends iproute2 nftables curl python3
@@ -166,9 +166,7 @@ jobs:
       - name: Test TUN routing, DNS split, refusals and fail-closed behaviour
         run: mobile-engine/test/tun-lab.sh bins
       - name: Test native OpenWrt routing
-        run: |
-          cp target/release/cpxy-router bins/
-          packaging/openwrt/test/lab.sh bins
+        run: packaging/openwrt/test/lab.sh bins
 
   test_mobile_shared:
     name: Test mobile shared UI
@@ -193,8 +191,7 @@ jobs:
         run: ./gradlew :shared:allTests
         working-directory: mobile
 
-  # Builds the static router binaries (the shared packet engine as a native router client, which
-  # also answers DNS, plus the client) and packages them.
+  # Builds the static cpxy binary (client and split DNS on the router) and packages it.
   build_openwrt_package:
     name: Build OpenWrt package (${{ matrix.target.opkg_arch }})
     if: github.event_name != 'pull_request'
@@ -223,10 +220,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build router executables
+      - name: Build the router executable
         run: >
           cross build --release --locked --target ${{ matrix.target.rust }}
-          -p cpxy -p mobile-engine --bin cpxy --bin cpxy-router
+          -p cpxy --bin cpxy
 
       - name: Build package
         env:
@@ -235,7 +232,7 @@ jobs:
           RELEASE: target/${{ matrix.target.rust }}/release
         run: |
           mkdir -p bins
-          cp "$RELEASE/cpxy-router" "$RELEASE/cpxy" bins/
+          cp "$RELEASE/cpxy" bins/
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
           docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
             apk add --no-cache openssl
@@ -288,8 +285,8 @@ jobs:
       - name: Build package from stand-in binaries and test install and removal
         run: |
           mkdir bins
-          for b in cpxy-router cpxy-client; do printf '#!/bin/sh\nexit 0\n' >bins/$b; done
-          chmod +x bins/*
+          printf '#!/bin/sh\nexit 0\n' >bins/cpxy
+          chmod +x bins/cpxy
           packaging/openwrt/build-ipk.sh x86_64 0.0.0-test bins out
           packaging/openwrt/test/opkg-roundtrip.sh out/*.ipk
           packaging/openwrt/test/init-dryrun.sh out/*.ipk

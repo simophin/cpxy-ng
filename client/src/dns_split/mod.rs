@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod cli;
 pub mod policy;
+pub mod routing;
 pub mod search;
 pub mod server;
 pub mod spec;

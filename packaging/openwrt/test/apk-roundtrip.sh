@@ -11,7 +11,7 @@ trap 'rm -rf "$work"' EXIT
 "$engine" run --rm -v "$here:/src:ro" -v "$work:/out" -w /src alpine:3.23 sh -ec '
   apk add --no-cache openssl
   mkdir /tmp/bins
-  for b in cpxy-router cpxy-client; do
+  for b in cpxy; do
     printf "#!/bin/sh\nexit 0\n" >/tmp/bins/$b
   done
   packaging/openwrt/build-apk.sh x86_64 1.0.0-r9 /tmp/bins /out

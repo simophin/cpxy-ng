@@ -260,7 +260,7 @@ Names dnsmasq answers specially outside those domains (an `address=/name/` entry
 `console.gl-inet.com`) are resolved publicly for redirected networks; add their domains to
 `dns_local_domain` to keep dnsmasq's answer.
 
-dns_split runs inside the instance's `cpxy-router`, so while that is down or restarting, its
+Split DNS runs as `cpxy dns` under the instance's `cpxy-router` service, so while that is down or restarting, its
 networks lose split DNS until procd starts it again. While the instance's `cpxy-client` is down,
 they lose overseas TCP (refused, never sent direct) and proxied DNS; direct TCP and UDP continue.
 
@@ -295,7 +295,7 @@ they lose overseas TCP (refused, never sent direct) and proxied DNS; direct TCP 
 |---|---|
 | Nothing starts | `cpxy-show` names what is missing or clashing. |
 | A network's devices are not proxied | `logread -e cpxy` for "has no device yet"; check `network` against `uci show network`. |
-| Overseas sites fail, CN sites work | `logread -e cpxy-client`: the transparent listener and the cpxy server connection. `nft list chain inet cpxy dstnat` shows the redirect counters. |
+| Overseas sites fail, CN sites work | `logread -e cpxy \| grep -v dns_split`: the client's transparent listener and the cpxy server connection. `nft list chain inet cpxy dstnat` shows the redirect counters. |
 | A network has no internet at all | `nft list table inet cpxy_boot_guard`: the boot barrier holds devices the `inet cpxy` table does not guard yet; `logread -e cpxy` says why it is missing. |
-| Names do not resolve | `logread -e cpxy-router`: it shows each DNS server it uses, and the errors reaching them or cpxy-client. |
+| Names do not resolve | `logread -e dns_split`: the DNS worker shows each DNS server it uses, and the errors reaching them or cpxy-client. |
 | Local names (`printer.lan`) do not resolve | `dns_local_domain`, and that dnsmasq answers on `dns_local_server`. |

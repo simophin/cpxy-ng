@@ -7,18 +7,42 @@ mod socks5;
 use anyhow::Context;
 use cpxy_ng::{Key, key_util::derive_password};
 use routing::{Router, RuleList};
+use std::fmt::{Debug, Formatter};
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+
+/// The key derived from the pre-shared password. Its `Debug` hides it.
+#[derive(Clone, Copy)]
+pub struct PresharedKey(Key);
+
+impl FromStr for PresharedKey {
+    type Err = &'static str;
+
+    fn from_str(password: &str) -> Result<Self, Self::Err> {
+        if password.is_empty() {
+            return Err("the key must not be empty");
+        }
+        Ok(Self(derive_password(password).into()))
+    }
+}
+
+impl Debug for PresharedKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PresharedKey(..)")
+    }
+}
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
     /// The pre-shared key for encryption/decryption
     #[arg(long, env = "KEY", hide_env_values = true)]
-    key: String,
+    key: PresharedKey,
 
     /// The address to listen on for cpxy clients
     #[arg(long, env = "BIND_ADDR", default_value = "127.0.0.1:9000")]
-    listen: String,
+    listen: SocketAddr,
 
     /// Route requests to a SOCKS5 server based on the HTTP `Host` header the client
     /// connected with, as `<HOST_PATTERN>=<TARGET>`. HOST_PATTERN must match the whole
@@ -46,12 +70,10 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let router = Arc::new(Router::new(rules));
     router.warm_up();
 
-    let listener = TcpListener::bind(&listen)
+    let listener = TcpListener::bind(listen)
         .await
         .with_context(|| format!("Error binding {listen}"))?;
     tracing::info!("Server listening on {}", listener.local_addr()?);
-
-    let key: Key = derive_password(&key).into();
 
     loop {
         let (socket, addr) = match listener.accept().await {
@@ -64,6 +86,11 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             }
         };
         tracing::info!(?addr, "Server: accepted client connection");
-        tokio::spawn(server::handle_connection(socket, addr, key, router.clone()));
+        tokio::spawn(server::handle_connection(
+            socket,
+            addr,
+            key.0,
+            router.clone(),
+        ));
     }
 }
