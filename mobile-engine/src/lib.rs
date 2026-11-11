@@ -7,7 +7,8 @@
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - Captured UDP 443 (QUIC) is refused; other UDP is relayed direct. Legacy mode also
 //!   refuses TCP 853 (DNS over TLS); Android SOCKS mode follows normal TCP routing.
-//! - IPv6 is handled like IPv4, or refused, according to the config's [`Ipv6Mode`].
+//! - IPv6 is handled like IPv4, or refused, according to the config's [`Ipv6Mode`]. Android SOCKS
+//!   mode always refuses it, so apps use IPv4; the proxy transport may still use IPv6.
 //!
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
 
@@ -500,49 +501,39 @@ mod tests {
     #[test]
     fn android_udp_preserves_empty_and_large_datagrams_with_dead_socks() {
         use std::os::unix::net::UnixDatagram;
-        for ipv6 in [false, true] {
-            let endpoint =
-                std::net::UdpSocket::bind(if ipv6 { "[::1]:0" } else { "127.0.0.1:0" }).unwrap();
-            endpoint
-                .set_read_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
-            let destination = endpoint.local_addr().unwrap();
-            let (tun, peer) = UnixDatagram::pair().unwrap();
-            peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-            let config = r#"{"android_socks":true,"socks5":"127.0.0.1:9","dns_upstream":["127.0.0.1"],"dns_alternative":["127.0.0.1"]}"#;
-            let engine = start(tun.into(), config).unwrap();
-            for (index, size) in [0, 1400].into_iter().enumerate() {
-                let builder = if ipv6 {
-                    etherparse::PacketBuilder::ipv6(
-                        TUN_ADDR_V6.octets(),
-                        Ipv6Addr::LOCALHOST.octets(),
-                        64,
-                    )
-                } else {
-                    etherparse::PacketBuilder::ipv4(
-                        TUN_ADDR.octets(),
-                        Ipv4Addr::LOCALHOST.octets(),
-                        64,
-                    )
-                }
-                .udp(40000 + index as u16, destination.port());
-                let payload = vec![7; size];
-                let mut packet = Vec::new();
-                builder.write(&mut packet, &payload).unwrap();
-                peer.send(&packet).unwrap();
-                let mut buffer = [0; 2048];
-                let (n, sender) = endpoint.recv_from(&mut buffer).unwrap();
-                assert_eq!(n, size);
-                endpoint.send_to(&buffer[..n], sender).unwrap();
-                let n = peer.recv(&mut buffer).unwrap();
-                let packet = etherparse::SlicedPacket::from_ip(&buffer[..n]).unwrap();
-                let Some(etherparse::TransportSlice::Udp(udp)) = packet.transport else {
-                    panic!("not UDP")
-                };
-                assert_eq!(udp.payload(), payload);
-            }
-            engine.stop();
+        // IPv4 only: Android refuses IPv6 from apps (see `relays_ipv6_unless_it_is_off`).
+        let endpoint = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        endpoint
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let destination = endpoint.local_addr().unwrap();
+        let (tun, peer) = UnixDatagram::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let config = r#"{"android_socks":true,"socks5":"127.0.0.1:9","dns_upstream":["127.0.0.1"],"dns_alternative":["127.0.0.1"]}"#;
+        let engine = start(tun.into(), config).unwrap();
+        for (index, size) in [0, 1400].into_iter().enumerate() {
+            let builder = etherparse::PacketBuilder::ipv4(
+                TUN_ADDR.octets(),
+                Ipv4Addr::LOCALHOST.octets(),
+                64,
+            )
+            .udp(40000 + index as u16, destination.port());
+            let payload = vec![7; size];
+            let mut packet = Vec::new();
+            builder.write(&mut packet, &payload).unwrap();
+            peer.send(&packet).unwrap();
+            let mut buffer = [0; 2048];
+            let (n, sender) = endpoint.recv_from(&mut buffer).unwrap();
+            assert_eq!(n, size);
+            endpoint.send_to(&buffer[..n], sender).unwrap();
+            let n = peer.recv(&mut buffer).unwrap();
+            let packet = etherparse::SlicedPacket::from_ip(&buffer[..n]).unwrap();
+            let Some(etherparse::TransportSlice::Udp(udp)) = packet.transport else {
+                panic!("not UDP")
+            };
+            assert_eq!(udp.payload(), payload);
         }
+        engine.stop();
     }
 
     fn is_open(fd: i32) -> bool {
@@ -795,11 +786,35 @@ mod tests {
         peer.send(&packet_to(tcp_port, Some((1, None)), &[]))
             .unwrap();
         let n = peer.recv(&mut buf).unwrap();
-        let sliced = etherparse::SlicedPacket::from_ip(&buf[..n]).unwrap();
         assert!(matches!(
-            sliced.transport,
+            etherparse::SlicedPacket::from_ip(&buf[..n])
+                .unwrap()
+                .transport,
             Some(etherparse::TransportSlice::Icmpv6(_))
         ));
+        engine.stop();
+
+        // Android never relays IPv6 from apps, whatever the config asks for.
+        let (tun, peer) = UnixDatagram::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let android = r#"{"android_socks": true, "socks5": "127.0.0.1:1", "dns_upstream": ["127.0.0.1"], "dns_alternative": ["127.0.0.1"], "ipv6": "full"}"#;
+        let engine = start(tun.into(), android).unwrap();
+        for packet in [
+            packet_to(tcp_port, Some((1, None)), &[]),
+            packet_to(udp_port, None, b"ping"),
+        ] {
+            peer.send(&packet).unwrap();
+            let n = peer.recv(&mut buf).unwrap();
+            assert!(matches!(
+                etherparse::SlicedPacket::from_ip(&buf[..n])
+                    .unwrap()
+                    .transport,
+                Some(etherparse::TransportSlice::Icmpv6(_))
+            ));
+        }
+        echo.set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        assert!(echo.recv_from(&mut buf).is_err(), "IPv6 UDP was relayed");
         engine.stop();
     }
 

@@ -42,7 +42,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import dev.fanchao.cpxy.vpn.Ipv6Mode
 import dev.fanchao.cpxy.vpn.Profile
 import dev.fanchao.cpxy.vpn.ProfileBackend
 import dev.fanchao.cpxy.vpn.ProfileField
@@ -104,7 +103,6 @@ private fun EditProfileForm(
     var server by remember(initial.id) { mutableStateOf(initial.server) }
     var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
     var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
-    var ipv6 by remember(initial.id) { mutableStateOf(initial.ipv6) }
     var showErrors by remember(initial.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -114,7 +112,6 @@ private fun EditProfileForm(
         server = server.trim(),
         dnsUpstream = parseServerList(dnsUpstream),
         dnsAlternative = parseServerList(dnsAlternative),
-        ipv6 = ipv6,
         backend = backend,
         socks5 = socks5.trim(),
     )
@@ -207,21 +204,6 @@ private fun EditProfileForm(
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
             )
-            Text("IPv6", style = MaterialTheme.typography.titleSmall)
-            Column(Modifier.selectableGroup()) {
-                for (mode in Ipv6Mode.entries) {
-                    ListItem(
-                        modifier = Modifier.fillMaxWidth().selectable(
-                            selected = ipv6 == mode,
-                            role = Role.RadioButton,
-                            onClick = { ipv6 = mode },
-                        ),
-                        leadingContent = { RadioButton(selected = ipv6 == mode, onClick = null) },
-                        headlineContent = { Text(mode.title) },
-                        supportingContent = { Text(mode.description) },
-                    )
-                }
-            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(onClick = ::save) {
                     Text("Save")
@@ -230,20 +212,6 @@ private fun EditProfileForm(
         }
     }
 }
-
-private val Ipv6Mode.title: String
-    get() = when (this) {
-        Ipv6Mode.Full -> "Full"
-        Ipv6Mode.Direct -> "Direct only"
-        Ipv6Mode.Off -> "Off"
-    }
-
-private val Ipv6Mode.description: String
-    get() = when (this) {
-        Ipv6Mode.Full -> "IPv6 goes direct or through the server, like IPv4. The server must reach IPv6."
-        Ipv6Mode.Direct -> "Only IPv6 that goes direct, such as to CN sites. For a server without IPv6."
-        Ipv6Mode.Off -> "Apps use IPv4 only."
-    }
 
 @Composable
 private fun Field(

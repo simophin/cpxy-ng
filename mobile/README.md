@@ -104,18 +104,13 @@ saved.
 
 ## IPv6
 
-Each profile chooses its IPv6, since it depends on the server:
+Apps inside the VPN use IPv4 only. The VPN interface has no IPv6 address, so Android hands apps
+no IPv6 for it; all IPv6 is routed into the VPN anyway, where the engine refuses it, so nothing
+reaches the underlying network over IPv6 from an app. DNS answers AAAA queries with no records.
 
-- **Full** (the default): IPv6 goes direct or through the server like IPv4. The server must reach
-  IPv6, as it connects to the IPv6 addresses itself.
-- **Direct only**: IPv6 that goes direct (CN and private addresses) is relayed; the rest is
-  refused before the app's connection opens, so the app falls back to IPv4 at once, and DNS gives
-  out only the AAAA records that go direct. For a server without IPv6.
-- **Off**: the VPN interface has no IPv6 address, so apps use IPv4 only.
-
-Unless it is off, the interface gets the unique-local `fd00:a:e9::1`, so apps use IPv6 for names
-without IPv4 and prefer IPv4 otherwise. On a network without IPv6, IPv6 that would go direct is
-refused the same way.
+The app itself is outside the VPN, so its connection to the cpxy server or external SOCKS5
+endpoint uses the underlying network as the system resolves it: on an IPv6 network, a server
+with an AAAA record (or an IPv6 literal) is reached over IPv6. There is no setting for this.
 
 ## Android TV and keyboard smoke check
 

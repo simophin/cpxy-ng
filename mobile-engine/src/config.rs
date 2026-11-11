@@ -47,7 +47,9 @@ pub struct Config {
     pub http_proxy_port: Option<u16>,
     #[serde(default)]
     pub socks_proxy_port: Option<u16>,
-    /// Which IPv6 to relay; `full` needs a cpxy server that can reach IPv6.
+    /// Which IPv6 to relay; `full` needs a cpxy server that can reach IPv6. Ignored in Android
+    /// SOCKS mode, which always refuses IPv6 from apps; its own proxy transport still uses
+    /// whatever the underlying network offers, IPv6 included.
     #[serde(default)]
     pub ipv6: Ipv6Mode,
 }
@@ -114,6 +116,11 @@ impl Config {
         let mtu = self.mtu.unwrap_or(DEFAULT_MTU);
         ensure!((1280..=9000).contains(&mtu), "MTU {mtu} is out of range");
 
+        let ipv6 = if self.android_socks {
+            Ipv6Mode::Off
+        } else {
+            self.ipv6
+        };
         ensure!(
             self.http_proxy_port != Some(0) && self.socks_proxy_port != Some(0),
             "Proxy ports must be between 1 and 65535"
@@ -138,7 +145,7 @@ impl Config {
             mtu,
             http_proxy_port: self.http_proxy_port,
             socks_proxy_port: self.socks_proxy_port,
-            ipv6: self.ipv6,
+            ipv6,
         })
     }
 }
@@ -265,6 +272,16 @@ mod tests {
         assert_eq!(mode(r#""direct""#).unwrap(), Ipv6Mode::Direct);
         assert_eq!(mode(r#""full""#).unwrap(), Ipv6Mode::Full);
         assert!(mode(r#""on""#).is_err());
+    }
+
+    #[test]
+    fn android_socks_never_relays_ipv6() {
+        let base = r#"{"android_socks":true,"server":"http://:k@1.2.3.4","dns_upstream":["1.1.1.1"],"dns_alternative":["8.8.8.8"]}"#;
+        let mut config = Config::from_json(base).unwrap();
+        for mode in [Ipv6Mode::Full, Ipv6Mode::Direct, Ipv6Mode::Off] {
+            config.ipv6 = mode;
+            assert_eq!(config.settings().unwrap().ipv6, Ipv6Mode::Off);
+        }
     }
 
     #[test]

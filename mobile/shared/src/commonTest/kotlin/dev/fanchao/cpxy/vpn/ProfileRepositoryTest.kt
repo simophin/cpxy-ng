@@ -1,5 +1,8 @@
 package dev.fanchao.cpxy.vpn
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,6 +28,16 @@ class ProfileRepositoryTest {
     }
 
     private fun profile(id: String) = Profile(id, "Profile $id", "https://:k@$id.example.com", listOf("223.5.5.5"), listOf("8.8.8.8"))
+
+    @Test
+    fun profilesSavedWithAnIpv6ModeStillLoad() = runTest {
+        val dataStore = PreferenceDataStoreFactory.createWithPath(scope = scope, produceFile = { directory / "old.preferences_pb" })
+        dataStore.edit {
+            it[stringPreferencesKey("profiles_json")] =
+                """{"selectedId":"a","profiles":[{"id":"a","name":"Profile a","server":"https://:k@a.example.com","dnsUpstream":["223.5.5.5"],"dnsAlternative":["8.8.8.8"],"ipv6":"direct"}]}"""
+        }
+        assertEquals(StoredProfiles(listOf(profile("a")), "a"), ProfileRepository(dataStore).profiles.first())
+    }
 
     @Test
     fun startsEmpty() = runTest {

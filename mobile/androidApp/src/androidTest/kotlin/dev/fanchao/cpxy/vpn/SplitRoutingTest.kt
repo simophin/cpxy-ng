@@ -73,6 +73,11 @@ class SplitRoutingTest {
         }
     }
 
+    // Both have AAAA records, so the checks are meaningful on an IPv6 network. The literal is
+    // AliDNS, which serves TCP 80; it is refused before reaching the network.
+    private val ipv6CheckHost = "www.baidu.com"
+    private val ipv6Literal = "2400:3200::1"
+
     @Test
     fun cpxyVpnRoutesAppTrafficAndRestarts() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
@@ -89,7 +94,6 @@ class SplitRoutingTest {
             id = "emulator-smoke", name = "Emulator smoke", server = server,
             dnsUpstream = listOf("223.5.5.5"),
             dnsAlternative = listOf("1.1.1.1"),
-            ipv6 = Ipv6Mode.Full,
         )
         try {
             repeat(2) {
@@ -98,6 +102,11 @@ class SplitRoutingTest {
                 // 10.233.0.2 sits in the private bypass set and must remain captured for DNS.
                 assertEquals("Virtual DNS probe failed", "OK", probe("dns", "10.233.0.2", 53))
                 assertEquals("Direct UDP probe failed", "OK", probe("dns", "1.1.1.1", 53))
+                // Apps get IPv4 only: no AAAA records, and IPv6 is refused even by literal.
+                val resolved = probe("resolve", ipv6CheckHost, 0)
+                assertTrue("Resolution failed: $resolved", resolved.startsWith("OK "))
+                assertFalse("App received IPv6 addresses: $resolved", ':' in resolved)
+                assertTrue("IPv6 literal was not refused", probe("http", ipv6Literal, 80).startsWith("FAIL"))
                 disconnect()
                 assertNull(context.app.controller.localProxy())
             }

@@ -88,9 +88,9 @@ class CpxyVpnService : VpnService() {
         val started = runCatching {
             val routeStarted = SystemClock.elapsedRealtime()
             val exclusions = Build.VERSION.SDK_INT >= 33
-            val routeKey = profile.ipv6.name + ":" + settings.proxyRoutes.joinToString(",")
+            val routeKey = settings.proxyRoutes.joinToString(",")
             val exactAttempt = routeKey !in oversizedRoutePlans
-            var plan = androidRoutePlan(settings.proxyRoutes, profile.ipv6.name.lowercase(), exclusions, if (exactAttempt) 100_000u else 512u)
+            var plan = androidRoutePlan(settings.proxyRoutes, exclusions, if (exactAttempt) 100_000u else 512u)
             if (!exactAttempt) Log.w(TAG, "Previously rejected exact plan; ${plan.fallbackReason}")
             fun builder() = Builder()
                 .setSession(profile.name)
@@ -98,14 +98,10 @@ class CpxyVpnService : VpnService() {
                 .addAddress(TunParameters.ADDRESS, TunParameters.PREFIX_LENGTH)
                 .addDnsServer(TunParameters.DNS_SERVER)
                 .apply { settings.dnsSearchDomains.forEach { addSearchDomain(it) } }
-                // Without an IPv6 address apps do not use IPv6; the route keeps it off the
-                // underlying network either way. On a network without IPv6, the engine refuses
-                // what would go direct, so apps fall back to IPv4.
-                .apply {
-                    if (profile.ipv6 != Ipv6Mode.Off) {
-                        addAddress(TunParameters.ADDRESS_V6, TunParameters.PREFIX_LENGTH_V6)
-                    }
-                }
+                // IPv4 only. Without an IPv6 address apps do not use IPv6, and the plan's ::/0
+                // route keeps any IPv6 they try off the underlying network; the engine refuses it.
+                // This app is outside the VPN, so its proxy transport uses the underlying network
+                // as the system resolves it, IPv6 included.
                 .route(settings.routing(ownPackage = packageName))
                 .setConfigureIntent(mainActivityIntent())
             var installedExclusions = 0
@@ -136,7 +132,7 @@ class CpxyVpnService : VpnService() {
                     oversizedRoutePlans.add(routeKey)
                 }
                 Log.w(TAG, "${if (exactAttempt) "Exact" else "Bounded"} route installation failed: included=${plan.included.size}, excluded=${plan.excluded.size}, ${exactError.javaClass.simpleName}: ${exactError.message}")
-                plan = androidRoutePlan(settings.proxyRoutes, profile.ipv6.name.lowercase(), exclusions, 512u)
+                plan = androidRoutePlan(settings.proxyRoutes, exclusions, 512u)
                 Log.w(TAG, plan.fallbackReason)
                 try {
                     install(plan)
@@ -243,7 +239,7 @@ class CpxyVpnService : VpnService() {
     )
 
     companion object {
-        // Policy-specific and process-local: IPv6 Off or changed forced routes may fit exactly.
+        // Policy-specific and process-local: changed forced routes may fit exactly.
         private val oversizedRoutePlans = ConcurrentHashMap.newKeySet<String>()
         private const val TAG = "CpxyVpnService"
         private const val ACTION_START = "dev.fanchao.cpxy.vpn.START"
