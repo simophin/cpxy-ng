@@ -29,8 +29,11 @@ Decisions already made:
   has since been removed.
 - Location `mobile/` at the repository root; application ID `dev.fanchao.cpxy.vpn`.
 - Routing is **CN-direct / proxy-everything-else only**. No AI or Tailscale divert servers.
-- Packets are handled with the **`ipstack`** crate directly, not the tun2proxy library: no local
-  SOCKS port that other apps on the device could use.
+- Packets are handled in the engine, not by the tun2proxy library: no local SOCKS port that other
+  apps on the device could use. TCP is terminated by smoltcp through **`netstack-smoltcp`** (a fork,
+  `simophin/netstack-smoltcp` branch `cpxy`, which never polls while idle and sends no
+  keep-alives); UDP is relayed by the engine itself. It replaced `ipstack`, whose TCP needed
+  workarounds for missing FINs, duplicate segments and window scaling.
 - No paid Apple Developer account yet. iOS is built in CI (unsigned) and tested later through
   TestFlight, which needs the paid Apple Developer Program membership; the Network Extension
   (packet tunnel) capability is available to any paid account.
@@ -41,7 +44,7 @@ Decisions already made:
 |---|---|
 | `client::dns_split` (`Racer`, `DnsSplitHandler::handle`, `DnsCache::open_in_memory`) | Reused. `handle(&Message) -> Message` is transport-independent, so DNS packets read from the TUN are fed to it. Use the in-memory cache. |
 | `client::outbound` (`IPDivertOutbound`, `DirectOutbound`, `ProtocolOutbound`, `StatReportingOutbound`) | Reused. Compose them like `cn_outbound` but without the AI/Tailscale branches: private, loopback, link-local or CN → direct, else proxy. |
-| tun2proxy (TUN → SOCKS5) | Replaced by `ipstack`: each TCP flow from the TUN goes straight into the `Outbound`. |
+| tun2proxy (TUN → SOCKS5) | Replaced by `netstack-smoltcp`: each TCP flow from the TUN goes straight into the `Outbound`. |
 | Firewall rejects UDP 443; other UDP leaves via WAN | Done in the engine: UDP 443 is answered with ICMP port unreachable, other UDP is relayed through direct sockets. |
 | IPv6 | Route `::/0` into the TUN, which has no IPv6 address, so apps do not try IPv6; anything that arrives gets ICMPv6 administratively prohibited. No IPv6 prefix bypasses the VPN. |
 | Fail closed when the proxy dies | The TUN stays up while the engine runs; a proxy failure fails the connection, never sends it direct. |
@@ -68,7 +71,7 @@ tunnel.
   CpxyVpnService (Kotlin)     PacketTunnelProvider (Swift, thin)
         │  tun fd + config JSON     │  tun fd + config JSON
         └──────────► Rust `mobile-engine` ◄──────────┘
-                     ipstack ─┬─ TCP  → outbound (direct | proxy)
+                     filter ──┬─ TCP  → smoltcp → outbound (direct | proxy)
                               ├─ UDP/TCP 53 to virtual DNS IP → DnsSplitHandler
                               ├─ UDP 443 → drop / ICMP unreachable
                               └─ other UDP → direct relay (NAT table, idle timeout)
@@ -77,20 +80,23 @@ tunnel.
 ### Rust: `mobile-engine` crate
 
 - New workspace member at `mobile-engine/` (added to the root `Cargo.toml`), depending on `client`
-  with the `dns-split` feature and on `ipstack`.
+  with the `dns-split` feature and on `netstack-smoltcp`.
 - `crate-type = ["cdylib", "staticlib", "rlib"]`: `.so` for Android, xcframework for iOS.
-- Refusals are decided per packet in `filter.rs`, in front of ipstack, which cannot write raw
-  packets back. UDP 443 and TCP 853 get ICMP port unreachable. Refused IPv6 gets ICMPv6
+- Refusals are decided per packet in `filter.rs`, in front of the TCP stack and the UDP flows. UDP 443 and TCP 853 get ICMP port unreachable. Refused IPv6 gets ICMPv6
   *administratively prohibited*, not *no route*: Linux UDP sockets ignore the soft no-route error
   unless they ask for ICMP errors, so UDP apps would wait for a timeout. ICMP, multicast and
   broadcast are dropped silently.
-- Idle timeouts: TCP flows 1 hour (ipstack's 1-minute default would cut idle push channels), UDP
-  flows 60 seconds, DNS flows 10 seconds.
+- Idle timeouts: none for TCP flows, which end when either side closes them (smoltcp only gives
+  up on an app that stops acknowledging data); UDP flows 60 seconds, DNS flows 10 seconds.
+- Why not hand TCP to the system's own TCP stack by rewriting packets (a NAT redirect, sing-box's
+  "system" stack)? On Android the listener would belong to the VPN app, which excludes its own
+  UID from the VPN, and the system routes that UID's replies out of the underlying network, never
+  into the TUN, whatever the packet mark. It would need the app inside its own VPN, with
+  `VpnService.protect()` on every engine socket and engine name lookups kept off the VPN.
 - Rust API (Phase 0): `mobile_engine::start(OwnedFd, &str) ->
   Result<EngineHandle>`, `EngineHandle::stop()` and `EngineHandle::traffic()`. `start` blocks while
   the DNS servers are set up. `stop` ends every flow and waits until the TUN descriptor is closed
-  before shutting the runtime down: ipstack's TCP streams block until their tasks end when dropped,
-  which never happens in a runtime that is shutting down, and the descriptor leaked that way.
+  before shutting the runtime down.
 - FFI through **UniFFI** (`src/ffi.rs`, proc macros, `uniffi.toml` sets the Kotlin package
   `dev.fanchao.cpxy.vpn.engine`), generating both the Kotlin and the Swift bindings:
   - `startEngine(tunFd: Int, configJson: String): Engine`, throwing
@@ -108,7 +114,6 @@ tunnel.
 - TUN parameters (set by the platform, mirrored in the engine): address `10.233.0.1/30`, DNS server
   `10.233.0.2` (virtual, answered by the engine), routes `0.0.0.0/0` and `::/0`, MTU 1500.
 - Keep the tokio runtime small: 2 workers, since the iOS extension has a ~50 MB memory limit.
-  It must be multi-threaded: ipstack's TCP streams block in place when dropped.
 - The engine resolves the cpxy server hostname with the system resolver, which works because the
   engine is outside the tunnel. TUN flows arrive as IPs, so no extra resolver is needed for routing.
 - Private DNS (Android DoT): reject TCP 853 so Android falls back to plain DNS, which the engine
@@ -148,7 +153,7 @@ tunnel.
 
 ### Phase 0: engine, tested on Linux (done)
 
-- `mobile-engine` crate: ipstack loop, TCP → outbound, DNS hook, UDP 443 drop, UDP relay, IPv6
+- `mobile-engine` crate: packet loop, TCP → outbound, DNS hook, UDP 443 drop, UDP relay, IPv6
   by mode.
 - Unit tests for the routing decisions.
 - A Linux integration test: open a real TUN in a network namespace, run the engine against a local

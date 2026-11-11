@@ -11,18 +11,21 @@
 //!   mode always refuses it, so apps use IPv4; the proxy transport may still use IPv6.
 //!
 //! The engine's own sockets must bypass the tunnel; the platform arranges that.
+//!
+//! TCP is terminated by a userspace TCP stack (smoltcp, through `netstack-smoltcp`). UDP is
+//! relayed datagram by datagram (see `udp.rs`).
 
 mod android_routes;
 mod config;
 mod dns;
 mod ffi;
 mod filter;
-mod fin;
 #[cfg(target_os = "linux")]
 pub mod linux;
 mod proxy;
 mod routing;
 mod tun;
+mod udp;
 
 pub use config::{
     Config, DEFAULT_MTU, DNS_ADDR, TUN_ADDR, TUN_ADDR_V6, TUN_PREFIX_LEN, TUN_PREFIX_LEN_V6,
@@ -34,10 +37,6 @@ uniffi::setup_scaffolding!();
 use client::dns_split::server::DnsSplitHandler;
 pub use client::ipv6::Ipv6Mode;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
-use ipstack::{
-    IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
-    TcpOptions,
-};
 use routing::Router;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::OwnedFd;
@@ -45,29 +44,23 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures::stream::{SplitSink, SplitStream};
+use futures::{SinkExt, StreamExt};
+use netstack_smoltcp::{Stack, StackBuilder, TcpStream};
 use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, JoinSet};
-use tun::{Traffic, TunDevice};
+use tun::{Traffic, Tun};
 
-/// Small, to stay within the iOS packet tunnel extension's memory limit. ipstack needs a
-/// multi-threaded runtime: its TCP streams block in place when dropped.
+/// Small, to stay within the iOS packet tunnel extension's memory limit.
 const WORKER_THREADS: usize = 2;
-/// Idle TCP flows are closed after this long. Longer than ipstack's default of a minute, which
-/// would cut idle connections such as push notification channels.
-const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(3600);
 /// Idle UDP flows are closed, and their direct sockets released, after this long.
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const DNS_PORT: u16 = 53;
-/// IPv6 and TCP headers without options. The MSS counts payload only (RFC 6691), and ipstack
-/// advertises one MSS for both IP versions, so it allows for the larger IPv6 header.
-const TCP_IP_HEADERS_LEN: u16 = 40 + 20;
-/// The most a TCP flow has in flight towards the device, and buffers from it before the outbound
-/// side reads it, which is also the window it advertises; a flow moves at most this much per
-/// round trip between the device's apps and the engine. ipstack's default is 16 KiB.
-///
-/// On a phone or a router the apps are a millisecond away, and memory is tight.
+/// What a TCP flow buffers each way, which is also the window it advertises: a flow moves at
+/// most this much per round trip between the device's apps and the engine. The apps are a
+/// millisecond away, and memory is tight.
 const TCP_WINDOW: u32 = 64 << 10;
 /// How long stopping waits for the flows to end, and then for the runtime to shut down.
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -159,6 +152,7 @@ enum Backend {
     AndroidExternal(SocketAddr),
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_inner(
     tun: OwnedFd,
     server: Backend,
@@ -212,17 +206,10 @@ fn start_inner(
     let local_proxy_port = proxies.local_http_port();
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
-    let device_eof = Arc::new(Notify::new());
+    let filter = filter::Filter::new(ipv6, proxy_routes.clone()).with_tcp_dot_allowed(android);
     let device = {
         let _guard = runtime.enter();
-        TunDevice::new(
-            tun,
-            mtu,
-            filter::Filter::new(ipv6, proxy_routes.clone()).with_tcp_dot_allowed(android),
-            traffic.clone(),
-            device_eof.clone(),
-            device_closed_tx,
-        )?
+        Tun::new(tun, device_closed_tx)?
     };
 
     let router = Arc::new(match server {
@@ -234,7 +221,8 @@ fn start_inner(
     let stopped = runtime.spawn(run(
         device,
         device_closed,
-        device_eof,
+        filter,
+        traffic.clone(),
         mtu,
         router,
         dns,
@@ -263,7 +251,6 @@ impl EngineHandle {
             return;
         };
         let _ = running.shutdown.send(());
-        // Wait while the runtime still works: dropping a flow waits for its tasks.
         let stopped = running
             .runtime
             .block_on(async { tokio::time::timeout(STOP_TIMEOUT, running.stopped).await });
@@ -303,10 +290,12 @@ impl Drop for EngineHandle {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run(
-    device: TunDevice,
+    device: Tun,
     device_closed: oneshot::Receiver<()>,
-    device_eof: Arc<Notify>,
+    filter: filter::Filter,
+    traffic: Arc<Traffic>,
     mtu: u16,
     router: Arc<Router>,
     dns: Option<DnsService>,
@@ -314,71 +303,158 @@ async fn run(
     embedded_task: Option<JoinHandle<anyhow::Result<()>>>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
-    let mut tcp_config = TcpConfig::default();
-    tcp_config.timeout = TCP_IDLE_TIMEOUT;
-    tcp_config.max_unacked_bytes = TCP_WINDOW;
-    tcp_config.read_buffer_size = TCP_WINDOW as usize;
-    // Without an MSS in the SYN-ACK, peers fall back to 536-byte segments (RFC 1122)
-    tcp_config.options = Some(vec![TcpOptions::MaximumSegmentSize(mss_for_mtu(mtu))]);
-    let mut config = IpStackConfig::default();
-    config
-        .mtu_unchecked(mtu)
-        .udp_timeout(UDP_IDLE_TIMEOUT)
-        .with_tcp_config(tcp_config);
-    let mut stack = IpStack::new(config, device);
+    let built = StackBuilder::default()
+        .enable_tcp(true)
+        .mtu(mtu.into())
+        .tcp_recv_buffer_size(TCP_WINDOW)
+        .tcp_send_buffer_size(TCP_WINDOW)
+        // The apps are on the same device: there is no path to keep alive.
+        .tcp_keep_alive(None)
+        .build();
+    let (stack, Some(runner), _, Some(mut tcp)) = (match built {
+        Ok(built) => built,
+        Err(error) => {
+            tracing::error!(%error, "Setting up the TCP stack failed");
+            return;
+        }
+    }) else {
+        unreachable!("TCP is enabled");
+    };
+    let (to_stack, from_stack) = stack.split();
+
     let mut listener_tasks =
         proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
     if let Some(task) = embedded_task {
         listener_tasks.spawn(async move { task.await? });
     }
+    let mut stack_tasks = JoinSet::new();
+    stack_tasks.spawn(runner);
+    stack_tasks.spawn(to_device(from_stack, device.clone(), traffic.clone()));
+    let mut packets = tokio::spawn(pump(device, filter, to_stack, traffic, mtu, dns.clone()));
     let mut flows = JoinSet::new();
 
     loop {
-        let stream = tokio::select! {
-            stream = stack.accept() => stream,
+        tokio::select! {
+            accepted = tcp.next() => {
+                let Some((stream, _, dst)) = accepted else {
+                    tracing::error!("The TCP stack stopped");
+                    break;
+                };
+                flows.spawn(handle_tcp(stream, dst, router.clone(), dns.clone()));
+            }
             // Reap the flows that ended.
-            Some(_) = flows.join_next() => continue,
+            Some(_) = flows.join_next() => {}
             Some(result) = listener_tasks.join_next() => {
                 tracing::error!(?result, "Proxy or DNS listener stopped");
                 break;
             }
-            _ = &mut shutdown => break,
-            _ = device_eof.notified() => {
-                tracing::warn!("The device closed");
+            Some(result) = stack_tasks.join_next() => {
+                tracing::error!(?result, "The TCP stack stopped");
                 break;
             }
-        };
-        match stream {
-            Ok(IpStackStream::Tcp(tcp)) => {
-                flows.spawn(handle_tcp(tcp, router.clone(), dns.clone()));
-            }
-            Ok(IpStackStream::Udp(udp)) => {
-                flows.spawn(handle_udp(udp, dns.clone()));
-            }
-            // ICMP and anything else the filter let through: not relayed.
-            Ok(IpStackStream::UnknownTransport(_) | IpStackStream::UnknownNetwork(_)) => {}
-            Err(e) => {
-                tracing::error!("IP stack stopped: {e}");
+            _ = &mut shutdown => break,
+            result = &mut packets => {
+                match result {
+                    Ok(Ok(())) => tracing::warn!("The device closed"),
+                    result => tracing::error!(?result, "Reading the device failed"),
+                }
                 break;
             }
         }
     }
 
-    // Stop in order. ipstack's TCP streams wait for their tasks when dropped, which never happens
-    // once the runtime shuts down, so the flows must end first. Dropping the stack aborts the task
-    // that owns the device.
-    drop(stack);
+    // The packet pump owns the UDP flows: aborting it ends them.
+    packets.abort();
+    let _ = packets.await;
+    stack_tasks.shutdown().await;
     listener_tasks.shutdown().await;
     flows.shutdown().await;
     let _ = device_closed.await;
 }
 
-fn mss_for_mtu(mtu: u16) -> u16 {
-    mtu.saturating_sub(TCP_IP_HEADERS_LEN)
+/// Moves the packets the device sends into the tunnel: TCP goes to the TCP stack, UDP to its
+/// flow. Returns when the device closes.
+async fn pump(
+    device: Tun,
+    filter: filter::Filter,
+    mut to_stack: SplitSink<Stack, Vec<u8>>,
+    traffic: Arc<Traffic>,
+    mtu: u16,
+    dns: Option<DnsService>,
+) -> std::io::Result<()> {
+    const PROTO_TCP: u8 = 6;
+    const PROTO_UDP: u8 = 17;
+    let mut udp = udp::Flows::new(device.clone(), mtu, traffic.clone());
+    let mut udp_flows = JoinSet::new();
+    let mut buf = vec![0u8; usize::from(mtu)];
+    loop {
+        let n = tokio::select! {
+            n = device.recv(&mut buf) => n?,
+            Some(_) = udp_flows.join_next() => continue,
+        };
+        let Some(n) = n else { return Ok(()) };
+        let packet = &buf[..n];
+        traffic.sent.fetch_add(n as u64, Ordering::Relaxed);
+        match filter.classify(packet) {
+            filter::Verdict::Pass => {}
+            filter::Verdict::Drop => continue,
+            filter::Verdict::Reply(reply) => {
+                traffic
+                    .received
+                    .fetch_add(reply.len() as u64, Ordering::Relaxed);
+                if let Err(error) = device.send(&reply).await {
+                    tracing::debug!(%error, "Error writing ICMP reply");
+                }
+                continue;
+            }
+        }
+        match ip_protocol(packet) {
+            Some(PROTO_TCP) => to_stack.send(packet.to_vec()).await?,
+            Some(PROTO_UDP) => {
+                if let Some(flow) = udp.dispatch(packet) {
+                    udp_flows.spawn(handle_udp(flow, dns.clone()));
+                }
+            }
+            // ICMP and anything else the filter let through: not relayed.
+            _ => {}
+        }
+    }
 }
 
-async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<DnsService>) {
-    let dst = flow.peer_addr();
+/// Writes the TCP stack's packets into the device.
+async fn to_device(
+    mut from_stack: SplitStream<Stack>,
+    device: Tun,
+    traffic: Arc<Traffic>,
+) -> std::io::Result<()> {
+    while let Some(packet) = from_stack.next().await {
+        let packet = packet?;
+        traffic
+            .received
+            .fetch_add(packet.len() as u64, Ordering::Relaxed);
+        // A packet that cannot be written is lost, as on any link.
+        if let Err(error) = device.send(&packet).await {
+            tracing::debug!(%error, "Error writing a packet to the device");
+        }
+    }
+    Ok(())
+}
+
+/// The transport protocol of an IP packet; IPv6 extension headers are not followed.
+fn ip_protocol(packet: &[u8]) -> Option<u8> {
+    match packet.first()? >> 4 {
+        4 => packet.get(9).copied(),
+        6 => packet.get(6).copied(),
+        _ => None,
+    }
+}
+
+async fn handle_tcp(
+    mut flow: TcpStream,
+    dst: SocketAddr,
+    router: Arc<Router>,
+    dns: Option<DnsService>,
+) {
     if let Some(handler) = DnsService::handler_for(dns, dst) {
         return dns::serve_tcp_flow(flow, handler).await;
     }
@@ -393,7 +469,6 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
         tls: false,
         initial_plaintext: Vec::new(),
     };
-    let mut flow = fin::FinRetry::new(flow);
     let mut upstream = match cpxy_ng::outbound::Outbound::send(router.as_ref(), request).await {
         Ok(upstream) => upstream,
         Err(error) => {
@@ -408,7 +483,7 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
     }
 }
 
-async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
+async fn handle_udp(flow: udp::Flow, dns: Option<DnsService>) {
     let dst = flow.peer_addr();
     if let Some(handler) = DnsService::handler_for(dns, dst) {
         return dns::serve_udp_flow(flow, handler).await;
@@ -418,8 +493,9 @@ async fn handle_udp(flow: IpStackUdpStream, dns: Option<DnsService>) {
     }
 }
 
-/// Relays one UDP flow through its own direct socket until ipstack closes it as idle.
-async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddr) -> std::io::Result<()> {
+/// Relays one UDP flow through its own direct socket until it has been idle for
+/// [`UDP_IDLE_TIMEOUT`].
+async fn relay_udp(mut flow: udp::Flow, dst: SocketAddr) -> std::io::Result<()> {
     let unspecified: IpAddr = match dst {
         SocketAddr::V4(_) => Ipv4Addr::UNSPECIFIED.into(),
         SocketAddr::V6(_) => Ipv6Addr::UNSPECIFIED.into(),
@@ -430,16 +506,17 @@ async fn relay_udp(mut flow: IpStackUdpStream, dst: SocketAddr) -> std::io::Resu
     let mut from_remote = vec![0u8; 65535];
     loop {
         tokio::select! {
-            packet = flow.recv_datagram() => {
-                let Some(packet) = packet? else { return Ok(()) };
+            packet = flow.recv() => {
+                let Some(packet) = packet else { return Ok(()) };
                 socket.send(&packet).await?;
             }
             n = socket.recv(&mut from_remote) => {
-                if let Err(error) = flow.send_datagram(&from_remote[..n?]) {
+                if let Err(error) = flow.send(&from_remote[..n?]).await {
                     if error.kind() != std::io::ErrorKind::InvalidInput { return Err(error); }
                     tracing::debug!(%dst, "Dropped UDP reply exceeding TUN MTU");
                 }
             }
+            _ = tokio::time::sleep(UDP_IDLE_TIMEOUT) => return Ok(()),
         }
     }
 }
@@ -515,13 +592,6 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
-    }
-
-    #[test]
-    fn mss_fits_an_ipv6_packet_in_the_mtu() {
-        assert_eq!(mss_for_mtu(1280), 1220);
-        assert_eq!(mss_for_mtu(1500), 1440);
-        assert_eq!(mss_for_mtu(40), 0);
     }
 
     #[test]

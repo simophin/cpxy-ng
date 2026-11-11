@@ -20,7 +20,7 @@ use hickory_proto::rr::Name;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Clients usually send each query from a fresh port, so a UDP flow is done once it goes quiet.
@@ -135,20 +135,13 @@ async fn build_handler(
 
 /// Answers each datagram of one UDP flow, concurrently: resolvers often send the A and AAAA
 /// queries from the same port at once.
-pub async fn serve_udp_flow(
-    mut flow: impl AsyncRead + AsyncWrite + Unpin,
-    handler: Arc<DnsSplitHandler>,
-) {
-    let mut buf = vec![0u8; 65535];
+pub async fn serve_udp_flow(mut flow: crate::udp::Flow, handler: Arc<DnsSplitHandler>) {
     let mut pending = FuturesUnordered::new();
     loop {
         tokio::select! {
-            read = tokio::time::timeout(UDP_IDLE_TIMEOUT, flow.read(&mut buf)) => {
-                let n = match read {
-                    Ok(Ok(n)) if n > 0 => n,
-                    _ => break,
-                };
-                let request = match Message::from_vec(&buf[..n]) {
+            read = tokio::time::timeout(UDP_IDLE_TIMEOUT, flow.recv()) => {
+                let Ok(Some(datagram)) = read else { break };
+                let request = match Message::from_vec(&datagram) {
                     Ok(m) => m,
                     Err(e) => {
                         tracing::debug!("Invalid DNS request: {e:?}");
@@ -161,19 +154,19 @@ pub async fn serve_udp_flow(
                     encode_udp(&request, &response)
                 });
             }
-            Some(reply) = pending.next() => write_reply(&mut flow, reply).await,
+            Some(reply) = pending.next() => write_reply(&flow, reply).await,
         }
     }
 
     while let Some(reply) = pending.next().await {
-        write_reply(&mut flow, reply).await;
+        write_reply(&flow, reply).await;
     }
 }
 
-async fn write_reply(flow: &mut (impl AsyncWrite + Unpin), reply: anyhow::Result<Vec<u8>>) {
+async fn write_reply(flow: &crate::udp::Flow, reply: anyhow::Result<Vec<u8>>) {
     match reply {
         Ok(bytes) => {
-            if let Err(e) = flow.write_all(&bytes).await {
+            if let Err(e) = flow.send(&bytes).await {
                 tracing::debug!("Error writing DNS reply: {e:?}");
             }
         }
