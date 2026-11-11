@@ -19,7 +19,6 @@ client = { path = "../client", features = ["dns-split"] }
 cpxy-ng = { path = "../cpxy-ng" }
 ipnet = { version = "2", features = ["serde"] }
 geoip-data = { path = "../geoip-data" }
-ipstack = { git = "https://github.com/simophin/ipstack", rev = "49720c1a1effacee1073d419452432629ef64297" } # narrowlink/ipstack 1.0.2-dev (window scaling), plus ACKs for duplicate segments and slice copies of received data
 etherparse = { version = "0.21", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }
 tracing = "0"
@@ -29,6 +28,7 @@ hickory-proto = { version = "0.25.2", default-features = false, features = ["std
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 libc = "0.2"
+netstack-smoltcp = { git = "https://github.com/simophin/netstack-smoltcp", rev = "87b17396bc9f192b408ecd0ec3710c9c9440de2e" } # 0.2.5, plus no polling while idle and a configurable keep-alive
 uniffi = "0.32.2"
 thiserror = "2"
 

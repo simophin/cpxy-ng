@@ -148,6 +148,20 @@ while True:
 bg ip netns exec inet python3 "$DNS_FIXTURE" serve 114.114.114.114 0 cn.test=114.114.114.114 overseas.test=93.184.216.34 >"$WORK/cn-dns.log" 2>&1
 bg ip netns exec inet python3 "$DNS_FIXTURE" serve 8.8.8.8 0 overseas.test=93.184.216.34 overseas.test=2001:db8:100::34 >"$WORK/overseas-dns.log" 2>&1
 sleep 1
+# The web servers can take longer than that to start on a busy CI runner.
+wait_listening() { # wait_listening <netns> <address:port>...
+	ns="$1"; shift
+	for address; do
+		for _ in $(seq 100); do
+			[ -n "$(ip netns exec "$ns" ss -Hltn "src $address")" ] && break
+			sleep 0.1
+		done
+	done
+}
+wait_listening inet 93.184.216.34:8000 '[2001:db8:100::34]:8000' 114.114.114.114:8000 \
+	'[2400:3200::114]:8000' 93.184.216.34:7000
+wait_listening router 192.168.8.1:8080
+wait_listening tail 100.100.1.1:8000
 
 URL=http://93.184.216.34:8000/index.html
 URL_V6='http://[2001:db8:100::34]:8000/index.html'
