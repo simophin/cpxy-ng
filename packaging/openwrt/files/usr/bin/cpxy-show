@@ -10,32 +10,27 @@ _on() { [ "$1" = 1 ] && echo on || echo off; }
 _show() {
 	[ -z "$WANTED" ] || [ "$1" = "$WANTED" ] || return 0
 	FOUND=1
-	# cpxy-router runs an instance only when it has networks
-	local routed=0 last="$((CPXY_PRIORITY + 3))" active count
-	[ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ] && routed=1
-	[ "$CPXY_GEOIP" != 1 ] || last="$((CPXY_PRIORITY + 4))"
 	cat <<EOF
 instance $1 (index $CPXY_INDEX)
   server          $(echo "$CPXY_SERVER" | sed 's#//[^@]*@#//***@#')
   networks        ${CPXY_NETWORKS:-none}
   client          $(_on "$CPXY_CLIENT"): HTTP $CPXY_HTTP_LISTEN$([ "$CPXY_SOCKS5" = 1 ] && echo ", SOCKS5 $CPXY_SOCKS5_LISTEN")
-  router          $(_on "$routed"): $CPXY_TUN, table $CPXY_TABLE, rule priorities $CPXY_PRIORITY-$last
-  kernel GeoIP    $(_on "$CPXY_GEOIP")$([ "$CPXY_GEOIP" = 1 ] && echo ': IPv4 and IPv6 TCP')
-  router SOCKS5   $CPXY_ROUTER_SOCKS5
-  router DNS      $([ "$routed" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
+  router          $(_on "$CPXY_ROUTED")$([ "$CPXY_ROUTED" = 1 ] && echo ": overseas IPv4 TCP redirected to $CPXY_TRANSPARENT_LISTEN")
+  router DNS      $([ "$CPXY_ROUTED" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
   dns upstream    $CPXY_DNS_UPSTREAM
   dns alternative $CPXY_DNS_ALTERNATIVE
   local names     $CPXY_DNS_LOCAL_SERVER: single labels, private reverse, $CPXY_DNS_LOCAL_DOMAINS
   dns cache       $(_on "$CPXY_DNS_CACHE")
 EOF
-	if [ "$CPXY_GEOIP" = 1 ] && [ "$routed" = 1 ]; then
-		active="$(ip -4 rule show priority "$((CPXY_PRIORITY + 3))" | awk '/lookup/ {print $NF; exit}')"
-		count=0
-		[ -z "$active" ] || count="$(ip -4 route show table "$active" 2>/dev/null | wc -l)"
-		echo "  GeoIP generation ${active:-inactive}, $count routes (includes two defaults)"
-		echo "  GeoIP dataset    $("$CPXY_BIN/cpxy-router" --geoip-version)"
+	if [ "$CPXY_ROUTED" = 1 ]; then
+		if nft list set inet cpxy "direct_$1" >/dev/null 2>&1; then
+			echo "  direct set      installed (inet cpxy direct_$1)"
+		else
+			echo "  direct set      not installed"
+		fi
+		echo "  GeoIP dataset   $("$CPXY_BIN/cpxy-router" --geoip-version)"
 		if [ -f "$CPXY_RUN/instances/$1" ]; then
-			echo "  GeoIP policy     $(sed -n '10p' "$CPXY_RUN/instances/$1")"
+			echo "  policy          $(sed -n '6p' "$CPXY_RUN/instances/$1")"
 		fi
 	fi
 }

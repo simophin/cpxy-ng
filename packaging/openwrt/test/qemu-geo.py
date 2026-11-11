@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Booted OpenWrt integration, isolated with unshare -Urmn.
+"""Booted OpenWrt integration of the nftables redirect router, isolated with unshare -Urmn.
 
 Usage: unshare -Urmn python3 qemu-geo.py IMAGE IPK DEPS_DIR SERVER RESULTS_DIR
-IMAGE is an official x86-64 combined ext4 image; DEPS_DIR contains matching dependency ipks.
-Requires iproute2, QEMU, curl and dig; the package must include real cpxy-client/router binaries. No third-party Python packages or host bridges needed.
+IMAGE is an official x86-64 combined ext4 image; DEPS_DIR contains matching dependency ipks (may be
+empty: the image already has firewall4 and kmod-nft-nat). Requires iproute2, QEMU and curl; uses
+KVM when /dev/kvm is usable. The package must include real static cpxy-client/router binaries.
+No third-party Python packages or host bridges needed.
 """
 import contextlib
 import http.server
@@ -18,6 +20,15 @@ import subprocess
 import sys
 import threading
 import time
+
+DNS_CLIENT = Path(__file__).resolve().parents[3] / 'mobile-engine' / 'test' / 'dns.py'
+
+
+def dns(server, name, transport='udp', qtype='A', source='lan'):
+    """The addresses of the answer, space-separated; empty for an empty answer."""
+    reply = ns(source, sys.executable, str(DNS_CLIENT), 'query', server, name, transport, qtype).split()
+    assert reply[0] == 'NOERROR', f'DNS {name} {qtype} via {server}/{transport}: {reply}'
+    return ' '.join(reply[1:])
 
 
 def run(*args, **kwargs):
@@ -203,7 +214,8 @@ def main():
             for dep in deps.glob('*.ipk'):
                 shutil.copy(dep, assets / dep.name)
             background(['ip', 'netns', 'exec', 'inet', sys.executable, '-m', 'http.server', '8080', '--directory', str(assets)], 'assets.log')
-            args = ['qemu-system-x86_64', '-m', '256', '-smp', '2', '-display', 'none',
+            accel = ['-accel', 'kvm'] if os.access('/dev/kvm', os.R_OK | os.W_OK) else []
+            args = ['qemu-system-x86_64', *accel, '-m', '256', '-smp', '2', '-display', 'none',
                     '-monitor', 'none', '-serial', 'stdio', '-snapshot',
                     '-drive', f'file={image},format=raw,if=virtio']
             for index in range(3):
@@ -222,7 +234,7 @@ def main():
                 console.command(f'wget -q http://192.0.2.1:8080/{shlex.quote(name)} -O /tmp/{shlex.quote(name)}')
             console.command('opkg install /tmp/*.ipk', 120)
             console.command("uci set network.guest=interface; uci set network.guest.device=eth2; uci set network.guest.proto=static; uci set network.guest.ipaddr=192.168.9.1; uci set network.guest.netmask=255.255.255.0; uci commit network; /etc/init.d/network reload; sleep 3")
-            console.command("uci set firewall.guests=zone; uci set firewall.guests.name=guests; uci add_list firewall.guests.network=guest; uci set firewall.guests.input=ACCEPT; uci set firewall.guests.output=ACCEPT; uci set firewall.guests.forward=REJECT; uci set firewall.guestwan=forwarding; uci set firewall.guestwan.src=guests; uci set firewall.guestwan.dest=wan; uci commit firewall; /etc/init.d/firewall reload")
+            console.command("uci set firewall.guests=zone; uci set firewall.guests.name=guests; uci add_list firewall.guests.network=guest; uci set firewall.guests.input=REJECT; uci set firewall.guests.output=ACCEPT; uci set firewall.guests.forward=REJECT; uci set firewall.guestwan=forwarding; uci set firewall.guestwan.src=guests; uci set firewall.guestwan.dest=wan; uci commit firewall; /etc/init.d/firewall reload")
             console.command("uci set cpxy.guest=instance; uci set cpxy.guest.index=1; uci add_list cpxy.guest.network=guest; uci set cpxy.guest.server='http://:vm-guest@192.0.2.3:8443'")
             console.command("uci set cpxy.defaults.server='http://:vm-test@192.0.2.1:8443'; uci set cpxy.defaults.client=1; uci set cpxy.defaults.router_geoip=1; uci -q delete cpxy.defaults.dns_upstream; uci add_list cpxy.defaults.dns_upstream=192.0.2.1; uci add_list cpxy.defaults.dns_alternative='tcp://192.0.2.1?via=cpxy'; uci commit cpxy; /etc/init.d/cpxy-client enable; /etc/init.d/cpxy-client start; /etc/init.d/cpxy-router enable; /etc/init.d/cpxy-router start", 120)
 
@@ -236,8 +248,7 @@ def main():
                 assert proxied == '93.184.216.34', f'proxy path: {proxied}'
 
             def wait_paths():
-                # A main-table selector can be ready while another instance is still
-                # staging and the shared startup barrier deliberately refuses forwarding.
+                # Paths may be refused while the boot barrier waits for the table.
                 deadline = time.monotonic() + 60
                 while True:
                     try:
@@ -249,7 +260,8 @@ def main():
                             raise
                         time.sleep(1)
 
-            console.command('sleep 3; ip -4 rule show; ip -4 route show table 100 | wc -l')
+            console.command("sleep 3; nft list chain inet cpxy dstnat | grep -c 'redirect to :510'")
+            console.command('test -z "$(ip link show type tun)"; test -z "$(ip -4 rule show | grep -v -e \'lookup local\' -e \'lookup main\' -e \'lookup default\')"')
             (results / 'enforce').touch()
             def probe():
                 while not stop_probes.is_set():
@@ -265,14 +277,24 @@ def main():
             paths()
             assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
             assert fetch('114.114.114.114', 'guest') == '192.0.2.2'
-            print('PASS: VM regional and proxy paths', flush=True)
-            assert ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@192.168.8.1', 'regional.test', 'A') == '114.114.114.114'
-            assert ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@192.168.8.1', 'proxy.test', 'A') == '93.184.216.34'
-            assert not ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@192.168.8.1', 'proxy.test', 'AAAA')
-            assert ns('lan', 'dig', '+tcp', '+short', '+time=3', '+tries=1', '@192.168.8.1', 'proxy.test', 'A') == '93.184.216.34'
+            print('PASS: VM regional and proxy paths, a REJECT-input zone included; no TUN or policy rules', flush=True)
+            for listener in ['192.168.8.1:5100', '192.168.9.1:5101']:
+                try:
+                    ns('lan' if listener.startswith('192.168.8') else 'guest', 'curl', '-fsS', '--max-time', '3', f'http://{listener}/')
+                except subprocess.CalledProcessError:
+                    pass
+                else:
+                    raise AssertionError(f'direct connection to {listener} was proxied')
+            paths()
+            print('PASS: VM transparent listeners refuse direct connections', flush=True)
+            assert dns('192.168.8.1', 'regional.test') == '114.114.114.114'
+            assert dns('192.168.8.1', 'proxy.test') == '93.184.216.34'
+            assert dns('192.168.8.1', 'proxy.test', qtype='AAAA') == ''
+            assert dns('192.168.8.1', 'proxy.test', 'tcp') == '93.184.216.34'
+            assert dns('8.8.8.8', 'proxy.test', 'tcp', source='guest') == '93.184.216.34'
             assert 'DNS TCP peer=192.0.2.1' in (results / 'fixtures.log').read_text()
             print('PASS: VM split DNS, proxied alternative, empty AAAA fixture answer', flush=True)
-            console.command('ip -6 addr add 2001:db8:8::1/64 dev br-lan nodad; ip -6 addr add 2001:db8:2::2/64 dev eth1 nodad; ip -6 route add default via 2001:db8:2::1')
+            console.command('ip -6 addr add 2001:db8:8::1/64 dev br-lan; ip -6 addr add 2001:db8:2::2/64 dev eth1; sleep 3; ip -6 route add default via 2001:db8:2::1')
             ns('lan', 'ping', '-6', '-c1', '-W3', '2001:db8:8::1')
             console.command('/etc/init.d/cpxy-router reload; sleep 3', 120)
             try:
@@ -281,10 +303,10 @@ def main():
                 pass
             else:
                 raise AssertionError('Router forwarded client IPv6')
-            console.command('test -z "$(ip -6 route show table 100 2>/dev/null)$(ip -6 route show table 10100 2>/dev/null)"')
-            print('PASS: VM local IPv6 stays reachable; client IPv6 forwarding refused without tables', flush=True)
-            assert ns('lan', 'dig', '+short', '+time=3', '+tries=1', '@2001:db8:8::1', 'proxy.test', 'A') == '93.184.216.34'
-            assert ns('lan', 'dig', '+tcp', '+short', '+time=3', '+tries=1', '@2001:db8:8::1', 'proxy.test', 'A') == '93.184.216.34'
+            console.command("nft list chain inet cpxy forward | grep -q 'cpxy ipv6 br-lan'")
+            print('PASS: VM local IPv6 stays reachable; client IPv6 forwarding refused', flush=True)
+            assert dns('2001:db8:8::1', 'proxy.test') == '93.184.216.34'
+            assert dns('2001:db8:8::1', 'proxy.test', 'tcp') == '93.184.216.34'
             print('PASS: VM IPv6 UDP/TCP DNS redirection', flush=True)
             console.command("before=$(pidof cpxy-router); /etc/init.d/cpxy-router reload; sleep 2; test \"$before\" = \"$(pidof cpxy-router)\"")
             paths()
@@ -294,31 +316,32 @@ def main():
             ns('inet', 'ip', 'addr', 'add', '192.0.2.254/24', 'dev', 'nic')
             console.command('uci set network.wan.gateway=192.0.2.254; uci commit network; /etc/init.d/network reload; sleep 5', 120)
             # netifd's interface event is asynchronous, especially under software emulation.
-            console.command("for n in $(seq 1 60); do ip -4 route get 114.114.114.114 from 192.168.8.50 iif br-lan ipproto tcp dport 8000 2>/dev/null | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route get 114.114.114.114 from 192.168.8.50 iif br-lan ipproto tcp dport 8000 | grep -q 'via 192.0.2.254'", 150)
+            console.command("for n in $(seq 1 60); do ip -4 route get 114.114.114.114 2>/dev/null | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route get 114.114.114.114 | grep -q 'via 192.0.2.254'", 150)
             wait_paths()
-            console.command("ip -4 route show table 100 | grep -q 'via 192.0.2.254' || ip -4 route show table 10100 | grep -q 'via 192.0.2.254'")
-            print('PASS: VM netifd gateway change reconciles direct routes', flush=True)
-            console.command('kill -STOP $(pidof cpxy-router)')
+            print('PASS: VM netifd gateway change keeps direct and proxied paths', flush=True)
+            console.command('kill -STOP $(pidof cpxy-client)')
             assert fetch('114.114.114.114') == '192.0.2.2'
             try:
                 fetch('93.184.216.34')
             except subprocess.CalledProcessError:
                 pass
             else:
-                raise AssertionError('proxy escaped while worker suspended')
-            console.command('kill -CONT $(pidof cpxy-router)')
+                raise AssertionError('proxy escaped while cpxy-client suspended')
+            console.command('kill -CONT $(pidof cpxy-client)')
             paths()
             console.command("uci add_list cpxy.main.proxy_route=114.0.0.0/8; uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 2", 120)
             assert fetch('114.114.114.114') == '114.114.114.114'
-            print('PASS: VM worker failure and broad proxy override', flush=True)
+            print('PASS: VM cpxy-client failure and broad proxy override', flush=True)
             console.command("before=$(pidof cpxy-router); cp /usr/bin/cpxy-router /tmp/router-next; printf '\\n' >>/tmp/router-next; chmod 755 /tmp/router-next; mv /tmp/router-next /usr/bin/cpxy-router; /etc/init.d/cpxy-router reload; sleep 3; test \"$before\" != \"$(pidof cpxy-router)\"", 120)
             assert fetch('93.184.216.34') == '93.184.216.34'
-            print('PASS: VM binary/data replacement restarts DNS and packet workers', flush=True)
+            print('PASS: VM binary/data replacement restarts the DNS workers', flush=True)
             console.send('reboot')
             console.until(rb'Please press Enter to activate this console', 150)
             console.send('')
             console.until(rb'root@[^\r\n]*#')
-            console.command("for n in $(seq 1 90); do test \"$(pidof cpxy-router | wc -w)\" -eq 2 && netstat -lnt | grep -q ':5335 ' && netstat -lnt | grep -q ':5345 ' && break; sleep 1; done; netstat -lnt | grep -q ':5335 '; netstat -lnt | grep -q ':5345 '", 150)
+            # Kernel messages still arriving on the console can garble a long command line.
+            console.command('sleep 25', 60)
+            console.command("for n in $(seq 90); do [ $(netstat -lnt | grep -cE ':(5335|5345|5100|5101) ') -ge 4 ] && nft list table inet cpxy >/dev/null 2>&1 && ! nft list table inet cpxy_boot_guard >/dev/null 2>&1 && break; sleep 1; done; [ $n -lt 90 ]", 150)
             assert fetch('114.114.114.114') == '114.114.114.114'
             assert fetch('93.184.216.34') == '93.184.216.34'
             assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
@@ -334,7 +357,7 @@ def main():
         except Exception:
             if 'console' in locals():
                 with contextlib.suppress(Exception):
-                    console.command('ip -4 rule show; ip -4 route show table main; iptables -vnL CPXY_BOOT 2>/dev/null; logread -e cpxy | tail -40', 30)
+                    console.command("nft list ruleset | grep -v '^[[:space:]]*[0-9][0-9./]*,$'; ip -4 route show table main; logread -e cpxy | tail -40", 30)
             raise
         finally:
             stop_probes.set()

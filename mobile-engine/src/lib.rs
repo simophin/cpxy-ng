@@ -1,8 +1,8 @@
 //! The packet engine of the mobile VPN app: reads IP packets from the platform's TUN device and
 //! does what `cpxy-router` does on OpenWrt (see `docs/mobile-vpn-plan.md`):
 //!
-//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. A router ([`start_router`]) answers
-//!   it on its own sockets instead.
+//! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. A router has no TUN: it answers its
+//!   networks' DNS on its own sockets with [`serve_router_dns`].
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - Captured UDP 443 (QUIC) is refused; other UDP is relayed direct. Legacy mode also
@@ -129,13 +129,11 @@ pub fn start(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
                 ipv6: settings.ipv6,
             },
             intercept: true,
-            listen: None,
         }),
     )
 }
 
 /// The DNS a router answers on its own sockets, where its firewall redirects its networks' DNS.
-/// It never reaches the TUN.
 pub struct RouterDns {
     pub listen: SocketAddr,
     pub upstream: Vec<ServerSpec>,
@@ -148,48 +146,44 @@ pub struct RouterDns {
     pub cache: bool,
 }
 
-/// Starts the shared packet engine for a router, which answers DNS on `dns.listen` rather than
-/// from the TUN. LAN IPv6 is refused and AAAA queries return no records.
-/// The SOCKS5 transport itself may still use IPv6. No SOCKS listener is needed.
-pub fn start_router(
-    tun: OwnedFd,
+/// Answers a router's DNS on `dns.listen`. The router's kernel forwards and redirects its
+/// networks' TCP itself; there is no packet engine. Resolver destinations are classified by
+/// address: CN and private ones are asked directly, the others through `socks5_proxy`. LAN
+/// clients are IPv4-only, so AAAA queries return no records. Must run on a Tokio runtime with
+/// I/O and timers. Returns when a listener stops, which it otherwise never does.
+pub async fn serve_router_dns(
     socks5_proxy: SocketAddr,
     proxy_routes: client::outbound::ProxyRoutes,
-    mtu: u16,
-    dns: Option<RouterDns>,
-) -> anyhow::Result<EngineHandle> {
-    let dns_specs = dns.as_ref().map(|dns| DnsSpecs {
-        split: dns::Specs {
-            upstream: &dns.upstream,
-            alternative: &dns.alternative,
-            search_domains: &dns.search_domains,
-            local: dns
-                .local_server
-                .as_ref()
-                .map(|server| (server, dns.local_domains.as_slice())),
-            cache: dns.cache,
-            ipv6: Ipv6Mode::Off,
-        },
-        intercept: false,
-        listen: Some(dns.listen),
-    });
-    start_inner(
-        tun,
-        Backend::Socks5(socks5_proxy),
-        proxy_routes,
-        Ipv6Mode::Off,
-        mtu,
-        proxy::Ports::default(),
-        dns_specs,
-    )
+    dns: RouterDns,
+) -> anyhow::Result<()> {
+    let specs = dns::Specs {
+        upstream: &dns.upstream,
+        alternative: &dns.alternative,
+        search_domains: &dns.search_domains,
+        local: dns
+            .local_server
+            .as_ref()
+            .map(|server| (server, dns.local_domains.as_slice())),
+        cache: dns.cache,
+        ipv6: Ipv6Mode::Off,
+    };
+    let handler = Arc::new(dns::router_handler(&specs, socks5_proxy, &proxy_routes).await?);
+    let mut tasks = JoinSet::new();
+    dns::Listeners::bind(dns.listen)
+        .await?
+        .spawn(handler, &mut tasks);
+    let result = tasks.join_next().await;
+    tasks.shutdown().await;
+    match result {
+        Some(Ok(Err(error))) => Err(error.context("DNS listener stopped")),
+        other => anyhow::bail!("DNS listener stopped: {other:?}"),
+    }
 }
 
 struct DnsSpecs<'a> {
     split: dns::Specs<'a>,
     /// Whether DNS from the TUN to [`DNS_ADDR`] is answered; otherwise it is all relayed.
     intercept: bool,
-    /// Where to answer DNS on the engine's own sockets.
-    listen: Option<SocketAddr>,
 }
 
 /// The DNS the engine answers, and how.
@@ -209,7 +203,6 @@ impl DnsService {
 
 enum Backend {
     Cpxy(client::protocol_config::Config),
-    Socks5(SocketAddr),
     AndroidCpxy(client::protocol_config::Config),
     AndroidExternal(SocketAddr),
 }
@@ -250,7 +243,7 @@ fn start_inner(
                 .block_on(async {
                     match &server {
                         Backend::Cpxy(server) => dns::handler(&specs.split, server).await,
-                        Backend::Socks5(address) | Backend::AndroidExternal(address) => {
+                        Backend::AndroidExternal(address) => {
                             dns::router_handler(&specs.split, *address, &proxy_routes).await
                         }
                         Backend::AndroidCpxy(_) => unreachable!(),
@@ -264,10 +257,6 @@ fn start_inner(
         .transpose()?;
     // Bind before reporting success, so an occupied port fails the connection visibly.
     let proxies = runtime.block_on(proxy::Listeners::bind(proxy_ports))?;
-    let dns_listeners = dns_specs
-        .and_then(|specs| specs.listen)
-        .map(|addr| runtime.block_on(dns::Listeners::bind(addr)))
-        .transpose()?;
     let local_proxy_port = proxies.local_http_port();
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
@@ -277,8 +266,7 @@ fn start_inner(
         TunDevice::new(
             tun,
             mtu,
-            filter::Filter::new(ipv6, proxy_routes.clone())
-                .with_tcp_dot_allowed(android || matches!(&server, Backend::Socks5(_))),
+            filter::Filter::new(ipv6, proxy_routes.clone()).with_tcp_dot_allowed(android),
             traffic.clone(),
             device_eof.clone(),
             device_closed_tx,
@@ -287,7 +275,6 @@ fn start_inner(
 
     let router = Arc::new(match server {
         Backend::Cpxy(server) => Router::new(server, proxy_routes),
-        Backend::Socks5(address) => Router::socks5(address),
         Backend::AndroidExternal(address) => Router::split_socks5(address, proxy_routes),
         Backend::AndroidCpxy(_) => unreachable!(),
     });
@@ -300,7 +287,6 @@ fn start_inner(
         router,
         dns,
         proxies,
-        dns_listeners,
         embedded_task,
         shutdown_rx,
     ));
@@ -373,7 +359,6 @@ async fn run(
     router: Arc<Router>,
     dns: Option<DnsService>,
     proxies: proxy::Listeners,
-    dns_listeners: Option<dns::Listeners>,
     embedded_task: Option<JoinHandle<anyhow::Result<()>>>,
     mut shutdown: oneshot::Receiver<()>,
 ) {
@@ -391,9 +376,6 @@ async fn run(
     let mut stack = IpStack::new(config, device);
     let mut listener_tasks =
         proxies.spawn(router.clone(), dns.as_ref().map(|dns| dns.handler.clone()));
-    if let (Some(listeners), Some(dns)) = (dns_listeners, &dns) {
-        listeners.spawn(dns.handler.clone(), &mut listener_tasks);
-    }
     if let Some(task) = embedded_task {
         listener_tasks.spawn(async move { task.await? });
     }
@@ -467,7 +449,9 @@ async fn handle_tcp(flow: IpStackTcpStream, router: Arc<Router>, dns: Option<Dns
             return;
         }
     };
-    if let Err(error) = cpxy_ng::relay::relay(&mut flow, &mut upstream, cpxy_ng::relay::DEFAULT_LINGER).await {
+    if let Err(error) =
+        cpxy_ng::relay::relay(&mut flow, &mut upstream, cpxy_ng::relay::DEFAULT_LINGER).await
+    {
         tracing::debug!(%dst, %error, "TCP flow ended");
     }
 }
@@ -636,16 +620,14 @@ mod tests {
     }
 
     #[test]
-    fn router_answers_dns_on_its_listen_address_until_stopped() {
+    fn router_answers_dns_on_its_listen_address() {
         use hickory_proto::op::{Message, Query};
         use hickory_proto::rr::RecordType;
         use std::io::{Read, Write};
-        use std::os::unix::net::UnixDatagram;
 
         let reserved = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let listen = reserved.local_addr().unwrap();
         drop(reserved);
-        let (tun, _peer) = UnixDatagram::pair().unwrap();
         // Keep both resolver transports open: AAAA replies must not contact either.
         let resolver_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let resolver_addr = resolver_udp.local_addr().unwrap();
@@ -655,22 +637,31 @@ mod tests {
         let spec = format!("udp://{resolver_addr}")
             .parse::<ServerSpec>()
             .unwrap();
-        let engine = start_router(
-            tun.into(),
+        let dns = RouterDns {
+            listen,
+            upstream: vec![spec.clone()],
+            alternative: vec![spec.clone()],
+            search_domains: Vec::new(),
+            local_server: Some(spec),
+            local_domains: vec![Name::from_ascii("lan").unwrap()],
+            cache: true,
+        };
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = runtime.spawn(serve_router_dns(
             "127.0.0.1:1".parse().unwrap(),
             client::outbound::ProxyRoutes(Vec::new()),
-            DEFAULT_MTU,
-            Some(RouterDns {
-                listen,
-                upstream: vec![spec.clone()],
-                alternative: vec![spec.clone()],
-                search_domains: Vec::new(),
-                local_server: Some(spec),
-                local_domains: vec![Name::from_ascii("lan").unwrap()],
-                cache: true,
-            }),
-        )
-        .unwrap();
+            dns,
+        ));
+        // Wait until both sockets are bound.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::net::TcpStream::connect(listen).is_err() {
+            assert!(std::time::Instant::now() < deadline, "DNS did not start");
+            std::thread::sleep(Duration::from_millis(20));
+        }
 
         // AAAA is answered without asking any server.
         let mut query = Message::new();
@@ -717,7 +708,8 @@ mod tests {
             std::io::ErrorKind::WouldBlock
         );
 
-        engine.stop();
+        server.abort();
+        runtime.shutdown_timeout(Duration::from_secs(2));
         std::net::UdpSocket::bind(listen).unwrap();
         std::net::TcpListener::bind(listen).unwrap();
     }

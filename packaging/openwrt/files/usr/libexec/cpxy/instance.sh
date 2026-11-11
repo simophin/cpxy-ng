@@ -1,8 +1,8 @@
 #!/bin/sh
 # Instance settings, shared by the cpxy-* init scripts. Each `config instance '<name>'` section in
 # /etc/config/cpxy is one bundle for one set of networks. A setting is the instance's own option,
-# else the `defaults` section's, else built in. Ports, devices and routing numbers are derived
-# from the instance's `index` unless the instance sets them itself.
+# else the `defaults` section's, else built in. Ports are derived from the instance's `index`
+# unless the instance sets them itself.
 #
 # Callers source /lib/functions.sh and this file, then run cpxy_validate (which loads the config)
 # and cpxy_foreach.
@@ -118,12 +118,13 @@ cpxy_instance() {
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
 	cpxy_get_bool CPXY_SOCKS5 "$name" client_socks5 0
 	_cpxy_own CPXY_SOCKS5_LISTEN "$name" client_socks5_listen "[::]:$((1080 + i))"
-	cpxy_get CPXY_ROUTER_SOCKS5 "$name" router_socks5_proxy
-	if [ -z "$CPXY_ROUTER_SOCKS5" ]; then
-		CPXY_ROUTER_SOCKS5="$(_cpxy_connect_addr "$CPXY_SOCKS5_LISTEN")"
-		# The router's default endpoint is the sibling cpxy-client listener.
-		[ "$CPXY_ROUTER" != 1 ] || [ -z "$CPXY_NETWORKS" ] || CPXY_SOCKS5=1
-	fi
+	_cpxy_own CPXY_TRANSPARENT_LISTEN "$name" client_transparent_listen "0.0.0.0:$((5100 + i))"
+	CPXY_ROUTED=0
+	[ "$CPXY_ROUTER" != 1 ] || [ -z "$CPXY_NETWORKS" ] || CPXY_ROUTED=1
+	# A routed instance's TCP is redirected to its cpxy-client, whose SOCKS5 listener also
+	# carries the DNS worker's proxied resolvers.
+	[ "$CPXY_ROUTED" != 1 ] || CPXY_SOCKS5=1
+	CPXY_ROUTER_SOCKS5="$(_cpxy_connect_addr "$CPXY_SOCKS5_LISTEN")"
 	CPXY_PROXY="http://$(_cpxy_connect_addr "$CPXY_HTTP_LISTEN")"
 
 	cpxy_get CPXY_DNS_SEARCH_DOMAINS "$name" dns_search_domain
@@ -144,9 +145,6 @@ cpxy_instance() {
 	cpxy_get CPXY_DNS_LOCAL_SERVER "$name" dns_local_server 127.0.0.1:53
 
 	cpxy_get_bool CPXY_ROUTER_DNS "$name" router_dns 1
-	_cpxy_own CPXY_TUN "$name" tun "cpxy$i"
-	_cpxy_own CPXY_TABLE "$name" routing_table "$((100 + i))"
-	_cpxy_own CPXY_PRIORITY "$name" rule_priority "$((9100 + 10 * i))"
 	_cpxy_own CPXY_DNS_LISTEN "$name" dns_listen "[::]:$((5335 + 10 * i))"
 }
 
@@ -208,16 +206,23 @@ _cpxy_validate_instance() {
 	if [ "$CPXY_CLIENT" = 1 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"
 	fi
-	if [ "$CPXY_ROUTER" = 1 ] && [ -n "$CPXY_NETWORKS" ]; then
-		[ "$CPXY_GEOIP" = 1 ] || _cpxy_invalid "$1: router_geoip must be 1; stop the old router before migration"
-		_cpxy_socket_address "$CPXY_ROUTER_SOCKS5" || _cpxy_invalid "$1: router_socks5_proxy must be IPv4:port or [IPv6]:port"
+	if [ "$CPXY_ROUTED" = 1 ]; then
+		[ "$CPXY_GEOIP" = 1 ] || _cpxy_invalid "$1: router_geoip must be 1"
+		# The kernel redirects the networks' TCP to this instance's own cpxy-client.
+		[ "$CPXY_CLIENT" = 1 ] || _cpxy_invalid "$1: a routed network needs client '1': its TCP is redirected to cpxy-client"
 		config_get entry "$1" router_socks5_proxy
 		[ -n "$entry" ] || config_get entry defaults router_socks5_proxy
-		[ -n "$entry" ] || [ "$CPXY_CLIENT" = 1 ] || _cpxy_invalid "$1: enable client or set router_socks5_proxy"
+		[ -z "$entry" ] || _cpxy_invalid "$1: router_socks5_proxy is no longer supported; remove it (routed TCP goes through cpxy-client)"
+		case "$CPXY_TRANSPARENT_LISTEN" in
+		0.0.0.0:*) _cpxy_uint "$(_cpxy_port "$CPXY_TRANSPARENT_LISTEN")" 1 65535 ||
+			_cpxy_invalid "$1: invalid client_transparent_listen port" ;;
+		*) _cpxy_invalid "$1: client_transparent_listen must bind 0.0.0.0:port, where redirected connections arrive" ;;
+		esac
 	fi
 	if [ "$CPXY_CLIENT" = 1 ]; then
 		_cpxy_claim tcp "$(_cpxy_port "$CPXY_HTTP_LISTEN")" "$1 client_http_listen"
 		[ "$CPXY_SOCKS5" = 1 ] && _cpxy_claim tcp "$(_cpxy_port "$CPXY_SOCKS5_LISTEN")" "$1 client_socks5_listen"
+		[ "$CPXY_ROUTED" = 1 ] && _cpxy_claim tcp "$(_cpxy_port "$CPXY_TRANSPARENT_LISTEN")" "$1 client_transparent_listen"
 	fi
 	if [ "$CPXY_ROUTER" = 1 ]; then
 		[ -n "$CPXY_DNS_UPSTREAM" ] || _cpxy_invalid "$1: option 'dns_upstream' is required"

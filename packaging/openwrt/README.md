@@ -6,33 +6,38 @@ what it changes on the router and how it is built and tested.
 
 | Installed as | Built from | Role, per instance |
 |---|---|---|
-| `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP and SOCKS5 proxy through the instance's cpxy server |
-| `/usr/bin/cpxy-router` | `mobile-engine`, the shared packet engine | Overseas TCP from `cpxy<i>` through SOCKS5, native CN IPv4 routing, and split DNS |
+| `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP and SOCKS5 proxy through the instance's cpxy server, and the transparent listener its networks' overseas TCP is redirected to |
+| `/usr/bin/cpxy-router` | `mobile-engine`, `cpxy-router` | Split DNS for the networks, and the direct IPv4 prefixes for the nftables policy |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
 Each binary is a procd instance named after its cpxy instance, under one init script per program:
-`/etc/init.d/cpxy-client` and `cpxy-router` (packet engine and dns_split). Both
-read `/etc/config/cpxy` through `/usr/libexec/cpxy/instance.sh`, which merges an instance with
-`defaults`, derives ports and routing numbers from its `index`, and checks every enabled instance
+`/etc/init.d/cpxy-client` and `cpxy-router` (the nftables policy, firewall sections and
+dns_split). Both read `/etc/config/cpxy` through `/usr/libexec/cpxy/instance.sh`, which merges an
+instance with `defaults`, derives ports from its `index`, and checks every enabled instance
 together (indexes, ports, servers, DNS servers). Either refuses a configuration that
 fails, leaving what runs untouched. Each subscribes to changes of `cpxy`, and procd restarts only
 the instances whose command or environment changed.
 
 ```text
-LAN TCP (IPv4) -> kernel CN/private routes -> WAN
-                   -> otherwise TUN -> cpxy-router -> SOCKS5 -> cpxy-client or external proxy
+LAN TCP (IPv4) -> nft set: CN/private/connected -> kernel forwarding -> WAN
+                -> otherwise nft redirect -> cpxy-client transparent listener -> cpxy server
 LAN UDP (IPv4) -> WAN, except UDP/443 rejected
-LAN IPv6 forwarding -> refused (no IPv6 policy tables)
-LAN DNS (UDP/TCP 53, both families) -> redirect -> split DNS
-    -> CN/private resolver direct; overseas resolver through SOCKS5 over TCP/DoT/DoH
+LAN IPv6 forwarding -> refused
+LAN DNS (UDP/TCP 53, both families) -> fw4 redirect -> split DNS in cpxy-router
+    -> CN/private resolver direct; overseas resolver through cpxy-client's SOCKS5 over TCP/DoT/DoH
 ```
+
+`/usr/libexec/cpxy/nft.sh` renders the `inet cpxy` table from the per-instance plan: for each
+instance an interval set of direct prefixes, a `dstnat + 5` redirect per device (after fw4's DNS
+DNAT), and a `filter - 5` forward guard per device rejecting non-direct TCP, QUIC and IPv6. The
+init script replaces it in one `nft -f` transaction on every apply.
 
 ## No loops through the router's own DNS
 
 dnsmasq is not changed, so the router's own lookups (the cpxy servers' names, opkg, NTP) never
 reach split DNS, and nothing waits on itself at boot. cpxy-client resolves its server
 with dnsmasq. dns_split bootstraps resolver names with the system resolver unless
-explicitly proxied, in which case the SOCKS5 endpoint resolves them. It sends
+explicitly proxied, in which case the cpxy server resolves them. It sends
 single-label names, `dns_local_domain` and private reverse lookups to dnsmasq, which answers them
 itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 
@@ -41,8 +46,9 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 | Where | Change | Removed by |
 |---|---|---|
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
-| `/etc/config/firewall` | per routed instance: `cpxy_inst_<name>_zone` (its TUN), forwarding from each source zone, UDP refusal, and with `router_dns` IPv4/IPv6 DNS redirects per source zone | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
-| Kernel | per routed instance: a persistent TUN, five IPv4 rule priorities and two IPv4 routing tables, plus IPv6 ingress reject rules | reload, `stop`, `opkg remove` |
+| `/etc/config/firewall` | per routed instance and source zone: `cpxy_inst_<name>_proxy<n>` accepting the transparent listener port, and with `router_dns` IPv4/IPv6 DNS redirects; `cpxy_boot_guard`, the boot barrier include | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
+| Kernel | the nftables table `inet cpxy` (all routed instances), and while booting `inet cpxy_boot_guard` | reload, `stop`, `opkg remove`, reboot |
+| `/etc/cpxy/router-guards` | each routed instance's devices, for the boot barrier | the instance's removal, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
 
 `/etc/config/dhcp` and `/etc/config/network` are never edited. Firewall source zones are found
@@ -102,7 +108,7 @@ CI runs the builder in Alpine 3.23 as root, stores the variants in each build ar
 The native package includes OpenWrt's `/lib/apk/packages/cpxy.list`, `.conffiles` and
 `.conffiles_static`. Its hooks call OpenWrt's `default_postinst` / `default_prerm` with
 `pkgname=cpxy`, using `PKG_UPGRADE=1` for upgrades so disabled services remain disabled.
-The apk adds no repository, opkg key, or apk trust key. It declares `ip-full`, `kmod-tun`
+The apk adds no repository, opkg key, or apk trust key. It declares `firewall4`, `kmod-nft-nat`
 and a conflict with the legacy `cpxy-router` package. Use a local `apk add` with networking
 disabled when the dependencies are already present.
 
@@ -117,29 +123,22 @@ or traffic on physical hardware.
 The builder follows [apk-tools' mkpkg format](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/doc/apk-mkpkg.8.scd)
 and [OpenWrt's native package metadata/hooks](https://github.com/openwrt/openwrt/blob/main/include/package-pack.mk).
 
-`lab.sh` needs `cpxy-router` and `cpxy-server` for the host, plus `iproute2`, `nft`, `curl` and
-`python3`; the container tests need podman or docker. None of them runs the real fw3/fw4, procd or
-dnsmasq, so the redirect, the services and local names are verified on a router.
+`lab.sh` needs `cpxy-router`, `cpxy-client` and `cpxy-server` for the host, plus `iproute2`,
+`nft`, `curl` and `python3`; the container tests need podman or docker. None of them runs the real
+fw4, procd or dnsmasq. `qemu-geo.py` does: it boots an official OpenWrt x86-64 image under QEMU,
+installs the package with static binaries, and checks the paths, DNS, failure, reload, reboot
+and removal behaviour against a captured WAN:
+
+```sh
+unshare -Urmn python3 packaging/openwrt/test/qemu-geo.py \
+  openwrt-24.10.8-x86-64-generic-ext4-combined.img cpxy_<version>_x86_64.ipk <empty dir> \
+  <static cpxy-server> <results dir>
+```
 
 ## Fixed proxy routes
 
-Kernel routing is the normal router path: `router_geoip=1`.
-IPv4 reserves two table generations and five priorities; IPv6 ingress is refused.
-AAAA queries return empty answers locally. The router host, including cpxy-client,
-retains IPv6 transport connectivity. Old `router_ipv6` settings are ignored. The router requires
-SOCKS5; by default the sibling cpxy-client listener is enabled automatically. An
-external-only instance can disable client and omit cpxy server credentials.
-See the [operator guide](../../docs/openwrt.md#socks5-kernel-router) for migration.
-
-`test/lab.sh` requires `cpxy-router`, `cpxy-client` (standalone), and `cpxy-server`.
-It runs IPv4 forwarding, IPv6 refusals, IPv6 proxy transport, overrides and failure guards with real
-binaries. `test/init-dryrun.sh` uses stand-ins for procd and the binaries with real
-OpenWrt UCI; package install/removal has separate fixtures. Historical validation
-reports describe their original revisions; current results live in the
-[SOCKS5 plan](../../docs/socks5-kernel-router-plan.md).
-
 Add `list proxy_route '223.5.5.5/32'` (repeat for each IPv4 or IPv6 CIDR) to an instance
-or the `defaults` section in `/etc/config/cpxy`. Reload `cpxy-router` to
-apply. Matching TCP destination IPs always use the main proxy,
+or the `defaults` section in `/etc/config/cpxy`. Committing the change reloads both services,
+which replaces the direct set. Matching TCP destination IPs always use the main proxy,
 overriding automatic direct/CN routing. An empty list preserves automatic
 routing. The HTTP/SOCKS client already proxies every destination.

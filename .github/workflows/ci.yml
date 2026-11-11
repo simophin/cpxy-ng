@@ -280,7 +280,7 @@ jobs:
           # Honor Bash fixture shebangs; OpenWrt's ash scripts support `local`.
           shellcheck -S warning -e SC3043 packaging/openwrt/build-ipk.sh packaging/openwrt/build-apk.sh \
             packaging/openwrt/build-apk-variants.sh packaging/openwrt/apk-architectures.sh packaging/openwrt/make-feed.sh \
-            packaging/openwrt/test/*.sh packaging/common/net.sh packaging/openwrt/files/usr/libexec/cpxy/*.sh \
+            packaging/openwrt/test/*.sh packaging/openwrt/files/usr/libexec/cpxy/*.sh \
             packaging/openwrt/files/usr/bin/cpxy-show packaging/openwrt/files/etc/init.d/* \
             packaging/openwrt/control/postinst packaging/openwrt/control/prerm packaging/openwrt/control/postrm packaging/openwrt/apk/*
       - name: Test native apk metadata and offline package lifecycle

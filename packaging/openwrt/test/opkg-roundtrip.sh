@@ -17,10 +17,10 @@ set -eu
 snapshot() { for f in $(ls /etc/config); do echo "== $f"; uci export "$f"; done; ls /etc/rc.d /etc/init.d; }
 mkdir -p /var/lock /tmp
 # Offline: this tests what the package changes, not dependency resolution, so mark the
-# dependencies (ip-full, kmod-tun) as already installed
-for dep in ip-full kmod-tun; do
-	printf "Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n" "$dep" >>/usr/lib/opkg/status
-	: >"/usr/lib/opkg/info/$dep.list"
+# dependencies (firewall4, kmod-nft-nat) as already installed
+for dep in firewall4 kmod-nft-nat; do
+	opkg status "$dep" | grep -q "^Status: .* installed" || printf "Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n" "$dep" >>/usr/lib/opkg/status
+	[ -e "/usr/lib/opkg/info/$dep.list" ] || : >"/usr/lib/opkg/info/$dep.list"
 done
 snapshot >/before.txt
 
@@ -29,7 +29,7 @@ opkg install /pkg.ipk
 # What the install added
 for f in /usr/bin/cpxy-router /usr/bin/cpxy-client \
 	/usr/bin/cpxy-show /etc/config/cpxy /lib/upgrade/keep.d/cpxy \
-	/usr/libexec/cpxy/net.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh; do
+	/usr/libexec/cpxy/nft.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }
 done
 for service in cpxy-client cpxy-router; do

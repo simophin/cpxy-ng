@@ -28,8 +28,6 @@ trap 'rm -rf "$work"' EXIT
 
 mkdir -p "$work/data/usr/bin" "$work/data/lib/apk/packages" "$work/scripts"
 cp -R "$here/files/." "$work/data/"
-cp "$here/../common/net.sh" "$work/data/usr/libexec/cpxy/net.sh"
-cp "$here/../common/geo.sh" "$work/data/usr/libexec/cpxy/geo.sh"
 for bin in cpxy-router cpxy-client; do
 	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
 done
@@ -57,7 +55,7 @@ set -- "$apk" mkpkg --compat 3.0.0 --no-xattrs \
 	--info 'description:cpxy proxy, split DNS and LAN routing' \
 	--info origin:cpxy-ng --info maintainer:cpxy-ng \
 	--info url:https://github.com/simophin/cpxy-ng \
-	--info 'depends:ip-full kmod-tun !cpxy-router' \
+	--info 'depends:firewall4 kmod-nft-nat !cpxy-router' \
 	--script "post-install:$here/apk/install" \
 	--script "pre-upgrade:$work/scripts/upgrade-remove" \
 	--script "post-upgrade:$work/scripts/upgrade-install" \
