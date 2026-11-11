@@ -14,7 +14,7 @@ on:
 
 # PRs run tests, including the mobile TUN lab; the APK and OpenWrt packages build on main and tags,
 # and the publish job puts them on the download server (download-worker/). Main also publishes the
-# Docker images to ghcr.io and deploys the download server.
+# Docker image to ghcr.io and deploys the download server.
 # PR runs are cancelled when superseded. Everything else shares a single
 # group so only one build runs at a time (a newer pending run replaces an
 # older pending one, but a running build is never cancelled).
@@ -155,21 +155,19 @@ jobs:
       - name: Test engine
         run: cargo test --locked -p mobile-engine
       - name: Build Linux lab executables
-        run: cargo build --release --locked -p server -p mobile-engine -p client --bin server --bin cpxy-router --bin mobile-engine-linux --bin standalone
+        run: cargo build --release --locked -p cpxy -p mobile-engine --bin cpxy --bin cpxy-router --bin mobile-engine-linux
       - name: Prepare namespace lab
         run: |
           sudo apt-get install -y --no-install-recommends iproute2 nftables curl python3
           # Ubuntu runners restrict unprivileged user namespaces by default.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           mkdir -p bins
-          cp target/release/server bins/cpxy-server
-          cp target/release/mobile-engine-linux bins/
+          cp target/release/cpxy target/release/mobile-engine-linux bins/
       - name: Test TUN routing, DNS split, refusals and fail-closed behaviour
         run: mobile-engine/test/tun-lab.sh bins
       - name: Test native OpenWrt routing
         run: |
           cp target/release/cpxy-router bins/
-          cp target/release/standalone bins/cpxy-client
           packaging/openwrt/test/lab.sh bins
 
   test_mobile_shared:
@@ -225,12 +223,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The server is only for the routing test
       - name: Build router executables
         run: >
           cross build --release --locked --target ${{ matrix.target.rust }}
-          -p mobile-engine -p client -p server
-          --bin cpxy-router --bin standalone --bin server
+          -p cpxy -p mobile-engine --bin cpxy --bin cpxy-router
 
       - name: Build package
         env:
@@ -239,8 +235,7 @@ jobs:
           RELEASE: target/${{ matrix.target.rust }}/release
         run: |
           mkdir -p bins
-          cp "$RELEASE/cpxy-router" bins/cpxy-router
-          cp "$RELEASE/standalone" bins/cpxy-client
+          cp "$RELEASE/cpxy-router" "$RELEASE/cpxy" bins/
           packaging/openwrt/build-ipk.sh ${{ matrix.target.opkg_arch }} "${{ needs.version.outputs.ipk_version }}" bins openwrt-package
           docker run --rm -v "$PWD:/src" -w /src alpine:3.23 sh -ec '
             apk add --no-cache openssl
@@ -259,7 +254,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends nftables
           # Ubuntu runners restrict unprivileged user namespaces by default
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          cp target/${{ matrix.target.rust }}/release/server bins/cpxy-server
           packaging/openwrt/test/lab.sh bins
 
       - name: Upload package
@@ -331,6 +325,8 @@ jobs:
         run: cargo test
       - name: Test DNS split
         run: cargo test -p client --features dns-split dns_split
+      - name: Build cpxy without the DNS server
+        run: cargo build -p cpxy --no-default-features
 
   # Uploads the build to the R2 bucket the download server (download-worker/) serves, as one folder
   # per version:
@@ -433,8 +429,8 @@ jobs:
           curl -fsS "${DOWNLOAD_URL%/}/$VERSION/SHA256SUMS" | diff - "out/$VERSION/SHA256SUMS"
           echo "Published ${DOWNLOAD_URL%/}/$VERSION/" >>"$GITHUB_STEP_SUMMARY"
 
-  # The cpxy image (Dockerfile), from main. It cross-compiles on the build host, so one runner
-  # builds both platforms.
+  # The cpxy image (Dockerfile): the static musl `cpxy` binary on scratch, from main. It
+  # cross-compiles on the build host, so one runner builds both platforms.
   publish_docker:
     name: Publish Docker image (${{ matrix.image.name }})
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

@@ -4,7 +4,7 @@
 Usage: unshare -Urmn python3 qemu-geo.py IMAGE IPK DEPS_DIR SERVER RESULTS_DIR
 IMAGE is an official x86-64 combined ext4 image; DEPS_DIR contains matching dependency ipks (may be
 empty: the image already has firewall4 and kmod-nft-nat). Requires iproute2, QEMU and curl; uses
-KVM when /dev/kvm is usable. The package must include real static cpxy-client/router binaries.
+KVM when /dev/kvm is usable. The package must include real static cpxy and cpxy-router binaries.
 No third-party Python packages or host bridges needed.
 """
 import contextlib
@@ -204,8 +204,8 @@ def main():
             for name in ['enforce', 'leak']:
                 (results / name).unlink(missing_ok=True)
             background(['ip', 'netns', 'exec', 'inet', sys.executable, __file__, '--fixture', str(results)], 'fixtures.log')
-            background(['ip', 'netns', 'exec', 'inet', str(server), '--key', 'vm-test', '192.0.2.1:8443'], 'server.log')
-            background(['ip', 'netns', 'exec', 'upstream', str(server), '--key', 'vm-guest', '192.0.2.3:8443'], 'guest-server.log')
+            background(['ip', 'netns', 'exec', 'inet', str(server), 'server', '--key', 'vm-test', '--listen', '192.0.2.1:8443'], 'server.log')
+            background(['ip', 'netns', 'exec', 'upstream', str(server), 'server', '--key', 'vm-guest', '--listen', '192.0.2.3:8443'], 'guest-server.log')
             # Serve only test assets; never expose the repository or credentials.
             assets = results / 'assets'
             assets.mkdir(exist_ok=True)
@@ -319,7 +319,7 @@ def main():
             console.command("for n in $(seq 1 60); do ip -4 route get 114.114.114.114 2>/dev/null | grep -q 'via 192.0.2.254' && break; sleep 1; done; ip -4 route get 114.114.114.114 | grep -q 'via 192.0.2.254'", 150)
             wait_paths()
             print('PASS: VM netifd gateway change keeps direct and proxied paths', flush=True)
-            console.command('kill -STOP $(pidof cpxy-client)')
+            console.command('kill -STOP $(pidof cpxy)')
             assert fetch('114.114.114.114') == '192.0.2.2'
             try:
                 fetch('93.184.216.34')
@@ -327,7 +327,7 @@ def main():
                 pass
             else:
                 raise AssertionError('proxy escaped while cpxy-client suspended')
-            console.command('kill -CONT $(pidof cpxy-client)')
+            console.command('kill -CONT $(pidof cpxy)')
             paths()
             console.command("uci add_list cpxy.main.proxy_route=114.0.0.0/8; uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 2", 120)
             assert fetch('114.114.114.114') == '114.114.114.114'

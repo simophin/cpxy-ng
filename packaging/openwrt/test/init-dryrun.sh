@@ -129,15 +129,15 @@ uci commit cpxy
 everything start_service
 # cpxy-client: the HTTP proxy, the SOCKS5 listener the DNS worker uses, and the transparent
 # listener the networks' TCP is redirected to
-want 'set command /usr/bin/cpxy-client'
-want 'set env CONFIG=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1080 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100'
-want 'set env CONFIG=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1081 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101'
+want 'set command /usr/bin/cpxy client'
+want 'set env SERVER=https://:test-key@proxy.example:443 HTTP_PROXY_LISTEN=[::]:5000 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1080 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100'
+want 'set env SERVER=https://:guest-key@second.example:443 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1081 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101'
 want 'HTTP_PROXY_LISTEN=[::]:5002 NO_COLOR=1 SOCKS5_PROXY_LISTEN=[::]:1082 TRANSPARENT_PROXY_LISTEN=0.0.0.0:5102'
 # Without routes, PROXY_ROUTES is left unset: cpxy-client rejects an empty one
 absent 'PROXY_ROUTES'
 # procd restarts an instance when this file changes, not when only its environment does
 want 'set file /tmp/cpxy/client-guest.env'
-grep -qxF 'CONFIG=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
+grep -qxF 'SERVER=https://:guest-key@second.example:443' /tmp/cpxy/client-guest.env || fail 'client settings file'
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
 # cpxy-router: one DNS worker per instance, no TUN
 want 'instance guest_dns'
@@ -403,7 +403,7 @@ uci delete cpxy.guest.network
 uci set cpxy.guest.dns_listen=0.0.0.0:5345
 : >"$LOG"
 everything start_service
-want 'set command /usr/bin/cpxy-client'
+want 'set command /usr/bin/cpxy client'
 absent 'set command /usr/bin/cpxy-router'
 absent 'SOCKS5_PROXY_LISTEN='
 absent 'TRANSPARENT_PROXY_LISTEN='

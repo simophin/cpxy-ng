@@ -15,7 +15,7 @@
 # the engine's own sockets leave through the phone's uplink: on Android, the app is excluded from
 # its own VPN the same way.
 #
-# usage: tun-lab.sh <dir with cpxy-server and mobile-engine-linux>
+# usage: tun-lab.sh <dir with cpxy and mobile-engine-linux>
 set -u
 
 if [ -z "${CPXY_LAB_INNER:-}" ]; then
@@ -70,7 +70,7 @@ in_apps ip link set lo up
 mkdir "$WORK/www" && echo hello >"$WORK/www/index.html"
 head -c 4000000 /dev/urandom >"$WORK/www/big.bin"
 # Not via in_inet: `ip netns exec` execs, so $! is the server itself
-ip netns exec inet "$BIN/cpxy-server" --key lab 192.0.2.1:8443 >"$WORK/server.log" 2>&1 &
+ip netns exec inet "$BIN/cpxy" server --key lab --listen 192.0.2.1:8443 >"$WORK/server.log" 2>&1 &
 PIDS="$PIDS $!"
 SERVER_PID=$!
 for ip in 93.184.216.34 114.114.114.114 2001:db8:100::34 2400:3200::114; do

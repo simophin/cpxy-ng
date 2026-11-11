@@ -516,7 +516,6 @@ dependencies = [
  "axum",
  "clap",
  "cpxy-ng",
- "dotenvy",
  "futures",
  "geoip-data",
  "hickory-proto",
@@ -530,7 +529,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-subscriber",
  "url",
  "webpki-roots",
 ]
@@ -569,6 +567,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cpxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "client",
+ "dotenvy",
+ "geoip-data",
+ "ipnet",
+ "server",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2502,10 +2516,8 @@ dependencies = [
  "clap",
  "client",
  "cpxy-ng",
- "dotenvy",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
