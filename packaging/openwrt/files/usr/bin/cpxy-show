@@ -28,7 +28,7 @@ EOF
 		else
 			echo "  direct set      not installed"
 		fi
-		echo "  GeoIP dataset   $("$CPXY_BIN/cpxy-router" --geoip-version)"
+		echo "  GeoIP dataset   $("$CPXY_BIN/cpxy" routes geoip-version)"
 		if [ -f "$CPXY_RUN/instances/$1" ]; then
 			echo "  policy          $(sed -n '6p' "$CPXY_RUN/instances/$1")"
 		fi

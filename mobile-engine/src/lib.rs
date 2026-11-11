@@ -1,8 +1,8 @@
 //! The packet engine of the mobile VPN app: reads IP packets from the platform's TUN device and
-//! does what `cpxy-router` does on OpenWrt (see `docs/mobile-vpn-plan.md`):
+//! does what the `cpxy` package does on OpenWrt (see `docs/mobile-vpn-plan.md`):
 //!
 //! - DNS sent to [`DNS_ADDR`] is answered with `dns_split`. A router has no TUN: it answers its
-//!   networks' DNS on its own sockets with [`serve_router_dns`].
+//!   networks' DNS on its own sockets with `cpxy dns --resolver-routing cn_split`.
 //! - TCP to private and CN addresses goes direct, everything else through the cpxy server. When
 //!   the server is unreachable the connection fails; it is never sent direct instead.
 //! - Captured UDP 443 (QUIC) is refused; other UDP is relayed direct. Legacy mode also
@@ -32,10 +32,8 @@ pub use ffi::{Engine, EngineError, start_engine};
 uniffi::setup_scaffolding!();
 
 use client::dns_split::server::DnsSplitHandler;
-use client::dns_split::spec::ServerSpec;
 pub use client::ipv6::Ipv6Mode;
 use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
-use hickory_proto::rr::Name;
 use ipstack::{
     IpStack, IpStackConfig, IpStackStream, IpStackTcpStream, IpStackUdpStream, TcpConfig,
     TcpOptions,
@@ -132,53 +130,6 @@ pub fn start(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
             intercept: true,
         }),
     )
-}
-
-/// The DNS a router answers on its own sockets, where its firewall redirects its networks' DNS.
-pub struct RouterDns {
-    pub listen: SocketAddr,
-    pub upstream: Vec<ServerSpec>,
-    pub alternative: Vec<ServerSpec>,
-    pub search_domains: Vec<Name>,
-    /// The router's own resolver (dnsmasq), for single-label names, names under
-    /// `local_domains` and reverse lookups of private addresses.
-    pub local_server: Option<ServerSpec>,
-    pub local_domains: Vec<Name>,
-    pub cache: bool,
-}
-
-/// Answers a router's DNS on `dns.listen`. The router's kernel forwards and redirects its
-/// networks' TCP itself; there is no packet engine. Resolver destinations are classified by
-/// address: CN and private ones are asked directly, the others through `socks5_proxy`. LAN
-/// clients are IPv4-only, so AAAA queries return no records. Must run on a Tokio runtime with
-/// I/O and timers. Returns when a listener stops, which it otherwise never does.
-pub async fn serve_router_dns(
-    socks5_proxy: SocketAddr,
-    proxy_routes: client::outbound::ProxyRoutes,
-    dns: RouterDns,
-) -> anyhow::Result<()> {
-    let specs = dns::Specs {
-        upstream: &dns.upstream,
-        alternative: &dns.alternative,
-        search_domains: &dns.search_domains,
-        local: dns
-            .local_server
-            .as_ref()
-            .map(|server| (server, dns.local_domains.as_slice())),
-        cache: dns.cache,
-        ipv6: Ipv6Mode::Off,
-    };
-    let handler = Arc::new(dns::router_handler(&specs, socks5_proxy, &proxy_routes).await?);
-    let mut tasks = JoinSet::new();
-    dns::Listeners::bind(dns.listen)
-        .await?
-        .spawn(handler, &mut tasks);
-    let result = tasks.join_next().await;
-    tasks.shutdown().await;
-    match result {
-        Some(Ok(Err(error))) => Err(error.context("DNS listener stopped")),
-        other => anyhow::bail!("DNS listener stopped: {other:?}"),
-    }
 }
 
 struct DnsSpecs<'a> {
@@ -608,101 +559,6 @@ mod tests {
         assert!(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).is_err());
         // A subsequent connection can bind the saved port again.
         std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).unwrap();
-    }
-
-    #[test]
-    fn router_answers_dns_on_its_listen_address() {
-        use hickory_proto::op::{Message, Query};
-        use hickory_proto::rr::RecordType;
-        use std::io::{Read, Write};
-
-        let reserved = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let listen = reserved.local_addr().unwrap();
-        drop(reserved);
-        // Keep both resolver transports open: AAAA replies must not contact either.
-        let resolver_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let resolver_addr = resolver_udp.local_addr().unwrap();
-        let resolver_tcp = std::net::TcpListener::bind(resolver_addr).unwrap();
-        resolver_udp.set_nonblocking(true).unwrap();
-        resolver_tcp.set_nonblocking(true).unwrap();
-        let spec = format!("udp://{resolver_addr}")
-            .parse::<ServerSpec>()
-            .unwrap();
-        let dns = RouterDns {
-            listen,
-            upstream: vec![spec.clone()],
-            alternative: vec![spec.clone()],
-            search_domains: Vec::new(),
-            local_server: Some(spec),
-            local_domains: vec![Name::from_ascii("lan").unwrap()],
-            cache: true,
-        };
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .unwrap();
-        let server = runtime.spawn(serve_router_dns(
-            "127.0.0.1:1".parse().unwrap(),
-            client::outbound::ProxyRoutes(Vec::new()),
-            dns,
-        ));
-        // Wait until both sockets are bound.
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while std::net::TcpStream::connect(listen).is_err() {
-            assert!(std::time::Instant::now() < deadline, "DNS did not start");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        // AAAA is answered without asking any server.
-        let mut query = Message::new();
-        query.set_id(7).add_query(Query::query(
-            Name::from_ascii("example.com.").unwrap(),
-            RecordType::AAAA,
-        ));
-        let query = query.to_vec().unwrap();
-
-        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        udp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        udp.send_to(&query, listen).unwrap();
-        let mut buf = [0; 512];
-        let n = udp.recv(&mut buf).unwrap();
-        let response = Message::from_vec(&buf[..n]).unwrap();
-        assert_eq!(response.id(), 7);
-        assert_eq!(
-            response.response_code(),
-            hickory_proto::op::ResponseCode::NoError
-        );
-        assert!(response.answers().is_empty());
-
-        let mut tcp = std::net::TcpStream::connect(listen).unwrap();
-        tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        tcp.write_all(&(query.len() as u16).to_be_bytes()).unwrap();
-        tcp.write_all(&query).unwrap();
-        let mut len = [0; 2];
-        tcp.read_exact(&mut len).unwrap();
-        let mut reply = vec![0; u16::from_be_bytes(len).into()];
-        tcp.read_exact(&mut reply).unwrap();
-        let response = Message::from_vec(&reply).unwrap();
-        assert_eq!(response.id(), 7);
-        assert_eq!(
-            response.response_code(),
-            hickory_proto::op::ResponseCode::NoError
-        );
-        assert!(response.answers().is_empty());
-        assert_eq!(
-            resolver_udp.recv(&mut buf).unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-        assert_eq!(
-            resolver_tcp.accept().unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-
-        server.abort();
-        runtime.shutdown_timeout(Duration::from_secs(2));
-        std::net::UdpSocket::bind(listen).unwrap();
-        std::net::TcpListener::bind(listen).unwrap();
     }
 
     #[test]

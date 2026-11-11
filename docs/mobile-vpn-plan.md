@@ -157,11 +157,11 @@ tunnel.
 
 Done: `mobile-engine/`, with unit tests for the config, the packet filter and the routing decision,
 and `mobile-engine/test/tun-lab.sh`. The lab runs `mobile-engine-linux` (creates a TUN device and
-runs the engine on it) and the release `server`:
+runs the engine on it) and the release `cpxy server`:
 
 ```sh
-cargo build --release -p server -p mobile-engine
-mkdir -p bins && cp target/release/server bins/cpxy-server && cp target/release/mobile-engine-linux bins/
+cargo build --release -p cpxy -p mobile-engine
+mkdir -p bins && cp target/release/cpxy target/release/mobile-engine-linux bins/
 mobile-engine/test/tun-lab.sh bins
 ```
 

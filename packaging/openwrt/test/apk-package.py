@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     work = Path(directory)
     bins = work / "bins"
     bins.mkdir()
-    for name in ("cpxy-client", "cpxy-router"):
+    for name in ("cpxy",):
         (bins / name).write_text("#!/bin/sh\nexit 0\n")
     packages = []
     for version in ("1.0.0-r9", "1.0.0-r10"):
@@ -146,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     assert expected_hash == original_hash
     assert "/etc/init.d/cpxy-router" in (root / "lib/apk/packages/cpxy.list").read_text()
     run(*apk, "del", "--no-scripts", "cpxy")
-    assert not (root / "usr/bin/cpxy-router").exists()
+    assert not (root / "usr/bin/cpxy").exists()
     assert not (root / "etc/init.d/cpxy-router").exists()
     assert not (root / "lib/apk/packages/cpxy.list").exists()
     assert installed_config.read_text() == contents

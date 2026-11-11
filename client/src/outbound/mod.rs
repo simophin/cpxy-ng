@@ -6,7 +6,6 @@ mod ip_divert;
 mod protocol;
 mod proxy_routes;
 mod resolving_ip;
-mod site_divert;
 mod socks5;
 mod stat_reporting;
 
@@ -17,7 +16,6 @@ pub use ip_divert::*;
 pub use protocol::*;
 pub use proxy_routes::*;
 pub use resolving_ip::*;
-pub use site_divert::*;
 pub use socks5::*;
 pub use stat_reporting::*;
 

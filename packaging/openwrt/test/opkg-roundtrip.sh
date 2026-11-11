@@ -27,7 +27,7 @@ snapshot >/before.txt
 opkg install /pkg.ipk
 
 # What the install added
-for f in /usr/bin/cpxy-router /usr/bin/cpxy-client \
+for f in /usr/bin/cpxy \
 	/usr/bin/cpxy-show /etc/config/cpxy /lib/upgrade/keep.d/cpxy \
 	/usr/libexec/cpxy/nft.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }
@@ -46,7 +46,7 @@ uci revert cpxy
 echo "install ok"
 
 opkg remove cpxy
-for f in /usr/bin/cpxy-router /usr/bin/cpxy-client \
+for f in /usr/bin/cpxy \
 	/usr/bin/cpxy-show /etc/init.d/cpxy-client /etc/init.d/cpxy-router \
 	/usr/libexec/cpxy; do
 	[ ! -e "$f" ] || { echo "FAIL: left behind $f"; exit 1; }

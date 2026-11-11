@@ -12,9 +12,9 @@
 #
 # The router mimics OpenWrt: strict rp_filter, forward policy drop, LAN-to-WAN forwarding, a
 # DNS redirect like fw4's, and the package's real nftables policy (nft.sh), cpxy-client
-# transparent listeners and cpxy-router DNS workers. It does not run fw4 or dnsmasq.
+# transparent listeners and cpxy-router's `cpxy dns` workers. It does not run fw4 or dnsmasq.
 #
-# usage: lab.sh <dir with cpxy-router, cpxy-client and cpxy-server>
+# usage: lab.sh <dir with cpxy>
 set -u
 
 if [ -z "${CPXY_LAB_INNER:-}" ]; then
@@ -115,9 +115,9 @@ check "router firewall loads" in_router nft -f "$WORK/fw.nft"
 
 # --- Internet side ---
 mkdir "$WORK/www" && echo hello >"$WORK/www/index.html"
-bg ip netns exec inet "$BIN/cpxy-server" --key lab '[2001:db8:2::1]:8443' >"$WORK/server.log" 2>&1
+bg ip netns exec inet "$BIN/cpxy" server --key lab --listen '[2001:db8:2::1]:8443' >"$WORK/server.log" 2>&1
 SERVER_PID=$!
-bg ip netns exec upstream "$BIN/cpxy-server" --key guestlab 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
+bg ip netns exec upstream "$BIN/cpxy" server --key guestlab --listen 192.0.3.1:8444 >"$WORK/guest-server.log" 2>&1
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 93.184.216.34 2>>"$WORK/web.log")
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 2001:db8:100::34 2>>"$WORK/web.log")
 (cd "$WORK/www" && bg in_inet python3 -m http.server 8000 --bind 114.114.114.114 2>>"$WORK/direct.log")
@@ -200,7 +200,7 @@ instance() {
 	inst="$1" port="$2" dns="$3" dev="$4"
 	shift 4
 	for route in "$@"; do set -- "$@" --proxy-route "$route"; shift; done
-	{ "$BIN/cpxy-router" --export-direct-routes "$@" && in_router sh -c ". '$NFT'; cpxy_nft_main_routes"; } >"$PLAN/routes/$inst" || return 1
+	{ "$BIN/cpxy" routes cn-direct "$@" && in_router sh -c ". '$NFT'; cpxy_nft_main_routes"; } >"$PLAN/routes/$inst" || return 1
 	# shellcheck source=packaging/openwrt/files/usr/libexec/cpxy/nft.sh
 	(. "$NFT"; cpxy_nft_state "$PLAN/$inst" "$port" "$dns" "$(sha256sum <"$PLAN/routes/$inst" | cut -d ' ' -f 1)" zone "$dev")
 }
@@ -213,11 +213,11 @@ check "the main table's subnets are direct" in_router nft get element inet cpxy 
 check "other devices are exempt" in_router nft get element inet cpxy exempt '{ "tail0r" }'
 check_not "the uplink is not exempt" in_router nft get element inet cpxy exempt '{ "wan0r" }'
 
-bg ip netns exec router env CONFIG='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 \
-	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100 "$BIN/cpxy-client" >"$WORK/client.log" 2>&1
+bg ip netns exec router env SERVER='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 \
+	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100 "$BIN/cpxy" client >"$WORK/client.log" 2>&1
 CLIENT_PID=$!
-bg ip netns exec router "$BIN/cpxy-router" --socks5-proxy 127.0.0.1:1080 --dns-listen '[::]:5335' \
-	--dns-upstream 114.114.114.114 --dns-alternative 8.8.8.8 >"$WORK/dns.log" 2>&1
+bg ip netns exec router "$BIN/cpxy" dns --resolver-routing cn_split --socks5-proxy 127.0.0.1:1080 \
+	--listen '[::]:5335' --upstream 114.114.114.114 --alternative 8.8.8.8 >"$WORK/dns.log" 2>&1
 DNS_PID=$!
 sleep 1
 
@@ -281,8 +281,8 @@ instance main 5100 5335 lan0r && apply
 
 # --- A second network on its own server ---
 check "guest instance policy installs" reinstall guest 5101 5345 guest0r
-bg ip netns exec router env CONFIG=http://:guestlab@192.0.3.1:8444 SOCKS5_PROXY_LISTEN=127.0.0.1:1081 \
-	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101 "$BIN/cpxy-client" >"$WORK/guest-client.log" 2>&1
+bg ip netns exec router env SERVER=http://:guestlab@192.0.3.1:8444 SOCKS5_PROXY_LISTEN=127.0.0.1:1081 \
+	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5101 "$BIN/cpxy" client >"$WORK/guest-client.log" 2>&1
 GUEST_PID=$!
 sleep 1
 mark; check "guest uses the second upstream" guest_fetch
@@ -305,8 +305,8 @@ kill "$CLIENT_PID"; sleep 0.5
 mark; check_not "cpxy-client down: overseas TCP is refused" fetch
 expect_not_direct "cpxy-client down: nothing leaked via the WAN"
 check "cpxy-client down: CN TCP still works" fetch "$CN_URL"
-bg ip netns exec router env CONFIG='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 \
-	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100 "$BIN/cpxy-client" >>"$WORK/client.log" 2>&1
+bg ip netns exec router env SERVER='http://:lab@[2001:db8:2::1]:8443' SOCKS5_PROXY_LISTEN=127.0.0.1:1080 \
+	TRANSPARENT_PROXY_LISTEN=0.0.0.0:5100 "$BIN/cpxy" client >>"$WORK/client.log" 2>&1
 CLIENT_PID=$!
 sleep 0.5
 mark; check "cpxy-client restart restores proxied TCP" fetch

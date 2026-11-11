@@ -1,6 +1,6 @@
-use client::dns_split::is_local_region_ip;
+use client::dns_split::routing::should_proxy;
 use client::outbound::{
-    DirectOutbound, EitherOutbound, ProtocolOutbound, ProxyRoutes, Socks5Outbound, is_private,
+    DirectOutbound, EitherOutbound, ProtocolOutbound, ProxyRoutes, Socks5Outbound,
 };
 use client::protocol_config::Config as ServerConfig;
 use cpxy_ng::either_stream::EitherStream;
@@ -62,15 +62,11 @@ impl Outbound for Router {
 
 /// Forced destinations always win over regional/private direct routing.
 pub fn route(proxy_routes: &ProxyRoutes, ip: Option<IpAddr>) -> Route {
-    if !proxy_routes.contains(ip) && ip.is_some_and(should_route_direct) {
-        Route::Direct
-    } else {
+    if should_proxy(proxy_routes, ip) {
         Route::Proxy
+    } else {
+        Route::Direct
     }
-}
-
-pub fn should_route_direct(ip: IpAddr) -> bool {
-    is_private(ip) || is_local_region_ip(ip)
 }
 
 #[cfg(test)]
@@ -93,35 +89,5 @@ mod tests {
             router.route(Some("192.168.1.1".parse().unwrap())),
             Route::Direct
         );
-    }
-
-    #[test]
-    fn local_addresses_go_direct() {
-        for ip in [
-            "10.1.2.3",
-            "172.16.0.1",
-            "192.168.1.1",
-            "127.0.0.1",
-            "169.254.1.1",
-        ] {
-            assert!(should_route_direct(ip.parse().unwrap()), "{ip}");
-        }
-    }
-
-    #[test]
-    fn cn_addresses_go_direct() {
-        // AliDNS, Baidu DNS, 114DNS. Not DNSPod's 119.29.29.29: DB-IP places that anycast
-        // address in Singapore.
-        for ip in ["223.5.5.5", "180.76.76.76", "114.114.114.114"] {
-            assert!(should_route_direct(ip.parse().unwrap()), "{ip}");
-        }
-    }
-
-    #[test]
-    fn everything_else_is_proxied() {
-        // Google, Cloudflare, example.com, Tailscale CGNAT (no Tailscale branch here)
-        for ip in ["8.8.8.8", "1.1.1.1", "93.184.216.34", "100.100.100.100"] {
-            assert!(!should_route_direct(ip.parse().unwrap()), "{ip}");
-        }
     }
 }

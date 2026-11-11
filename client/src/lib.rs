@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod counted_stream;
 #[cfg(feature = "dns-split")]
 pub mod dns_split;

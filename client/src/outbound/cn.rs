@@ -1,6 +1,6 @@
 use crate::outbound::{
     DirectOutbound, IPDivertOutbound, ProtocolOutbound, ProxyRoutes, ResolvingIPOutbound,
-    SiteDivertOutbound, StatReportingOutbound, is_private,
+    StatReportingOutbound, is_private,
 };
 use crate::protocol_config::Config;
 use crate::stats_server::OutboundEvent;
@@ -20,8 +20,6 @@ use tokio::sync::broadcast;
 pub fn cn_outbound(
     dns_servers: Vec<SocketAddr>,
     main_server: Config,
-    ai_server: Option<Config>,
-    tailscale_server: Option<Config>,
     proxy_routes: ProxyRoutes,
     events_tx: broadcast::Sender<OutboundEvent>,
 ) -> impl Outbound {
@@ -35,17 +33,6 @@ pub fn cn_outbound(
         inner: ProtocolOutbound(main_server),
         events_tx: events_tx.clone(),
     };
-
-    let ai_outbound = ai_server.map(|c| StatReportingOutbound {
-        name: Cow::Borrowed("ai"),
-        inner: ProtocolOutbound(c),
-        events_tx: events_tx.clone(),
-    });
-    let tailscale_outbound = tailscale_server.map(|c| StatReportingOutbound {
-        name: Cow::Borrowed("tailscale"),
-        inner: ProtocolOutbound(c),
-        events_tx: events_tx.clone(),
-    });
 
     let direct_outbound = StatReportingOutbound {
         name: Cow::Borrowed("direct"),
@@ -63,17 +50,9 @@ pub fn cn_outbound(
             outbound_a: Some(fixed_outbound),
             should_use_a: move |ip| proxy_routes.contains(ip),
             outbound_b: IPDivertOutbound {
-                outbound_a: tailscale_outbound,
-                outbound_b: SiteDivertOutbound {
-                    outbound_a: ai_outbound,
-                    outbound_b: IPDivertOutbound {
-                        outbound_a: Some(direct_outbound),
-                        outbound_b: global_outbound,
-                        should_use_a: ip_should_route_direct,
-                    },
-                    should_use_a: site_should_route_ai,
-                },
-                should_use_a: ip_should_route_tailscale,
+                outbound_a: Some(direct_outbound),
+                outbound_b: global_outbound,
+                should_use_a: ip_should_route_direct,
             },
         },
         resolver: Arc::new(
@@ -83,6 +62,7 @@ pub fn cn_outbound(
     }
 }
 
+/// A tailnet, reached through the local Tailscale daemon rather than the cpxy server.
 const TAILSCALE_NETWORK: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(100, 0, 0, 0), 8);
 const TAILSCALE_NETWORK_V6: Ipv6Net =
     Ipv6Net::new_assert(Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 0), 48);
@@ -91,7 +71,7 @@ fn ip_should_route_direct(ip: Option<IpAddr>) -> bool {
     match ip {
         Some(ip) => {
             is_private(ip)
-                || ip_should_route_tailscale(Some(ip))
+                || is_tailnet(ip)
                 || match ip {
                     IpAddr::V4(ip) => contains_v4(&ip, CN),
                     IpAddr::V6(ip) => contains_v6(&ip, CN6),
@@ -101,15 +81,10 @@ fn ip_should_route_direct(ip: Option<IpAddr>) -> bool {
     }
 }
 
-fn site_should_route_ai(domain: &str) -> bool {
-    domain.contains("openai.com") || domain.contains("gemini") || domain.contains("anthropic")
-}
-
-fn ip_should_route_tailscale(ip: Option<IpAddr>) -> bool {
+fn is_tailnet(ip: IpAddr) -> bool {
     match ip {
-        Some(IpAddr::V4(ip)) => TAILSCALE_NETWORK.contains(&ip),
-        Some(IpAddr::V6(ip)) => TAILSCALE_NETWORK_V6.contains(&ip),
-        _ => false,
+        IpAddr::V4(ip) => TAILSCALE_NETWORK.contains(&ip),
+        IpAddr::V6(ip) => TAILSCALE_NETWORK_V6.contains(&ip),
     }
 }
 
@@ -120,7 +95,7 @@ mod tests {
     use tokio::net::TcpListener;
 
     #[tokio::test]
-    async fn fixed_routes_override_cn_ai_and_tailscale_after_resolution() {
+    async fn fixed_routes_override_cn_and_tailnet_after_resolution() {
         let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let server: Config = format!("http://:key@{}", closed.local_addr().unwrap())
             .parse()
@@ -129,9 +104,7 @@ mod tests {
         let (tx, mut rx) = broadcast::channel(16);
         let outbound = cn_outbound(
             vec![],
-            server.clone(),
-            Some(server.clone()),
-            Some(server),
+            server,
             ProxyRoutes::parse(&[
                 "223.5.5.5/32".into(),
                 "100.0.0.0/8".into(),
@@ -143,10 +116,6 @@ mod tests {
         for host in [
             OutboundHost::Resolved {
                 domain: "cn.example".into(),
-                ip: Some("223.5.5.5".parse().unwrap()),
-            },
-            OutboundHost::Resolved {
-                domain: "openai.com".into(),
                 ip: Some("223.5.5.5".parse().unwrap()),
             },
             OutboundHost::Resolved {
@@ -176,8 +145,6 @@ mod tests {
         let outbound = cn_outbound(
             vec![],
             "http://:key@127.0.0.1:1".parse().unwrap(),
-            None,
-            None,
             ProxyRoutes::parse(&["223.5.5.5/32".into()]).unwrap(),
             tx,
         );

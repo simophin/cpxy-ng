@@ -28,9 +28,7 @@ trap 'rm -rf "$work"' EXIT
 
 mkdir -p "$work/data/usr/bin" "$work/data/lib/apk/packages" "$work/scripts"
 cp -R "$here/files/." "$work/data/"
-for bin in cpxy-router cpxy-client; do
-	install -m 0755 "$bindir/$bin" "$work/data/usr/bin/$bin"
-done
+install -m 0755 "$bindir/cpxy" "$work/data/usr/bin/cpxy"
 chmod 0755 "$work/data/etc/init.d/"*
 chmod 0644 "$work/data/lib/upgrade/keep.d/cpxy" "$work/data/usr/libexec/cpxy/"*
 chmod 0755 "$work/data/usr/libexec/cpxy/boot-firewall.sh"

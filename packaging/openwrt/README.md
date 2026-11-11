@@ -6,13 +6,12 @@ what it changes on the router and how it is built and tested.
 
 | Installed as | Built from | Role, per instance |
 |---|---|---|
-| `/usr/bin/cpxy-client` | `client` crate, `standalone` | HTTP and SOCKS5 proxy through the instance's cpxy server, and the transparent listener its networks' overseas TCP is redirected to |
-| `/usr/bin/cpxy-router` | `mobile-engine`, `cpxy-router` | Split DNS for the networks, and the direct IPv4 prefixes for the nftables policy |
+| `/usr/bin/cpxy` | `cpxy` crate | `cpxy client`: HTTP and SOCKS5 proxy through the instance's cpxy server, and the transparent listener its networks' overseas TCP is redirected to. `cpxy dns`: split DNS for the networks. `cpxy routes cn-direct`: the direct IPv4 prefixes for the nftables policy |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
-Each binary is a procd instance named after its cpxy instance, under one init script per program:
-`/etc/init.d/cpxy-client` and `cpxy-router` (the nftables policy, firewall sections and
-dns_split). Both read `/etc/config/cpxy` through `/usr/libexec/cpxy/instance.sh`, which merges an
+Each program is a procd instance named after its cpxy instance, under one init script per program:
+`/etc/init.d/cpxy-client` (`cpxy client`) and `cpxy-router` (the nftables policy, firewall sections
+and `cpxy dns`). Both read `/etc/config/cpxy` through `/usr/libexec/cpxy/instance.sh`, which merges an
 instance with `defaults`, derives ports from its `index`, and checks every enabled instance
 together (indexes, ports, servers, DNS servers). Either refuses a configuration that
 fails, leaving what runs untouched. Each subscribes to changes of `cpxy`, and procd restarts only
@@ -23,7 +22,7 @@ LAN TCP (IPv4) -> nft set: CN/private/connected -> kernel forwarding -> WAN
                 -> otherwise nft redirect -> cpxy-client transparent listener -> cpxy server
 LAN UDP (IPv4) -> WAN, except UDP/443 rejected
 LAN IPv6 forwarding -> refused
-LAN DNS (UDP/TCP 53, both families) -> fw4 redirect -> split DNS in cpxy-router
+LAN DNS (UDP/TCP 53, both families) -> fw4 redirect -> cpxy-router's `cpxy dns`
     -> CN/private resolver direct; overseas resolver through cpxy-client's SOCKS5 over TCP/DoT/DoH
 ```
 
@@ -59,8 +58,8 @@ redirected. Firewall UCI commits normalise that file and drop comments, as LuCI 
 
 ```sh
 cross build --release --locked --target aarch64-unknown-linux-musl \
-  -p mobile-engine -p client --bin cpxy-router --bin standalone
-# Copy the binaries into bins/ as cpxy-router and cpxy-client, then:
+  -p cpxy --bin cpxy
+# Copy cpxy into bins/, then:
 packaging/openwrt/build-ipk.sh aarch64_cortex-a53 0.1.0 bins out
 
 # Install, check, remove, and compare the settings before and after, in an OpenWrt 24.10 container
@@ -123,7 +122,7 @@ or traffic on physical hardware.
 The builder follows [apk-tools' mkpkg format](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/doc/apk-mkpkg.8.scd)
 and [OpenWrt's native package metadata/hooks](https://github.com/openwrt/openwrt/blob/main/include/package-pack.mk).
 
-`lab.sh` needs `cpxy-router`, `cpxy-client` and `cpxy-server` for the host, plus `iproute2`,
+`lab.sh` needs `cpxy` for the host, plus `iproute2`,
 `nft`, `curl` and `python3`; the container tests need podman or docker. None of them runs the real
 fw4, procd or dnsmasq. `qemu-geo.py` does: it boots an official OpenWrt x86-64 image under QEMU,
 installs the package with static binaries, and checks the paths, DNS, failure, reload, reboot
@@ -132,7 +131,7 @@ and removal behaviour against a captured WAN:
 ```sh
 unshare -Urmn python3 packaging/openwrt/test/qemu-geo.py \
   openwrt-24.10.8-x86-64-generic-ext4-combined.img cpxy_<version>_x86_64.ipk <empty dir> \
-  <static cpxy-server> <results dir>
+  <static cpxy> <results dir>
 ```
 
 ## Fixed proxy routes
