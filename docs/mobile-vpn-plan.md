@@ -18,10 +18,9 @@ on the router (see [packaging/openwrt/README.md](../packaging/openwrt/README.md)
    through the cpxy server.
 3. **UDP.** UDP 443 (QUIC) is refused so browsers fall back to TCP through the proxy. All other UDP
    goes direct.
-4. **IPv6**, chosen per profile, since it depends on the server: `full` handles it like IPv4;
-   `direct` relays only what goes direct and refuses the rest, for a server without IPv6; `off`
-   refuses it all, so apps fall back to IPv4. AAAA answers follow the same choice, and with
-   `full` a name whose IPv4 is in CN gets no IPv6 addresses outside it, so it still goes direct.
+4. **IPv6.** The Android app refuses all IPv6 from apps, so they use IPv4, and AAAA queries get
+   no records. The app's own proxy transport is outside the VPN and uses whatever the underlying
+   network offers, IPv6 included. (The engine keeps its `ipv6` modes for its non-Android consumers.)
 
 Decisions already made:
 
@@ -44,7 +43,7 @@ Decisions already made:
 | `client::outbound` (`IPDivertOutbound`, `DirectOutbound`, `ProtocolOutbound`, `StatReportingOutbound`) | Reused. Compose them like `cn_outbound` but without the AI/Tailscale branches: private, loopback, link-local or CN → direct, else proxy. |
 | tun2proxy (TUN → SOCKS5) | Replaced by `ipstack`: each TCP flow from the TUN goes straight into the `Outbound`. |
 | Firewall rejects UDP 443; other UDP leaves via WAN | Done in the engine: UDP 443 is answered with ICMP port unreachable, other UDP is relayed through direct sockets. |
-| IPv6 | Route `::/0` into the TUN either way. Unless the profile's IPv6 is off, the TUN gets the unique-local `fd00:a:e9::1/64`, so apps use IPv6 where a name has no IPv4 and prefer IPv4 otherwise (RFC 6724). What the engine refuses gets ICMPv6 administratively prohibited before the connection is accepted, as does direct TCP when the underlying network has no IPv6. Off, the TUN has no IPv6 address, so apps do not try IPv6 at all. |
+| IPv6 | Route `::/0` into the TUN, which has no IPv6 address, so apps do not try IPv6; anything that arrives gets ICMPv6 administratively prohibited. No IPv6 prefix bypasses the VPN. |
 | Fail closed when the proxy dies | The TUN stays up while the engine runs; a proxy failure fails the connection, never sends it direct. |
 
 ### Avoiding routing loops

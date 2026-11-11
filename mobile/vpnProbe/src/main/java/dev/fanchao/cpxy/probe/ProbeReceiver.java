@@ -27,7 +27,9 @@ public final class ProbeReceiver extends BroadcastReceiver {
                 String mode = intent.getStringExtra("mode");
                 String host = intent.getStringExtra("host");
                 int port = intent.getIntExtra("port", 80);
+                String data = "OK";
                 if ("ready".equals(mode)) { /* Route installation is visible to this UID. */ }
+                else if ("resolve".equals(mode)) data = "OK " + resolve(host);
                 else if ("http".equals(mode)) http(host, port);
                 else if ("dns".equals(mode)) dns(host, port);
                 else if ("echo".equals(mode)) echo(host, port, intent.getIntExtra("size", 0));
@@ -35,7 +37,7 @@ public final class ProbeReceiver extends BroadcastReceiver {
                     try { echo(host, port, 8); throw new IOException("UDP was not rejected"); }
                     catch (PortUnreachableException expected) { }
                 } else throw new IOException("Unknown probe mode");
-                result.setResultData("OK");
+                result.setResultData(data);
             } catch (Exception e) {
                 result.setResultData("FAIL " + e.getClass().getSimpleName() + ": " + e.getMessage());
             } finally { result.finish(); }
@@ -50,6 +52,16 @@ public final class ProbeReceiver extends BroadcastReceiver {
             String line = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII)).readLine();
             if (line == null || !line.startsWith("HTTP/1.")) throw new IOException("No HTTP response");
         }
+    }
+
+    /** The addresses the system resolver hands this UID, comma-separated. */
+    private static String resolve(String host) throws Exception {
+        StringBuilder out = new StringBuilder();
+        for (InetAddress address : InetAddress.getAllByName(host)) {
+            if (out.length() > 0) out.append(',');
+            out.append(address.getHostAddress());
+        }
+        return out.toString();
     }
 
     private static void dns(String host, int port) throws Exception {
