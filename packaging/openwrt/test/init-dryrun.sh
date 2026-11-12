@@ -339,6 +339,33 @@ if service cpxy-router reload_service 2>/tmp/err; then fail 'activated with an u
 grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
 rm /tmp/no-lan
 
+# The proxies send everything through the server unless cn_split is asked for
+absent 'ROUTING='
+uci set cpxy.guest.client_routing=cn_split
+uci commit cpxy
+: >"$LOG"
+service cpxy-client start_service 2>>/tmp/err || fail 'cn_split client'
+want 'set env SERVER=http://:guest-key@second.example:8080 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 ROUTING=cn_split DNS_SERVER=127.0.0.1 SOCKS5_PROXY_LISTEN=[::]:1081'
+[ "$(grep -c 'ROUTING=cn_split' "$LOG")" = 1 ] || fail 'cn_split for guest only'
+uci add_list cpxy.guest.client_dns_server=223.5.5.5
+uci add_list cpxy.guest.client_dns_server='[2001:db8::53]:5353'
+uci commit cpxy
+: >"$LOG"
+service cpxy-client start_service 2>>/tmp/err || fail 'cn_split client with resolvers'
+want 'ROUTING=cn_split DNS_SERVER=223.5.5.5,[2001:db8::53]:5353 '
+for server in 223.5.5.5:0 dns.example 300.1.1.1 '2001:db8::53::1' '[2001:db8::53]'; do
+	uci delete cpxy.guest.client_dns_server
+	uci add_list cpxy.guest.client_dns_server="$server"
+	uci commit cpxy
+	invalid "invalid client_dns_server '$server'"
+done
+uci delete cpxy.guest.client_dns_server
+uci set cpxy.guest.client_routing=cn
+uci commit cpxy
+invalid 'client_routing must be global or cn_split'
+uci delete cpxy.guest.client_routing
+uci commit cpxy
+
 # Disable guest without touching the others
 uci set cpxy.guest.enabled=0
 everything reload_service

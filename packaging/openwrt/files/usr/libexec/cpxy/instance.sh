@@ -115,6 +115,11 @@ cpxy_instance() {
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
 	cpxy_get_bool CPXY_GEOIP "$name" router_geoip 1
 
+	# What the HTTP/SOCKS5 proxies send through the server: everything, or only what is not CN
+	cpxy_get CPXY_CLIENT_ROUTING "$name" client_routing global
+	# With cn_split: who resolves names to decide their route. The server is always given the
+	# name, so the router's own resolver (reachable wherever the router is) is enough.
+	cpxy_get CPXY_CLIENT_DNS "$name" client_dns_server 127.0.0.1
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
 	cpxy_get_bool CPXY_SOCKS5 "$name" client_socks5 0
 	_cpxy_own CPXY_SOCKS5_LISTEN "$name" client_socks5_listen "[::]:$((1080 + i))"
@@ -164,6 +169,16 @@ cpxy_procd_env() {
 	procd_set_param file "$file"
 }
 
+# A client_dns_server: <ip> (port 53) or <ip>:<port>, as cpxy client's --dns-server takes it
+_cpxy_dns_server_ok() {
+	case "$1" in
+	\[*\]:*) _cpxy_socket_address "$1" ;;
+	*:*:*) _cpxy_ipv6_cidr "$1/128" ;;
+	*:*) _cpxy_socket_address "$1" ;;
+	*) _cpxy_ipv4_cidr "$1/32" ;;
+	esac
+}
+
 # Whether a DNS server given with ?via=cpxy can go through the cpxy server, which carries TCP only
 _cpxy_dns_via_cpxy_ok() {
 	case "$1" in tcp://*) ;; *) return 1 ;; esac
@@ -206,6 +221,16 @@ _cpxy_validate_instance() {
 	if [ "$CPXY_CLIENT" = 1 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"
 	fi
+	case "$CPXY_CLIENT_ROUTING" in
+	global) ;;
+	cn_split)
+		for entry in $CPXY_CLIENT_DNS; do
+			_cpxy_dns_server_ok "$entry" ||
+				_cpxy_invalid "$1: invalid client_dns_server '$entry': use <ip>, <ipv4>:<port> or [<ipv6>]:<port>"
+		done
+		;;
+	*) _cpxy_invalid "$1: client_routing must be global or cn_split" ;;
+	esac
 	if [ "$CPXY_ROUTED" = 1 ]; then
 		[ "$CPXY_GEOIP" = 1 ] || _cpxy_invalid "$1: router_geoip must be 1"
 		# The kernel redirects the networks' TCP to this instance's own cpxy-client.

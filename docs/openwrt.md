@@ -222,6 +222,8 @@ never taken from `defaults`.
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy. |
 | `client`, `router` | `1` | Which services the instance runs. An instance with networks needs both. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy; always on for an instance with networks, whose DNS worker uses it. |
+| `client_routing` | `global` | What the HTTP/SOCKS5 proxies send through the server: `global` (everything) or `cn_split` (CN, private and tailnet addresses connect directly, and `proxy_route` still goes through the server). |
+| `client_dns_server` (list) | `127.0.0.1` (dnsmasq) | With `cn_split`: resolvers that decide a name's route, as `<ip>` or `<ip>:<port>`. A name that does not resolve connects directly. The server is always given the name, so a local resolver is enough. |
 | `client_transparent_listen` | `0.0.0.0:5100+i` | Where the networks' overseas TCP is redirected. Must bind `0.0.0.0`. |
 | `router_geoip` | `1` | Required kernel IPv4 split. IPv6 forwarding is always refused; obsolete `router_ipv6` and `ipv6` settings are ignored. |
 | `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |

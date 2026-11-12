@@ -15,6 +15,7 @@ instance $1 (index $CPXY_INDEX)
   server          $(echo "$CPXY_SERVER" | sed 's#//[^@]*@#//***@#')
   networks        ${CPXY_NETWORKS:-none}
   client          $(_on "$CPXY_CLIENT"): HTTP $CPXY_HTTP_LISTEN$([ "$CPXY_SOCKS5" = 1 ] && echo ", SOCKS5 $CPXY_SOCKS5_LISTEN")
+  client routing  $CPXY_CLIENT_ROUTING$([ "$CPXY_CLIENT_ROUTING" = cn_split ] && echo ", resolved by $CPXY_CLIENT_DNS")
   router          $(_on "$CPXY_ROUTED")$([ "$CPXY_ROUTED" = 1 ] && echo ": overseas IPv4 TCP redirected to $CPXY_TRANSPARENT_LISTEN")
   router DNS      $([ "$CPXY_ROUTED" = 1 ] && _on "$CPXY_ROUTER_DNS" || echo off): dns_split on $CPXY_DNS_LISTEN
   dns upstream    $CPXY_DNS_UPSTREAM

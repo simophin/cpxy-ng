@@ -19,6 +19,11 @@ config defaults 'defaults'
 	# cpxy-client: an HTTP proxy on [::]:5000+index. 1 adds a SOCKS5 proxy on [::]:1080+index,
 	# which an instance with networks always has: its DNS worker asks proxied resolvers through it.
 	option client_socks5 '0'
+	# What those proxies send through the server: 'global' (everything) or 'cn_split' (CN,
+	# private and tailnet addresses connect directly). cn_split resolves names with
+	# client_dns_server (<ip> or <ip>:<port>; unset: the router's own resolver, 127.0.0.1).
+	option client_routing 'global'
+	# list client_dns_server '223.5.5.5'
 
 	# Optional ordered suffixes for short DNS names, for router clients.
 	# list dns_search_domain 'home.arpa'
