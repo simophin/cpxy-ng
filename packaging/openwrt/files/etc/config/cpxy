@@ -26,13 +26,13 @@ config defaults 'defaults'
 
 	# Split DNS, for the networks (dns_split, in cpxy-router).
 	# A dns_upstream answer with regional addresses wins (nonregional addresses removed),
-	# otherwise prefer dns_alternative. Each entry is an IP, or a udp://, tcp://, tls:// or
-	# https:// URL (tls:// and https:// accept ?ip=<addr>). tcp://, tls:// and https:// accept
-	# ?via=cpxy as an explicit proxy override (through the router's SOCKS5 endpoint).
+	# otherwise prefer dns_alternative. Each entry is an IP, or a udp:// or tcp:// URL with an
+	# IP address. tcp:// accepts ?via=cpxy as an explicit proxy override (through the router's
+	# SOCKS5 endpoint).
 	# Router specs otherwise follow destination routing; proxied UDP specs use TCP.
 	list dns_upstream '223.5.5.5'
 	# Unset: tcp://1.1.1.1?via=cpxy
-	# list dns_alternative 'https://dns.google/dns-query?ip=8.8.8.8&via=cpxy'
+	# list dns_alternative 'tcp://8.8.8.8?via=cpxy'
 	option dns_cache '1'
 	# Names the router itself answers, sent to dns_local_server: single-label names, reverse
 	# lookups of private addresses and these domains. Unset: dnsmasq's 'domain' and 'local'.

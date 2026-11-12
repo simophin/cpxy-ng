@@ -23,7 +23,7 @@ LAN TCP (IPv4) -> nft set: CN/private/connected -> kernel forwarding -> WAN
 LAN UDP (IPv4) -> WAN, except UDP/443 rejected
 LAN IPv6 forwarding -> refused
 LAN DNS (UDP/TCP 53, both families) -> fw4 redirect -> cpxy-router's `cpxy dns`
-    -> CN/private resolver direct; overseas resolver through cpxy-client's SOCKS5 over TCP/DoT/DoH
+    -> CN/private resolver direct; overseas resolver through cpxy-client's SOCKS5 over TCP
 ```
 
 `/usr/libexec/cpxy/nft.sh` renders the `inet cpxy` table from the per-instance plan: for each

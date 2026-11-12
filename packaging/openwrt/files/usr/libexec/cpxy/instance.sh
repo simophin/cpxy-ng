@@ -166,7 +166,7 @@ cpxy_procd_env() {
 
 # Whether a DNS server given with ?via=cpxy can go through the cpxy server, which carries TCP only
 _cpxy_dns_via_cpxy_ok() {
-	case "$1" in tcp://* | tls://* | https://*) ;; *) return 1 ;; esac
+	case "$1" in tcp://*) ;; *) return 1 ;; esac
 }
 
 _cpxy_claim() {
@@ -228,8 +228,10 @@ _cpxy_validate_instance() {
 		[ -n "$CPXY_DNS_UPSTREAM" ] || _cpxy_invalid "$1: option 'dns_upstream' is required"
 		for entry in $CPXY_DNS_UPSTREAM $CPXY_DNS_ALTERNATIVE; do
 			case "$entry" in
+			tls://* | https://*)
+				_cpxy_invalid "$1: DNS server '$entry': DNS over TLS/HTTPS is no longer supported, use tcp://<ip>?via=cpxy" ;;
 			*via=cpxy*) _cpxy_dns_via_cpxy_ok "$entry" ||
-				_cpxy_invalid "$1: DNS server '$entry' goes through the cpxy server, which carries tcp://, tls:// and https:// only" ;;
+				_cpxy_invalid "$1: DNS server '$entry' goes through the cpxy server, which carries tcp:// only" ;;
 			esac
 		done
 	fi
