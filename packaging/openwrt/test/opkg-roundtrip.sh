@@ -16,12 +16,6 @@ set -eu
 # Compare settings, not file text: `uci commit` rewrites a file with normalised quoting and no comments
 snapshot() { for f in $(ls /etc/config); do echo "== $f"; uci export "$f"; done; ls /etc/rc.d /etc/init.d; }
 mkdir -p /var/lock /tmp
-# Offline: this tests what the package changes, not dependency resolution, so mark the
-# dependencies (firewall4, kmod-nft-nat) as already installed
-for dep in firewall4 kmod-nft-nat; do
-	opkg status "$dep" | grep -q "^Status: .* installed" || printf "Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n" "$dep" >>/usr/lib/opkg/status
-	[ -e "/usr/lib/opkg/info/$dep.list" ] || : >"/usr/lib/opkg/info/$dep.list"
-done
 snapshot >/before.txt
 
 opkg install /pkg.ipk
