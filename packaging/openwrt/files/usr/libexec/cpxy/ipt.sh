@@ -20,6 +20,9 @@
 #
 # nft.sh's exemption of routes through non-uplink devices (fib daddr oif) has no iptables match;
 # those routes' prefixes are added to the direct set instead (cpxy_ipt_exempt_routes).
+#
+# GL.iNet's /etc/firewall.nat6 copies the IPv4 nat table into IPv6, skipping lines that say
+# "skip firewall.nat6"; the IPv4 nat rules say so, as an IPv4 set fails the whole copy.
 
 CPXY_IPT_CHAINS='nat:PREROUTING:cpxy_prerouting filter:FORWARD:cpxy_forward filter:INPUT:cpxy_input'
 
@@ -88,6 +91,8 @@ cpxy_ipt_render() (
 		' >>"$out/ipset" || return 1
 	done
 	for fam in 4 6; do
+		local tag=""
+		[ "$fam" = 6 ] || tag=", skip firewall.nat6"
 		{
 			printf '*nat\n:cpxy_prerouting - [0:0]\n-F cpxy_prerouting\n'
 			for state in "$plan"/*; do
@@ -99,13 +104,13 @@ cpxy_ipt_render() (
 					_cpxy_nft_dev_ok "$dev" || return 1
 					if [ "$DNS_PORT" != - ]; then
 						for proto in udp tcp; do
-							printf -- '-A cpxy_prerouting -i %s -p %s --dport 53 -m comment --comment "cpxy dns %s" -j REDIRECT --to-ports %s\n' \
-								"$dev" "$proto" "$dev" "$DNS_PORT"
+							printf -- '-A cpxy_prerouting -i %s -p %s --dport 53 -m comment --comment "cpxy dns %s%s" -j REDIRECT --to-ports %s\n' \
+								"$dev" "$proto" "$dev" "$tag" "$DNS_PORT"
 						done
 					fi
 					[ "$fam" = 4 ] || continue
-					printf -- '-A cpxy_prerouting -i %s -p tcp -m addrtype ! --dst-type LOCAL -m set ! --match-set %s dst -m comment --comment "cpxy redirect %s" -j REDIRECT --to-ports %s\n' \
-						"$dev" "$set" "$dev" "$PORT"
+					printf -- '-A cpxy_prerouting -i %s -p tcp -m addrtype ! --dst-type LOCAL -m set ! --match-set %s dst -m comment --comment "cpxy redirect %s%s" -j REDIRECT --to-ports %s\n' \
+						"$dev" "$set" "$dev" "$tag" "$PORT"
 				done
 			done
 			printf 'COMMIT\n*filter\n:cpxy_forward - [0:0]\n-F cpxy_forward\n:cpxy_input - [0:0]\n-F cpxy_input\n'
