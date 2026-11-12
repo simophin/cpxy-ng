@@ -72,7 +72,7 @@ The engine logs to logcat with the tag `cpxy-engine`.
 In Settings → Share connection, enable HTTP proxy and/or SOCKS5 proxy and choose their ports
 (defaults: HTTP 8080, SOCKS5 1080). Both are off by default. Connect or reconnect the VPN to
 apply changes, then configure another device with the Android device's Wi-Fi IPv4 address as
-its proxy host and the selected port. HTTP supports ordinary requests and HTTPS CONNECT;
+its proxy host and the selected port. HTTP supports CONNECT tunnels only (plain `http://` forwarding is refused with 405);
 SOCKS5 supports TCP CONNECT, including hostname requests (no UDP ASSOCIATE).
 
 The listeners bind to `0.0.0.0` on all IPv4 interfaces and have no authentication. They run

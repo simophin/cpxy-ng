@@ -28,7 +28,6 @@ impl From<ProxyRequest> for OutboundRequest {
             ProxyRequest::WithDomain(host, port) => Self {
                 host: OutboundHost::Domain(host),
                 port,
-                tls: false,
                 initial_plaintext: vec![],
             },
             ProxyRequest::WithIP(addr) => Self {
@@ -37,7 +36,6 @@ impl From<ProxyRequest> for OutboundRequest {
                     ip: Some(addr.ip()),
                 },
                 port: addr.port(),
-                tls: false,
                 initial_plaintext: vec![],
             },
         }

@@ -466,7 +466,6 @@ async fn handle_tcp(
             ip: Some(dst.ip()),
         },
         port: dst.port(),
-        tls: false,
         initial_plaintext: Vec::new(),
     };
     let mut upstream = match cpxy_ng::outbound::Outbound::send(router.as_ref(), request).await {

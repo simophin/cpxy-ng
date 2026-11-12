@@ -22,7 +22,6 @@ impl OutboundHost {
 pub struct OutboundRequest {
     pub host: OutboundHost,
     pub port: u16,
-    pub tls: bool,
     pub initial_plaintext: Vec<u8>,
 }
 
@@ -31,7 +30,6 @@ impl Debug for OutboundRequest {
         f.debug_struct("OutboundRequest")
             .field("host", &self.host)
             .field("port", &self.port)
-            .field("tls", &self.tls)
             .field(
                 "initial_plaintext",
                 &format!("<{} bytes>", self.initial_plaintext.len()),

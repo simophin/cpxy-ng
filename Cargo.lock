@@ -596,10 +596,8 @@ dependencies = [
  "sha1 0.11.0",
  "sha2 0.11.1",
  "tokio",
- "tokio-rustls",
  "tracing",
  "url",
- "webpki-roots",
  "ws_stream_tungstenite",
 ]
 

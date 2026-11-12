@@ -117,7 +117,6 @@ impl<O: Outbound + Send + Sync + 'static> Dialer for OutboundDialer<O> {
                 .send(OutboundRequest {
                     host,
                     port,
-                    tls: false,
                     initial_plaintext: Vec::new(),
                 })
                 .await

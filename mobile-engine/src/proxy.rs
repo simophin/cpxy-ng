@@ -188,7 +188,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
-    async fn relays_http_connect_http_requests_and_socks_and_closes_connections() {
+    async fn relays_http_connect_and_socks_rejects_forward_http_and_closes_connections() {
         tokio::time::timeout(Duration::from_secs(5), async {
             let echo = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let destination = echo.local_addr().unwrap();
@@ -258,11 +258,10 @@ mod tests {
                 )
                 .await
                 .unwrap();
+            // Forward-proxy requests are refused: only CONNECT tunnels are supported.
             let mut header = Vec::new();
-            while !header.ends_with(b"\r\n\r\n") {
-                header.push(plain.read_u8().await.unwrap());
-            }
-            assert!(header.starts_with(b"GET /test HTTP/1.1\r\n"));
+            plain.read_to_end(&mut header).await.unwrap();
+            assert!(header.starts_with(b"HTTP/1.1 405 Method Not Allowed\r\n"));
 
             let mut own = TcpStream::connect(local).await.unwrap();
             own.write_all(
@@ -374,7 +373,6 @@ mod tests {
         let request = OutboundRequest {
             host: OutboundHost::Domain("example.com".into()),
             port: 443,
-            tls: false,
             initial_plaintext: Vec::new(),
         };
         assert!(outbound.send(request).await.is_ok());

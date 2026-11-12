@@ -1,6 +1,5 @@
 use anyhow::Context;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use cpxy_ng::tls_stream::connect_tls;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -27,12 +26,11 @@ impl Outbound for DirectOutbound {
         OutboundRequest {
             host,
             port,
-            tls,
             initial_plaintext,
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
-        tracing::info!(host = host.host(), port, tls, "DirectOutbound: connecting");
-        let upstream = match &host {
+        tracing::info!(host = host.host(), port, "DirectOutbound: connecting");
+        let mut upstream = match &host {
             OutboundHost::Resolved { ip: Some(ip), .. } => {
                 timeout(self.connection_timeout, TcpStream::connect((*ip, port)))
                     .await
@@ -51,13 +49,6 @@ impl Outbound for DirectOutbound {
         upstream
             .set_nodelay(true)
             .context("Error setting nodelay on direct TCP stream")?;
-
-        tracing::debug!(
-            host = host.host(),
-            tls,
-            "DirectOutbound: TCP connected, performing TLS handshake"
-        );
-        let mut upstream = connect_tls(host.host(), tls, upstream).await?;
 
         if !initial_plaintext.is_empty() {
             tracing::debug!(

@@ -2,7 +2,6 @@ use crate::routing::Router;
 use anyhow::Context;
 use cpxy_ng::encrypt_stream::CipherStream;
 use cpxy_ng::time_util::now_epoch_seconds;
-use cpxy_ng::tls_stream::connect_tls;
 use cpxy_ng::ws_stream::new_ws_stream;
 use cpxy_ng::{Key, http_protocol, protocol};
 use std::net::SocketAddr;
@@ -34,22 +33,25 @@ pub async fn handle_connection(
         %route,
         target_host = req.request.host.as_str(),
         target_port = req.request.port,
-        target_tls = req.request.tls,
         "Server: parsed request, connecting to upstream"
     );
 
     let upstream = async {
+        // Older clients set `tls` to have the server wrap the target connection in TLS, which
+        // is no longer supported. Refuse instead of sending their plaintext to a TLS port.
+        anyhow::ensure!(
+            !req.request.tls,
+            "TLS to the target is no longer supported, upgrade the client"
+        );
+
         tracing::debug!(
             host = req.request.host.as_str(),
             port = req.request.port,
             "Server: establishing TCP connection"
         );
-        let upstream = router
+        let mut upstream = router
             .dial(route, req.request.host.as_str(), req.request.port)
             .await?;
-
-        let mut upstream =
-            connect_tls(req.request.host.as_str(), req.request.tls, upstream).await?;
 
         tracing::debug!(
             "Writing initial plaintext: {}",
@@ -89,7 +91,8 @@ pub async fn handle_connection(
             );
 
             tracing::info!("Server: tunnel established, starting bidirectional copy");
-            let _ = cpxy_ng::relay::relay(&mut upstream, &mut conn, cpxy_ng::relay::DEFAULT_LINGER).await;
+            let _ = cpxy_ng::relay::relay(&mut upstream, &mut conn, cpxy_ng::relay::DEFAULT_LINGER)
+                .await;
             anyhow::Ok(())
         }
 
@@ -167,7 +170,6 @@ mod tests {
             ProtocolOutbound::new(config).send(OutboundRequest {
                 host: OutboundHost::Domain("127.0.0.1".to_string()),
                 port: destination.port(),
-                tls: false,
                 initial_plaintext,
             }),
         )
@@ -185,6 +187,51 @@ mod tests {
         let mut buf = vec![0u8; msg.len()];
         stream.read_exact(&mut buf).await.unwrap();
         assert_eq!(&buf, msg);
+    }
+
+    /// Older clients may still ask the server to open TLS to the target. That is refused with
+    /// an error response rather than relaying their plaintext to the target.
+    #[tokio::test]
+    async fn rejects_legacy_tls_requests() {
+        let echo_addr = spawn_echo_server().await;
+        let key: Key = derive_password("integration_test_key").into();
+        let (mut client, server) = tokio::io::duplex(4096);
+        let server = tokio::spawn(handle_connection(
+            server,
+            "127.0.0.1:1".parse().unwrap(),
+            key,
+            Arc::new(Router::default()),
+        ));
+
+        let cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
+        http_protocol::Request {
+            request: protocol::Request {
+                host: "127.0.0.1".to_string(),
+                port: echo_addr.port(),
+                tls: true,
+                client_send_cipher: cipher.clone(),
+                server_send_cipher: cipher,
+                initial_plaintext: vec![],
+                timestamp_epoch_seconds: now_epoch_seconds(),
+            },
+            websocket_key: vec![0; 12],
+            host: "127.0.0.1".to_string(),
+        }
+        .send_over_http(&mut client, &key)
+        .await
+        .unwrap();
+
+        let (response, _) = http_protocol::Response::parse(client, &key)
+            .await
+            .map_err(|(e, _)| e)
+            .unwrap()
+            .take_head();
+        assert!(
+            matches!(&response.response, protocol::Response::Error { msg, .. } if msg.contains("TLS to the target is no longer supported")),
+            "{:?}",
+            response.response
+        );
+        server.await.unwrap().unwrap();
     }
 
     /// Spins up a real echo server, a real cpxy server, and a ProtocolOutbound client,
@@ -365,7 +412,6 @@ mod tests {
             outbound.send(OutboundRequest {
                 host: OutboundHost::Domain("127.0.0.1".to_string()),
                 port: echo_addr.port(),
-                tls: false,
                 initial_plaintext: msg.to_vec(),
             }),
         )

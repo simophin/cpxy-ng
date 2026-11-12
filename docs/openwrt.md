@@ -71,7 +71,7 @@ There is no traffic UI or history API. The namespace lab, the init dry run and a
 OpenWrt VM test cover this design (see the [plan](archive/redirect-router-plan.md)); physical
 routers still need throughput and long-running validation.
 
-The package also provides an HTTP proxy. It retains its existing cpxy configuration and can be
+The package also provides an HTTP proxy (CONNECT tunnels only). It retains its existing cpxy configuration and can be
 disabled independently.
 
 ## Before you start
