@@ -81,8 +81,15 @@ service() (
 		cpxy_nft_apply() { [ ! -f /tmp/nft-fails ] || return 1; cp "$1" /tmp/applied.nft; echo "nft_apply" >>"$LOG"; }
 		cpxy_nft_clear() { rm -f /tmp/applied.nft; echo "nft_clear" >>"$LOG"; }
 		cpxy_nft_main_routes() { echo 198.18.0.0/15; }
-		# /tmp/no-fw4 stands for fw3 firmware (OpenWrt 21.02 and older): no fw4, no nft
+		# /tmp/no-fw4 stands for fw3 firmware (OpenWrt 21.02 and older): no fw4, no nft;
+		# /tmp/fw3-tools for its ipset and iptables-restore. The iptables rules and the ipset
+		# input are rendered for real; only loading them is stubbed.
 		_cpxy_have_fw4() { [ ! -f /tmp/no-fw4 ]; }
+		_cpxy_fw3_firmware() { [ -f /tmp/no-fw4 ]; }
+		cpxy_ipt_missing() { [ -f /tmp/fw3-tools ] || echo ipset; }
+		cpxy_ipt_apply() { rm -rf /tmp/applied.ipt; cp -R "$1" /tmp/applied.ipt; echo "ipt_apply" >>"$LOG"; }
+		cpxy_ipt_clear() { rm -rf /tmp/applied.ipt; echo "ipt_clear" >>"$LOG"; }
+		cpxy_ipt_exempt_routes() { echo "exempt_routes $*" >>"$LOG"; echo 100.101.149.52; }
 		cpxy_legacy_down() { echo "legacy_down $*" >>"$LOG"; }
 		# The uplinks it is given are checked; the router's devices are those of the stubs.
 		cpxy_nft_exempt() { echo "exempt_args $*" >>"$LOG"; echo tailscale0; echo br-lan; }
@@ -436,7 +443,8 @@ want 'nft_apply'
 nft_lacks 'table inet cpxy {'
 
 # fw3 firmware: the package installs without fw4, and a client-only instance runs; nothing
-# touches nftables. A routed network is refused with a reason, and the client still starts.
+# touches nftables. Without ipset and iptables-restore a routed network is refused with a reason,
+# and the client still starts; with them it is routed with iptables.
 touch /tmp/no-fw4
 : >"$LOG"
 everything start_service
@@ -449,10 +457,44 @@ uci commit cpxy
 service cpxy-client start_service 2>>/tmp/err || fail 'client refused on fw3 firmware'
 want 'set command /usr/bin/cpxy client'
 : >"$LOG"
-if service cpxy-router start_service 2>/tmp/err; then fail 'routed network accepted without fw4'; fi
-grep -qF "guest: routing networks needs fw4" /tmp/err || fail 'missing error: routing needs fw4'
+if service cpxy-router start_service 2>/tmp/err; then fail 'routed network accepted without ipset'; fi
+grep -qF "guest: routing networks on fw3 firmware needs ipset" /tmp/err || fail 'missing error: routing needs ipset'
 absent 'nft_apply'
-rm /tmp/no-fw4
+absent 'ipt_apply'
+touch /tmp/fw3-tools
+uci set cpxy.main.enabled=1
+uci commit cpxy
+: >"$LOG"
+router start_service
+absent 'nft_apply'
+want 'ipt_apply'
+want 'exempt_routes '
+ipt_has() { grep -qF -- "$2" "/tmp/applied.ipt/$1" || { cat "/tmp/applied.ipt/$1" | grep -v '^add '; fail "$1 lacks: $2"; }; }
+ipt_lacks() { if grep -qF -- "$2" "/tmp/applied.ipt/$1"; then fail "$1 has: $2"; fi; }
+ipt_has sets cpxy_main
+ipt_has sets cpxy_guest
+ipt_has ipset 'create cpxy_main_n hash:net family inet'
+ipt_has ipset 'add cpxy_main_n 198.18.0.0/15'
+ipt_has ipset 'add cpxy_guest_n 100.101.149.52'
+ipt_has ipt4 '-A cpxy_prerouting -i br-lan -p udp --dport 53 -m comment --comment "cpxy dns br-lan" -j REDIRECT --to-ports 5335'
+ipt_has ipt4 '-A cpxy_prerouting -i br-lan -p tcp -m addrtype ! --dst-type LOCAL -m set ! --match-set cpxy_main dst -m comment --comment "cpxy redirect br-lan" -j REDIRECT --to-ports 5100'
+ipt_has ipt4 '-A cpxy_prerouting -i br-guest -p tcp -m addrtype ! --dst-type LOCAL -m set ! --match-set cpxy_guest dst -m comment --comment "cpxy redirect br-guest" -j REDIRECT --to-ports 5101'
+ipt_has ipt4 '-A cpxy_forward -i br-lan -p tcp -m set ! --match-set cpxy_main dst -m comment --comment "cpxy guard br-lan" -j REJECT --reject-with tcp-reset'
+ipt_has ipt4 '-A cpxy_forward -i br-guest -p udp --dport 443'
+ipt_has ipt4 '-A cpxy_input -i br-guest -p udp --dport 5345 -m conntrack --ctstate DNAT -j ACCEPT'
+ipt_lacks ipt4 'cpxy ipv6'
+# fw3 cannot DNAT IPv6: DNS is redirected in the rules, IPv6 forwarding refused
+ipt_has ipt6 '-A cpxy_prerouting -i br-guest -p tcp --dport 53 -m comment --comment "cpxy dns br-guest" -j REDIRECT --to-ports 5345'
+ipt_has ipt6 '-A cpxy_forward -i br-lan -m comment --comment "cpxy ipv6 br-lan" -j REJECT'
+ipt_lacks ipt6 'cpxy redirect'
+ipt_lacks ipt6 '--dport 5100'
+# The firewall keeps the listener rules but no DNS redirect sections
+[ "$(uci get firewall.cpxy_inst_main_proxy1.src)" = trusted ] || fail 'main listener rule on fw3'
+if uci show firewall | grep -q 'cpxy_inst_.*_dns'; then fail 'fw3 got DNS redirect sections'; fi
+: >"$LOG"
+router stop_service
+want 'ipt_clear'
+rm /tmp/no-fw4 /tmp/fw3-tools
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

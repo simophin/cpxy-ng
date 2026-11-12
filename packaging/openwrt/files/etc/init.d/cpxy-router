@@ -1,6 +1,7 @@
 #!/bin/sh /etc/rc.common
-# Per routed cpxy instance: the kernel policy for its networks (the `inet cpxy` nftables table:
-# direct IPv4 TCP forwarded, the rest redirected to the instance's cpxy-client), its firewall
+# Per routed cpxy instance: the kernel policy for its networks (the `inet cpxy` nftables table on
+# fw4, iptables chains and an ipset on fw3: direct IPv4 TCP forwarded, the rest redirected to the
+# instance's cpxy-client), its firewall
 # sections, and a `cpxy dns` worker answering its networks' DNS. The system's own resolver
 # (dnsmasq) and the router's own traffic are left alone.
 # rc.common consumes these service metadata variables.
@@ -14,6 +15,7 @@ STOP=10
 . /lib/functions/network.sh
 . /usr/libexec/cpxy/instance.sh
 . /usr/libexec/cpxy/nft.sh
+. /usr/libexec/cpxy/ipt.sh
 . /usr/libexec/cpxy/firewall.sh
 
 CPXY_STATE="$CPXY_RUN/instances"
@@ -52,12 +54,22 @@ _validate_instance() {
 	local iface entry value dns_port=- hash
 	SECTION="$1"
 	[ "$CPXY_ROUTED" = 1 ] || return 0
-	# The package installs without fw4 for client-only routers (fw3, OpenWrt 21.02 and older);
-	# a routed network needs it.
-	_cpxy_have_fw4 || {
-		_invalid "$SECTION: routing networks needs fw4 (OpenWrt 22.03 or newer, with firewall4 and kmod-nft-nat); remove its networks or set router '0'"
-		return
-	}
+	# The package installs without fw4 or fw3's routing tools, for client-only routers.
+	if ! _cpxy_have_fw4; then
+		if _cpxy_fw3_firmware; then
+			_cpxy_have_fw3 || {
+				_invalid "$SECTION: routing networks on fw3 firmware needs $(cpxy_ipt_missing) (packages ipset, iptables, ip6tables, kmod-ipt-ipset, kmod-ipt-nat, kmod-ipt-nat6, iptables-mod-extra); remove its networks or set router '0'"
+				return
+			}
+			cpxy_ipt_section_ok "$SECTION" || {
+				_invalid "$SECTION: on fw3 firmware a routed instance's name must be at most 24 characters"
+				return
+			}
+		else
+			_invalid "$SECTION: routing networks needs fw4 (firewall4 and kmod-nft-nat) or fw3 with ipset; remove its networks or set router '0'"
+			return
+		fi
+	fi
 	for entry in tun routing_table rule_priority; do
 		config_get value "$SECTION" "$entry"
 		[ -z "$value" ] || cpxy_log "$SECTION: option '$entry' is obsolete and ignored"
@@ -181,13 +193,21 @@ _apply_plan() {
 		fi
 	done
 	# One transaction replaces every instance's sets and rules: established connections keep
-	# their NAT, and no packet sees a partial policy. Without nftables (fw3) nothing is routed:
-	# validation refuses routed instances there.
+	# their NAT, and no packet sees a partial policy. On fw3, each set is swapped in whole and
+	# each family's rules are replaced in one iptables-restore. Without either, validation refused
+	# routed instances, and nothing is routed.
 	# shellcheck disable=SC2046
 	if _cpxy_have_fw4; then
 		cpxy_nft_render "$PLAN" $(cpxy_nft_exempt $(_uplinks)) >"$PLAN/routes/.ruleset" &&
 			cpxy_nft_apply "$PLAN/routes/.ruleset" || {
 			cpxy_log "could not install the nftables policy; the previous one stays"
+			rm -rf "$PLAN"; return 1
+		}
+	elif _cpxy_have_fw3; then
+		mkdir "$PLAN/routes/.ipt" &&
+			cpxy_ipt_render "$PLAN" "$PLAN/routes/.ipt" $(cpxy_ipt_exempt_routes $(_uplinks)) &&
+			cpxy_ipt_apply "$PLAN/routes/.ipt" || {
+			cpxy_log "could not install the iptables policy; the previous one stays"
 			rm -rf "$PLAN"; return 1
 		}
 	fi
@@ -231,6 +251,7 @@ stop_service() {
 		cpxy_nft_read "$state" || _legacy_down "$state"
 	done
 	cpxy_nft_clear
+	cpxy_ipt_clear
 	cpxy_firewall_sync "" || cpxy_log "could not remove instance firewall configuration"
 	/usr/libexec/cpxy/boot-firewall.sh clear || cpxy_log "could not remove boot forwarding barrier"
 	rm -rf "$CPXY_STATE"

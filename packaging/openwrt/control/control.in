@@ -6,5 +6,6 @@ Architecture: @ARCH@
 Maintainer: cpxy-ng
 Description: cpxy for OpenWrt: per network, an HTTP proxy and LAN routing with split DNS
  One instance per set of networks, using cpxy or an external SOCKS5 proxy: cpxy-client (HTTP proxy)
- and cpxy-router (kernel IPv4 split with nftables, overseas TCP redirected to cpxy-client, split DNS;
- needs fw4: firewall4 and kmod-nft-nat). Configure /etc/config/cpxy.
+ and cpxy-router (kernel IPv4 split with nftables, or iptables and ipset on fw3, overseas TCP
+ redirected to cpxy-client, split DNS; needs fw4 with kmod-nft-nat, or fw3 with ipset).
+ Configure /etc/config/cpxy.

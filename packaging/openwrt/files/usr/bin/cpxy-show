@@ -26,6 +26,8 @@ EOF
 	if [ "$CPXY_ROUTED" = 1 ]; then
 		if nft list set inet cpxy "direct_$1" >/dev/null 2>&1; then
 			echo "  direct set      installed (inet cpxy direct_$1)"
+		elif ipset list -n "cpxy_$1" >/dev/null 2>&1; then
+			echo "  direct set      installed (ipset cpxy_$1)"
 		else
 			echo "  direct set      not installed"
 		fi

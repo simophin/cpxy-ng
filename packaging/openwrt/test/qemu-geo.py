@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Booted OpenWrt integration of the nftables redirect router, isolated with unshare -Urmn.
+"""Booted OpenWrt integration of the redirect router, isolated with unshare -Urmn.
 
 Usage: unshare -Urmn python3 qemu-geo.py IMAGE IPK DEPS_DIR SERVER RESULTS_DIR
-IMAGE is an official x86-64 combined ext4 image; DEPS_DIR contains matching dependency ipks (may be
-empty: the image already has firewall4 and kmod-nft-nat). Requires iproute2, QEMU and curl; uses
+IMAGE is an official x86-64 combined ext4 image: fw4 (22.03 or newer, nftables policy) or fw3
+(21.02, iptables policy); the guest's firewall picks the checks. DEPS_DIR contains matching
+dependency ipks (may be empty for fw4: the image already has firewall4 and kmod-nft-nat; for 21.02,
+ipset, kmod-ipt-ipset, kmod-ipt-nat6, kmod-ipt-extra, iptables-mod-extra and their dependencies). Requires iproute2, QEMU and curl; uses
 KVM when /dev/kvm is usable. The package must include a real static cpxy binary.
 No third-party Python packages or host bridges needed.
 """
@@ -240,6 +242,20 @@ def main():
             for name in [p.name for p in assets.glob('*.ipk')]:
                 console.command(f'wget -q http://192.0.2.1:8080/{shlex.quote(name)} -O /tmp/{shlex.quote(name)}')
             console.command('opkg install /tmp/*.ipk', 120)
+            fw3 = 'BACKEND=fw3' in console.command('command -v fw4 >/dev/null && echo BACKEND=fw4 || echo BACKEND=fw3')
+            if fw3:
+                redirects = "iptables -t nat -S cpxy_prerouting | grep -c 'REDIRECT --to-ports 510'"
+                ipv6_refused = "ip6tables -S cpxy_forward | grep -q 'cpxy ipv6 br-lan'"
+                policy_ready = ("iptables -S cpxy_forward 2>/dev/null | grep -q 'cpxy guard' "
+                                "&& ! iptables -S cpxy_boot_guard >/dev/null 2>&1")
+                dump = "iptables-save | grep -v '^-A.*--match-set' | grep -i -e cpxy -e '^\\*'; ip6tables-save | grep -i cpxy; ipset list -t"
+            else:
+                redirects = "nft list chain inet cpxy dstnat | grep -c 'redirect to :510'"
+                ipv6_refused = "nft list chain inet cpxy forward | grep -q 'cpxy ipv6 br-lan'"
+                policy_ready = ("nft list table inet cpxy >/dev/null 2>&1 "
+                                "&& ! nft list table inet cpxy_boot_guard >/dev/null 2>&1")
+                dump = "nft list ruleset | grep -v '^[[:space:]]*[0-9][0-9./]*,$'"
+            print(f"backend: {'fw3' if fw3 else 'fw4'}", flush=True)
             console.command("uci set network.guest=interface; uci set network.guest.device=eth2; uci set network.guest.proto=static; uci set network.guest.ipaddr=192.168.9.1; uci set network.guest.netmask=255.255.255.0; uci commit network; /etc/init.d/network reload; sleep 3")
             console.command("uci set firewall.guests=zone; uci set firewall.guests.name=guests; uci add_list firewall.guests.network=guest; uci set firewall.guests.input=REJECT; uci set firewall.guests.output=ACCEPT; uci set firewall.guests.forward=REJECT; uci set firewall.guestwan=forwarding; uci set firewall.guestwan.src=guests; uci set firewall.guestwan.dest=wan; uci commit firewall; /etc/init.d/firewall reload")
             console.command("uci set cpxy.guest=instance; uci set cpxy.guest.index=1; uci add_list cpxy.guest.network=guest; uci set cpxy.guest.server='http://:vm-guest@192.0.2.3:8443'")
@@ -267,7 +283,7 @@ def main():
                             raise
                         time.sleep(1)
 
-            console.command("sleep 3; nft list chain inet cpxy dstnat | grep -c 'redirect to :510'")
+            console.command(f"sleep 3; {redirects}")
             console.command('test -z "$(ip link show type tun)"; test -z "$(ip -4 rule show | grep -v -e \'lookup local\' -e \'lookup main\' -e \'lookup default\')"')
             (results / 'enforce').touch()
             def probe():
@@ -310,7 +326,7 @@ def main():
                 pass
             else:
                 raise AssertionError('Router forwarded client IPv6')
-            console.command("nft list chain inet cpxy forward | grep -q 'cpxy ipv6 br-lan'")
+            console.command(ipv6_refused)
             print('PASS: VM local IPv6 stays reachable; client IPv6 forwarding refused', flush=True)
             assert dns('2001:db8:8::1', 'proxy.test') == '93.184.216.34'
             assert dns('2001:db8:8::1', 'proxy.test', 'tcp') == '93.184.216.34'
@@ -348,7 +364,7 @@ def main():
             console.until(rb'root@[^\r\n]*#')
             # Kernel messages still arriving on the console can garble a long command line.
             console.command('sleep 25', 60)
-            console.command("for n in $(seq 90); do [ $(netstat -lnt | grep -cE ':(5335|5345|5100|5101) ') -ge 4 ] && nft list table inet cpxy >/dev/null 2>&1 && ! nft list table inet cpxy_boot_guard >/dev/null 2>&1 && break; sleep 1; done; [ $n -lt 90 ]", 150)
+            console.command(f"for n in $(seq 90); do [ $(netstat -lnt | grep -cE ':(5335|5345|5100|5101) ') -ge 4 ] && {policy_ready} && break; sleep 1; done; [ $n -lt 90 ]", 150)
             assert fetch('114.114.114.114') == '114.114.114.114'
             assert fetch('93.184.216.34') == '93.184.216.34'
             assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
@@ -364,7 +380,7 @@ def main():
         except Exception:
             if 'console' in locals():
                 with contextlib.suppress(Exception):
-                    console.command("nft list ruleset | grep -v '^[[:space:]]*[0-9][0-9./]*,$'; ip -4 route show table main; logread -e cpxy | tail -40", 30)
+                    console.command(f"{locals().get('dump', 'nft list ruleset')}; ip -4 route show table main; logread -e cpxy | tail -40", 30)
             raise
         finally:
             stop_probes.set()

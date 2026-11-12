@@ -23,7 +23,7 @@ opkg install /pkg.ipk
 # What the install added
 for f in /usr/bin/cpxy \
 	/usr/bin/cpxy-show /etc/config/cpxy /lib/upgrade/keep.d/cpxy \
-	/usr/libexec/cpxy/nft.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh; do
+	/usr/libexec/cpxy/nft.sh /usr/libexec/cpxy/ipt.sh /usr/libexec/cpxy/firewall.sh /usr/libexec/cpxy/instance.sh; do
 	[ -e "$f" ] || { echo "FAIL: missing $f"; exit 1; }
 done
 for service in cpxy-client cpxy-router; do
