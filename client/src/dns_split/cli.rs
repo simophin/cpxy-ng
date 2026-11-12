@@ -6,9 +6,7 @@ use super::policy::Racer;
 use super::routing::route_spec;
 use super::server::{DnsSplitHandler, serve_tcp, serve_udp};
 use super::spec::{ServerSpec, Via};
-use super::upstream::{
-    Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
-};
+use super::upstream::{Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer};
 use crate::ipv6::Ipv6Mode;
 use crate::outbound::{ProtocolOutbound, ProxyRoutes, Socks5Outbound};
 use crate::protocol_config::Config as ServerConfig;
@@ -66,7 +64,7 @@ pub struct Args {
     #[arg(long, env = "LISTEN", default_value = "0.0.0.0:53")]
     listen: SocketAddr,
 
-    /// Upstream DNS server: an IP, udp://, tcp://, tls:// or https:// URL. Repeatable or
+    /// Upstream DNS server: an IP, or a udp:// or tcp:// URL. Repeatable or
     /// comma-separated.
     #[arg(long, env = "UPSTREAM", required = true, value_delimiter = ',')]
     upstream: Vec<ServerSpec>,
@@ -150,7 +148,6 @@ pub struct Args {
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
     let timeout = args.timeout;
-    let tls_config = tls_client_config()?;
     let cpxy: Option<Arc<dyn Dialer>> = match (&args.server, args.socks5_proxy) {
         (Some(server), _) => {
             tracing::info!("Using cpxy server {server:?} for the servers via cpxy");
@@ -168,12 +165,12 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         ResolverRouting::Explicit => None,
         ResolverRouting::CnSplit => Some(ProxyRoutes(args.proxy_route.clone())),
     };
-    let new_upstream = async |spec: &ServerSpec| {
+    let new_upstream = |spec: &ServerSpec| {
         let spec = match &routes {
-            Some(routes) => route_spec(spec, routes).await?,
+            Some(routes) => route_spec(spec, routes),
             None => spec.clone(),
         };
-        HickoryUpstream::new(&spec, tls_config.clone(), timeout, cpxy.clone()).await
+        HickoryUpstream::new(&spec, timeout, cpxy.clone())
     };
 
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
@@ -183,7 +180,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     ] {
         for spec in specs {
             let server = new_upstream(spec)
-                .await
                 .with_context(|| format!("Error setting up {group} server {spec}"))?;
             tracing::info!("Using {group} server {}", server.name());
             servers.push((group, Arc::new(server)));
@@ -221,9 +217,9 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             // The router's own resolver, on its own network.
             let mut local = spec.clone();
             local.via = Via::Direct;
-            HickoryUpstream::new(&local, tls_config.clone(), timeout, None).await
+            HickoryUpstream::new(&local, timeout, None)
         } else {
-            new_upstream(spec).await
+            new_upstream(spec)
         }
         .with_context(|| format!("Error setting up local server {spec}"))?;
         tracing::info!("Using local server {} for local names", server.name());

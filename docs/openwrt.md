@@ -32,7 +32,7 @@ policy is REJECT work too; the listener is not reachable from WAN.
 Split DNS races Chinese and overseas resolvers, prefers a regional answer from Chinese
 resolvers, then uses an overseas answer. Resolver destinations are classified in userspace:
 direct where eligible, otherwise through the instance's `cpxy-client` SOCKS5 listener on
-loopback. Proxied UDP DNS specifications are upgraded to TCP; DoT and DoH work too. `?via=cpxy`
+loopback. Proxied UDP DNS specifications are upgraded to TCP. `?via=cpxy`
 DNS specifications remain an explicit proxy override. Local names and private reverse lookups
 still go to dnsmasq directly.
 
@@ -229,10 +229,11 @@ never taken from `defaults`.
 | `dns_local_server` | `127.0.0.1:53` | The router's own resolver, dnsmasq. |
 | `router_dns` | `1` | Answer IPv4/IPv6 DNS from the instance's networks with its dns_split. |
 
-A DNS server entry (`dns_upstream`, `dns_alternative`) is a plain IP, or a `udp://`, `tcp://`,
-`tls://` or `https://` URL; `tls://` and `https://` accept `?ip=<addr>`. `tcp://`, `tls://` and
-`https://` accept the `?via=cpxy` explicit proxy override, through the instance's cpxy-client. The proxy resolves a hostname without `?ip=` itself, e.g.
-`https://dns.google/dns-query?via=cpxy`. Ordinary router specs select their path by IP.
+A DNS server entry (`dns_upstream`, `dns_alternative`) is a plain IP, or a `udp://` or `tcp://`
+URL with an IP address. `tcp://` accepts the `?via=cpxy` explicit proxy override, through the
+instance's cpxy-client, e.g. `tcp://8.8.8.8?via=cpxy`. Ordinary router specs select their path by
+IP. DNS over TLS (`tls://`) and DNS over HTTPS (`https://`) are no longer supported: an instance
+that lists one fails validation and must switch to `tcp://<ip>?via=cpxy`.
 
 **Upgrading from a package with smartdns:** the `smartdns` and `smartdns_*` options are ignored
 now. An instance without `dns_alternative` uses `tcp://1.1.1.1?via=cpxy`; one that set
@@ -247,9 +248,7 @@ nonregional address records removed; otherwise an overseas answer is preferred.
 GeoIP classification does not authenticate DNS answers.
 
 Resolver destinations follow regional/forced-proxy routing in userspace. Overseas
-queries go through the instance's cpxy-client SOCKS5 listener, converting plain UDP DNS to TCP. DNS over TLS/HTTPS retains
-certificate verification. Hostname resolver endpoints use the system resolver for
-bootstrap unless given `?ip=` or an explicit `?via=cpxy` proxy override. The
+queries go through the instance's cpxy-client SOCKS5 listener, converting plain UDP DNS to TCP. The
 router's system resolver remains dnsmasq and is never redirected into split DNS.
 
 Because DNS is redirected per firewall zone, a zone holding one instance's networks must not hold

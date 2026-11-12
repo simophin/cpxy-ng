@@ -7,9 +7,7 @@ use client::dns_split::policy::Racer;
 use client::dns_split::routing::route_spec;
 use client::dns_split::server::{DnsSplitHandler, encode_udp, serve_tcp_connection};
 use client::dns_split::spec::{ServerSpec, Via};
-use client::dns_split::upstream::{
-    Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer, tls_client_config,
-};
+use client::dns_split::upstream::{Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDialer};
 use client::ipv6::Ipv6Mode;
 use client::outbound::{ProtocolOutbound, ProxyRoutes, Socks5Outbound};
 use client::protocol_config::Config as ServerConfig;
@@ -50,7 +48,9 @@ pub struct Specs<'a> {
 pub async fn handler(specs: &Specs<'_>, server: &ServerConfig) -> anyhow::Result<DnsSplitHandler> {
     build_handler(
         specs,
-        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound::new(server.clone())))),
+        Arc::new(OutboundDialer(Arc::new(ProtocolOutbound::new(
+            server.clone(),
+        )))),
         None,
     )
     .await
@@ -76,13 +76,12 @@ async fn build_handler(
     cpxy: Arc<dyn Dialer>,
     routes: Option<&ProxyRoutes>,
 ) -> anyhow::Result<DnsSplitHandler> {
-    let tls_config = tls_client_config()?;
-    let new_upstream = async |spec: &ServerSpec| {
+    let new_upstream = |spec: &ServerSpec| {
         let spec = match routes {
-            Some(routes) => route_spec(spec, routes).await?,
+            Some(routes) => route_spec(spec, routes),
             None => spec.clone(),
         };
-        HickoryUpstream::new(&spec, tls_config.clone(), QUERY_TIMEOUT, Some(cpxy.clone())).await
+        HickoryUpstream::new(&spec, QUERY_TIMEOUT, Some(cpxy.clone()))
     };
     let mut servers: Vec<(Group, Arc<dyn DnsUpstream>)> = Vec::new();
     for (group, group_specs) in [
@@ -91,7 +90,6 @@ async fn build_handler(
     ] {
         for spec in group_specs {
             let server = new_upstream(spec)
-                .await
                 .with_context(|| format!("Error setting up {group} DNS server {spec}"))?;
             tracing::info!("Using {group} DNS server {}", server.name());
             servers.push((group, Arc::new(server)));
@@ -117,9 +115,9 @@ async fn build_handler(
         let server = if routes.is_some() {
             let mut local = spec.clone();
             local.via = Via::Direct;
-            HickoryUpstream::new(&local, tls_config.clone(), QUERY_TIMEOUT, None).await
+            HickoryUpstream::new(&local, QUERY_TIMEOUT, None)
         } else {
-            new_upstream(spec).await
+            new_upstream(spec)
         }
         .with_context(|| format!("Error setting up local DNS server {spec}"))?;
         tracing::info!("Using local DNS server {} for local names", server.name());

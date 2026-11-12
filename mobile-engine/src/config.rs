@@ -204,7 +204,7 @@ mod tests {
             r#"{
                 "server": "http://:secret@proxy.example.com",
                 "dns_upstream": ["223.5.5.5", "tcp://119.29.29.29"],
-                "dns_alternative": ["https://dns.google/dns-query?ip=8.8.8.8"],
+                "dns_alternative": ["tcp://8.8.8.8?via=cpxy"],
                 "mtu": 1400
             }"#,
         )
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(settings.dns_upstream.len(), 2);
         assert!(matches!(
             settings.dns_alternative[0].endpoint,
-            Endpoint::Https { .. }
+            Endpoint::Tcp(_)
         ));
         assert_eq!(settings.mtu, 1400);
     }

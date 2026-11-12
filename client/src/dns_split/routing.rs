@@ -2,7 +2,7 @@
 //! router's own sockets bypass its firewall's policy, so each resolver is classified by address.
 
 use super::is_local_region_ip;
-use super::spec::{Destination, Endpoint, ServerSpec, Via};
+use super::spec::{Endpoint, ServerSpec, Via};
 use crate::outbound::{ProxyRoutes, is_private};
 use std::net::IpAddr;
 
@@ -15,30 +15,24 @@ pub fn should_proxy(routes: &ProxyRoutes, ip: Option<IpAddr>) -> bool {
 /// `spec`, reached directly or through the proxy by its address. The proxy carries TCP only, so
 /// a proxied UDP server is asked over TCP instead. A server already given with `?via=cpxy` stays
 /// proxied.
-pub async fn route_spec(spec: &ServerSpec, routes: &ProxyRoutes) -> anyhow::Result<ServerSpec> {
+pub fn route_spec(spec: &ServerSpec, routes: &ProxyRoutes) -> ServerSpec {
     let mut spec = spec.clone();
     if spec.via == Via::Cpxy {
-        return Ok(spec);
+        return spec;
     }
-    let Destination::Addr(address) = spec.resolve().await? else {
-        anyhow::bail!("DNS address must resolve before classification");
-    };
+    let address = spec.addr();
     let proxy = should_proxy(routes, Some(address.ip()));
-    spec.via = if proxy { Via::Cpxy } else { Via::Direct };
-    match &mut spec.endpoint {
-        Endpoint::Udp(_) if proxy => spec.endpoint = Endpoint::Tcp(address),
-        Endpoint::Tls { ip, .. } | Endpoint::Https { ip, .. } => *ip = Some(address.ip()),
-        _ => {}
+    if proxy {
+        spec.via = Via::Cpxy;
+        spec.endpoint = Endpoint::Tcp(address);
     }
-    Ok(spec)
+    spec
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dns_split::upstream::{
-        DnsUpstream, HickoryUpstream, OutboundDialer, tls_client_config,
-    };
+    use crate::dns_split::upstream::{DnsUpstream, HickoryUpstream, OutboundDialer};
     use crate::handshaker::Handshaker;
     use crate::outbound::Socks5Outbound;
     use crate::socks_proxy_server::{ProxyRequest, SocksProxyHandshaker};
@@ -88,8 +82,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn resolver_transport_follows_destination_and_overrides_in_both_families() {
+    #[test]
+    fn resolver_transport_follows_destination_and_overrides_in_both_families() {
         let routes = ProxyRoutes::parse(&["223.5.5.5/32".into(), "2400:3200::/32".into()]).unwrap();
         for (input, proxy, tcp) in [
             ("114.114.114.114", false, false),
@@ -99,9 +93,8 @@ mod tests {
             ("[240e::1]:53", false, false),
             ("[2001:4860:4860::8888]:53", true, true),
             ("[fd00::1]:53", false, false),
-            ("https://dns.google?ip=8.8.8.8", true, false),
         ] {
-            let spec = route_spec(&input.parse().unwrap(), &routes).await.unwrap();
+            let spec = route_spec(&input.parse().unwrap(), &routes);
             assert_eq!(spec.via == Via::Cpxy, proxy, "{input}");
             assert_eq!(matches!(spec.endpoint, Endpoint::Tcp(_)), tcp, "{input}");
         }
@@ -128,16 +121,12 @@ mod tests {
                 stream.write_u16(bytes.len() as u16).await.unwrap();
                 stream.write_all(&bytes).await.unwrap();
             });
-            let spec = route_spec(&destination.parse().unwrap(), &ProxyRoutes::default())
-                .await
-                .unwrap();
+            let spec = route_spec(&destination.parse().unwrap(), &ProxyRoutes::default());
             let upstream = HickoryUpstream::new(
                 &spec,
-                tls_client_config().unwrap(),
                 Duration::from_secs(5),
                 Some(Arc::new(OutboundDialer(Arc::new(Socks5Outbound(proxy))))),
             )
-            .await
             .unwrap();
             let mut query = Message::new();
             query.add_query(Query::query(

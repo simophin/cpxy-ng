@@ -13,7 +13,7 @@ class ProfileTest {
         name = "Home",
         server = " http://:key@example.com ",
         dnsUpstream = listOf("223.5.5.5", "tcp://119.29.29.29"),
-        dnsAlternative = listOf("https://dns.google/dns-query?ip=8.8.8.8"),
+        dnsAlternative = listOf("tcp://8.8.8.8?via=cpxy"),
     )
 
     @Test
@@ -49,7 +49,7 @@ class ProfileTest {
                 {
                     "server": "http://:key@example.com",
                     "dns_upstream": ["223.5.5.5", "tcp://119.29.29.29"],
-                    "dns_alternative": ["https://dns.google/dns-query?ip=8.8.8.8"],
+                    "dns_alternative": ["tcp://8.8.8.8?via=cpxy"],
                     "mtu": 1500
                 }
                 """
@@ -97,8 +97,8 @@ class ProfileTest {
     @Test
     fun parsesOneServerPerLine() {
         assertEquals(
-            listOf("1.1.1.1", "tls://8.8.8.8"),
-            parseServerList(" 1.1.1.1 \n\n  tls://8.8.8.8\n"),
+            listOf("1.1.1.1", "tcp://8.8.8.8"),
+            parseServerList(" 1.1.1.1 \n\n  tcp://8.8.8.8\n"),
         )
     }
 
