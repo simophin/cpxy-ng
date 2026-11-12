@@ -1,7 +1,7 @@
 # cpxy: one instance per set of networks. Each instance runs, for its own cpxy server:
 #   cpxy-client    an HTTP proxy, and for routed networks the transparent proxy their overseas
 #                  TCP is redirected to
-#   cpxy-router    the kernel policy (nftables: CN/private TCP direct, the rest redirected to
+#   cpxy-router    the kernel policy (nftables, or iptables on fw3: CN/private TCP direct, the rest redirected to
 #                  cpxy-client) and split DNS
 # Every option in 'defaults' can also be set in an instance, which then wins.
 # After editing: uci commit cpxy, then each service reloads by itself.

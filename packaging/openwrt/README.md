@@ -22,7 +22,7 @@ LAN TCP (IPv4) -> nft set: CN/private/connected -> kernel forwarding -> WAN
                 -> otherwise nft redirect -> cpxy-client transparent listener -> cpxy server
 LAN UDP (IPv4) -> WAN, except UDP/443 rejected
 LAN IPv6 forwarding -> refused
-LAN DNS (UDP/TCP 53, both families) -> fw4 redirect -> cpxy-router's `cpxy dns`
+LAN DNS (UDP/TCP 53, both families) -> fw4 redirect (fw3: ipt.sh redirect) -> cpxy-router's `cpxy dns`
     -> CN/private resolver direct; overseas resolver through cpxy-client's SOCKS5 over TCP
 ```
 
@@ -30,6 +30,10 @@ LAN DNS (UDP/TCP 53, both families) -> fw4 redirect -> cpxy-router's `cpxy dns`
 instance an interval set of direct prefixes, a `dstnat + 5` redirect per device (after fw4's DNS
 DNAT), and a `filter - 5` forward guard per device rejecting non-direct TCP, QUIC and IPv6. The
 init script replaces it in one `nft -f` transaction on every apply.
+
+On fw3 firmware (no fw4 or nftables NAT), `/usr/libexec/cpxy/ipt.sh` renders the same policy as
+an ipset of direct prefixes per instance and iptables chains for IPv4 and IPv6, including both DNS
+redirects (fw3 cannot DNAT IPv6). The firewall include restores them after each fw3 reload.
 
 ## No loops through the router's own DNS
 
@@ -46,7 +50,7 @@ itself (`local=/lan/`, DHCP names) and never forwards to dns_split.
 |---|---|---|
 | Package files | binaries, init scripts, helpers, default configuration | `opkg remove` |
 | `/etc/config/firewall` | per routed instance and source zone: `cpxy_inst_<name>_proxy<n>` accepting the transparent listener port, and with `router_dns` IPv4/IPv6 DNS redirects; `cpxy_boot_guard`, the boot barrier include | the instance's removal on reload, `cpxy-router stop`, `opkg remove` |
-| Kernel | the nftables table `inet cpxy` (all routed instances), and while booting `inet cpxy_boot_guard` | reload, `stop`, `opkg remove`, reboot |
+| Kernel | the nftables table `inet cpxy` (all routed instances), and while booting `inet cpxy_boot_guard`; on fw3 the ipsets `cpxy_<instance>`, the iptables chains `cpxy_prerouting`, `cpxy_forward`, `cpxy_input` and while booting `cpxy_boot_guard` | reload, `stop`, `opkg remove`, reboot |
 | `/etc/cpxy/router-guards` | each routed instance's devices, for the boot barrier | the instance's removal, `opkg remove` |
 | `/tmp/cpxy` | saved resource assignments, the services' settings (root only) | `stop`, `opkg remove`, reboot |
 

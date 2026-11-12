@@ -52,6 +52,7 @@ cpxy_firewall_clear() {
 # Each source zone may reach the instance's transparent listener, where its TCP is redirected
 # (the listener refuses direct connections). With a DNS port, IPv4 and IPv6 DNS goes to the
 # instance's split resolver. Forwarding, QUIC and IPv6 refusal live in the `inet cpxy` table.
+# fw3 cannot DNAT IPv6, so there ipt.sh redirects DNS itself and no redirect is added here.
 cpxy_firewall_add() {
 	local section="$1" port="$2" dns="$3" src base="cpxy_inst_$1" n=0
 	shift 3
@@ -66,7 +67,7 @@ set firewall.${base}_proxy$n.proto='tcp'
 set firewall.${base}_proxy$n.dest_port='$port'
 set firewall.${base}_proxy$n.target='ACCEPT'
 UCI
-		[ "$dns" != - ] || continue
+		[ "$dns" != - ] && _cpxy_have_fw4 || continue
 		uci -q batch <<UCI
 set firewall.${base}_dns$n=redirect
 set firewall.${base}_dns$n.name='cpxy $section DNS'

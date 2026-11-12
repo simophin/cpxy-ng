@@ -54,10 +54,22 @@ ordinary WAN access.
 ### Requirements and upgrading from the TUN router
 
 Routing networks needs fw4 (OpenWrt 22.03 or newer) with `firewall4` and `kmod-nft-nat`,
-which fw4 firmware already has. The package does not depend on them, so it also installs on fw3
-firmware for the HTTP/SOCKS5 client alone; there `cpxy-router` refuses an instance with networks
-and says why. No TUN device, policy routing or extra GeoIP
-package is used. Disable firewall `flow_offloading` and `flow_offloading_hw`: offloaded flows
+which fw4 firmware already has, or fw3 firmware (OpenWrt 21.02 and older, such as GL.iNet's
+stock 3.x/4.x) with `ipset`, `iptables-restore` and `ip6tables-restore` (packages `ipset`,
+`kmod-ipt-ipset`, `kmod-ipt-nat`, `kmod-ipt-nat6`, `iptables-mod-extra`; GL.iNet 4.x has them).
+The package does not depend on either, so it also installs anywhere for the HTTP/SOCKS5 client
+alone; without them `cpxy-router` refuses an instance with networks and says why. No TUN
+device, policy routing or extra GeoIP package is used.
+
+On fw3 the same policy is iptables rules: per instance an ipset `cpxy_<instance>` of direct
+prefixes, and the chains `cpxy_prerouting` (nat), `cpxy_forward` and `cpxy_input` (filter) for
+IPv4 and IPv6, each jumped to first from its built-in chain. fw3 cannot DNAT IPv6, so DNS of
+both families is redirected there rather than by firewall redirect sections. A fw3 reload may
+flush them, so the firewall include restores the last applied rules. Instead of nftables' route
+lookup, routes through non-uplink devices (in any routing table, such as Tailscale's) are added
+to the direct set when the policy is applied. Each set is swapped in whole and each family's
+rules replaced in one `iptables-restore`; a routed instance's name must be at most 24
+characters. Disable firewall `flow_offloading` and `flow_offloading_hw`: offloaded flows
 bypass the redirect. Normal LAN-to-WAN forwarding and IPv4 masquerading must already be
 configured; the package preserves administrator firewall denies.
 
@@ -79,8 +91,8 @@ disabled independently.
 ## Before you start
 
 - A router on **OpenWrt 25.12 or newer** (native apk v3, fw4, procd), **OpenWrt 24.10** (opkg), or another fw4 firmware (OpenWrt 22.03 or newer).
-  fw3 firmware, such as GL.iNet's stock 3.x/4.x (OpenWrt 19.07/21.02-based), runs the client only:
-  set `router '0'` (or give no instance a `network`). For apk, `/etc/apk/arch`
+  fw3 firmware, such as GL.iNet's stock 3.x/4.x (OpenWrt 19.07/21.02-based), routes networks
+  with iptables and ipset (see [Requirements](#requirements-and-upgrading-from-the-tun-router)). For apk, `/etc/apk/arch`
   must list `aarch64`, `aarch64_generic`, `aarch64_cortex-a53`, `aarch64_cortex-a72`,
   `aarch64_cortex-a76` or `x86_64`. On older firmware, `opkg print-architecture` must list
   `aarch64_cortex-a53` or `x86_64`.
@@ -148,7 +160,7 @@ run), copy it to the router and install it:
 curl -fLo cpxy.ipk https://<download host>/latest/openwrt/aarch64_cortex-a53/cpxy.ipk
 scp -O cpxy.ipk root@192.168.8.1:/tmp/
 ssh root@192.168.8.1
-opkg update && opkg install /tmp/cpxy.ipk      # routing networks needs fw4
+opkg update && opkg install /tmp/cpxy.ipk      # routing networks needs fw4, or fw3 with ipset
 ```
 
 The package also adds the download server's opkg feed and its signing key, so later versions come
