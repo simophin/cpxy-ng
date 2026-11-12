@@ -53,7 +53,6 @@ impl Outbound for ProtocolOutbound {
             server_port = config.port,
             target_host = req.host.host(),
             target_port = req.port,
-            target_tls = req.tls,
             "ProtocolOutbound: connecting to cpxy server"
         );
 
@@ -89,7 +88,7 @@ impl ProtocolOutbound {
             request: protocol::Request {
                 host: req.host.host().to_string(),
                 port: req.port,
-                tls: req.tls,
+                tls: false,
                 client_send_cipher: client_send_cipher.clone(),
                 server_send_cipher: server_send_cipher.clone(),
                 initial_plaintext: req.initial_plaintext.clone(),

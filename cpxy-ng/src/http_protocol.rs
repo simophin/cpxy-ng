@@ -212,7 +212,7 @@ mod tests {
             request: protocol::Request {
                 host: "google.com".to_string(),
                 port: 23,
-                tls: true,
+                tls: false,
                 client_send_cipher: Configuration::random_partial(NonZeroUsize::new(32).unwrap()),
                 server_send_cipher: Configuration::random_full(),
                 initial_plaintext: vec![1, 2, 3, 4, 5],

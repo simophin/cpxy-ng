@@ -1,14 +1,12 @@
 use anyhow::{Context, ensure};
 use cpxy_ng::http_stream::HttpStream;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
-use cpxy_ng::tls_stream::connect_tls;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 pub struct HttpProxyOutbound {
     pub host: String,
     pub port: u16,
-    pub tls: bool,
 }
 
 impl Outbound for HttpProxyOutbound {
@@ -17,19 +15,23 @@ impl Outbound for HttpProxyOutbound {
         OutboundRequest {
             host,
             port,
-            tls,
             initial_plaintext,
         }: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
-        tracing::info!(proxy_host = self.host, proxy_port = self.port, "HttpProxyOutbound: connecting to proxy");
-        let upstream = TcpStream::connect((self.host.as_str(), self.port))
+        tracing::info!(
+            proxy_host = self.host,
+            proxy_port = self.port,
+            "HttpProxyOutbound: connecting to proxy"
+        );
+        let mut upstream = TcpStream::connect((self.host.as_str(), self.port))
             .await
             .context("failed to connect to upstream")?;
-        let mut upstream = connect_tls(self.host.as_str(), self.tls, upstream)
-            .await
-            .context("failed to connect to upstream on tls")?;
 
-        tracing::debug!(target = host.host(), target_port = port, "HttpProxyOutbound: sending CONNECT request");
+        tracing::debug!(
+            target = host.host(),
+            target_port = port,
+            "HttpProxyOutbound: sending CONNECT request"
+        );
         upstream
             .write_all(
                 format!(
@@ -43,7 +45,7 @@ impl Outbound for HttpProxyOutbound {
             .await
             .context("failed to send CONNECT request")?;
 
-        let upstream = HttpStream::parse_response(upstream, |resp| {
+        let mut upstream = HttpStream::parse_response(upstream, |resp| {
             ensure!(
                 resp.code == Some(200),
                 "upstream proxy returned non-200 status code"
@@ -54,9 +56,6 @@ impl Outbound for HttpProxyOutbound {
         .map_err(|(e, _)| e)?;
 
         tracing::debug!("HttpProxyOutbound: proxy CONNECT accepted");
-        let mut upstream = connect_tls(host.host(), tls, upstream)
-            .await
-            .context("failed to connect to target on tls")?;
 
         if !initial_plaintext.is_empty() {
             upstream
@@ -65,7 +64,11 @@ impl Outbound for HttpProxyOutbound {
                 .context("failed to send initial plaintext")?;
         }
 
-        tracing::info!(target = host.host(), target_port = port, "HttpProxyOutbound: connection established");
+        tracing::info!(
+            target = host.host(),
+            target_port = port,
+            "HttpProxyOutbound: connection established"
+        );
         Ok(upstream)
     }
 }

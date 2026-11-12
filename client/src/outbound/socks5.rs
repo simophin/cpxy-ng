@@ -1,7 +1,6 @@
 //! Plaintext SOCKS5 CONNECT with RFC 1928 no-authentication negotiation.
 use anyhow::{Context, bail, ensure};
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
-use cpxy_ng::tls_stream::connect_tls;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -15,11 +14,9 @@ impl Outbound for Socks5Outbound {
         &self,
         req: OutboundRequest,
     ) -> anyhow::Result<impl AsyncRead + AsyncWrite + Send + Unpin + 'static> {
-        let stream = tokio::time::timeout(Duration::from_secs(10), self.connect(&req))
+        let mut stream = tokio::time::timeout(Duration::from_secs(10), self.connect(&req))
             .await
             .context("SOCKS5 connect/handshake timed out")??;
-        // `tls` describes the destination, never encryption of the SOCKS5 connection.
-        let mut stream = connect_tls(req.host.host(), req.tls, stream).await?;
         stream.write_all(&req.initial_plaintext).await?;
         Ok(stream)
     }
@@ -137,7 +134,6 @@ mod tests {
                 .send(OutboundRequest {
                     host,
                     port: 443,
-                    tls: false,
                     initial_plaintext: b"ping".to_vec(),
                 })
                 .await
@@ -173,7 +169,6 @@ mod tests {
                 .send(OutboundRequest {
                     host: OutboundHost::Domain("1.2.3.4".into()),
                     port: 80,
-                    tls: false,
                     initial_plaintext: vec![],
                 })
                 .await

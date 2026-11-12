@@ -48,7 +48,7 @@ pub struct Args {
     #[arg(long, env = "DNS_SERVER", value_delimiter = ',', default_value = "8.8.8.8", value_parser = parse_dns_server)]
     dns_server: Vec<SocketAddr>,
 
-    /// The address to listen on for the HTTP proxy
+    /// The address to listen on for the HTTP proxy (CONNECT tunnels only)
     #[arg(long, env = "HTTP_PROXY_LISTEN", group = "listeners")]
     http_proxy_listen: Option<SocketAddr>,
 

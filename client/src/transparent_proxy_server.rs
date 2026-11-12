@@ -106,7 +106,6 @@ mod tests {
         let original: SocketAddr = "93.184.216.34:443".parse().unwrap();
         let request: OutboundRequest = ProxyRequest::WithIP(original).into();
         assert_eq!(request.port, 443);
-        assert!(!request.tls);
         assert!(request.initial_plaintext.is_empty());
         match request.host {
             OutboundHost::Resolved { ip, .. } => assert_eq!(ip, Some(original.ip())),

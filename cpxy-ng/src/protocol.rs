@@ -11,6 +11,9 @@ use rkyv::{Archive, Deserialize, Serialize};
 pub struct Request {
     pub host: String,
     pub port: u16,
+    /// Deprecated: the server no longer opens TLS to the target. Clients always send `false`
+    /// and the server rejects `true`. Kept only so the archived layout stays the same for
+    /// clients and servers of different versions.
     pub tls: bool,
     pub client_send_cipher: Configuration,
     pub server_send_cipher: Configuration,

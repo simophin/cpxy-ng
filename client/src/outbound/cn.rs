@@ -131,7 +131,6 @@ mod tests {
                 .send(OutboundRequest {
                     host,
                     port: 80,
-                    tls: false,
                     initial_plaintext: vec![],
                 })
                 .await;
@@ -154,7 +153,6 @@ mod tests {
             .send(OutboundRequest {
                 host: OutboundHost::Domain("127.0.0.1".into()),
                 port: destination.local_addr().unwrap().port(),
-                tls: false,
                 initial_plaintext: vec![],
             })
             .await
