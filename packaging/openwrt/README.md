@@ -107,9 +107,10 @@ CI runs the builder in Alpine 3.23 as root, stores the variants in each build ar
 The native package includes OpenWrt's `/lib/apk/packages/cpxy.list`, `.conffiles` and
 `.conffiles_static`. Its hooks call OpenWrt's `default_postinst` / `default_prerm` with
 `pkgname=cpxy`, using `PKG_UPGRADE=1` for upgrades so disabled services remain disabled.
-The apk adds no repository, opkg key, or apk trust key. It declares `firewall4`, `kmod-nft-nat`
-and a conflict with the legacy `cpxy-router` package. Use a local `apk add` with networking
-disabled when the dependencies are already present.
+The apk adds no repository, opkg key, or apk trust key. It declares a conflict with the legacy
+`cpxy-router` package and no dependencies: routing needs `firewall4` and `kmod-nft-nat`, which
+`cpxy-router` checks for at runtime, so the package also installs client-only on fw3 firmware.
+Use a local `apk add` with networking disabled.
 
 `apk-package.py` uses temporary roots and stand-in binaries to check metadata, root
 ownership, config permissions/preservation, all variant labels and identical payloads,

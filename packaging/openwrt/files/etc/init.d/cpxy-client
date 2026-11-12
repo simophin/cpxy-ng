@@ -20,6 +20,8 @@ _start_instance() {
 	set -- SERVER="$CPXY_SERVER" HTTP_PROXY_LISTEN="$CPXY_HTTP_LISTEN" NO_COLOR=1
 	# An empty PROXY_ROUTES is an invalid route to cpxy-client, so it is set only with routes
 	[ -n "$CPXY_PROXY_ROUTES" ] && set -- "$@" PROXY_ROUTES="$(echo $CPXY_PROXY_ROUTES | tr ' ' ,)"
+	[ "$CPXY_CLIENT_ROUTING" = cn_split ] &&
+		set -- "$@" ROUTING=cn_split DNS_SERVER="$(echo $CPXY_CLIENT_DNS | tr ' ' ,)"
 	[ "$CPXY_SOCKS5" = 1 ] && set -- "$@" SOCKS5_PROXY_LISTEN="$CPXY_SOCKS5_LISTEN"
 	# cpxy-router's nftables table redirects the instance's networks' proxied TCP here
 	[ "$CPXY_ROUTED" = 1 ] && set -- "$@" TRANSPARENT_PROXY_LISTEN="$CPXY_TRANSPARENT_LISTEN"

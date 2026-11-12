@@ -11,10 +11,6 @@ engine="$(command -v podman || command -v docker)"
 script="$(cat <<'SCRIPT'
 set -e
 mkdir -p /var/lock /tmp
-for dep in firewall4 kmod-nft-nat; do
-	opkg status "$dep" | grep -q '^Status: .* installed' || printf 'Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n' "$dep" >>/usr/lib/opkg/status
-	[ -e "/usr/lib/opkg/info/$dep.list" ] || : >"/usr/lib/opkg/info/$dep.list"
-done
 opkg install /pkg.ipk >/dev/null 2>&1
 uci -q delete firewall.@zone[0].network
 # Zone names intentionally differ from network names.
@@ -85,6 +81,8 @@ service() (
 		cpxy_nft_apply() { [ ! -f /tmp/nft-fails ] || return 1; cp "$1" /tmp/applied.nft; echo "nft_apply" >>"$LOG"; }
 		cpxy_nft_clear() { rm -f /tmp/applied.nft; echo "nft_clear" >>"$LOG"; }
 		cpxy_nft_main_routes() { echo 198.18.0.0/15; }
+		# /tmp/no-fw4 stands for fw3 firmware (OpenWrt 21.02 and older): no fw4, no nft
+		_cpxy_have_fw4() { [ ! -f /tmp/no-fw4 ]; }
 		cpxy_legacy_down() { echo "legacy_down $*" >>"$LOG"; }
 		# The uplinks it is given are checked; the router's devices are those of the stubs.
 		cpxy_nft_exempt() { echo "exempt_args $*" >>"$LOG"; echo tailscale0; echo br-lan; }
@@ -341,6 +339,33 @@ if service cpxy-router reload_service 2>/tmp/err; then fail 'activated with an u
 grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
 rm /tmp/no-lan
 
+# The proxies send everything through the server unless cn_split is asked for
+absent 'ROUTING='
+uci set cpxy.guest.client_routing=cn_split
+uci commit cpxy
+: >"$LOG"
+service cpxy-client start_service 2>>/tmp/err || fail 'cn_split client'
+want 'set env SERVER=http://:guest-key@second.example:8080 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 ROUTING=cn_split DNS_SERVER=127.0.0.1 SOCKS5_PROXY_LISTEN=[::]:1081'
+[ "$(grep -c 'ROUTING=cn_split' "$LOG")" = 1 ] || fail 'cn_split for guest only'
+uci add_list cpxy.guest.client_dns_server=223.5.5.5
+uci add_list cpxy.guest.client_dns_server='[2001:db8::53]:5353'
+uci commit cpxy
+: >"$LOG"
+service cpxy-client start_service 2>>/tmp/err || fail 'cn_split client with resolvers'
+want 'ROUTING=cn_split DNS_SERVER=223.5.5.5,[2001:db8::53]:5353 '
+for server in 223.5.5.5:0 dns.example 300.1.1.1 '2001:db8::53::1' '[2001:db8::53]'; do
+	uci delete cpxy.guest.client_dns_server
+	uci add_list cpxy.guest.client_dns_server="$server"
+	uci commit cpxy
+	invalid "invalid client_dns_server '$server'"
+done
+uci delete cpxy.guest.client_dns_server
+uci set cpxy.guest.client_routing=cn
+uci commit cpxy
+invalid 'client_routing must be global or cn_split'
+uci delete cpxy.guest.client_routing
+uci commit cpxy
+
 # Disable guest without touching the others
 uci set cpxy.guest.enabled=0
 everything reload_service
@@ -409,6 +434,25 @@ absent 'SOCKS5_PROXY_LISTEN='
 absent 'TRANSPARENT_PROXY_LISTEN='
 want 'nft_apply'
 nft_lacks 'table inet cpxy {'
+
+# fw3 firmware: the package installs without fw4, and a client-only instance runs; nothing
+# touches nftables. A routed network is refused with a reason, and the client still starts.
+touch /tmp/no-fw4
+: >"$LOG"
+everything start_service
+want 'set command /usr/bin/cpxy client'
+absent 'nft_apply'
+uci add_list cpxy.guest.network=guest
+uci set cpxy.guest.dns_listen='[::]:5345'
+uci commit cpxy
+: >"$LOG"
+service cpxy-client start_service 2>>/tmp/err || fail 'client refused on fw3 firmware'
+want 'set command /usr/bin/cpxy client'
+: >"$LOG"
+if service cpxy-router start_service 2>/tmp/err; then fail 'routed network accepted without fw4'; fi
+grep -qF "guest: routing networks needs fw4" /tmp/err || fail 'missing error: routing needs fw4'
+absent 'nft_apply'
+rm /tmp/no-fw4
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"

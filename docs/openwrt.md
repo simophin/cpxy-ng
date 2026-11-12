@@ -53,8 +53,10 @@ ordinary WAN access.
 
 ### Requirements and upgrading from the TUN router
 
-The router needs fw4 (OpenWrt 22.03 or newer); the package depends on `firewall4` and
-`kmod-nft-nat`, which fw4 firmware already has. No TUN device, policy routing or extra GeoIP
+Routing networks needs fw4 (OpenWrt 22.03 or newer) with `firewall4` and `kmod-nft-nat`,
+which fw4 firmware already has. The package does not depend on them, so it also installs on fw3
+firmware for the HTTP/SOCKS5 client alone; there `cpxy-router` refuses an instance with networks
+and says why. No TUN device, policy routing or extra GeoIP
 package is used. Disable firewall `flow_offloading` and `flow_offloading_hw`: offloaded flows
 bypass the redirect. Normal LAN-to-WAN forwarding and IPv4 masquerading must already be
 configured; the package preserves administrator firewall denies.
@@ -77,7 +79,8 @@ disabled independently.
 ## Before you start
 
 - A router on **OpenWrt 25.12 or newer** (native apk v3, fw4, procd), **OpenWrt 24.10** (opkg), or another fw4 firmware (OpenWrt 22.03 or newer).
-  fw3 firmware, such as GL.iNet's stock 4.x (OpenWrt 21.02-based), is not supported. For apk, `/etc/apk/arch`
+  fw3 firmware, such as GL.iNet's stock 3.x/4.x (OpenWrt 19.07/21.02-based), runs the client only:
+  set `router '0'` (or give no instance a `network`). For apk, `/etc/apk/arch`
   must list `aarch64`, `aarch64_generic`, `aarch64_cortex-a53`, `aarch64_cortex-a72`,
   `aarch64_cortex-a76` or `x86_64`. On older firmware, `opkg print-architecture` must list
   `aarch64_cortex-a53` or `x86_64`.
@@ -116,15 +119,16 @@ awk -v path="openwrt-apk/$arch/cpxy.apk" '$2 == path { print $1 "  cpxy.apk" }' 
 scp -O cpxy.apk root@192.168.2.1:/tmp/
 ```
 
-On the router, first check that the firmware-specific dependencies are already installed:
+On the router, check that the firmware has what routing networks needs (fw4 firmware does),
+then install:
 
 ```sh
 apk info -e firewall4 kmod-nft-nat
 apk --no-network --repositories-file /dev/null --allow-untrusted add /tmp/cpxy.apk
 ```
 
-If dependencies are missing, supply matching OpenWrt packages first. In particular, `kmod-nft-nat`
-must match the running kernel; do not substitute a module from another firmware build.
+If they are missing and you route networks, supply matching OpenWrt packages first. In particular,
+`kmod-nft-nat` must match the running kernel; do not substitute a module from another firmware build.
 The native apk does not add a repository. It is unsigned by default, hence `--allow-untrusted`
 after checking its HTTPS-published checksum. Builds may optionally use `CPXY_APK_SIGN_KEY`;
 a trusted signing key then removes the need for `--allow-untrusted`.
@@ -144,7 +148,7 @@ run), copy it to the router and install it:
 curl -fLo cpxy.ipk https://<download host>/latest/openwrt/aarch64_cortex-a53/cpxy.ipk
 scp -O cpxy.ipk root@192.168.8.1:/tmp/
 ssh root@192.168.8.1
-opkg update && opkg install /tmp/cpxy.ipk      # needs firewall4 and kmod-nft-nat
+opkg update && opkg install /tmp/cpxy.ipk      # routing networks needs fw4
 ```
 
 The package also adds the download server's opkg feed and its signing key, so later versions come
@@ -218,6 +222,8 @@ never taken from `defaults`.
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy. |
 | `client`, `router` | `1` | Which services the instance runs. An instance with networks needs both. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy; always on for an instance with networks, whose DNS worker uses it. |
+| `client_routing` | `global` | What the HTTP/SOCKS5 proxies send through the server: `global` (everything) or `cn_split` (CN, private and tailnet addresses connect directly, and `proxy_route` still goes through the server). |
+| `client_dns_server` (list) | `127.0.0.1` (dnsmasq) | With `cn_split`: resolvers that decide a name's route, as `<ip>` or `<ip>:<port>`. A name that does not resolve connects directly. The server is always given the name, so a local resolver is enough. |
 | `client_transparent_listen` | `0.0.0.0:5100+i` | Where the networks' overseas TCP is redirected. Must bind `0.0.0.0`. |
 | `router_geoip` | `1` | Required kernel IPv4 split. IPv6 forwarding is always refused; obsolete `router_ipv6` and `ipv6` settings are ignored. |
 | `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |

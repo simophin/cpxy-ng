@@ -53,7 +53,7 @@ set -- "$apk" mkpkg --compat 3.0.0 --no-xattrs \
 	--info 'description:cpxy proxy, split DNS and LAN routing' \
 	--info origin:cpxy-ng --info maintainer:cpxy-ng \
 	--info url:https://github.com/simophin/cpxy-ng \
-	--info 'depends:firewall4 kmod-nft-nat !cpxy-router' \
+	--info 'depends:!cpxy-router' \
 	--script "post-install:$here/apk/install" \
 	--script "pre-upgrade:$work/scripts/upgrade-remove" \
 	--script "post-upgrade:$work/scripts/upgrade-install" \

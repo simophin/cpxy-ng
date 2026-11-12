@@ -52,6 +52,12 @@ _validate_instance() {
 	local iface entry value dns_port=- hash
 	SECTION="$1"
 	[ "$CPXY_ROUTED" = 1 ] || return 0
+	# The package installs without fw4 for client-only routers (fw3, OpenWrt 21.02 and older);
+	# a routed network needs it.
+	_cpxy_have_fw4 || {
+		_invalid "$SECTION: routing networks needs fw4 (OpenWrt 22.03 or newer, with firewall4 and kmod-nft-nat); remove its networks or set router '0'"
+		return
+	}
 	for entry in tun routing_table rule_priority; do
 		config_get value "$SECTION" "$entry"
 		[ -z "$value" ] || cpxy_log "$SECTION: option '$entry' is obsolete and ignored"
@@ -175,13 +181,16 @@ _apply_plan() {
 		fi
 	done
 	# One transaction replaces every instance's sets and rules: established connections keep
-	# their NAT, and no packet sees a partial policy.
+	# their NAT, and no packet sees a partial policy. Without nftables (fw3) nothing is routed:
+	# validation refuses routed instances there.
 	# shellcheck disable=SC2046
-	cpxy_nft_render "$PLAN" $(cpxy_nft_exempt $(_uplinks)) >"$PLAN/routes/.ruleset" &&
-		cpxy_nft_apply "$PLAN/routes/.ruleset" || {
-		cpxy_log "could not install the nftables policy; the previous one stays"
-		rm -rf "$PLAN"; return 1
-	}
+	if _cpxy_have_fw4; then
+		cpxy_nft_render "$PLAN" $(cpxy_nft_exempt $(_uplinks)) >"$PLAN/routes/.ruleset" &&
+			cpxy_nft_apply "$PLAN/routes/.ruleset" || {
+			cpxy_log "could not install the nftables policy; the previous one stays"
+			rm -rf "$PLAN"; return 1
+		}
+	fi
 	# The guards are in place: lift the boot barrier from the devices they now cover.
 	/usr/libexec/cpxy/boot-firewall.sh || cpxy_log "could not reconcile boot forwarding barrier"
 	# Only now that the guards are in place, retire the TUN design's devices, tables and rules.

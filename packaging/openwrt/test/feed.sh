@@ -29,10 +29,6 @@ script='
 set -eu
 grep -q "^option check_signature" /etc/opkg.conf || { echo "FAIL: opkg does not check signatures"; exit 1; }
 mkdir -p /var/lock /tmp
-for dep in firewall4 kmod-nft-nat; do
-	opkg status "$dep" | grep -q "^Status: .* installed" || printf "Package: %s\nVersion: 1\nStatus: install ok installed\nArchitecture: x86_64\n\n" "$dep" >>/usr/lib/opkg/status
-	[ -e "/usr/lib/opkg/info/$dep.list" ] || : >"/usr/lib/opkg/info/$dep.list"
-done
 # Offline: only the test feed, added by hand for the first install as the docs say
 : >/etc/opkg/distfeeds.conf
 echo "src/gz cpxy file:///latest/openwrt/x86_64" >/etc/opkg/customfeeds.conf

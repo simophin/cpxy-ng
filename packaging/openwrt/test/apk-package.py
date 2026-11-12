@@ -38,7 +38,8 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     data = metadata(packages[0])
     assert data["info"]["name"] == "cpxy"
     assert data["info"]["arch"] == "x86_64"
-    assert {"firewall4", "kmod-nft-nat", "!cpxy-router"} <= set(data["info"]["depends"])
+    # Routing needs fw4, checked at runtime: the package installs on client-only fw3 routers too
+    assert data["info"]["depends"] == ["!cpxy-router"], data["info"]["depends"]
     assert {"post-install", "pre-upgrade", "post-upgrade", "pre-deinstall", "post-deinstall"} <= data["scripts"].keys()
     paths = {entry.get("name", ""): entry for entry in data["paths"]}
     for entry in paths.values():
@@ -95,17 +96,12 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     armroot = work / "armroot"
     (armroot / "etc/apk").mkdir(parents=True)
     (armroot / "etc/apk/arch").write_text("aarch64_cortex-a53\n")
-    armdeps = []
-    for name in ("firewall4", "kmod-nft-nat"):
-        package = work / f"arm-{name}.apk"
-        run(APK, "mkpkg", "--info", f"name:{name}", "--info", "version:1-r0", "--info", "arch:aarch64_cortex-a53", "--output", package)
-        armdeps.append(package)
     armapk = [APK, "--root", armroot, "--no-network", "--allow-untrusted", "--repositories-file", "/dev/null"]
     usermode = ["--usermode"] if os.geteuid() != 0 else []
-    result = subprocess.run([str(arg) for arg in [*armapk, "add", *usermode, "--no-scripts", "--initdb", *armdeps, variants["aarch64"]]], capture_output=True)
+    result = subprocess.run([str(arg) for arg in [*armapk, "add", *usermode, "--no-scripts", "--initdb", variants["aarch64"]]], capture_output=True)
     assert result.returncode != 0
     assert b"uninstallable" in result.stderr, result.stderr
-    run(*armapk, "add", *usermode, "--no-scripts", "--initdb", *armdeps, variants["aarch64_cortex-a53"])
+    run(*armapk, "add", *usermode, "--no-scripts", "--initdb", variants["aarch64_cortex-a53"])
     assert run(*armapk, "info", "-e", "cpxy=1.0.0-r10").strip() == "cpxy"
 
     # Reproducible unsigned builds.
@@ -121,19 +117,12 @@ with tempfile.TemporaryDirectory(prefix="cpxy-apk-test-") as directory:
     run(HERE / "build-apk.sh", "x86_64", "1.0.0-r10", bins, work / "signed", env=dict(os.environ, CPXY_APK_SIGN_KEY=str(key)))
     run(APK, "--keys-dir", keys, "verify", work / "signed/cpxy-1.0.0-r10.apk")
 
-    # Dummy dependencies allow a fully offline package-manager test without
-    # installing firmware-specific kernel modules into this isolated root.
-    deps = []
-    for name in ("firewall4", "kmod-nft-nat"):
-        package = work / f"{name}.apk"
-        run(APK, "mkpkg", "--info", f"name:{name}", "--info", "version:1-r0", "--info", "arch:x86_64", "--output", package)
-        deps.append(package)
     root = work / "root"
     root.mkdir()
     apk = [APK, "--root", root, "--arch", "x86_64", "--no-network", "--allow-untrusted", "--repositories-file", "/dev/null"]
     # apk refuses --usermode as root (CI containers), but needs it otherwise.
     usermode = ["--usermode"] if os.geteuid() != 0 else []
-    run(*apk, "add", *usermode, "--no-scripts", "--initdb", *deps, packages[0])
+    run(*apk, "add", *usermode, "--no-scripts", "--initdb", packages[0])
     assert run(*apk, "info", "-e", "cpxy=1.0.0-r9").strip() == "cpxy"
     installed_config = root / "etc/config/cpxy"
     contents = installed_config.read_text() + "\n# user configuration\n"

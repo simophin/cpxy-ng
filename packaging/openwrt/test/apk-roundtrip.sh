@@ -16,9 +16,6 @@ trap 'rm -rf "$work"' EXIT
   done
   packaging/openwrt/build-apk.sh x86_64 1.0.0-r9 /tmp/bins /out
   packaging/openwrt/build-apk.sh x86_64 1.0.0-r10 /tmp/bins /out
-  for dep in firewall4 kmod-nft-nat; do
-    apk mkpkg --info name:$dep --info version:1-r0 --info arch:x86_64 --output /out/$dep.apk
-  done
 '
 "$engine" run --rm -v "$work:/packages:ro" "$image" sh -ec '
   mkdir -p /var/lock /tmp
@@ -29,9 +26,6 @@ trap 'rm -rf "$work"' EXIT
       if [ -e /etc/config/$config ]; then uci export $config; else echo absent; fi
     done
   }
-  for dep in firewall4 kmod-nft-nat; do
-    apk info -e "$dep" >/dev/null || apk --no-network --repositories-file /dev/null --allow-untrusted add "/packages/$dep.apk"
-  done
   snapshot >/tmp/system.before
   apk --no-network --repositories-file /dev/null --allow-untrusted add /packages/cpxy-1.0.0-r9.apk
   for service in cpxy-client cpxy-router; do

@@ -21,6 +21,12 @@
 
 CPXY_NFT_TABLE='inet cpxy'
 
+# Whether the firmware can route networks: fw4 (which brings kmod-nft-nat) and the nft tool.
+# The package does not depend on them, so fw3 routers can run cpxy-client alone.
+_cpxy_have_fw4() {
+	command -v fw4 >/dev/null && command -v nft >/dev/null
+}
+
 # cpxy_nft_state <file> <listener port> <dns port or -> <policy hash> <zones> <devices...>
 cpxy_nft_state() {
 	local file="$1" port="$2" dns="$3" hash="$4" zones="$5"
