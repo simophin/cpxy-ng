@@ -1,7 +1,6 @@
 //! `cpxy dns`: a split DNS server.
 
 use super::cache::{CacheOptions, DnsCache, purge_expired_every};
-use super::is_local_region_ip;
 use super::policy::Racer;
 use super::routing::route_spec;
 use super::server::{DnsSplitHandler, serve_tcp, serve_udp};
@@ -10,6 +9,7 @@ use super::upstream::{Dialer, DnsUpstream, Group, HickoryUpstream, OutboundDiale
 use crate::ipv6::Ipv6Mode;
 use crate::outbound::{ProtocolOutbound, ProxyRoutes, Socks5Outbound};
 use crate::protocol_config::Config as ServerConfig;
+use crate::region::LocalRegion;
 use anyhow::Context;
 use hickory_proto::rr::Name;
 use std::convert::Infallible;
@@ -47,9 +47,9 @@ impl FromStr for Cache {
 pub enum ResolverRouting {
     /// Directly, except the servers given with `?via=cpxy`
     Explicit,
-    /// By address: Chinese and private servers directly, the rest (and --proxy-route) through
-    /// --server or --socks5-proxy, over TCP. The --local-server is always asked directly. For a
-    /// router, whose own sockets bypass its firewall's routing.
+    /// By address: servers in --local-region and private ones directly, the rest (and
+    /// --proxy-route) through --server or --socks5-proxy, over TCP. The --local-server is always
+    /// asked directly. For a router, whose own sockets bypass its firewall's routing.
     #[value(name = "cn_split")]
     CnSplit,
 }
@@ -83,6 +83,12 @@ pub struct Args {
     #[arg(long, env = "SOCKS5_PROXY")]
     socks5_proxy: Option<SocketAddr>,
 
+    /// Where this server is: an upstream answer wins when it has addresses in this region, and
+    /// `--resolver-routing cn_split` reaches this region's servers directly. `cn` for China,
+    /// `overseas` for the reverse (overseas direct, CN through the proxy).
+    #[arg(long, env = "LOCAL_REGION", value_enum, default_value_t = LocalRegion::Cn)]
+    local_region: LocalRegion,
+
     /// How the DNS servers are reached; `cn_split` needs --server or --socks5-proxy
     #[arg(
         long,
@@ -94,7 +100,7 @@ pub struct Args {
     resolver_routing: ResolverRouting,
 
     /// With `--resolver-routing cn_split`: CIDRs whose servers go through the proxy even when
-    /// they are in China. Repeatable or comma-separated.
+    /// they are in the local region. Repeatable or comma-separated.
     #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = ProxyRoutes::parse_network)]
     proxy_route: Vec<ipnet::IpNet>,
 
@@ -148,6 +154,7 @@ pub struct Args {
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
     let timeout = args.timeout;
+    tracing::info!(local_region = ?args.local_region, "DNS: starting");
     let cpxy: Option<Arc<dyn Dialer>> = match (&args.server, args.socks5_proxy) {
         (Some(server), _) => {
             tracing::info!("Using cpxy server {server:?} for the servers via cpxy");
@@ -167,7 +174,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     let new_upstream = |spec: &ServerSpec| {
         let spec = match &routes {
-            Some(routes) => route_spec(spec, routes),
+            Some(routes) => route_spec(spec, args.local_region, routes),
             None => spec.clone(),
         };
         HickoryUpstream::new(&spec, timeout, cpxy.clone())
@@ -209,9 +216,12 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         cache
     });
 
-    let mut handler = DnsSplitHandler::new(Racer::new(servers, timeout, is_local_region_ip), cache)
-        .with_search_domains(args.search_domain)
-        .with_ipv6(args.ipv6);
+    let mut handler = DnsSplitHandler::new(
+        Racer::new(servers, timeout, args.local_region.predicate()),
+        cache,
+    )
+    .with_search_domains(args.search_domain)
+    .with_ipv6(args.ipv6);
     if let Some(spec) = &args.local_server {
         let server = if routes.is_some() {
             // The router's own resolver, on its own network.

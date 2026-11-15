@@ -6,7 +6,7 @@ what it changes on the router and how it is built and tested.
 
 | Installed as | Built from | Role, per instance |
 |---|---|---|
-| `/usr/bin/cpxy` | `cpxy` crate | `cpxy client`: HTTP and SOCKS5 proxy through the instance's cpxy server, and the transparent listener its networks' overseas TCP is redirected to. `cpxy dns`: split DNS for the networks. `cpxy routes cn-direct`: the direct IPv4 prefixes for the nftables policy |
+| `/usr/bin/cpxy` | `cpxy` crate | `cpxy client`: HTTP and SOCKS5 proxy through the instance's cpxy server, and the transparent listener its networks' overseas TCP is redirected to. `cpxy dns`: split DNS for the networks. `cpxy routes direct`: the direct IPv4 prefixes for the nftables policy |
 | `/usr/bin/cpxy-show` | `files/usr/bin/cpxy-show` | Prints each instance's effective settings |
 
 Each program is a procd instance named after its cpxy instance, under one init script per program:

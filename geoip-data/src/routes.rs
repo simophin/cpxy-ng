@@ -4,7 +4,33 @@
 /// Regional/private prefixes minus forced proxy ranges (inclusive IPv4 start/end).
 /// Returns network addresses and prefix lengths in ascending order, without overlaps.
 pub fn direct_ipv4(proxy: &[(u32, u32)]) -> Vec<(u32, u8)> {
-    let mut ranges: Vec<_> = crate::CN
+    let mut ranges = cn_ipv4_ranges();
+    ranges.extend(PRIVATE_IPV4);
+    compile(ranges, ipv4_cuts(proxy))
+}
+
+/// The direct prefixes for a device outside China: everything but CN (private addresses
+/// included), minus forced proxy ranges (inclusive IPv4 start/end).
+pub fn overseas_direct_ipv4(proxy: &[(u32, u32)]) -> Vec<(u32, u8)> {
+    let mut ranges: Vec<_> = compile(vec![(0, 1 << 32)], cn_ipv4_ranges())
+        .into_iter()
+        .map(|(ip, p)| (ip as u64, ip as u64 + (1u64 << (32 - p))))
+        .collect();
+    ranges.extend(PRIVATE_IPV4);
+    compile(ranges, ipv4_cuts(proxy))
+}
+
+// Keep in sync with client::outbound::is_private. Tests compare the effective policies.
+const PRIVATE_IPV4: [(u64, u64); 5] = [
+    (0x0a000000, 0x0b000000),
+    (0x7f000000, 0x80000000),
+    (0xa9fe0000, 0xa9ff0000),
+    (0xac100000, 0xac200000),
+    (0xc0a80000, 0xc0a90000),
+];
+
+fn cn_ipv4_ranges() -> Vec<(u64, u64)> {
+    crate::CN
         .chunks_exact(8)
         .map(|r| {
             (
@@ -12,22 +38,14 @@ pub fn direct_ipv4(proxy: &[(u32, u32)]) -> Vec<(u32, u8)> {
                 u32::from_be_bytes(r[4..].try_into().unwrap()) as u64 + 1,
             )
         })
-        .collect();
-    // Keep in sync with client::outbound::is_private. Tests compare the effective policies.
-    for (start, end) in [
-        (0x0a000000, 0x0b000000),
-        (0x7f000000, 0x80000000),
-        (0xa9fe0000, 0xa9ff0000),
-        (0xac100000, 0xac200000),
-        (0xc0a80000, 0xc0a90000),
-    ] {
-        ranges.push((start, end));
-    }
-    let excluded = proxy
+        .collect()
+}
+
+fn ipv4_cuts(proxy: &[(u32, u32)]) -> Vec<(u64, u64)> {
+    proxy
         .iter()
         .map(|&(start, end)| (start as u64, end as u64 + 1))
-        .collect();
-    compile(ranges, excluded)
+        .collect()
 }
 
 /// The complement of [`direct_ipv4`], for platforms that route everything else into a tunnel
@@ -82,6 +100,13 @@ pub fn direct_ipv6() -> Vec<(u128, u8)> {
     result
 }
 
+// Keep in sync with client::outbound::is_private (inclusive ends).
+const PRIVATE_IPV6: [(u128, u128); 3] = [
+    (1, 1),
+    (0xfc00u128 << 112, (0xfe00u128 << 112) - 1),
+    (0xfe80u128 << 112, (0xfec0u128 << 112) - 1),
+];
+
 /// Router policy: reviewed CN IPv6 plus private/loopback/link-local ranges, minus
 /// inclusive forced-proxy ranges. Keep private ranges aligned with `is_private`.
 pub fn router_direct_ipv6(proxy: &[(u128, u128)]) -> Vec<(u128, u8)> {
@@ -94,11 +119,23 @@ pub fn router_direct_ipv6(proxy: &[(u128, u128)]) -> Vec<(u128, u8)> {
             )
         })
         .collect();
-    ranges.extend([
-        (1, 1),
-        (0xfc00u128 << 112, (0xfe00u128 << 112) - 1),
-        (0xfe80u128 << 112, (0xfec0u128 << 112) - 1),
-    ]);
+    ranges.extend(PRIVATE_IPV6);
+    cut_v6(ranges, proxy)
+}
+
+/// [`router_direct_ipv6`] for a device outside China: everything but CN (private addresses
+/// included), minus inclusive forced-proxy ranges.
+pub fn overseas_router_direct_ipv6(proxy: &[(u128, u128)]) -> Vec<(u128, u8)> {
+    let mut ranges: Vec<_> = complement_ipv6(&direct_ipv6())
+        .into_iter()
+        .map(|(ip, prefix)| (ip, ip | u128::MAX.checked_shr(prefix.into()).unwrap_or(0)))
+        .collect();
+    ranges.extend(PRIVATE_IPV6);
+    cut_v6(ranges, proxy)
+}
+
+/// Prefixes covering the union of inclusive `ranges`, minus inclusive `proxy` ranges.
+fn cut_v6(mut ranges: Vec<(u128, u128)>, proxy: &[(u128, u128)]) -> Vec<(u128, u8)> {
     ranges.sort_unstable();
     let mut merged: Vec<(u128, u128)> = Vec::new();
     for (start, end) in ranges {
@@ -293,6 +330,21 @@ mod tests {
     }
 
     #[test]
+    fn overseas_direct_is_cn_complement_plus_private_minus_proxy() {
+        let size = |prefixes: &[(u32, u8)]| -> u64 {
+            prefixes.iter().map(|&(_, p)| 1u64 << (32 - p)).sum()
+        };
+        let cn = compile(cn_ipv4_ranges(), vec![]);
+        let overseas = overseas_direct_ipv4(&[]);
+        assert_eq!(size(&cn) + size(&overseas), 1 << 32);
+        let forced = [(0x08080808, 0x08080808), (0x0a000000, 0x0a0000ff)];
+        assert_eq!(
+            size(&overseas_direct_ipv4(&forced)),
+            size(&overseas) - 1 - 256
+        );
+    }
+
+    #[test]
     fn broad_proxy_exclusion_wins_over_regional_specifics() {
         assert!(direct_ipv4(&[(0, u32::MAX)]).is_empty());
         let prefixes = direct_ipv4(&[(0x72000000, 0x72ffffff)]);
@@ -322,6 +374,30 @@ mod ipv6_tests {
         assert!(covers(u128::MAX - 1));
         assert!(!covers(0xfd00u128 << 112));
         assert_eq!(complement_ipv6(&[(0, 1), (0, 2)]), [(1u128 << 127, 1)]);
+    }
+
+    #[test]
+    fn overseas_ipv6_is_the_cn_complement_minus_proxy() {
+        let covers = |prefixes: &[(u128, u8)], ip: u128| {
+            prefixes.iter().any(|&(a, p)| {
+                let mask = if p == 0 { 0 } else { u128::MAX << (128 - p) };
+                ip & mask == a
+            })
+        };
+        let google = 0x2001_4860_4860_0000_0000_0000_0000_8888u128;
+        let forced = 0x2606_4700_4700_0000_0000_0000_0000_1111u128;
+        let overseas = overseas_router_direct_ipv6(&[(forced, forced)]);
+        let cn = router_direct_ipv6(&[]);
+        for row in crate::CN6.chunks_exact(32) {
+            let start = u128::from_be_bytes(row[..16].try_into().unwrap());
+            assert!(!covers(&overseas, start), "{start:x}");
+        }
+        assert!(covers(&overseas, google));
+        assert!(!covers(&overseas, forced));
+        assert!(covers(&overseas, forced + 1));
+        assert!(covers(&overseas, 0xfd00u128 << 112));
+        assert!(covers(&overseas, 1));
+        assert!(!covers(&cn, google));
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 use anyhow::Context;
 use client::dns_split::cache::{CacheOptions, DnsCache, purge_expired_every};
-use client::dns_split::is_local_region_ip;
 use client::dns_split::policy::Racer;
 use client::dns_split::routing::route_spec;
 use client::dns_split::server::{DnsSplitHandler, encode_udp, serve_tcp_connection};
@@ -11,6 +10,7 @@ use client::dns_split::upstream::{Dialer, DnsUpstream, Group, HickoryUpstream, O
 use client::ipv6::Ipv6Mode;
 use client::outbound::{ProtocolOutbound, ProxyRoutes, Socks5Outbound};
 use client::protocol_config::Config as ServerConfig;
+use client::region::LocalRegion;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use hickory_proto::op::Message;
@@ -78,7 +78,7 @@ async fn build_handler(
 ) -> anyhow::Result<DnsSplitHandler> {
     let new_upstream = |spec: &ServerSpec| {
         let spec = match routes {
-            Some(routes) => route_spec(spec, routes),
+            Some(routes) => route_spec(spec, LocalRegion::Cn, routes),
             None => spec.clone(),
         };
         HickoryUpstream::new(&spec, QUERY_TIMEOUT, Some(cpxy.clone()))
@@ -106,7 +106,7 @@ async fn build_handler(
         None
     };
     let mut handler = DnsSplitHandler::new(
-        Racer::new(servers, QUERY_TIMEOUT, is_local_region_ip),
+        Racer::new(servers, QUERY_TIMEOUT, LocalRegion::Cn.predicate()),
         cache,
     )
     .with_search_domains(specs.search_domains.to_vec())

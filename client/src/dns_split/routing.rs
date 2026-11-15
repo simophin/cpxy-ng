@@ -1,27 +1,27 @@
 //! CN split routing for the resolvers themselves, where nothing else routes their traffic: a
 //! router's own sockets bypass its firewall's policy, so each resolver is classified by address.
 
-use super::is_local_region_ip;
 use super::spec::{Endpoint, ServerSpec, Via};
 use crate::outbound::{ProxyRoutes, is_private};
+use crate::region::LocalRegion;
 use std::net::IpAddr;
 
-/// Whether `ip` goes through the proxy: anything outside China and the private ranges, and
-/// whatever `routes` forces. An unknown address is proxied.
-pub fn should_proxy(routes: &ProxyRoutes, ip: Option<IpAddr>) -> bool {
-    routes.contains(ip) || !ip.is_some_and(|ip| is_private(ip) || is_local_region_ip(ip))
+/// Whether `ip` goes through the proxy: anything outside the local region and the private
+/// ranges, and whatever `routes` forces. An unknown address is proxied.
+pub fn should_proxy(region: LocalRegion, routes: &ProxyRoutes, ip: Option<IpAddr>) -> bool {
+    routes.contains(ip) || !ip.is_some_and(|ip| is_private(ip) || region.contains(ip))
 }
 
 /// `spec`, reached directly or through the proxy by its address. The proxy carries TCP only, so
 /// a proxied UDP server is asked over TCP instead. A server already given with `?via=cpxy` stays
 /// proxied.
-pub fn route_spec(spec: &ServerSpec, routes: &ProxyRoutes) -> ServerSpec {
+pub fn route_spec(spec: &ServerSpec, region: LocalRegion, routes: &ProxyRoutes) -> ServerSpec {
     let mut spec = spec.clone();
     if spec.via == Via::Cpxy {
         return spec;
     }
     let address = spec.addr();
-    let proxy = should_proxy(routes, Some(address.ip()));
+    let proxy = should_proxy(region, routes, Some(address.ip()));
     if proxy {
         spec.via = Via::Cpxy;
         spec.endpoint = Endpoint::Tcp(address);
@@ -53,10 +53,17 @@ mod tests {
         ])
         .unwrap();
         for ip in ["223.5.5.5", "10.1.2.3", "2400:3200::1"] {
-            assert!(should_proxy(&routes, Some(ip.parse().unwrap())), "{ip}");
+            assert!(
+                should_proxy(LocalRegion::Cn, &routes, Some(ip.parse().unwrap())),
+                "{ip}"
+            );
         }
-        assert!(!should_proxy(&routes, Some("192.168.1.1".parse().unwrap())));
-        assert!(should_proxy(&routes, None));
+        assert!(!should_proxy(
+            LocalRegion::Cn,
+            &routes,
+            Some("192.168.1.1".parse().unwrap())
+        ));
+        assert!(should_proxy(LocalRegion::Cn, &routes, None));
     }
 
     #[test]
@@ -74,12 +81,48 @@ mod tests {
             "127.0.0.1",
             "169.254.1.1",
         ] {
-            assert!(!should_proxy(&none, Some(ip.parse().unwrap())), "{ip}");
+            assert!(
+                !should_proxy(LocalRegion::Cn, &none, Some(ip.parse().unwrap())),
+                "{ip}"
+            );
         }
         // Google, Cloudflare, example.com, Tailscale CGNAT
         for ip in ["8.8.8.8", "1.1.1.1", "93.184.216.34", "100.100.100.100"] {
-            assert!(should_proxy(&none, Some(ip.parse().unwrap())), "{ip}");
+            assert!(
+                should_proxy(LocalRegion::Cn, &none, Some(ip.parse().unwrap())),
+                "{ip}"
+            );
         }
+    }
+
+    #[test]
+    fn overseas_region_proxies_cn_and_keeps_the_rest_direct() {
+        let routes = ProxyRoutes::parse(&["8.8.4.4/32".into()]).unwrap();
+        let region = LocalRegion::Overseas;
+        for ip in ["223.5.5.5", "114.114.114.114", "2400:3200::1", "8.8.4.4"] {
+            assert!(
+                should_proxy(region, &routes, Some(ip.parse().unwrap())),
+                "{ip}"
+            );
+        }
+        for ip in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "192.168.1.1",
+            "fd00::1",
+            "2001:4860:4860::8888",
+        ] {
+            assert!(
+                !should_proxy(region, &routes, Some(ip.parse().unwrap())),
+                "{ip}"
+            );
+        }
+        assert!(should_proxy(region, &routes, None));
+        let spec = route_spec(&"223.5.5.5".parse().unwrap(), region, &routes);
+        assert_eq!(spec.via, Via::Cpxy);
+        assert!(matches!(spec.endpoint, Endpoint::Tcp(_)));
+        let spec = route_spec(&"1.1.1.1".parse().unwrap(), region, &routes);
+        assert_eq!(spec.via, Via::Direct);
     }
 
     #[test]
@@ -94,7 +137,7 @@ mod tests {
             ("[2001:4860:4860::8888]:53", true, true),
             ("[fd00::1]:53", false, false),
         ] {
-            let spec = route_spec(&input.parse().unwrap(), &routes);
+            let spec = route_spec(&input.parse().unwrap(), LocalRegion::Cn, &routes);
             assert_eq!(spec.via == Via::Cpxy, proxy, "{input}");
             assert_eq!(matches!(spec.endpoint, Endpoint::Tcp(_)), tcp, "{input}");
         }
@@ -121,7 +164,11 @@ mod tests {
                 stream.write_u16(bytes.len() as u16).await.unwrap();
                 stream.write_all(&bytes).await.unwrap();
             });
-            let spec = route_spec(&destination.parse().unwrap(), &ProxyRoutes::default());
+            let spec = route_spec(
+                &destination.parse().unwrap(),
+                LocalRegion::Cn,
+                &ProxyRoutes::default(),
+            );
             let upstream = HickoryUpstream::new(
                 &spec,
                 Duration::from_secs(5),

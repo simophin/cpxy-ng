@@ -3,10 +3,9 @@ use crate::outbound::{
     StatReportingOutbound, is_private,
 };
 use crate::protocol_config::Config;
+use crate::region::LocalRegion;
 use crate::stats_server::OutboundEvent;
-use cpxy_ng::geoip::{contains_v4, contains_v6};
 use cpxy_ng::outbound::Outbound;
-use geoip_data::{CN, CN6};
 use hickory_resolver::Resolver;
 use hickory_resolver::config::{NameServerConfig, ResolverConfig};
 use hickory_resolver::name_server::TokioConnectionProvider;
@@ -17,7 +16,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+/// CN split routing: the local region's, private and tailnet addresses connect directly, the rest
+/// (and `proxy_routes`) through `main_server`. Domains are resolved with `dns_servers` to decide.
 pub fn cn_outbound(
+    region: LocalRegion,
     dns_servers: Vec<SocketAddr>,
     main_server: Config,
     proxy_routes: ProxyRoutes,
@@ -54,7 +56,7 @@ pub fn cn_outbound(
             outbound_b: IPDivertOutbound {
                 outbound_a: Some(direct_outbound),
                 outbound_b: global_outbound,
-                should_use_a: ip_should_route_direct,
+                should_use_a: move |ip| ip_should_route_direct(region, ip),
             },
         },
         resolver: Arc::new(
@@ -69,16 +71,9 @@ const TAILSCALE_NETWORK: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(100, 0, 0, 
 const TAILSCALE_NETWORK_V6: Ipv6Net =
     Ipv6Net::new_assert(Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 0), 48);
 
-fn ip_should_route_direct(ip: Option<IpAddr>) -> bool {
+fn ip_should_route_direct(region: LocalRegion, ip: Option<IpAddr>) -> bool {
     match ip {
-        Some(ip) => {
-            is_private(ip)
-                || is_tailnet(ip)
-                || match ip {
-                    IpAddr::V4(ip) => contains_v4(&ip, CN),
-                    IpAddr::V6(ip) => contains_v6(&ip, CN6),
-                }
-        }
+        Some(ip) => is_private(ip) || is_tailnet(ip) || region.contains(ip),
         _ => true,
     }
 }
@@ -105,6 +100,7 @@ mod tests {
         drop(closed);
         let (tx, mut rx) = broadcast::channel(16);
         let outbound = cn_outbound(
+            LocalRegion::Cn,
             vec![],
             server,
             ProxyRoutes::parse(&[
@@ -139,11 +135,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn local_region_decides_which_side_goes_direct() {
+        let direct = |region, ip: &str| ip_should_route_direct(region, Some(ip.parse().unwrap()));
+        for ip in ["192.168.1.1", "100.100.100.100", "fd7a:115c:a1e0::1"] {
+            assert!(direct(LocalRegion::Cn, ip), "{ip}");
+            assert!(direct(LocalRegion::Overseas, ip), "{ip}");
+        }
+        assert!(direct(LocalRegion::Cn, "223.5.5.5"));
+        assert!(!direct(LocalRegion::Cn, "8.8.8.8"));
+        assert!(!direct(LocalRegion::Overseas, "223.5.5.5"));
+        assert!(direct(LocalRegion::Overseas, "8.8.8.8"));
+        assert!(!direct(LocalRegion::Overseas, "2400:3200::1"));
+    }
+
     #[tokio::test]
     async fn unmatched_local_destination_stays_direct() {
         let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let (tx, mut rx) = broadcast::channel(16);
         let outbound = cn_outbound(
+            LocalRegion::Cn,
             vec![],
             "http://:key@127.0.0.1:1".parse().unwrap(),
             ProxyRoutes::parse(&["223.5.5.5/32".into()]).unwrap(),

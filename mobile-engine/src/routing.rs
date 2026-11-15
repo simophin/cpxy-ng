@@ -3,6 +3,7 @@ use client::outbound::{
     DirectOutbound, EitherOutbound, ProtocolOutbound, ProxyRoutes, Socks5Outbound,
 };
 use client::protocol_config::Config as ServerConfig;
+use client::region::LocalRegion;
 use cpxy_ng::either_stream::EitherStream;
 use cpxy_ng::outbound::{Outbound, OutboundHost, OutboundRequest};
 use std::net::{IpAddr, SocketAddr};
@@ -62,7 +63,7 @@ impl Outbound for Router {
 
 /// Forced destinations always win over regional/private direct routing.
 pub fn route(proxy_routes: &ProxyRoutes, ip: Option<IpAddr>) -> Route {
-    if should_proxy(proxy_routes, ip) {
+    if should_proxy(LocalRegion::Cn, proxy_routes, ip) {
         Route::Proxy
     } else {
         Route::Direct

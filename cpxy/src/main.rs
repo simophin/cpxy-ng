@@ -102,6 +102,8 @@ mod tests {
             "http://:k@h:1",
             "--routing",
             "cn_split",
+            "--dns-server",
+            "1.1.1.1",
             "--socks5-proxy-listen",
             "127.0.0.1:1080",
         ])

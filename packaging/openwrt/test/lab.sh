@@ -214,7 +214,7 @@ instance() {
 	inst="$1" port="$2" dns="$3" dev="$4"
 	shift 4
 	for route in "$@"; do set -- "$@" --proxy-route "$route"; shift; done
-	{ "$BIN/cpxy" routes cn-direct "$@" && in_router sh -c ". '$NFT'; cpxy_nft_main_routes"; } >"$PLAN/routes/$inst" || return 1
+	{ "$BIN/cpxy" routes direct "$@" && in_router sh -c ". '$NFT'; cpxy_nft_main_routes"; } >"$PLAN/routes/$inst" || return 1
 	# shellcheck source=packaging/openwrt/files/usr/libexec/cpxy/nft.sh
 	(. "$NFT"; cpxy_nft_state "$PLAN/$inst" "$port" "$dns" "$(sha256sum <"$PLAN/routes/$inst" | cut -d ' ' -f 1)" zone "$dev")
 }

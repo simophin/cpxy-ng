@@ -3,4 +3,5 @@
 [ -s "${IPKG_INSTROOT}/lib/functions.sh" ] || exit 0
 . "${IPKG_INSTROOT}/lib/functions.sh"
 export pkgname=cpxy
+sh "${IPKG_INSTROOT}/usr/libexec/cpxy/migrate-config.sh"
 default_postinst

@@ -12,6 +12,7 @@ rmdir "${IPKG_INSTROOT}/usr/share/doc/cpxy" 2>/dev/null
 # server key. Each exit node's Tailscale identity in /etc/cpxy/tsgw is left for the user to delete.
 rm -f "${IPKG_INSTROOT}"/etc/rc.d/[SK][0-9][0-9]cpxy-tsgw
 [ -n "${IPKG_INSTROOT}" ] || rm -f /tmp/cpxy/tsgw-*.env
+sh "${IPKG_INSTROOT}/usr/libexec/cpxy/migrate-config.sh"
 # Enables and starts the cpxy-* services; they wait until a server is configured
 default_postinst "$0" "$@"
 if [ -z "${IPKG_INSTROOT}" ] && [ "$PKG_UPGRADE" != 1 ]; then

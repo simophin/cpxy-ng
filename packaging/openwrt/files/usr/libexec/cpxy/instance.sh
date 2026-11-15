@@ -114,12 +114,14 @@ cpxy_instance() {
 	cpxy_get_bool CPXY_CLIENT "$name" client 1
 	cpxy_get_bool CPXY_ROUTER "$name" router 1
 	cpxy_get_bool CPXY_GEOIP "$name" router_geoip 1
+	# Which side of the CN boundary is direct: cn (CN direct) or overseas (CN proxied)
+	cpxy_get CPXY_LOCAL_REGION "$name" local_region cn
 
-	# What the HTTP/SOCKS5 proxies send through the server: everything, or only what is not CN
+	# What the HTTP/SOCKS5 proxies send through the server: everything, or only what is outside
+	# the local region
 	cpxy_get CPXY_CLIENT_ROUTING "$name" client_routing global
-	# With cn_split: who resolves names to decide their route. The server is always given the
-	# name, so the router's own resolver (reachable wherever the router is) is enough.
-	cpxy_get CPXY_CLIENT_DNS "$name" client_dns_server 127.0.0.1
+	# With cn_split (required there): who resolves names to decide their route
+	cpxy_get CPXY_CLIENT_DNS "$name" client_dns_server
 	_cpxy_own CPXY_HTTP_LISTEN "$name" client_http_listen "[::]:$((5000 + i))"
 	cpxy_get_bool CPXY_SOCKS5 "$name" client_socks5 0
 	_cpxy_own CPXY_SOCKS5_LISTEN "$name" client_socks5_listen "[::]:$((1080 + i))"
@@ -133,9 +135,9 @@ cpxy_instance() {
 	CPXY_PROXY="http://$(_cpxy_connect_addr "$CPXY_HTTP_LISTEN")"
 
 	cpxy_get CPXY_DNS_SEARCH_DOMAINS "$name" dns_search_domain
+	# The local region's servers, and the other region's (reached through the cpxy server)
 	cpxy_get CPXY_DNS_UPSTREAM "$name" dns_upstream
-	# Overseas servers, asked through the instance's cpxy server
-	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative "tcp://1.1.1.1?via=cpxy"
+	cpxy_get CPXY_DNS_ALTERNATIVE "$name" dns_alternative
 	cpxy_get_bool CPXY_DNS_CACHE "$name" dns_cache 1
 	cpxy_get CPXY_DNS_LOCAL_DOMAINS "$name" dns_local_domain
 	if [ -z "$CPXY_DNS_LOCAL_DOMAINS" ]; then
@@ -221,9 +223,15 @@ _cpxy_validate_instance() {
 	if [ "$CPXY_CLIENT" = 1 ] && [ -z "$CPXY_SERVER" ]; then
 		_cpxy_invalid "$1: option 'server' is not set (in the instance or in defaults)"
 	fi
+	case "$CPXY_LOCAL_REGION" in
+	cn | overseas) ;;
+	*) _cpxy_invalid "$1: local_region must be cn or overseas" ;;
+	esac
 	case "$CPXY_CLIENT_ROUTING" in
 	global) ;;
 	cn_split)
+		[ -n "$CPXY_CLIENT_DNS" ] ||
+			_cpxy_invalid "$1: client_routing cn_split needs client_dns_server, the resolvers that decide a name's route"
 		for entry in $CPXY_CLIENT_DNS; do
 			_cpxy_dns_server_ok "$entry" ||
 				_cpxy_invalid "$1: invalid client_dns_server '$entry': use <ip>, <ipv4>:<port> or [<ipv6>]:<port>"
@@ -249,8 +257,14 @@ _cpxy_validate_instance() {
 		[ "$CPXY_SOCKS5" = 1 ] && _cpxy_claim tcp "$(_cpxy_port "$CPXY_SOCKS5_LISTEN")" "$1 client_socks5_listen"
 		[ "$CPXY_ROUTED" = 1 ] && _cpxy_claim tcp "$(_cpxy_port "$CPXY_TRANSPARENT_LISTEN")" "$1 client_transparent_listen"
 	fi
+	if [ "$CPXY_ROUTED" = 1 ] && [ "$CPXY_ROUTER_DNS" = 1 ]; then
+		# Which servers suit depends on local_region, so neither list has a default
+		[ -n "$CPXY_DNS_UPSTREAM" ] ||
+			_cpxy_invalid "$1: option 'dns_upstream' is required: the $CPXY_LOCAL_REGION resolvers, asked directly"
+		[ -n "$CPXY_DNS_ALTERNATIVE" ] ||
+			_cpxy_invalid "$1: option 'dns_alternative' is required: resolvers outside $CPXY_LOCAL_REGION, e.g. tcp://<ip>?via=cpxy"
+	fi
 	if [ "$CPXY_ROUTER" = 1 ]; then
-		[ -n "$CPXY_DNS_UPSTREAM" ] || _cpxy_invalid "$1: option 'dns_upstream' is required"
 		for entry in $CPXY_DNS_UPSTREAM $CPXY_DNS_ALTERNATIVE; do
 			case "$entry" in
 			tls://* | https://*)
