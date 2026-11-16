@@ -1,9 +1,8 @@
 //! Decides, before the IP stack sees it, what happens to each packet the device sends into the
 //! tunnel. Refused traffic gets an ICMP error back so apps fail fast instead of timing out.
 
-use crate::routing::{Route, route};
+use crate::routing::{Policy, Route};
 use client::ipv6::Ipv6Mode;
-use client::outbound::ProxyRoutes;
 use etherparse::{Icmpv4Type, Icmpv6Type, PacketBuilder, icmpv4, icmpv6};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -40,17 +39,17 @@ pub struct Filter {
     tcp_dot_allowed: bool,
     ipv6: Ipv6Mode,
     /// Where TCP goes.
-    proxy_routes: ProxyRoutes,
+    policy: Policy,
     /// Whether the engine's own sockets reach an address.
     has_route: fn(Ipv6Addr) -> bool,
 }
 
 impl Filter {
-    pub fn new(ipv6: Ipv6Mode, proxy_routes: ProxyRoutes) -> Self {
+    pub fn new(ipv6: Ipv6Mode, policy: Policy) -> Self {
         Self {
             tcp_dot_allowed: false,
             ipv6,
-            proxy_routes,
+            policy,
             has_route,
         }
     }
@@ -83,7 +82,7 @@ impl Filter {
         // Refused before the IP stack accepts a TCP connection: once accepted, a connection that
         // cannot be made fails after the app considers it open, which Happy Eyeballs does not
         // recover from. UDP is relayed direct, so it never needs the cpxy server.
-        let direct = || route(&self.proxy_routes, Some(dst.into())) == Route::Direct;
+        let direct = || self.policy.route(Some(dst.into())) == Route::Direct;
         let allowed = match self.ipv6 {
             Ipv6Mode::Off => false,
             Ipv6Mode::Direct => next_header == PROTO_UDP || direct(),
@@ -203,6 +202,7 @@ fn icmp_error_v6(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client::outbound::ProxyRoutes;
     use etherparse::{NetSlice, SlicedPacket, TransportSlice};
 
     const APP: Ipv4Addr = Ipv4Addr::new(10, 233, 0, 1);
@@ -217,7 +217,13 @@ mod tests {
     fn routed(mode: Ipv6Mode, proxy_routes: ProxyRoutes) -> Filter {
         Filter {
             has_route: |_| true,
-            ..Filter::new(mode, proxy_routes)
+            ..Filter::new(
+                mode,
+                Policy {
+                    region: client::region::LocalRegion::Cn,
+                    proxy_routes,
+                },
+            )
         }
     }
 
@@ -285,7 +291,7 @@ mod tests {
 
     #[test]
     fn router_allows_dot_but_still_refuses_quic() {
-        let filter = Filter::new(Ipv6Mode::Full, ProxyRoutes::default()).with_tcp_dot_allowed(true);
+        let filter = Filter::new(Ipv6Mode::Full, Policy::default()).with_tcp_dot_allowed(true);
         assert_eq!(filter.classify(&tcp_syn_v6(REMOTE_V6, 853)), Verdict::Pass);
     }
 
@@ -379,7 +385,7 @@ mod tests {
         for mode in [Ipv6Mode::Direct, Ipv6Mode::Full] {
             let filter = Filter {
                 has_route: |_| false,
-                ..Filter::new(mode, ProxyRoutes::default())
+                ..Filter::new(mode, Policy::default())
             };
             reply(filter.classify(&tcp_syn_v6(LOCAL_V6, 443)));
             // Only new connections are checked; UDP is relayed regardless.
@@ -391,7 +397,7 @@ mod tests {
         // Proxied TCP needs only the cpxy server's IPv6.
         let filter = Filter {
             has_route: |_| false,
-            ..Filter::new(Ipv6Mode::Full, ProxyRoutes::default())
+            ..Filter::new(Ipv6Mode::Full, Policy::default())
         };
         assert_eq!(filter.classify(&tcp_syn_v6(REMOTE_V6, 443)), Verdict::Pass);
         assert!(has_route(Ipv6Addr::LOCALHOST));

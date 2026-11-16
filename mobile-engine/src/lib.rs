@@ -103,7 +103,10 @@ pub fn start(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
         } else {
             Backend::Cpxy(settings.server.expect("validated cpxy server"))
         },
-        settings.proxy_routes,
+        routing::Policy {
+            region: settings.local_region,
+            proxy_routes: settings.proxy_routes,
+        },
         settings.ipv6,
         settings.mtu,
         proxy::Ports {
@@ -119,6 +122,7 @@ pub fn start(tun: OwnedFd, config_json: &str) -> anyhow::Result<EngineHandle> {
                 local: None,
                 cache: true,
                 ipv6: settings.ipv6,
+                region: settings.local_region,
             },
             intercept: true,
         }),
@@ -156,7 +160,7 @@ enum Backend {
 fn start_inner(
     tun: OwnedFd,
     server: Backend,
-    proxy_routes: client::outbound::ProxyRoutes,
+    policy: routing::Policy,
     ipv6: Ipv6Mode,
     mtu: u16,
     proxy_ports: proxy::Ports,
@@ -190,7 +194,7 @@ fn start_inner(
                     match &server {
                         Backend::Cpxy(server) => dns::handler(&specs.split, server).await,
                         Backend::AndroidExternal(address) => {
-                            dns::router_handler(&specs.split, *address, &proxy_routes).await
+                            dns::router_handler(&specs.split, *address, &policy.proxy_routes).await
                         }
                         Backend::AndroidCpxy(_) => unreachable!(),
                     }
@@ -206,15 +210,15 @@ fn start_inner(
     let local_proxy_port = proxies.local_http_port();
     let traffic = Arc::new(Traffic::default());
     let (device_closed_tx, device_closed) = oneshot::channel();
-    let filter = filter::Filter::new(ipv6, proxy_routes.clone()).with_tcp_dot_allowed(android);
+    let filter = filter::Filter::new(ipv6, policy.clone()).with_tcp_dot_allowed(android);
     let device = {
         let _guard = runtime.enter();
         Tun::new(tun, device_closed_tx)?
     };
 
     let router = Arc::new(match server {
-        Backend::Cpxy(server) => Router::new(server, proxy_routes),
-        Backend::AndroidExternal(address) => Router::split_socks5(address, proxy_routes),
+        Backend::Cpxy(server) => Router::new(server, policy),
+        Backend::AndroidExternal(address) => Router::split_socks5(address, policy),
         Backend::AndroidCpxy(_) => unreachable!(),
     });
     let (shutdown, shutdown_rx) = oneshot::channel();

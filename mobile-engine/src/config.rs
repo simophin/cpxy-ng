@@ -2,6 +2,7 @@ use anyhow::{Context, ensure};
 use client::dns_split::spec::ServerSpec;
 use client::ipv6::Ipv6Mode;
 use client::protocol_config::Config as ServerConfig;
+use client::region::LocalRegion;
 use serde::Deserialize;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -47,6 +48,11 @@ pub struct Config {
     pub http_proxy_port: Option<u16>,
     #[serde(default)]
     pub socks_proxy_port: Option<u16>,
+    /// Which side of the CN GeoIP boundary the device is on. `cn`: CN destinations direct, the
+    /// rest proxied, and `dns_upstream` answers with CN addresses win. `overseas` reverses both:
+    /// CN destinations proxied, the rest direct, and non-CN `dns_upstream` answers win.
+    #[serde(default)]
+    pub local_region: LocalRegion,
     /// Which IPv6 to relay; `full` needs a cpxy server that can reach IPv6. Ignored in Android
     /// SOCKS mode, which always refuses IPv6 from apps; its own proxy transport still uses
     /// whatever the underlying network offers, IPv6 included.
@@ -67,6 +73,7 @@ pub struct Settings {
     pub http_proxy_port: Option<u16>,
     pub socks_proxy_port: Option<u16>,
     pub ipv6: Ipv6Mode,
+    pub local_region: LocalRegion,
 }
 
 impl Config {
@@ -146,6 +153,7 @@ impl Config {
             http_proxy_port: self.http_proxy_port,
             socks_proxy_port: self.socks_proxy_port,
             ipv6,
+            local_region: self.local_region,
         })
     }
 }

@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.fanchao.cpxy.vpn.LocalRegion
 import dev.fanchao.cpxy.vpn.Profile
 import dev.fanchao.cpxy.vpn.ProfileBackend
 import dev.fanchao.cpxy.vpn.ProfileField
@@ -52,12 +53,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-
-/** A new profile starts with AliDNS as its upstream DNS. Every query goes to every server, so one each. */
-private val DefaultDnsUpstream = listOf("223.5.5.5")
-
-/** And with an overseas resolver asked through the cpxy server as its alternative DNS. */
-private val DefaultDnsAlternative = listOf("tcp://1.1.1.1?via=cpxy")
 
 @OptIn(ExperimentalUuidApi::class)
 @Composable
@@ -74,8 +69,9 @@ fun EditProfileScreen(
                 id = Uuid.random().toString(),
                 name = "",
                 server = "",
-                dnsUpstream = DefaultDnsUpstream,
-                dnsAlternative = DefaultDnsAlternative,
+                // Every query goes to every server, so one each.
+                dnsUpstream = LocalRegion.Cn.defaultDnsUpstream,
+                dnsAlternative = LocalRegion.Cn.defaultDnsAlternative,
             )
         value = if (duplicate) source.copy(id = Uuid.random().toString(), name = "${source.name} (copy)") else source
     }
@@ -103,6 +99,7 @@ private fun EditProfileForm(
     var server by remember(initial.id) { mutableStateOf(initial.server) }
     var dnsUpstream by remember(initial.id) { mutableStateOf(initial.dnsUpstream.joinToString("\n")) }
     var dnsAlternative by remember(initial.id) { mutableStateOf(initial.dnsAlternative.joinToString("\n")) }
+    var localRegion by remember(initial.id) { mutableStateOf(initial.localRegion) }
     var showErrors by remember(initial.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -114,6 +111,7 @@ private fun EditProfileForm(
         dnsAlternative = parseServerList(dnsAlternative),
         backend = backend,
         socks5 = socks5.trim(),
+        localRegion = localRegion,
     )
     val errors = if (showErrors) profile.validationErrors() else emptyMap()
 
@@ -173,6 +171,32 @@ private fun EditProfileForm(
                     )
                 }
             }
+            Text("Location", style = MaterialTheme.typography.titleSmall)
+            Column(Modifier.selectableGroup()) {
+                for (region in LocalRegion.entries) {
+                    val select = {
+                        // DNS still at the old location's defaults follows the new location.
+                        if (parseServerList(dnsUpstream) == localRegion.defaultDnsUpstream &&
+                            parseServerList(dnsAlternative) == localRegion.defaultDnsAlternative
+                        ) {
+                            dnsUpstream = region.defaultDnsUpstream.joinToString("\n")
+                            dnsAlternative = region.defaultDnsAlternative.joinToString("\n")
+                        }
+                        localRegion = region
+                    }
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth().selectable(selected = localRegion == region, role = Role.RadioButton, onClick = select),
+                        leadingContent = { RadioButton(selected = localRegion == region, onClick = null) },
+                        headlineContent = { Text(if (region == LocalRegion.Cn) "In China" else "Outside China") },
+                        supportingContent = {
+                            Text(
+                                if (region == LocalRegion.Cn) "Chinese sites direct, the rest through the server"
+                                else "Chinese sites through the server, the rest direct",
+                            )
+                        },
+                    )
+                }
+            }
             Field("Name", name, { name = it }, errors[ProfileField.Name], onNext = next)
             Field(
                 label = if (backend == ProfileBackend.Cpxy) "Server" else "SOCKS5 endpoint",
@@ -189,7 +213,11 @@ private fun EditProfileForm(
                 onValueChange = { dnsUpstream = it },
                 error = errors[ProfileField.DnsUpstream],
                 onNext = next,
-                hint = "One per line. Used when all its answers are in CN.",
+                hint = if (localRegion == LocalRegion.Cn) {
+                    "One per line, asked directly. Used when its answer has addresses in China."
+                } else {
+                    "One per line, asked directly. Used when its answer has addresses outside China."
+                },
                 singleLine = false,
                 keyboardType = KeyboardType.Uri,
             )

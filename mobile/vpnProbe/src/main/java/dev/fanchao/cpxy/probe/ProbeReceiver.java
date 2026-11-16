@@ -31,6 +31,7 @@ public final class ProbeReceiver extends BroadcastReceiver {
                 if ("ready".equals(mode)) { /* Route installation is visible to this UID. */ }
                 else if ("resolve".equals(mode)) data = "OK " + resolve(host);
                 else if ("http".equals(mode)) http(host, port);
+                else if ("body".equals(mode)) data = "OK " + body(host, port);
                 else if ("dns".equals(mode)) dns(host, port);
                 else if ("echo".equals(mode)) echo(host, port, intent.getIntExtra("size", 0));
                 else if ("blocked".equals(mode)) {
@@ -51,6 +52,26 @@ public final class ProbeReceiver extends BroadcastReceiver {
             socket.getOutputStream().write(("GET / HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             String line = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII)).readLine();
             if (line == null || !line.startsWith("HTTP/1.")) throw new IOException("No HTTP response");
+        }
+    }
+
+    /** The first line of an HTTP response body, such as the address an IP echo service saw. */
+    private static String body(String host, int port) throws Exception {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), 5000);
+            socket.setSoTimeout(8000);
+            socket.getOutputStream().write(("GET / HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: curl/8\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII));
+            String status = reader.readLine();
+            if (status == null || !status.startsWith("HTTP/1.")) throw new IOException("No HTTP response");
+            for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+                if (line.isEmpty()) break;
+            }
+            for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+                // Skip chunk sizes and blank lines.
+                if (!line.trim().isEmpty() && !line.trim().matches("[0-9a-fA-F]{1,4}")) return line.trim();
+            }
+            throw new IOException("Empty body");
         }
     }
 
