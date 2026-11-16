@@ -68,6 +68,15 @@ cpxy client --server http://:<key>@exit.proxy.example:3000 --socks5-proxy-listen
 the route. The server accepts links only for names a `reverse://` route gives. With no link
 parked (the exit is down), requests on that route fail rather than leave from the server.
 
+### Internal targets
+
+Anyone with the key picks the targets, so `cpxy server` (for `direct` routes) and `cpxy
+reverse-proxy` refuse targets that resolve only to internal addresses: loopback, private,
+link-local, CGNAT (which includes Tailscale) and other special-purpose ranges, also when written
+as IPv4-mapped or NAT64 IPv6. Only the addresses that pass are connected to, so DNS can't sneak an
+internal one through. To open some anyway, give `--allow-target <CIDR or address>` (repeatable or
+comma-separated, `ALLOW_TARGETS`). `socks5://` routes leave the check to the SOCKS5 server.
+
 ### Fixed proxy routes
 
 Configure IPv4 CIDRs whose TCP connections must use the main proxy, overriding the direct/CN

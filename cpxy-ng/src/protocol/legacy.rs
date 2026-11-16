@@ -1,9 +1,8 @@
 //! The original request and response, from before [`ClientMessage`](super::ClientMessage).
 //!
-//! Frozen: clients and servers that predate the current messages still send these, so their
-//! archived layout must not change. New code sends the current messages; the server decodes these
-//! only so older clients keep working, and the client still sends them until every server it may
-//! talk to understands the current ones. Delete this module once nothing sends them.
+//! Frozen: clients that predate the current messages still send these, so their archived layout
+//! must not change. The server decodes them only so those clients keep working; nothing sends
+//! them any more. Delete this module once every client has been updated.
 
 use crate::encrypt_stream::Configuration;
 use rkyv::{Archive, Deserialize, Serialize};

@@ -15,6 +15,7 @@ use cpxy_ng::protocol::{
     ClientEnvelope, ClientMessage, Connected, Dial, DialReply, Failed, Format, LinkCommand,
     REVERSE_LINK_MAX_IDLE, Register, ServerEnvelope, ServerMessage, read_frame, write_frame,
 };
+use cpxy_ng::target_policy::TargetPolicy;
 use cpxy_ng::ws_stream::new_ws_stream;
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,6 +45,13 @@ pub struct Args {
     /// replaces it a round trip later, so this many requests can start at once without waiting.
     #[arg(long, env = "REVERSE_LINKS", default_value_t = 4)]
     links: usize,
+
+    /// Internal addresses the exit may connect to anyway, as CIDRs or addresses. Otherwise it
+    /// refuses targets that resolve only to loopback, private, link-local, CGNAT (including
+    /// Tailscale) or other special-purpose addresses, so the server's key doesn't open this
+    /// machine's own services and network. Repeatable or comma-separated.
+    #[arg(long, env = "ALLOW_TARGETS", value_delimiter = ',', value_parser = TargetPolicy::parse_allowed)]
+    allow_target: Vec<ipnet::IpNet>,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
@@ -51,11 +59,16 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         server,
         name,
         links,
+        allow_target,
     } = args;
     ensure!(links > 0, "--links must be at least 1");
     tracing::info!(?server, name, links, "Reverse exit: starting");
 
-    let exit = Arc::new(ReverseExit::new(server, name));
+    let exit = Arc::new(ReverseExit::new(
+        server,
+        name,
+        TargetPolicy::new(allow_target),
+    ));
     futures::future::join_all((0..links).map(|_| exit.clone().keep_link())).await;
     Ok(())
 }
@@ -64,11 +77,16 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 pub struct ReverseExit {
     server: Config,
     name: String,
+    targets: TargetPolicy,
 }
 
 impl ReverseExit {
-    pub fn new(server: Config, name: String) -> Self {
-        Self { server, name }
+    pub fn new(server: Config, name: String, targets: TargetPolicy) -> Self {
+        Self {
+            server,
+            name,
+            targets,
+        }
     }
 
     /// Keeps one link parked at the server, forever.
@@ -137,7 +155,7 @@ impl ReverseExit {
 
         match command {
             LinkCommand::Dial(dial) => {
-                tokio::spawn(serve_dial(link, *dial));
+                tokio::spawn(serve_dial(link, *dial, self.targets.clone()));
             }
         }
         Ok(())
@@ -145,17 +163,17 @@ impl ReverseExit {
 }
 
 /// Connects to the target the server asked for, tells it how that went, and relays.
-async fn serve_dial(mut link: impl AsyncRead + AsyncWrite + Unpin, dial: Dial) {
+async fn serve_dial(
+    mut link: impl AsyncRead + AsyncWrite + Unpin,
+    dial: Dial,
+    targets: TargetPolicy,
+) {
     let Dial { host, port } = dial;
     tracing::info!(host, port, "Reverse exit: connecting");
-    let target = timeout(CONNECT_TIMEOUT, TcpStream::connect((host.as_str(), port)))
+    let target = timeout(CONNECT_TIMEOUT, targets.connect(&host, port))
         .await
         .context("Timed out connecting")
-        .and_then(|r| r.context("Error connecting"))
-        .and_then(|s| {
-            s.set_nodelay(true)?;
-            Ok(s)
-        });
+        .and_then(|r| r);
 
     let target = match target {
         Ok(target) => target,
