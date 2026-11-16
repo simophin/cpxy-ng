@@ -16,9 +16,24 @@ One static binary holds the server, the client and the split DNS server:
 | Command | Does |
 |---|---|
 | `cpxy server --key <key> --listen 0.0.0.0:3000` | Accepts tunnels from cpxy clients and connects them to their destinations |
-| `cpxy client --server http://:<key>@<host>:<port> --http-proxy-listen 127.0.0.1:8080` | Local HTTP CONNECT, SOCKS5 (`--socks5-proxy-listen`) and transparent (`--transparent-proxy-listen`, Linux) proxies. `--routing global` (the default) sends everything through the server; `--routing cn_split` connects to Chinese, private and tailnet addresses directly |
+| `cpxy client --server http://:<key>@<host>:<port> --http-proxy-listen 127.0.0.1:8080` | Local HTTP CONNECT, SOCKS5 (`--socks5-proxy-listen`) and transparent (`--transparent-proxy-listen`, Linux) proxies. `--routing global` (the default) sends everything through the server; `--routing cn_split --dns-server <ip>` connects to the local region's, private and tailnet addresses directly |
 | `cpxy dns --upstream 223.5.5.5 --alternative tcp://1.1.1.1?via=cpxy --server http://:<key>@<host>:<port>` | Split DNS: local-region answers from the upstreams, the rest from the alternatives. `--resolver-routing cn_split --socks5-proxy <addr>` reaches overseas resolvers through a proxy, as the OpenWrt package does |
-| `cpxy routes cn-direct [--family ipv6]` | Prints the prefixes `cn_split` connects to directly, e.g. for nftables sets |
+| `cpxy routes direct [--local-region overseas] [--family ipv6]` | Prints the prefixes `cn_split` connects to directly, e.g. for nftables sets (`cn-direct` is an alias) |
+
+### Local region
+
+`cn_split` splits destinations on the CN GeoIP boundary. `--local-region` (`LOCAL_REGION`) on
+`cpxy client`, `cpxy dns` and `cpxy routes direct` says which side the device is on:
+
+| `--local-region` | Direct | Through the server | Split DNS answer that wins |
+|---|---|---|---|
+| `cn` (default) | CN, private, tailnet | everything else | an upstream answer with CN addresses |
+| `overseas` ("reverse") | everything but CN | CN | an upstream answer with non-CN addresses |
+
+So with `overseas`, `--upstream` is the resolvers near you (e.g. `1.1.1.1`) and `--alternative`
+the CN ones, through the server (e.g. `tcp://223.5.5.5?via=cpxy`). `--proxy-route` still forces
+its CIDRs through the server in either region. `cpxy client --routing cn_split` needs
+`--dns-server`: there is no default, since which resolver suits depends on the region.
 
 Every option can also be set in the environment variable that `cpxy <command> --help` names, or in
 a `.env` file in the working directory.
@@ -29,7 +44,7 @@ on port 3000 by default; give another command to run that instead:
 ```sh
 docker run -e KEY=... -p 3000:3000 ghcr.io/simophin/cpxy-ng:main
 docker run -e SERVER=http://:<key>@<host>:<port> -p 8080:8080 ghcr.io/simophin/cpxy-ng:main \
-  client --http-proxy-listen 0.0.0.0:8080 --routing cn_split
+  client --http-proxy-listen 0.0.0.0:8080 --routing cn_split --dns-server 223.5.5.5
 ```
 
 ### Fixed proxy routes
@@ -39,7 +54,7 @@ routing rules. Rules match the destination IP after DNS resolution;
 IP destinations are matched directly. Unmatched destinations keep the existing
 routing behavior. IPv6 is not supported by the current routing engine.
 
-- `cpxy client --routing cn_split`, `cpxy routes cn-direct` and
+- `cpxy client --routing cn_split`, `cpxy routes direct` and
   `cpxy dns --resolver-routing cn_split`: repeat
   `--proxy-route 223.5.5.5/32`, or use `--proxy-route 223.5.5.5/32,10.20.0.0/16`. The equivalent
   environment variable is `PROXY_ROUTES=223.5.5.5/32,10.20.0.0/16`. `--routing global` already

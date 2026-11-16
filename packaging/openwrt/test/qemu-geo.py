@@ -83,9 +83,19 @@ def fixture():
             self.end_headers()
             self.wfile.write(body)
 
-    def answer(query):
+    def answer(query, peer):
         name = query[12:].split(b'\x00', 1)[0]
-        ip = '114.114.114.114' if b'regional' in name else '93.184.216.34'
+        # *.split.test: the router's direct queries (from its WAN address) get a CN address, the
+        # proxied ones an overseas address; *.flip.test the reverse. Which answer a client gets
+        # shows which group the router's DNS worker took it from.
+        direct = peer == '192.0.2.2'
+        if b'split' in name:
+            regional = direct
+        elif b'flip' in name:
+            regional = not direct
+        else:
+            regional = b'regional' in name
+        ip = '114.114.114.114' if regional else '93.184.216.34'
         # Preserve the question; return one A record, or an empty answer for other types.
         end = query.index(b'\x00', 12) + 5
         a = query[end-4:end-2] == b'\x00\x01'
@@ -95,21 +105,24 @@ def fixture():
     class UDP(socketserver.BaseRequestHandler):
         def handle(self):
             query, sock = self.request
-            sock.sendto(answer(query), self.client_address)
+            sock.sendto(answer(query, self.client_address[0]), self.client_address)
 
     class TCP(socketserver.BaseRequestHandler):
         def handle(self):
             print(f'DNS TCP peer={self.client_address[0]}', flush=True)
             f = self.request.makefile('rb')
             while header := f.read(2):
-                data = answer(f.read(struct.unpack('!H', header)[0]))
+                data = answer(f.read(struct.unpack('!H', header)[0]), self.client_address[0])
                 self.request.sendall(struct.pack('!H', len(data)) + data)
 
     class V6Web(http.server.ThreadingHTTPServer):
         address_family = socket.AF_INET6
 
+    # 114.114.114.114 is a CN resolver address: the routers ask it directly in region cn
     for server in [socketserver.ThreadingUDPServer(('192.0.2.1', 53), UDP),
                    socketserver.ThreadingTCPServer(('192.0.2.1', 53), TCP),
+                   socketserver.ThreadingUDPServer(('114.114.114.114', 53), UDP),
+                   socketserver.ThreadingTCPServer(('114.114.114.114', 53), TCP),
                    http.server.ThreadingHTTPServer(('0.0.0.0', 8000), Web),
                    V6Web(('2001:db8:100::34', 8000), Web)]:
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -317,6 +330,32 @@ def main():
             assert dns('8.8.8.8', 'proxy.test', 'tcp', source='guest') == '93.184.216.34'
             assert 'DNS TCP peer=192.0.2.1' in (results / 'fixtures.log').read_text()
             print('PASS: VM split DNS, proxied alternative, empty AAAA fixture answer', flush=True)
+            # Region cn, on guest: the CN upstream is asked directly and its CN answer wins;
+            # otherwise the proxied alternative's answer is used
+            guest_dns = ("uci -q delete cpxy.guest.dns_upstream; uci -q delete cpxy.guest.dns_alternative; "
+                         "uci add_list cpxy.guest.dns_upstream={}; uci add_list cpxy.guest.dns_alternative='{}'; ")
+            console.command(guest_dns.format('114.114.114.114', 'tcp://192.0.2.1?via=cpxy')
+                            + "uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 3", 120)
+            assert dns('8.8.8.8', 'a.split.test', 'tcp', source='guest') == '114.114.114.114'
+            assert dns('8.8.8.8', 'a.flip.test', 'tcp', source='guest') == '114.114.114.114'
+            # The guest instance in reverse: overseas direct, CN through its server; the
+            # overseas upstream is asked directly and its overseas answer wins. Its direct TCP to
+            # 93.184.216.34 is expected, so the WAN capture stops flagging it meanwhile; the LAN
+            # probe still checks every answer's source.
+            (results / 'enforce').unlink()
+            console.command(guest_dns.format('192.0.2.1', 'tcp://114.114.114.114?via=cpxy')
+                            + "uci set cpxy.guest.local_region=overseas; uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 3", 120)
+            assert fetch('93.184.216.34', 'guest') == '192.0.2.2'
+            assert fetch('114.114.114.114', 'guest') == '192.0.2.3'
+            assert dns('8.8.8.8', 'b.split.test', 'tcp', source='guest') == '93.184.216.34'
+            assert dns('8.8.8.8', 'b.flip.test', 'tcp', source='guest') == '93.184.216.34'
+            assert dns('8.8.8.8', 'b.flip.test', source='guest') == '93.184.216.34'
+            paths()
+            print('PASS: VM local_region overseas: CN proxied, overseas direct, overseas DNS answers win', flush=True)
+            console.command("uci delete cpxy.guest.local_region; uci delete cpxy.guest.dns_upstream; uci delete cpxy.guest.dns_alternative; uci commit cpxy; /etc/init.d/cpxy-router reload; sleep 3", 120)
+            assert fetch('93.184.216.34', 'guest') == '192.0.2.3'
+            assert fetch('114.114.114.114', 'guest') == '192.0.2.2'
+            (results / 'enforce').touch()
             console.command('ip -6 addr add 2001:db8:8::1/64 dev br-lan; ip -6 addr add 2001:db8:2::2/64 dev eth1; sleep 3; ip -6 route add default via 2001:db8:2::1')
             ns('lan', 'ping', '-6', '-c1', '-W3', '2001:db8:8::1')
             console.command('/etc/init.d/cpxy-router reload; sleep 3', 120)

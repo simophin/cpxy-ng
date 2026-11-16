@@ -131,6 +131,13 @@ uci set cpxy.iot.client_socks5=1
 uci set cpxy.iot.dns_cache=0
 uci commit cpxy
 
+# Routed networks' DNS servers depend on local_region: there are no defaults
+invalid "main: option 'dns_upstream' is required: the cn resolvers, asked directly"
+invalid "main: option 'dns_alternative' is required: resolvers outside cn"
+uci add_list cpxy.defaults.dns_upstream=223.5.5.5
+uci add_list cpxy.defaults.dns_alternative='tcp://1.1.1.1?via=cpxy'
+uci commit cpxy
+
 everything start_service
 # cpxy-client: the HTTP proxy, the SOCKS5 listener the DNS worker uses, and the transparent
 # listener the networks' TCP is redirected to
@@ -146,7 +153,7 @@ grep -qxF 'SERVER=http://:guest-key@second.example:8080' /tmp/cpxy/client-guest.
 [ "$(ls -l /tmp/cpxy/client-guest.env | cut -c1-10)" = '-rw-------' ] || fail 'settings file readable by others'
 # cpxy-router: one DNS worker per instance, no TUN
 want 'instance guest_dns'
-want 'set command /usr/bin/cpxy dns --resolver-routing cn_split --socks5-proxy 127.0.0.1:1081'
+want 'set command /usr/bin/cpxy dns --local-region cn --resolver-routing cn_split --socks5-proxy 127.0.0.1:1081'
 absent '--tun'
 want 'set env NO_COLOR=1'
 want 'append command --listen [::]:5345'
@@ -346,20 +353,25 @@ if service cpxy-router reload_service 2>/tmp/err; then fail 'activated with an u
 grep -q 'retaining boot protection' /tmp/err || fail 'missing unresolved LAN error'
 rm /tmp/no-lan
 
-# The proxies send everything through the server unless cn_split is asked for
+# The proxies send everything through the server unless cn_split is asked for, which needs
+# resolvers of its own
 absent 'ROUTING='
 uci set cpxy.guest.client_routing=cn_split
 uci commit cpxy
+invalid 'guest: client_routing cn_split needs client_dns_server'
+uci add_list cpxy.guest.client_dns_server=127.0.0.1
+uci commit cpxy
 : >"$LOG"
 service cpxy-client start_service 2>>/tmp/err || fail 'cn_split client'
-want 'set env SERVER=http://:guest-key@second.example:8080 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 ROUTING=cn_split DNS_SERVER=127.0.0.1 SOCKS5_PROXY_LISTEN=[::]:1081'
+want 'set env SERVER=http://:guest-key@second.example:8080 HTTP_PROXY_LISTEN=[::]:5001 NO_COLOR=1 ROUTING=cn_split LOCAL_REGION=cn DNS_SERVER=127.0.0.1 SOCKS5_PROXY_LISTEN=[::]:1081'
 [ "$(grep -c 'ROUTING=cn_split' "$LOG")" = 1 ] || fail 'cn_split for guest only'
+uci delete cpxy.guest.client_dns_server
 uci add_list cpxy.guest.client_dns_server=223.5.5.5
 uci add_list cpxy.guest.client_dns_server='[2001:db8::53]:5353'
 uci commit cpxy
 : >"$LOG"
 service cpxy-client start_service 2>>/tmp/err || fail 'cn_split client with resolvers'
-want 'ROUTING=cn_split DNS_SERVER=223.5.5.5,[2001:db8::53]:5353 '
+want 'ROUTING=cn_split LOCAL_REGION=cn DNS_SERVER=223.5.5.5,[2001:db8::53]:5353 '
 for server in 223.5.5.5:0 dns.example 300.1.1.1 '2001:db8::53::1' '[2001:db8::53]'; do
 	uci delete cpxy.guest.client_dns_server
 	uci add_list cpxy.guest.client_dns_server="$server"
@@ -372,6 +384,59 @@ uci commit cpxy
 invalid 'client_routing must be global or cn_split'
 uci delete cpxy.guest.client_routing
 uci commit cpxy
+
+# local_region overseas reverses guest's split: its direct set is everything but CN, its DNS
+# worker keeps non-CN answers, and its cn_split proxies send CN through the server
+# A stand-in binary exports one prefix per region, so the sets show which region each instance
+# exported (the real prefix lists are checked by the Rust tests)
+cat >/usr/bin/cpxy <<'BIN'
+#!/bin/sh
+case "$*" in
+"routes direct --local-region overseas"*) echo 8.8.8.0/24 ;;
+"routes direct"*) echo 223.5.5.0/24 ;;
+esac
+BIN
+nft_set() { awk -v set="set direct_$1 {" '$0 ~ set { on = 1 } on { print } on && /^\t}$/ { exit }' /tmp/applied.nft; }
+uci set cpxy.guest.local_region=asia
+uci commit cpxy
+invalid 'guest: local_region must be cn or overseas'
+uci set cpxy.guest.local_region=overseas
+uci set cpxy.guest.client_routing=cn_split
+uci add_list cpxy.guest.client_dns_server=1.1.1.1
+uci commit cpxy
+everything reload_service
+want 'set command /usr/bin/cpxy dns --local-region overseas --resolver-routing cn_split --socks5-proxy 127.0.0.1:1081'
+want 'set command /usr/bin/cpxy dns --local-region cn --resolver-routing cn_split --socks5-proxy 127.0.0.1:1080'
+want 'ROUTING=cn_split LOCAL_REGION=overseas DNS_SERVER=1.1.1.1 '
+cn_first="$(/usr/bin/cpxy routes direct | head -n 1)"
+overseas_first="$(/usr/bin/cpxy routes direct --local-region overseas | head -n 1)"
+[ "$cn_first" != "$overseas_first" ] || fail 'the regions export the same routes'
+nft_set_has() { nft_set "$1" | tr -d '\t,' | grep -qxF -- "$2"; }
+nft_set_has guest "$overseas_first" || fail "direct_guest lacks $overseas_first"
+if nft_set_has guest "$cn_first"; then fail "direct_guest has CN $cn_first"; fi
+nft_set_has main "$cn_first" || fail "direct_main lacks $cn_first"
+nft_set_has guest 198.18.0.0/15 || fail 'direct_guest lacks the main table subnets'
+nft_has 'ip daddr != @direct_guest fib daddr oif != @exempt counter redirect to :5101'
+for option in local_region client_routing client_dns_server; do uci delete "cpxy.guest.$option"; done
+uci commit cpxy
+everything reload_service
+absent 'LOCAL_REGION=overseas'
+
+# Upgrading a configuration from before local_region writes in the old built-in DNS defaults,
+# once; a configuration that has local_region is left alone
+cp /etc/config/cpxy /tmp/cpxy.config
+uci delete cpxy.defaults.local_region
+uci delete cpxy.defaults.dns_alternative
+uci commit cpxy
+sh /usr/libexec/cpxy/migrate-config.sh
+[ "$(uci get cpxy.defaults.local_region)" = cn ] || fail 'migration: local_region'
+[ "$(uci get cpxy.defaults.dns_alternative)" = 'tcp://1.1.1.1?via=cpxy' ] || fail 'migration: dns_alternative'
+[ "$(uci get cpxy.defaults.client_dns_server)" = 127.0.0.1 ] || fail 'migration: client_dns_server'
+uci delete cpxy.defaults.client_dns_server
+uci commit cpxy
+sh /usr/libexec/cpxy/migrate-config.sh
+if uci -q get cpxy.defaults.client_dns_server; then fail 'migration ran twice'; fi
+cp /tmp/cpxy.config /etc/config/cpxy
 
 # Disable guest without touching the others
 uci set cpxy.guest.enabled=0

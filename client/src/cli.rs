@@ -5,6 +5,7 @@ use crate::http_proxy_server::HttpProxyHandshaker;
 use crate::outbound::{ProtocolOutbound, ProxyRoutes, StatReportingOutbound, cn};
 use crate::protocol_config::Config;
 use crate::proxy_handlers::serve_listener;
+use crate::region::LocalRegion;
 use crate::socks_proxy_server::SocksProxyHandshaker;
 use crate::stats_server::{OutboundEvent, StatsProvider, serve_stats};
 use anyhow::Context;
@@ -21,8 +22,8 @@ use tracing::{Instrument, info_span};
 pub enum Routing {
     /// Every destination
     Global,
-    /// Destinations outside China, by GeoIP; Chinese, private and tailnet addresses connect
-    /// directly. Domains are resolved with --dns-server to decide.
+    /// Destinations outside --local-region, by GeoIP; the local region's, private and tailnet
+    /// addresses connect directly. Domains are resolved with --dns-server to decide.
     #[value(name = "cn_split")]
     CnSplit,
 }
@@ -38,14 +39,26 @@ pub struct Args {
     #[arg(long, env = "ROUTING", value_enum, default_value_t = Routing::Global)]
     routing: Routing,
 
+    /// With `--routing cn_split`: where this client is. `cn` sends CN addresses directly and the
+    /// rest through the server; `overseas` sends CN addresses through the server and the rest
+    /// directly.
+    #[arg(long, env = "LOCAL_REGION", value_enum, default_value_t = LocalRegion::Cn)]
+    local_region: LocalRegion,
+
     /// With `--routing cn_split`: CIDRs that always go through the server, even when they are
-    /// in China. Repeatable or comma-separated.
+    /// in the local region. Repeatable or comma-separated.
     #[arg(long, env = "PROXY_ROUTES", value_delimiter = ',', value_parser = ProxyRoutes::parse_network)]
     proxy_route: Vec<ipnet::IpNet>,
 
-    /// With `--routing cn_split`: the DNS servers that resolve domains to decide their route, as
-    /// `<ip>` (port 53) or `<ip>:<port>`. Repeatable or comma-separated.
-    #[arg(long, env = "DNS_SERVER", value_delimiter = ',', default_value = "8.8.8.8", value_parser = parse_dns_server)]
+    /// With `--routing cn_split` (required there): the DNS servers that resolve domains to decide
+    /// their route, as `<ip>` (port 53) or `<ip>:<port>`. Repeatable or comma-separated.
+    #[arg(
+        long,
+        env = "DNS_SERVER",
+        value_delimiter = ',',
+        value_parser = parse_dns_server,
+        required_if_eq("routing", "cn_split")
+    )]
     dns_server: Vec<SocketAddr>,
 
     /// The address to listen on for the HTTP proxy (CONNECT tunnels only)
@@ -73,7 +86,12 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     }
 
     let (events_tx, events_rx) = broadcast::channel(1024);
-    tracing::info!(server = ?args.server, routing = ?args.routing, "Client: starting");
+    tracing::info!(
+        server = ?args.server,
+        routing = ?args.routing,
+        local_region = ?args.local_region,
+        "Client: starting"
+    );
 
     match args.routing {
         Routing::Global => {
@@ -86,6 +104,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         }
         Routing::CnSplit => {
             let outbound = cn::cn_outbound(
+                args.local_region,
                 args.dns_server.clone(),
                 args.server.clone(),
                 ProxyRoutes(args.proxy_route.clone()),
@@ -179,6 +198,42 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(clap::Parser)]
+    struct Cli {
+        #[command(flatten)]
+        args: Args,
+    }
+
+    fn parse(extra: &[&str]) -> Result<Args, clap::Error> {
+        use clap::Parser;
+        let base = [
+            "cpxy",
+            "--server",
+            "http://:key@127.0.0.1:1",
+            "--http-proxy-listen",
+            "127.0.0.1:0",
+        ];
+        Cli::try_parse_from(base.iter().chain(extra)).map(|cli| cli.args)
+    }
+
+    #[test]
+    fn cn_split_needs_dns_server_and_takes_local_region() {
+        assert!(parse(&["--routing", "cn_split"]).is_err());
+        let args = parse(&["--routing", "cn_split", "--dns-server", "1.1.1.1"]).unwrap();
+        assert_eq!(args.local_region, LocalRegion::Cn);
+        let args = parse(&[
+            "--routing",
+            "cn_split",
+            "--dns-server",
+            "1.1.1.1",
+            "--local-region",
+            "overseas",
+        ])
+        .unwrap();
+        assert_eq!(args.local_region, LocalRegion::Overseas);
+        assert!(parse(&[]).unwrap().dns_server.is_empty());
+    }
 
     #[test]
     fn dns_server_defaults_to_port_53() {

@@ -234,13 +234,14 @@ never taken from `defaults`.
 | `network` (instance, list) | none | OpenWrt networks whose devices use the instance. Without one, the instance runs only its proxy. |
 | `client`, `router` | `1` | Which services the instance runs. An instance with networks needs both. |
 | `client_socks5` | `0` | `1` adds a SOCKS5 proxy; always on for an instance with networks, whose DNS worker uses it. |
-| `client_routing` | `global` | What the HTTP/SOCKS5 proxies send through the server: `global` (everything) or `cn_split` (CN, private and tailnet addresses connect directly, and `proxy_route` still goes through the server). |
-| `client_dns_server` (list) | `127.0.0.1` (dnsmasq) | With `cn_split`: resolvers that decide a name's route, as `<ip>` or `<ip>:<port>`. A name that does not resolve connects directly. The server is always given the name, so a local resolver is enough. |
-| `client_transparent_listen` | `0.0.0.0:5100+i` | Where the networks' overseas TCP is redirected. Must bind `0.0.0.0`. |
+| `local_region` | `cn` | Which side of the CN GeoIP boundary the router is on. `cn`: CN addresses connect directly, the rest go through the server. `overseas` (reverse): CN addresses go through the server, the rest directly. It decides the networks' kernel policy, `client_routing cn_split`, and which DNS answers win. |
+| `client_routing` | `global` | What the HTTP/SOCKS5 proxies send through the server: `global` (everything) or `cn_split` (the local region's, private and tailnet addresses connect directly, and `proxy_route` still goes through the server). |
+| `client_dns_server` (list) | none; required with `cn_split` | Resolvers that decide a name's route, as `<ip>` or `<ip>:<port>`, e.g. the router's own `127.0.0.1`. A name that does not resolve connects directly. The server is always given the name, so a local resolver is enough. |
+| `client_transparent_listen` | `0.0.0.0:5100+i` | Where the networks' proxied TCP is redirected. Must bind `0.0.0.0`. |
 | `router_geoip` | `1` | Required kernel IPv4 split. IPv6 forwarding is always refused; obsolete `router_ipv6` and `ipv6` settings are ignored. |
 | `proxy_route` (list) | none | IPv4 or IPv6 CIDRs whose TCP goes through the server even when it would go direct. |
-| `dns_upstream` (list) | `223.5.5.5` (AliDNS) | DNS servers whose answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. |
-| `dns_alternative` (list) | `tcp://1.1.1.1?via=cpxy` | DNS servers whose answer is used otherwise, through the cpxy server. |
+| `dns_upstream` (list) | none; required for routed networks | The local region's DNS servers, asked directly: their answer is used, trimmed to its local-region addresses, when it has any. The fastest ones are usually your ISP's. E.g. `223.5.5.5` for `cn`, `1.1.1.1` for `overseas`. |
+| `dns_alternative` (list) | none; required for routed networks | DNS servers outside the local region, whose answer is used otherwise, through the cpxy server. E.g. `tcp://1.1.1.1?via=cpxy` for `cn`, `tcp://223.5.5.5?via=cpxy` for `overseas`. |
 | `dns_search_domain` (list) | empty | Ordered suffixes for single-label names, for router DNS. Tries each suffix before the bare name. |
 | `dns_cache` | `1` | dns_split's answer cache, in RAM. |
 | `dns_local_domain` (list) | dnsmasq's `domain` and `local` | Domains dns_split leaves to the router (`dns_local_server`), along with single-label names and reverse lookups of private addresses. |
@@ -253,9 +254,13 @@ instance's cpxy-client, e.g. `tcp://8.8.8.8?via=cpxy`. Ordinary router specs sel
 IP. DNS over TLS (`tls://`) and DNS over HTTPS (`https://`) are no longer supported: an instance
 that lists one fails validation and must switch to `tcp://<ip>?via=cpxy`.
 
+**Upgrading from a package without `local_region`:** the package writes the old built-in
+defaults into the `defaults` section once (`local_region 'cn'`, `dns_alternative
+'tcp://1.1.1.1?via=cpxy'` and `client_dns_server '127.0.0.1'`, each only when unset), so the
+router keeps working the same.
+
 **Upgrading from a package with smartdns:** the `smartdns` and `smartdns_*` options are ignored
-now. An instance without `dns_alternative` uses `tcp://1.1.1.1?via=cpxy`; one that set
-`dns_alternative` to its smartdns (`127.0.0.1:5336`) must change it.
+now. An instance that set `dns_alternative` to its smartdns (`127.0.0.1:5336`) must change it.
 
 ### DNS
 
