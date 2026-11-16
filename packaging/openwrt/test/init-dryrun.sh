@@ -561,6 +561,11 @@ if uci show firewall | grep -q 'cpxy_inst_.*_dns'; then fail 'fw3 got DNS redire
 router stop_service
 want 'ipt_clear'
 rm /tmp/no-fw4 /tmp/fw3-tools
+# Exempt devices come from sysfs, which can hold files that are not devices (bonding_masters)
+mkdir -p /tmp/sysnet/lo /tmp/sysnet/br-lan /tmp/sysnet/tailscale0
+: >/tmp/sysnet/bonding_masters
+exempt="$(CPXY_SYS_NET=/tmp/sysnet sh -c '. /usr/libexec/cpxy/nft.sh; cpxy_nft_exempt eth0' | tr '\n' ' ')"
+[ "$exempt" = "br-lan tailscale0 " ] || fail "exempt devices: '$exempt'"
 echo 'multi-instance init and firewall checks passed'
 SCRIPT
 )"
