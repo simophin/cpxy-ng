@@ -387,6 +387,15 @@ uci commit cpxy
 
 # local_region overseas reverses guest's split: its direct set is everything but CN, its DNS
 # worker keeps non-CN answers, and its cn_split proxies send CN through the server
+# A stand-in binary exports one prefix per region, so the sets show which region each instance
+# exported (the real prefix lists are checked by the Rust tests)
+cat >/usr/bin/cpxy <<'BIN'
+#!/bin/sh
+case "$*" in
+"routes direct --local-region overseas"*) echo 8.8.8.0/24 ;;
+"routes direct"*) echo 223.5.5.0/24 ;;
+esac
+BIN
 nft_set() { awk -v set="set direct_$1 {" '$0 ~ set { on = 1 } on { print } on && /^\t}$/ { exit }' /tmp/applied.nft; }
 uci set cpxy.guest.local_region=asia
 uci commit cpxy
