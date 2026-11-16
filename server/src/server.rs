@@ -1,9 +1,12 @@
 use crate::routing::Router;
-use anyhow::Context;
+use anyhow::{Context, bail};
 use cpxy_ng::encrypt_stream::CipherStream;
+use cpxy_ng::protocol::{
+    ClientEnvelope, ClientMessage, Connect, Format, Register, ServerEnvelope, ServerMessage, legacy,
+};
 use cpxy_ng::time_util::now_epoch_seconds;
 use cpxy_ng::ws_stream::new_ws_stream;
-use cpxy_ng::{Key, http_protocol, protocol};
+use cpxy_ng::{Key, http_protocol};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -11,7 +14,7 @@ use tracing::instrument;
 
 #[instrument(ret, skip(conn, key, router), level = "info")]
 pub async fn handle_connection(
-    conn: impl AsyncRead + AsyncWrite + Unpin + Send,
+    conn: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
     _from_addr: SocketAddr,
     key: Key,
     router: Arc<Router>,
@@ -26,40 +29,81 @@ pub async fn handle_connection(
         }
     };
 
-    let route = router.route(&req.host);
+    let http_protocol::Request {
+        message,
+        websocket_key,
+        host: ingress_host,
+    } = req;
+    let reply = Reply {
+        key,
+        websocket_key,
+        format: message.format(),
+    };
+
+    let connect = match message {
+        ClientEnvelope::Current(ClientMessage::Connect(connect)) => *connect,
+        ClientEnvelope::Current(ClientMessage::Register(register)) => {
+            return park_link(conn, reply, &router, *register).await;
+        }
+        ClientEnvelope::Legacy(request) => {
+            // Older clients set `tls` to have the server wrap the target connection in TLS,
+            // which is no longer supported. Refuse instead of sending their plaintext to a TLS
+            // port.
+            if request.tls {
+                tracing::warn!("Server: refusing a legacy request for TLS to the target");
+                return reply
+                    .send(
+                        &mut conn,
+                        ServerMessage::rejected(
+                            "TLS to the target is no longer supported, upgrade the client",
+                        ),
+                    )
+                    .await;
+            }
+            let legacy::Request {
+                host,
+                port,
+                client_send_cipher,
+                server_send_cipher,
+                initial_plaintext,
+                ..
+            } = request;
+            Connect {
+                host,
+                port,
+                client_send_cipher,
+                server_send_cipher,
+                initial_plaintext,
+            }
+        }
+    };
+
+    let route = router.route(&ingress_host);
 
     tracing::info!(
-        ingress_host = req.host.as_str(),
+        ingress_host = ingress_host.as_str(),
         %route,
-        target_host = req.request.host.as_str(),
-        target_port = req.request.port,
+        target_host = connect.host.as_str(),
+        target_port = connect.port,
+        format = ?reply.format,
         "Server: parsed request, connecting to upstream"
     );
 
     let upstream = async {
-        // Older clients set `tls` to have the server wrap the target connection in TLS, which
-        // is no longer supported. Refuse instead of sending their plaintext to a TLS port.
-        anyhow::ensure!(
-            !req.request.tls,
-            "TLS to the target is no longer supported, upgrade the client"
-        );
-
         tracing::debug!(
-            host = req.request.host.as_str(),
-            port = req.request.port,
+            host = connect.host.as_str(),
+            port = connect.port,
             "Server: establishing TCP connection"
         );
-        let mut upstream = router
-            .dial(route, req.request.host.as_str(), req.request.port)
-            .await?;
+        let mut upstream = router.dial(route, &connect.host, connect.port).await?;
 
         tracing::debug!(
             "Writing initial plaintext: {}",
-            std::str::from_utf8(&req.request.initial_plaintext).unwrap_or("<non-utf8>")
+            std::str::from_utf8(&connect.initial_plaintext).unwrap_or("<non-utf8>")
         );
 
         upstream
-            .write_all(&req.request.initial_plaintext)
+            .write_all(&connect.initial_plaintext)
             .await
             .context("Error writing initial plaintext")?;
 
@@ -72,22 +116,12 @@ pub async fn handle_connection(
     match upstream.await {
         Ok(mut upstream) => {
             tracing::debug!("Server: upstream connection established");
-
-            http_protocol::Response {
-                response: protocol::Response::Success {
-                    initial_response: Vec::new(),
-                    timestamp_epoch_seconds: now_epoch_seconds(),
-                },
-                websocket_key: req.websocket_key,
-            }
-            .send_over_http(&mut conn, &key)
-            .await
-            .context("Error sending response")?;
+            reply.send(&mut conn, ServerMessage::accepted()).await?;
 
             let mut conn = CipherStream::new(
                 new_ws_stream(conn, false).await,
-                &req.request.server_send_cipher,
-                &req.request.client_send_cipher,
+                &connect.server_send_cipher,
+                &connect.client_send_cipher,
             );
 
             tracing::info!("Server: tunnel established, starting bidirectional copy");
@@ -98,17 +132,80 @@ pub async fn handle_connection(
 
         Err(e) => {
             tracing::warn!(error = %e, "Server: upstream connection failed");
-            http_protocol::Response {
-                response: protocol::Response::Error {
-                    msg: format!("{e:?}"),
+            reply
+                .send(&mut conn, ServerMessage::rejected(format!("{e:?}")))
+                .await
+        }
+    }
+}
+
+/// Accepts a reverse exit's link and parks it until a request routed to the exit needs it.
+async fn park_link(
+    mut conn: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    reply: Reply,
+    router: &Router,
+    register: Register,
+) -> anyhow::Result<()> {
+    let Register {
+        name,
+        client_send_cipher,
+        server_send_cipher,
+    } = register;
+    let exits = router.reverse_exits();
+    if !exits.contains(&name) {
+        reply
+            .send(
+                &mut conn,
+                ServerMessage::rejected(format!("No reverse:// route names {name:?}")),
+            )
+            .await?;
+        bail!("Refused a link for unknown reverse exit {name:?}");
+    }
+
+    reply.send(&mut conn, ServerMessage::accepted()).await?;
+    let link = CipherStream::new(
+        new_ws_stream(conn, false).await,
+        &server_send_cipher,
+        &client_send_cipher,
+    );
+    exits.park(&name, Box::new(link))?;
+    tracing::info!(name, "Server: parked a reverse exit link");
+    Ok(())
+}
+
+/// Answers a request in the generation of messages it was sent in.
+struct Reply {
+    key: Key,
+    websocket_key: Vec<u8>,
+    format: Format,
+}
+
+impl Reply {
+    async fn send(
+        &self,
+        conn: &mut (impl AsyncWrite + Unpin),
+        message: ServerMessage,
+    ) -> anyhow::Result<()> {
+        let response = match self.format {
+            Format::Current => ServerEnvelope::Current(message),
+            Format::Legacy => ServerEnvelope::Legacy(match message {
+                ServerMessage::Accepted(_) => legacy::Response::Success {
+                    initial_response: Vec::new(),
                     timestamp_epoch_seconds: now_epoch_seconds(),
                 },
-                websocket_key: req.websocket_key,
-            }
-            .send_over_http(&mut conn, &key)
-            .await
-            .context("Error sending response")
+                ServerMessage::Rejected(rejected) => legacy::Response::Error {
+                    msg: rejected.msg,
+                    timestamp_epoch_seconds: now_epoch_seconds(),
+                },
+            }),
+        };
+        http_protocol::Response {
+            response,
+            websocket_key: self.websocket_key.clone(),
         }
+        .send_over_http(conn, &self.key)
+        .await
+        .context("Error sending response")
     }
 }
 
@@ -205,7 +302,7 @@ mod tests {
 
         let cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
         http_protocol::Request {
-            request: protocol::Request {
+            message: ClientEnvelope::Legacy(legacy::Request {
                 host: "127.0.0.1".to_string(),
                 port: echo_addr.port(),
                 tls: true,
@@ -213,7 +310,7 @@ mod tests {
                 server_send_cipher: cipher,
                 initial_plaintext: vec![],
                 timestamp_epoch_seconds: now_epoch_seconds(),
-            },
+            }),
             websocket_key: vec![0; 12],
             host: "127.0.0.1".to_string(),
         }
@@ -221,13 +318,13 @@ mod tests {
         .await
         .unwrap();
 
-        let (response, _) = http_protocol::Response::parse(client, &key)
+        let (response, _) = http_protocol::Response::parse(client, &key, Format::Legacy)
             .await
             .map_err(|(e, _)| e)
             .unwrap()
             .take_head();
         assert!(
-            matches!(&response.response, protocol::Response::Error { msg, .. } if msg.contains("TLS to the target is no longer supported")),
+            matches!(&response.response, ServerEnvelope::Legacy(legacy::Response::Error { msg, .. }) if msg.contains("TLS to the target is no longer supported")),
             "{:?}",
             response.response
         );
@@ -487,5 +584,151 @@ mod tests {
         // Would fail tunnel setup if used: nothing listens on port 1.
         let router = Router::new(vec!["localhost=socks5://127.0.0.1:1".parse().unwrap()]);
         assert_tunnel_echo(router, "127.0.0.1", echo_addr).await;
+    }
+
+    /// Serves cpxy on a local port with `router`.
+    async fn spawn_cpxy_server(router: Router) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router = Arc::new(router);
+        tokio::spawn(async move {
+            loop {
+                let (conn, from) = listener.accept().await.unwrap();
+                let key: Key = derive_password("integration_test_key").into();
+                tokio::spawn(handle_connection(conn, from, key, router.clone()));
+            }
+        });
+        addr
+    }
+
+    fn server_url(host: &str, server: SocketAddr) -> Config {
+        format!("http://:integration_test_key@{host}:{}", server.port())
+            .parse()
+            .unwrap()
+    }
+
+    /// A server routing `localhost` to the reverse exit `home`, and that exit, registered.
+    async fn spawn_server_with_reverse_exit() -> SocketAddr {
+        let server = spawn_cpxy_server(Router::new(vec![
+            "localhost=reverse://home".parse().unwrap(),
+        ]))
+        .await;
+        let exit = Arc::new(client::reverse_exit::ReverseExit::new(
+            server_url("127.0.0.1", server),
+            "home".into(),
+        ));
+        for _ in 0..2 {
+            tokio::spawn(exit.clone().keep_link());
+        }
+        server
+    }
+
+    #[tokio::test]
+    async fn reverse_route_leaves_through_the_registered_exit() {
+        let echo_addr = spawn_multi_echo_server().await;
+        let server = spawn_server_with_reverse_exit().await;
+        // The Host header picks the reverse route.
+        let outbound = ProtocolOutbound::new(server_url("localhost", server));
+        // More requests than parked links: later ones wait for the exit to replace them.
+        for i in 0..5 {
+            send_echo(
+                &outbound,
+                echo_addr,
+                format!("through the exit {i}").as_bytes(),
+            )
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn reverse_route_reports_unreachable_targets() {
+        let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let closed_port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let server = spawn_server_with_reverse_exit().await;
+
+        let err = timeout(
+            Duration::from_secs(5),
+            ProtocolOutbound::new(server_url("localhost", server)).send(OutboundRequest {
+                host: OutboundHost::Domain("127.0.0.1".to_string()),
+                port: closed_port,
+                initial_plaintext: vec![],
+            }),
+        )
+        .await
+        .unwrap()
+        .err()
+        .unwrap();
+        assert!(format!("{err:#}").contains("Error connecting"), "{err:#}");
+    }
+
+    #[tokio::test]
+    async fn links_for_unnamed_exits_are_refused() {
+        let server = spawn_cpxy_server(Router::new(vec![
+            "localhost=reverse://home".parse().unwrap(),
+        ]))
+        .await;
+        let err =
+            client::reverse_exit::ReverseExit::new(server_url("127.0.0.1", server), "other".into())
+                .offer_link()
+                .await
+                .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("No reverse:// route"),
+            "{err:#}"
+        );
+    }
+
+    /// Clients still send legacy requests; this is the current `Connect` they will move to.
+    #[tokio::test]
+    async fn serves_current_connect_requests() {
+        let echo_addr = spawn_echo_server().await;
+        let server = spawn_cpxy_server(Router::default()).await;
+        let key: Key = derive_password("integration_test_key").into();
+        let mut conn = tokio::net::TcpStream::connect(server).await.unwrap();
+
+        let client_send_cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
+        let server_send_cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
+        http_protocol::Request {
+            message: ClientEnvelope::Current(ClientMessage::Connect(Box::new(Connect {
+                host: "127.0.0.1".into(),
+                port: echo_addr.port(),
+                client_send_cipher: client_send_cipher.clone(),
+                server_send_cipher: server_send_cipher.clone(),
+                initial_plaintext: b"hello ".to_vec(),
+            }))),
+            websocket_key: vec![0; 12],
+            host: "127.0.0.1".to_string(),
+        }
+        .send_over_http(&mut conn, &key)
+        .await
+        .unwrap();
+
+        let (response, conn) = http_protocol::Response::parse(conn, &key, Format::Current)
+            .await
+            .map_err(|(e, _)| e)
+            .unwrap()
+            .take_head();
+        assert!(
+            matches!(
+                response.response,
+                ServerEnvelope::Current(ServerMessage::Accepted(_))
+            ),
+            "{:?}",
+            response.response
+        );
+
+        let mut tunnel = CipherStream::new(
+            cpxy_ng::ws_stream::new_ws_stream(conn, true).await,
+            &client_send_cipher,
+            &server_send_cipher,
+        );
+        tunnel.write_all(b"current").await.unwrap();
+        let mut echo = [0; 13];
+        timeout(Duration::from_secs(5), tunnel.read_exact(&mut echo))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&echo, b"hello current");
     }
 }

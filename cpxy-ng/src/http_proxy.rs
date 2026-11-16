@@ -1,9 +1,7 @@
 //! HTTP proxy requests. Only `CONNECT` tunnels are supported: forwarding plain `GET
 //! http://...` style requests is rejected.
-use crate::cipher_select::select_cipher_based_on_port;
 use crate::http_stream::HttpStream;
 use crate::outbound::{OutboundHost, OutboundRequest};
-use crate::protocol;
 use anyhow::Context;
 use std::fmt::{Display, Formatter};
 use tokio::io::AsyncRead;
@@ -29,21 +27,6 @@ impl Display for MethodNotAllowed {
 }
 
 impl std::error::Error for MethodNotAllowed {}
-
-impl From<ProxyRequest> for protocol::Request {
-    fn from(req: ProxyRequest) -> Self {
-        let (client_send_cipher, server_send_cipher) = select_cipher_based_on_port(req.port);
-        Self {
-            host: req.host,
-            port: req.port,
-            tls: false,
-            server_send_cipher,
-            initial_plaintext: vec![],
-            client_send_cipher,
-            timestamp_epoch_seconds: 0,
-        }
-    }
-}
 
 impl From<ProxyRequest> for OutboundRequest {
     fn from(req: ProxyRequest) -> Self {

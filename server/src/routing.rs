@@ -1,10 +1,16 @@
+use crate::reverse::{Link, ReverseExits};
 use crate::socks5::Socks5Pool;
 use anyhow::{Context, bail, ensure};
+use cpxy_ng::either_stream::EitherStream;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
+
+/// The connection to a request's target: TCP for `direct` and `socks5://` routes, a reverse
+/// exit's link for `reverse://` ones.
+pub type Upstream = EitherStream<TcpStream, Link>;
 
 /// Where to send the upstream connection for a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +18,8 @@ pub enum Route {
     Direct,
     /// A SOCKS5 server (no authentication) given as `host:port`.
     Socks5(String),
+    /// A reverse exit (`cpxy reverse-proxy`) by the name it registers with.
+    Reverse(String),
 }
 
 impl Display for Route {
@@ -19,6 +27,7 @@ impl Display for Route {
         match self {
             Route::Direct => f.write_str("direct"),
             Route::Socks5(addr) => write!(f, "socks5://{addr}"),
+            Route::Reverse(name) => write!(f, "reverse://{name}"),
         }
     }
 }
@@ -105,8 +114,20 @@ impl FromStr for Rule {
             port.parse::<u16>()
                 .with_context(|| format!("Invalid route {s:?}: bad SOCKS5 port"))?;
             Route::Socks5(addr.to_string())
+        } else if let Some(name) = target.strip_prefix("reverse://") {
+            ensure!(
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
+                "Invalid route {s:?}: a reverse exit name is letters, digits, `-`, `_` and `.`"
+            );
+            Route::Reverse(name.to_string())
         } else {
-            bail!("Invalid route {s:?}: target must be `direct` or `socks5://host:port`");
+            bail!(
+                "Invalid route {s:?}: target must be `direct`, `socks5://host:port` or \
+                 `reverse://name`"
+            );
         };
 
         Ok(Rule { pattern, route })
@@ -136,6 +157,8 @@ pub struct Router {
     rules: Vec<Rule>,
     /// One pool per distinct SOCKS5 server in `rules`.
     socks5_pools: HashMap<String, Arc<Socks5Pool>>,
+    /// The reverse exits in `rules`.
+    reverse_exits: ReverseExits,
 }
 
 impl Router {
@@ -144,13 +167,23 @@ impl Router {
             .iter()
             .filter_map(|r| match &r.route {
                 Route::Socks5(addr) => Some((addr.clone(), Socks5Pool::new(addr.clone()))),
-                Route::Direct => None,
+                Route::Direct | Route::Reverse(_) => None,
             })
             .collect();
+        let reverse_exits = ReverseExits::new(rules.iter().filter_map(|r| match &r.route {
+            Route::Reverse(name) => Some(name.as_str()),
+            Route::Direct | Route::Socks5(_) => None,
+        }));
         Self {
             rules,
             socks5_pools,
+            reverse_exits,
         }
+    }
+
+    /// Where reverse exits park their links.
+    pub fn reverse_exits(&self) -> &ReverseExits {
+        &self.reverse_exits
     }
 
     /// Starts keeping connections to each SOCKS5 server ready, so requests
@@ -159,15 +192,15 @@ impl Router {
         self.socks5_pools.values().for_each(Socks5Pool::warm_up);
     }
 
-    /// Opens a TCP connection to `host:port` following `route`.
-    pub async fn dial(&self, route: &Route, host: &str, port: u16) -> anyhow::Result<TcpStream> {
+    /// Connects to `host:port` following `route`.
+    pub async fn dial(&self, route: &Route, host: &str, port: u16) -> anyhow::Result<Upstream> {
         match route {
             Route::Direct => {
                 let stream = TcpStream::connect((host, port))
                     .await
                     .context("Error connecting to upstream")?;
                 stream.set_nodelay(true).context("Error setting nodelay")?;
-                Ok(stream)
+                Ok(EitherStream::Left(stream))
             }
             Route::Socks5(addr) => {
                 let pool = match self.socks5_pools.get(addr) {
@@ -176,8 +209,14 @@ impl Router {
                 };
                 pool.connect(host, port)
                     .await
+                    .map(EitherStream::Left)
                     .with_context(|| format!("SOCKS5 CONNECT via {addr} failed"))
             }
+            Route::Reverse(name) => self
+                .reverse_exits
+                .dial(name, host, port)
+                .await
+                .map(EitherStream::Right),
         }
     }
 
@@ -231,6 +270,10 @@ mod tests {
             "*=socks5://[::1]:1080".parse::<Rule>().unwrap().route,
             socks("[::1]:1080")
         );
+        assert_eq!(
+            "exit.*=reverse://home".parse::<Rule>().unwrap().route,
+            Route::Reverse("home".into())
+        );
 
         for bad in [
             "example.com",
@@ -240,6 +283,9 @@ mod tests {
             "example.com=socks5://a",
             "example.com=socks5://a:notaport",
             "example.com=socks5://user:pw@a:1",
+            "example.com=reverse://",
+            "example.com=reverse://a/b",
+            "example.com=reverse://a b",
         ] {
             assert!(bad.parse::<Rule>().is_err(), "{bad} should fail to parse");
         }
@@ -321,6 +367,14 @@ mod tests {
         assert_eq!(r.route("us12.proxy.hk.net"), &socks("us:1"));
         assert_eq!(r.route("badexample.com"), &socks("any:1"));
         assert_eq!(r.route(""), &socks("any:1"));
+    }
+
+    #[test]
+    fn reverse_routes_name_the_exits_that_may_register() {
+        let r = router(&["exit.*=reverse://home", "x.*=socks5://a:1"]);
+        assert_eq!(r.route("exit.example.com"), &Route::Reverse("home".into()));
+        assert!(r.reverse_exits().contains("home"));
+        assert!(!r.reverse_exits().contains("a:1"));
     }
 
     #[test]

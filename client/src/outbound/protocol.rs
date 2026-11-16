@@ -3,10 +3,11 @@ use crate::protocol_config::Config;
 use anyhow::Context;
 use cpxy_ng::cipher_select::select_cipher_based_on_port;
 use cpxy_ng::encrypt_stream::CipherStream;
+use cpxy_ng::http_protocol;
 use cpxy_ng::key_util::random_vec;
 use cpxy_ng::outbound::{Outbound, OutboundRequest};
+use cpxy_ng::protocol::{ClientEnvelope, Format, ServerEnvelope, legacy};
 use cpxy_ng::ws_stream::new_ws_stream;
-use cpxy_ng::{http_protocol, protocol};
 use std::fmt::{Display, Formatter};
 use std::io::Cursor;
 use std::sync::Arc;
@@ -84,8 +85,10 @@ impl ProtocolOutbound {
         let config = &self.config;
         let (client_send_cipher, server_send_cipher) = select_cipher_based_on_port(req.port);
 
+        // Still the legacy request, which every deployed server understands. Switch to
+        // `ClientMessage::Connect` once the servers clients talk to all understand it.
         let http_req = http_protocol::Request {
-            request: protocol::Request {
+            message: ClientEnvelope::Legacy(legacy::Request {
                 host: req.host.host().to_string(),
                 port: req.port,
                 tls: false,
@@ -93,7 +96,7 @@ impl ProtocolOutbound {
                 server_send_cipher: server_send_cipher.clone(),
                 initial_plaintext: req.initial_plaintext.clone(),
                 timestamp_epoch_seconds: 0,
-            },
+            }),
             websocket_key: random_vec(12),
             host: config.host.clone(),
         };
@@ -106,15 +109,15 @@ impl ProtocolOutbound {
 
         tracing::debug!("ProtocolOutbound: waiting for server response");
         let (http_protocol::Response { response, .. }, conn) =
-            http_protocol::Response::parse(conn, &config.key)
+            http_protocol::Response::parse(conn, &config.key, Format::Legacy)
                 .await
                 .map_err(|(e, _)| e)?
                 .take_head();
 
         match response {
-            protocol::Response::Success {
+            ServerEnvelope::Legacy(legacy::Response::Success {
                 initial_response, ..
-            } => {
+            }) => {
                 tracing::info!("ProtocolOutbound: server accepted connection");
                 let (r, w) = tokio::io::split(CipherStream::new(
                     new_ws_stream(conn, true).await,
@@ -125,10 +128,11 @@ impl ProtocolOutbound {
                 let r = Cursor::new(initial_response).chain(r);
                 Ok(tokio::io::join(r, w))
             }
-            protocol::Response::Error { msg, .. } => {
+            ServerEnvelope::Legacy(legacy::Response::Error { msg, .. }) => {
                 tracing::warn!(msg, "ProtocolOutbound: server rejected connection");
                 Err(Rejected(msg).into())
             }
+            ServerEnvelope::Current(_) => unreachable!("parsed as {:?}", Format::Legacy),
         }
     }
 }
