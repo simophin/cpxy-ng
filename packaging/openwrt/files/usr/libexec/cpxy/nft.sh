@@ -145,7 +145,10 @@ cpxy_nft_main_routes() {
 # recreated) after this is not exempt, so new paths fail closed until the next apply.
 cpxy_nft_exempt() {
 	local dev
-	for dev in /sys/class/net/*; do
+	for dev in "${CPXY_SYS_NET:-/sys/class/net}"/*; do
+		# Devices are directories; the bonding driver adds a file, bonding_masters, which nft
+		# would reject as a missing interface, failing the whole ruleset.
+		[ -d "$dev" ] || continue
 		dev="${dev##*/}"
 		case " lo $* " in *" $dev "*) continue ;; esac
 		_cpxy_nft_dev_ok "$dev" && echo "$dev"
