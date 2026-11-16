@@ -20,6 +20,9 @@ enum Command {
     Server(server::Args),
     /// Serve local HTTP, SOCKS5 and transparent proxies through a cpxy server
     Client(client::cli::Args),
+    /// Be a reverse exit: let a cpxy server send requests out from here, over connections this
+    /// machine opens to it
+    ReverseProxy(client::reverse_exit::Args),
     /// Serve split DNS: local-region answers from upstream servers, the rest from alternatives
     #[cfg(feature = "dns")]
     Dns(client::dns_split::cli::Args),
@@ -57,6 +60,7 @@ async fn run(command: Command) -> anyhow::Result<()> {
     match command {
         Command::Server(args) => server::run(args).await,
         Command::Client(args) => client::cli::run(args).await,
+        Command::ReverseProxy(args) => client::reverse_exit::run(args).await,
         #[cfg(feature = "dns")]
         Command::Dns(args) => client::dns_split::cli::run(args).await,
         Command::Routes(_) => unreachable!("handled before the runtime starts"),

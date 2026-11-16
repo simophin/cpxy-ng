@@ -1,6 +1,6 @@
 use crate::http_stream::HttpStream;
 use crate::http_util::HttpHeaderExt;
-use crate::protocol;
+use crate::protocol::{ClientEnvelope, Format, ServerEnvelope};
 use anyhow::{Context, ensure};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug, PartialEq)]
 pub struct Request {
-    pub request: protocol::Request,
+    pub message: ClientEnvelope,
     pub websocket_key: Vec<u8>,
     pub host: String,
 }
@@ -44,8 +44,8 @@ impl Request {
                     .unwrap_or_default()
             );
 
-            let request = protocol::Request::deserialize(&serialized, encrypt_key)
-                .context("Deserializing request from URL path")?;
+            let message = ClientEnvelope::open(&serialized, encrypt_key)
+                .context("Opening request from URL path")?;
 
             ensure!(
                 matches!(http_req.headers.get_header_value("upgrade"),
@@ -67,7 +67,7 @@ impl Request {
                 .to_string();
 
             Ok(Request {
-                request,
+                message,
                 websocket_key,
                 host,
             })
@@ -81,8 +81,8 @@ impl Request {
         encrypt_key: &Key,
     ) -> anyhow::Result<()> {
         let request = self
-            .request
-            .serialize(encrypt_key)
+            .message
+            .seal(encrypt_key)
             .context("Serializing request as URL path segments")?;
 
         let method = ALL_METHODS[random_range(0..ALL_METHODS.len())];
@@ -123,14 +123,16 @@ impl Request {
 }
 
 pub struct Response {
-    pub response: protocol::Response,
+    pub response: ServerEnvelope,
     pub websocket_key: Vec<u8>,
 }
 
 impl Response {
+    /// Parses the server's answer to a request sent in `format`.
     pub async fn parse<S: AsyncRead + Unpin>(
         stream: S,
         encrypt_key: &Key,
+        format: Format,
     ) -> Result<HttpStream<Response, S>, (anyhow::Error, S)> {
         HttpStream::parse_response(stream, |http_res| {
             let bytes = http_res
@@ -152,8 +154,8 @@ impl Response {
                         .context("Error decode key as b64")
                 })?;
 
-            let response = protocol::Response::deserialize(&bytes, encrypt_key)
-                .context("Error deserialize response")?;
+            let response = ServerEnvelope::open(&bytes, encrypt_key, format)
+                .context("Error opening response")?;
 
             Ok(Response {
                 response,
@@ -170,7 +172,7 @@ impl Response {
     ) -> anyhow::Result<()> {
         let response = self
             .response
-            .serialize(encrypt_key)
+            .seal(encrypt_key)
             .context("Serializing response")?;
         let response = BASE64_URL_SAFE_NO_PAD.encode(&response);
 
@@ -198,26 +200,19 @@ const PROTOCOL_RESPONSE_HEADER: &str = "X-Cache-Result";
 mod tests {
     use super::*;
     use crate::encrypt_stream::Configuration;
+    use crate::protocol::{ClientMessage, Connect, ServerMessage, legacy};
     use chacha20poly1305::aead::OsRng;
     use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
     use std::num::NonZeroUsize;
     use tokio::try_join;
 
-    #[tokio::test]
-    async fn http_protocol_works() {
+    async fn round_trip(message: ClientEnvelope, response: ServerEnvelope) {
         let (mut client, mut server) = tokio::io::duplex(32);
         let encrypt_key = ChaCha20Poly1305::generate_key(&mut OsRng);
+        let format = message.format();
 
         let request = Request {
-            request: protocol::Request {
-                host: "google.com".to_string(),
-                port: 23,
-                tls: false,
-                client_send_cipher: Configuration::random_partial(NonZeroUsize::new(32).unwrap()),
-                server_send_cipher: Configuration::random_full(),
-                initial_plaintext: vec![1, 2, 3, 4, 5],
-                timestamp_epoch_seconds: 12345,
-            },
+            message,
             websocket_key: vec![0u8; 12],
             host: "example.com".to_string(),
         };
@@ -237,15 +232,12 @@ mod tests {
         assert_eq!(&request, received_request.head());
 
         let response = Response {
-            response: protocol::Response::Success {
-                initial_response: vec![6, 7, 8, 9, 10],
-                timestamp_epoch_seconds: 54321,
-            },
+            response,
             websocket_key: request.websocket_key,
         };
 
         let do_parse_response = async {
-            Response::parse(&mut server, &encrypt_key)
+            Response::parse(&mut server, &encrypt_key, format)
                 .await
                 .map_err(|e| e.0)
         };
@@ -257,5 +249,40 @@ mod tests {
         .expect("To send/receive response");
 
         assert_eq!(response.response, received_response.head().response);
+    }
+
+    #[tokio::test]
+    async fn current_messages_round_trip() {
+        round_trip(
+            ClientEnvelope::Current(ClientMessage::Connect(Box::new(Connect {
+                host: "google.com".to_string(),
+                port: 23,
+                client_send_cipher: Configuration::random_partial(NonZeroUsize::new(32).unwrap()),
+                server_send_cipher: Configuration::random_full(),
+                initial_plaintext: vec![1, 2, 3, 4, 5],
+            }))),
+            ServerEnvelope::Current(ServerMessage::accepted()),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legacy_messages_round_trip() {
+        round_trip(
+            ClientEnvelope::Legacy(legacy::Request {
+                host: "google.com".to_string(),
+                port: 23,
+                tls: false,
+                client_send_cipher: Configuration::random_partial(NonZeroUsize::new(32).unwrap()),
+                server_send_cipher: Configuration::random_full(),
+                initial_plaintext: vec![1, 2, 3, 4, 5],
+                timestamp_epoch_seconds: 12345,
+            }),
+            ServerEnvelope::Legacy(legacy::Response::Success {
+                initial_response: vec![6, 7, 8, 9, 10],
+                timestamp_epoch_seconds: 54321,
+            }),
+        )
+        .await;
     }
 }

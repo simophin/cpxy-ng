@@ -11,6 +11,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 geoip-data = { path = "../geoip-data" }
 url = "2"
+rand = "0.10.1"
 ipnet = "2"
 futures = "0.3.31"
 axum = { version = "0", default-features = false, features = ["json", "ws", "http1"] }

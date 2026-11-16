@@ -19,6 +19,7 @@ One static binary holds the server, the client and the split DNS server:
 | `cpxy client --server http://:<key>@<host>:<port> --http-proxy-listen 127.0.0.1:8080` | Local HTTP CONNECT, SOCKS5 (`--socks5-proxy-listen`) and transparent (`--transparent-proxy-listen`, Linux) proxies. `--routing global` (the default) sends everything through the server; `--routing cn_split --dns-server <ip>` connects to the local region's, private and tailnet addresses directly |
 | `cpxy dns --upstream 223.5.5.5 --alternative tcp://1.1.1.1?via=cpxy --server http://:<key>@<host>:<port>` | Split DNS: local-region answers from the upstreams, the rest from the alternatives. `--resolver-routing cn_split --socks5-proxy <addr>` reaches overseas resolvers through a proxy, as the OpenWrt package does |
 | `cpxy routes direct [--local-region overseas] [--family ipv6]` | Prints the prefixes `cn_split` connects to directly, e.g. for nftables sets (`cn-direct` is an alias) |
+| `cpxy reverse-proxy --server http://:<key>@<host>:<port> --name <name>` | A reverse exit: lets the server send requests out from this machine, over connections it opens to the server. See [Reverse exits](#reverse-exits) |
 
 ### Local region
 
@@ -46,6 +47,26 @@ docker run -e KEY=... -p 3000:3000 ghcr.io/simophin/cpxy-ng:main
 docker run -e SERVER=http://:<key>@<host>:<port> -p 8080:8080 ghcr.io/simophin/cpxy-ng:main \
   client --http-proxy-listen 0.0.0.0:8080 --routing cn_split --dns-server 223.5.5.5
 ```
+
+### Reverse exits
+
+A reverse exit sends traffic out from a machine the server can't connect to, such as one behind
+NAT or a firewall that blocks inbound connections, over the cpxy protocol both ways. `cpxy reverse-proxy` there keeps a few connections
+(`--links`, default 4) parked at the server; a server route `reverse://<name>` sends requests
+matching its `Host` pattern out through them:
+
+```sh
+# On the server: requests to exit.proxy.example leave through the exit named home
+cpxy server --key <key> --listen 0.0.0.0:3000 --socks5-route 'exit.*=reverse://home'
+# On the exit's machine
+cpxy reverse-proxy --server http://:<key>@proxy.example:3000 --name home
+# On a client: everything through the server, and so out of the exit
+cpxy client --server http://:<key>@exit.proxy.example:3000 --socks5-proxy-listen 127.0.0.1:1080
+```
+
+`exit.proxy.example` is just another name for the server: the client sends it as `Host`, which picks
+the route. The server accepts links only for names a `reverse://` route gives. With no link
+parked (the exit is down), requests on that route fail rather than leave from the server.
 
 ### Fixed proxy routes
 

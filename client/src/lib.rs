@@ -8,6 +8,7 @@ pub mod ipv6;
 pub mod protocol_config;
 pub mod proxy_handlers;
 pub mod region;
+pub mod reverse_exit;
 pub mod socks_proxy_server;
 #[cfg(target_os = "linux")]
 pub mod transparent_proxy_server;

@@ -1,5 +1,6 @@
 //! The cpxy server: accepts tunnels from cpxy clients and connects them to their destinations.
 
+mod reverse;
 mod routing;
 mod server;
 mod socks5;
@@ -48,7 +49,9 @@ pub struct Args {
     /// connected with, as `<HOST_PATTERN>=<TARGET>`. HOST_PATTERN must match the whole
     /// host (case-insensitive, port stripped) and may contain any number of `*`
     /// wildcards, each matching any run of characters including dots, e.g.
-    /// `*.example.com` or `us*.proxy.*.net`. TARGET is `socks5://host:port` or `direct`.
+    /// `*.example.com` or `us*.proxy.*.net`. TARGET is `socks5://host:port`, `direct`, or
+    /// `reverse://<name>`: through the reverse exit that registers as `<name>` (`cpxy
+    /// reverse-proxy --name <name>`), which may only register when a rule names it.
     /// Rules are tried in order and the first match wins; requests that match no rule
     /// connect directly. Repeatable, and each value may hold several rules separated by
     /// commas and/or whitespace.
