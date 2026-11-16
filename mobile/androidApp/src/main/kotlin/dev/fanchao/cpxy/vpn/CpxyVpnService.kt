@@ -88,9 +88,10 @@ class CpxyVpnService : VpnService() {
         val started = runCatching {
             val routeStarted = SystemClock.elapsedRealtime()
             val exclusions = Build.VERSION.SDK_INT >= 33
-            val routeKey = settings.proxyRoutes.joinToString(",")
+            val region = profile.localRegion.engineName
+            val routeKey = "$region:" + settings.proxyRoutes.joinToString(",")
             val exactAttempt = routeKey !in oversizedRoutePlans
-            var plan = androidRoutePlan(settings.proxyRoutes, exclusions, if (exactAttempt) 100_000u else 512u)
+            var plan = androidRoutePlan(settings.proxyRoutes, region, exclusions, if (exactAttempt) 100_000u else 512u)
             if (!exactAttempt) Log.w(TAG, "Previously rejected exact plan; ${plan.fallbackReason}")
             fun builder() = Builder()
                 .setSession(profile.name)
@@ -132,12 +133,12 @@ class CpxyVpnService : VpnService() {
                     oversizedRoutePlans.add(routeKey)
                 }
                 Log.w(TAG, "${if (exactAttempt) "Exact" else "Bounded"} route installation failed: included=${plan.included.size}, excluded=${plan.excluded.size}, ${exactError.javaClass.simpleName}: ${exactError.message}")
-                plan = androidRoutePlan(settings.proxyRoutes, exclusions, 512u)
+                plan = androidRoutePlan(settings.proxyRoutes, region, exclusions, 512u)
                 Log.w(TAG, plan.fallbackReason)
                 try {
                     install(plan)
                 } catch (boundedError: Exception) {
-                    // Full capture remains safe: the userspace router retains direct CN policy.
+                    // Full capture remains safe: the userspace router keeps the direct policy.
                     fullCaptureFallback = true
                     installedExclusions = 0
                     Log.w(TAG, "Bounded route installation failed; using full capture (${boundedError.javaClass.simpleName}: ${boundedError.message})")

@@ -6,8 +6,20 @@ use cpxy_ng::geoip::{contains_v4, contains_v6};
 use geoip_data::{CN, CN6};
 use std::net::IpAddr;
 
-/// Where the device is, on the CN GeoIP boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+/// Where the device is, on the CN GeoIP boundary. Spelled `cn` and `overseas` on the command line
+/// and in JSON.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    clap::ValueEnum,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum LocalRegion {
     /// In China: CN addresses are local, the rest are remote
     #[default]

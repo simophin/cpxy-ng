@@ -40,6 +40,9 @@ pub struct Specs<'a> {
     pub local: Option<(&'a ServerSpec, &'a [Name])>,
     pub cache: bool,
     pub ipv6: Ipv6Mode,
+    /// Which side of the CN boundary the device is on: its resolvers' regional answers win, and
+    /// it decides which resolvers are reached directly.
+    pub region: LocalRegion,
 }
 
 /// Servers given with `?via=cpxy` are reached through `server`, without the routing that
@@ -78,7 +81,7 @@ async fn build_handler(
 ) -> anyhow::Result<DnsSplitHandler> {
     let new_upstream = |spec: &ServerSpec| {
         let spec = match routes {
-            Some(routes) => route_spec(spec, LocalRegion::Cn, routes),
+            Some(routes) => route_spec(spec, specs.region, routes),
             None => spec.clone(),
         };
         HickoryUpstream::new(&spec, QUERY_TIMEOUT, Some(cpxy.clone()))
@@ -106,7 +109,7 @@ async fn build_handler(
         None
     };
     let mut handler = DnsSplitHandler::new(
-        Racer::new(servers, QUERY_TIMEOUT, LocalRegion::Cn.predicate()),
+        Racer::new(servers, QUERY_TIMEOUT, specs.region.predicate()),
         cache,
     )
     .with_search_domains(specs.search_domains.to_vec())

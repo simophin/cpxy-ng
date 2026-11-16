@@ -73,6 +73,56 @@ class SplitRoutingTest {
         }
     }
 
+    /** Opt-in: needs vpnServerFile plus two plain-HTTP IP echo hosts, one inside the CN GeoIP set
+     * (cnIpEcho) and one outside it (overseasIpEcho). Each location sends exactly one of them
+     * through the server, so the address each echo sees swaps between the two locations. */
+    @Test
+    fun locationDecidesWhichSideGoesThroughTheServer() = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        val serverFile = args.getString("vpnServerFile")
+        val cnEcho = args.getString("cnIpEcho")
+        val overseasEcho = args.getString("overseasIpEcho")
+        assumeTrue("Opt-in location fixture not configured", serverFile != null && cnEcho != null && overseasEcho != null)
+        require(serverFile!!.matches(Regex("/data/local/tmp/[a-zA-Z0-9_.-]+")))
+        assertNull("Grant VPN consent before running the smoke test", VpnService.prepare(context))
+        val server = shell("cat $serverFile").trim()
+        check(server.isNotEmpty()) { "Test server file is empty" }
+        val repository = context.app.settingsRepository
+        val previous = repository.settings.first()
+        repository.update { AppSettings() }
+
+        suspend fun seen(region: LocalRegion): Pair<String, String> {
+            connect(
+                Profile(
+                    id = "location-smoke", name = "Location smoke", server = server,
+                    localRegion = region,
+                    dnsUpstream = region.defaultDnsUpstream,
+                    dnsAlternative = region.defaultDnsAlternative,
+                )
+            )
+            try {
+                val cn = probe("body", cnEcho!!, 80)
+                val overseas = probe("body", overseasEcho!!, 80)
+                assertTrue("$region: CN echo failed: $cn", cn.startsWith("OK "))
+                assertTrue("$region: overseas echo failed: $overseas", overseas.startsWith("OK "))
+                return cn.removePrefix("OK ") to overseas.removePrefix("OK ")
+            } finally {
+                disconnect()
+            }
+        }
+
+        try {
+            val (cnFromCn, overseasFromCn) = seen(LocalRegion.Cn)
+            val (cnFromOverseas, overseasFromOverseas) = seen(LocalRegion.Overseas)
+            assertNotEquals("In China, the two echoes must leave by different paths", cnFromCn, overseasFromCn)
+            assertEquals("The direct path must not change with the location", cnFromCn, overseasFromOverseas)
+            assertEquals("The server's path must not change with the location", overseasFromCn, cnFromOverseas)
+        } finally {
+            if (context.app.controller.state.value !is VpnState.Disconnected) disconnect()
+            repository.update { previous }
+        }
+    }
+
     // Both have AAAA records, so the checks are meaningful on an IPv6 network. The literal is
     // AliDNS, which serves TCP 80; it is refused before reaching the network.
     private val ipv6CheckHost = "www.baidu.com"

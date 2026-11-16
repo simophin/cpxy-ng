@@ -59,6 +59,28 @@ class ProfileTest {
     }
 
     @Test
+    fun overseasProfilesTellTheEngineTheirRegion() {
+        val overseas = profile.copy(localRegion = LocalRegion.Overseas)
+        val json = Json.parseToJsonElement(overseas.engineConfigJson()).jsonObject
+        assertEquals("\"overseas\"", json["local_region"].toString())
+        assertEquals(overseas, Json.decodeFromString<Profile>(Json.encodeToString(overseas)))
+    }
+
+    @Test
+    fun savedProfilesWithoutARegionAreInChina() {
+        val saved = Json.decodeFromString<Profile>("""{"id":"old","name":"Old","dnsUpstream":["223.5.5.5"],"dnsAlternative":["8.8.8.8"]}""")
+        assertEquals(LocalRegion.Cn, saved.localRegion)
+    }
+
+    @Test
+    fun regionDefaultsAskTheLocalResolversDirectlyAndTheOthersThroughTheServer() {
+        assertEquals(listOf("223.5.5.5"), LocalRegion.Cn.defaultDnsUpstream)
+        assertEquals(listOf("tcp://1.1.1.1?via=cpxy"), LocalRegion.Cn.defaultDnsAlternative)
+        assertEquals(listOf("1.1.1.1"), LocalRegion.Overseas.defaultDnsUpstream)
+        assertEquals(listOf("tcp://223.5.5.5?via=cpxy"), LocalRegion.Overseas.defaultDnsAlternative)
+    }
+
+    @Test
     fun engineConfigIncludesOnlyEnabledProxyPorts() {
         val settings = AppSettings(httpProxyEnabled = true, httpProxyPort = 8888)
         val config = Json.decodeFromString<EngineConfig>(profile.engineConfigJson(settings))

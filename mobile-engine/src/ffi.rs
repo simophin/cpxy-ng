@@ -77,6 +77,7 @@ mod tests {
 #[uniffi::export]
 pub fn android_route_plan(
     proxy_routes: Vec<String>,
+    local_region: String,
     exclusions: bool,
     max_routes: u32,
 ) -> Result<crate::android_routes::AndroidRoutePlan, EngineError> {
@@ -86,8 +87,11 @@ pub fn android_route_plan(
             "Route budget must be between 4 and 100000"
         );
         let routes = client::outbound::ProxyRoutes::parse(&proxy_routes)?;
+        let region = serde_json::from_value(serde_json::Value::String(local_region))
+            .map_err(|_| anyhow::format_err!("Local region must be `cn` or `overseas`"))?;
         Ok(crate::android_routes::plan(
             &routes,
+            region,
             exclusions,
             max_routes as usize,
         ))

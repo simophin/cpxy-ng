@@ -11,17 +11,41 @@ data class Profile(
     val name: String,
     /** The cpxy server URL with its key, e.g. `http://:key@example.com`. */
     val server: String = "",
-    /** DNS servers whose answer is used when all its addresses are in CN. */
+    /** DNS servers whose answer is used when it has addresses in [localRegion]. */
     val dnsUpstream: List<String>,
     /** DNS servers whose answer is used otherwise. */
     val dnsAlternative: List<String>,
     val backend: ProfileBackend = ProfileBackend.Cpxy,
     /** External no-auth SOCKS endpoint, host:port; IPv6 hosts use brackets. */
     val socks5: String = "",
+    /** Which side of the CN boundary the device is on. Profiles saved before this existed are in CN. */
+    val localRegion: LocalRegion = LocalRegion.Cn,
 )
 
 @Serializable
 enum class ProfileBackend { Cpxy, Socks5 }
+
+/**
+ * Which side of the CN GeoIP boundary the device is on, mirroring the engine's `local_region`. The
+ * local region's destinations connect directly and the rest go through the server.
+ */
+@Serializable
+enum class LocalRegion(
+    /** The engine's spelling. */
+    val engineName: String,
+    /** A new profile's upstream DNS: the region's own resolvers, asked directly. */
+    val defaultDnsUpstream: List<String>,
+    /** A new profile's alternative DNS: the other region's resolvers, through the server. */
+    val defaultDnsAlternative: List<String>,
+) {
+    /** In China: CN destinations direct, the rest through the server. */
+    @SerialName("cn")
+    Cn("cn", listOf("223.5.5.5"), listOf("tcp://1.1.1.1?via=cpxy")),
+
+    /** Outside China (reverse split): CN destinations through the server, the rest direct. */
+    @SerialName("overseas")
+    Overseas("overseas", listOf("1.1.1.1"), listOf("tcp://223.5.5.5?via=cpxy")),
+}
 
 /**
  * The engine configuration, mirroring `mobile-engine/src/config.rs`. The engine rejects unknown
@@ -39,6 +63,7 @@ data class EngineConfig(
     @SerialName("socks_proxy_port") val socksProxyPort: Int? = null,
     val socks5: String? = null,
     @SerialName("android_socks") val androidSocks: Boolean = false,
+    @SerialName("local_region") val localRegion: LocalRegion = LocalRegion.Cn,
 )
 
 /**
@@ -68,6 +93,7 @@ fun Profile.engineConfigJson(settings: AppSettings = AppSettings(), androidSocks
         mtu = TunParameters.MTU,
         httpProxyPort = settings.httpProxyPort.takeIf { settings.httpProxyEnabled },
         socksProxyPort = settings.socksProxyPort.takeIf { settings.socksProxyEnabled },
+        localRegion = localRegion,
     )
 )
 
