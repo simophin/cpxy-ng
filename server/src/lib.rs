@@ -6,6 +6,7 @@ mod server;
 mod socks5;
 
 use anyhow::Context;
+use cpxy_ng::target_policy::TargetPolicy;
 use cpxy_ng::{Key, key_util::derive_password};
 use routing::{Router, RuleList};
 use std::fmt::{Debug, Formatter};
@@ -57,6 +58,13 @@ pub struct Args {
     /// commas and/or whitespace.
     #[arg(long, env = "SOCKS5_ROUTES")]
     socks5_route: Vec<RuleList>,
+
+    /// Internal addresses that `direct` routes may connect to anyway, as CIDRs or addresses.
+    /// Otherwise the server refuses targets that resolve only to loopback, private, link-local,
+    /// CGNAT (including Tailscale) or other special-purpose addresses, so the key doesn't open
+    /// this machine's own services and network. Repeatable or comma-separated.
+    #[arg(long, env = "ALLOW_TARGETS", value_delimiter = ',', value_parser = TargetPolicy::parse_allowed)]
+    allow_target: Vec<ipnet::IpNet>,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
@@ -64,13 +72,17 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         key,
         listen,
         socks5_route,
+        allow_target,
     } = args;
 
     let rules: Vec<_> = socks5_route.into_iter().flat_map(|list| list.0).collect();
     for rule in &rules {
         tracing::info!(%rule, "Server: SOCKS5 route configured");
     }
-    let router = Arc::new(Router::new(rules));
+    for net in &allow_target {
+        tracing::info!(%net, "Server: internal targets allowed");
+    }
+    let router = Arc::new(Router::new(rules, TargetPolicy::new(allow_target)));
     router.warm_up();
 
     let listener = TcpListener::bind(listen)

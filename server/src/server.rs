@@ -217,6 +217,7 @@ mod tests {
     use cpxy_ng::key_util::derive_password;
     use cpxy_ng::outbound::Outbound;
     use cpxy_ng::outbound::{OutboundHost, OutboundRequest};
+    use cpxy_ng::target_policy::TargetPolicy;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -224,6 +225,18 @@ mod tests {
 
     trait TunnelStream: AsyncRead + AsyncWrite + Unpin {}
     impl<S: AsyncRead + AsyncWrite + Unpin> TunnelStream for S {}
+
+    /// The tests' targets listen on loopback, which the default policy refuses.
+    fn loopback_allowed() -> TargetPolicy {
+        TargetPolicy::new(vec![
+            "127.0.0.0/8".parse().unwrap(),
+            "::1/128".parse().unwrap(),
+        ])
+    }
+
+    fn test_router(rules: Vec<crate::routing::Rule>) -> Router {
+        Router::new(rules, loopback_allowed())
+    }
 
     async fn spawn_echo_server() -> SocketAddr {
         let echo_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -297,7 +310,7 @@ mod tests {
             server,
             "127.0.0.1:1".parse().unwrap(),
             key,
-            Arc::new(Router::default()),
+            Arc::new(test_router(vec![])),
         ));
 
         let cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
@@ -337,15 +350,20 @@ mod tests {
     #[tokio::test]
     async fn full_tunnel_echo() {
         let echo_addr = spawn_echo_server().await;
-        assert_tunnel_echo(Router::default(), "127.0.0.1", echo_addr).await;
+        assert_tunnel_echo(test_router(vec![]), "127.0.0.1", echo_addr).await;
     }
 
     #[tokio::test]
     async fn initial_payload_response_is_relayed() {
         let echo_addr = spawn_echo_server().await;
         let payload = b"initial request";
-        let mut stream =
-            open_tunnel(Router::default(), "127.0.0.1", echo_addr, payload.to_vec()).await;
+        let mut stream = open_tunnel(
+            test_router(vec![]),
+            "127.0.0.1",
+            echo_addr,
+            payload.to_vec(),
+        )
+        .await;
         let mut reply = vec![0; payload.len()];
         timeout(Duration::from_secs(5), stream.read_exact(&mut reply))
             .await
@@ -375,7 +393,7 @@ mod tests {
             stream.read_exact(&mut reply).await.unwrap();
             assert_eq!(&reply, b"hello");
         });
-        let mut stream = open_tunnel(Router::default(), "127.0.0.1", address, vec![]).await;
+        let mut stream = open_tunnel(test_router(vec![]), "127.0.0.1", address, vec![]).await;
         confirmed_tx.send(()).unwrap();
         let mut greeting = [0; 14];
         timeout(Duration::from_secs(5), stream.read_exact(&mut greeting))
@@ -430,7 +448,7 @@ mod tests {
     async fn routes_by_host_header_through_socks5() {
         let echo_addr = spawn_echo_server().await;
         let (socks_addr, requested) = spawn_socks5_server().await;
-        let router = Router::new(vec![
+        let router = test_router(vec![
             format!("localhost=socks5://{socks_addr}").parse().unwrap(),
         ]);
 
@@ -468,7 +486,7 @@ mod tests {
         let cpxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let cpxy_addr = cpxy.local_addr().unwrap();
         tokio::spawn(async move {
-            let router = Arc::new(Router::default());
+            let router = Arc::new(test_router(vec![]));
             loop {
                 let (conn, addr) = cpxy.accept().await.unwrap();
                 let key: Key = derive_password("integration_test_key").into();
@@ -582,7 +600,7 @@ mod tests {
     async fn unmatched_host_header_connects_directly() {
         let echo_addr = spawn_echo_server().await;
         // Would fail tunnel setup if used: nothing listens on port 1.
-        let router = Router::new(vec!["localhost=socks5://127.0.0.1:1".parse().unwrap()]);
+        let router = test_router(vec!["localhost=socks5://127.0.0.1:1".parse().unwrap()]);
         assert_tunnel_echo(router, "127.0.0.1", echo_addr).await;
     }
 
@@ -609,13 +627,14 @@ mod tests {
 
     /// A server routing `localhost` to the reverse exit `home`, and that exit, registered.
     async fn spawn_server_with_reverse_exit() -> SocketAddr {
-        let server = spawn_cpxy_server(Router::new(vec![
+        let server = spawn_cpxy_server(test_router(vec![
             "localhost=reverse://home".parse().unwrap(),
         ]))
         .await;
         let exit = Arc::new(client::reverse_exit::ReverseExit::new(
             server_url("127.0.0.1", server),
             "home".into(),
+            loopback_allowed(),
         ));
         for _ in 0..2 {
             tokio::spawn(exit.clone().keep_link());
@@ -662,41 +681,96 @@ mod tests {
         assert!(format!("{err:#}").contains("Error connecting"), "{err:#}");
     }
 
+    async fn assert_refused(outbound: &ProtocolOutbound, target: SocketAddr) {
+        let err = timeout(
+            Duration::from_secs(5),
+            outbound.send(OutboundRequest {
+                host: OutboundHost::Domain(target.ip().to_string()),
+                port: target.port(),
+                initial_plaintext: vec![],
+            }),
+        )
+        .await
+        .unwrap()
+        .err()
+        .expect("connected to an internal target");
+        assert!(
+            format!("{err:#}").contains("only internal addresses"),
+            "{err:#}"
+        );
+    }
+
     #[tokio::test]
-    async fn links_for_unnamed_exits_are_refused() {
-        let server = spawn_cpxy_server(Router::new(vec![
+    async fn refuses_internal_targets_by_default() {
+        let echo_addr = spawn_echo_server().await;
+        let server = spawn_cpxy_server(Router::new(vec![], TargetPolicy::default())).await;
+        assert_refused(
+            &ProtocolOutbound::new(server_url("127.0.0.1", server)),
+            echo_addr,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn reverse_exits_refuse_internal_targets_by_default() {
+        let echo_addr = spawn_echo_server().await;
+        let server = spawn_cpxy_server(test_router(vec![
             "localhost=reverse://home".parse().unwrap(),
         ]))
         .await;
-        let err =
-            client::reverse_exit::ReverseExit::new(server_url("127.0.0.1", server), "other".into())
-                .offer_link()
-                .await
-                .unwrap_err();
+        let exit = Arc::new(client::reverse_exit::ReverseExit::new(
+            server_url("127.0.0.1", server),
+            "home".into(),
+            TargetPolicy::default(),
+        ));
+        tokio::spawn(exit.keep_link());
+        assert_refused(
+            &ProtocolOutbound::new(server_url("localhost", server)),
+            echo_addr,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn links_for_unnamed_exits_are_refused() {
+        let server = spawn_cpxy_server(test_router(vec![
+            "localhost=reverse://home".parse().unwrap(),
+        ]))
+        .await;
+        let err = client::reverse_exit::ReverseExit::new(
+            server_url("127.0.0.1", server),
+            "other".into(),
+            loopback_allowed(),
+        )
+        .offer_link()
+        .await
+        .unwrap_err();
         assert!(
             format!("{err:#}").contains("No reverse:// route"),
             "{err:#}"
         );
     }
 
-    /// Clients still send legacy requests; this is the current `Connect` they will move to.
+    /// Clients send the current `Connect` (the tests above); older ones still send this.
     #[tokio::test]
-    async fn serves_current_connect_requests() {
+    async fn serves_legacy_requests() {
         let echo_addr = spawn_echo_server().await;
-        let server = spawn_cpxy_server(Router::default()).await;
+        let server = spawn_cpxy_server(test_router(vec![])).await;
         let key: Key = derive_password("integration_test_key").into();
         let mut conn = tokio::net::TcpStream::connect(server).await.unwrap();
 
         let client_send_cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
         let server_send_cipher = cpxy_ng::encrypt_stream::Configuration::random_full();
         http_protocol::Request {
-            message: ClientEnvelope::Current(ClientMessage::Connect(Box::new(Connect {
+            message: ClientEnvelope::Legacy(legacy::Request {
                 host: "127.0.0.1".into(),
                 port: echo_addr.port(),
+                tls: false,
                 client_send_cipher: client_send_cipher.clone(),
                 server_send_cipher: server_send_cipher.clone(),
                 initial_plaintext: b"hello ".to_vec(),
-            }))),
+                timestamp_epoch_seconds: 0,
+            }),
             websocket_key: vec![0; 12],
             host: "127.0.0.1".to_string(),
         }
@@ -704,7 +778,7 @@ mod tests {
         .await
         .unwrap();
 
-        let (response, conn) = http_protocol::Response::parse(conn, &key, Format::Current)
+        let (response, conn) = http_protocol::Response::parse(conn, &key, Format::Legacy)
             .await
             .map_err(|(e, _)| e)
             .unwrap()
@@ -712,7 +786,7 @@ mod tests {
         assert!(
             matches!(
                 response.response,
-                ServerEnvelope::Current(ServerMessage::Accepted(_))
+                ServerEnvelope::Legacy(legacy::Response::Success { .. })
             ),
             "{:?}",
             response.response
@@ -723,12 +797,12 @@ mod tests {
             &client_send_cipher,
             &server_send_cipher,
         );
-        tunnel.write_all(b"current").await.unwrap();
+        tunnel.write_all(b"legacy!").await.unwrap();
         let mut echo = [0; 13];
         timeout(Duration::from_secs(5), tunnel.read_exact(&mut echo))
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(&echo, b"hello current");
+        assert_eq!(&echo, b"hello legacy!");
     }
 }

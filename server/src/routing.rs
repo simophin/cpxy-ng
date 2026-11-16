@@ -2,6 +2,7 @@ use crate::reverse::{Link, ReverseExits};
 use crate::socks5::Socks5Pool;
 use anyhow::{Context, bail, ensure};
 use cpxy_ng::either_stream::EitherStream;
+use cpxy_ng::target_policy::TargetPolicy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -154,6 +155,8 @@ impl FromStr for RuleList {
 /// and connects along it.
 #[derive(Debug, Default)]
 pub struct Router {
+    /// Which targets `direct` routes connect to.
+    targets: TargetPolicy,
     rules: Vec<Rule>,
     /// One pool per distinct SOCKS5 server in `rules`.
     socks5_pools: HashMap<String, Arc<Socks5Pool>>,
@@ -162,7 +165,7 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn new(rules: Vec<Rule>) -> Self {
+    pub fn new(rules: Vec<Rule>, targets: TargetPolicy) -> Self {
         let socks5_pools = rules
             .iter()
             .filter_map(|r| match &r.route {
@@ -175,6 +178,7 @@ impl Router {
             Route::Direct | Route::Socks5(_) => None,
         }));
         Self {
+            targets,
             rules,
             socks5_pools,
             reverse_exits,
@@ -192,16 +196,15 @@ impl Router {
         self.socks5_pools.values().for_each(Socks5Pool::warm_up);
     }
 
-    /// Connects to `host:port` following `route`.
+    /// Connects to `host:port` following `route`. A `direct` route connects only to targets the
+    /// [`TargetPolicy`] permits; `socks5://` and `reverse://` ones leave that to the next hop.
     pub async fn dial(&self, route: &Route, host: &str, port: u16) -> anyhow::Result<Upstream> {
         match route {
-            Route::Direct => {
-                let stream = TcpStream::connect((host, port))
-                    .await
-                    .context("Error connecting to upstream")?;
-                stream.set_nodelay(true).context("Error setting nodelay")?;
-                Ok(EitherStream::Left(stream))
-            }
+            Route::Direct => self
+                .targets
+                .connect(host, port)
+                .await
+                .map(EitherStream::Left),
             Route::Socks5(addr) => {
                 let pool = match self.socks5_pools.get(addr) {
                     Some(pool) => pool.clone(),
@@ -254,7 +257,10 @@ mod tests {
     use super::*;
 
     fn router(rules: &[&str]) -> Router {
-        Router::new(rules.iter().map(|r| r.parse().unwrap()).collect())
+        Router::new(
+            rules.iter().map(|r| r.parse().unwrap()).collect(),
+            TargetPolicy::default(),
+        )
     }
 
     fn socks(addr: &str) -> Route {
